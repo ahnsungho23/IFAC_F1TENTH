@@ -18,7 +18,7 @@ kinematic_localization:
     # Frozen map: share/kinematic_localization/maps/<map_name>.kissmap
     # (an absolute path is used as-is). Empty = pure odometry (no frozen map).
     # Ignored when slam_mode is true.
-    map_name: ""
+    map_name: "map"
 
     # MCL(particle_filter_cpp) parity: initialize once from the first
     # /global_waypoints entry (the start-line pose) so switching localization
@@ -210,7 +210,7 @@ kinematic_localization:
     #       각 팔 10랩이 필요하다 — 자세 보정만 표본이 충분하다(수천 프레임).
     #
     #    되돌리기: 이 줄만 false (다른 §9 값은 그때 읽히지 않는다).
-    odom_window_at_scan_end: true
+    odom_window_at_scan_end: false
     # "begin" = 헤더가 스윕 시작 → scan_end = header + (N−1)·time_increment (실측)
     # "end"   = 헤더가 스윕 끝   → scan_end = header                        (되돌리기)
     scan_stamp_convention: "begin"
@@ -265,7 +265,7 @@ kinematic_localization:
     # scan-end-to-scan-end odometry supplies a_lat = v*yaw_rate.
     # roll_gradient was measured on the current chassis; remeasure after a
     # suspension/tire change. Set tilt_compensation_enable=false for rollback.
-    tilt_compensation_enable: false
+    tilt_compensation_enable: true
     roll_gradient_rad_per_mps2: 0.0270
     # Longitudinal pitch is intentionally disabled until separately measured.
     pitch_gradient_rad_per_mps2: 0.0
