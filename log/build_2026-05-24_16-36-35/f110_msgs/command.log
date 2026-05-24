@@ -1,2 +1,0 @@
-Invoking command in '/home/haejum-park/2026_IFAC/build/f110_msgs': /usr/bin/cmake /home/haejum-park/2026_IFAC/f110_msgs -DCATKIN_INSTALL_INTO_PREFIX_ROOT=0 -DCATKIN_SYMLINK_INSTALL=ON -DCMAKE_INSTALL_PREFIX=/home/haejum-park/2026_IFAC/install/f110_msgs
-Invoked command in '/home/haejum-park/2026_IFAC/build/f110_msgs' returned '1': /usr/bin/cmake /home/haejum-park/2026_IFAC/f110_msgs -DCATKIN_INSTALL_INTO_PREFIX_ROOT=0 -DCATKIN_SYMLINK_INSTALL=ON -DCMAKE_INSTALL_PREFIX=/home/haejum-park/2026_IFAC/install/f110_msgs

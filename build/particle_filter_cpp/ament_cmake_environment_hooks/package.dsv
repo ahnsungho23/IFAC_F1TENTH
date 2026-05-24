@@ -1,4 +1,0 @@
-source;share/particle_filter_cpp/local_setup.bash
-source;share/particle_filter_cpp/local_setup.dsv
-source;share/particle_filter_cpp/local_setup.sh
-source;share/particle_filter_cpp/local_setup.zsh

@@ -1,1 +1,0 @@
-/home/haejum-park/2026_IFAC/planning/global_planner/launch/global_planning.launch.py

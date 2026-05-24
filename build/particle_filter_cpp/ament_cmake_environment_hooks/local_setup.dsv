@@ -1,3 +1,0 @@
-source;share/particle_filter_cpp/environment/ament_prefix_path.sh
-source;share/particle_filter_cpp/environment/library_path.sh
-source;share/particle_filter_cpp/environment/path.sh

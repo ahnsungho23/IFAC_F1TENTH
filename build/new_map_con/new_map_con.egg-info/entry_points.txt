@@ -1,3 +1,0 @@
-[console_scripts]
-MAP = new_map_con.MAP_controller:main
-

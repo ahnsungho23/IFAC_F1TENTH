@@ -1,7 +1,0 @@
-[ 40%] [32mBuilding CXX object CMakeFiles/particle_filter_cpp_lib.dir/src/utils.cpp.o[0m
-[ 40%] [32mBuilding CXX object CMakeFiles/particle_filter_cpp_lib.dir/src/particle_filter.cpp.o[0m
-[ 60%] [32m[1mLinking CXX shared library libparticle_filter_cpp_lib.so[0m
-[ 60%] Built target particle_filter_cpp_lib
-[ 80%] [32mBuilding CXX object CMakeFiles/particle_filter_node.dir/src/particle_filter.cpp.o[0m
-[100%] [32m[1mLinking CXX executable particle_filter_node[0m
-[100%] Built target particle_filter_node
