@@ -1,0 +1,28 @@
+running develop
+running egg_info
+creating lap_timer.egg-info
+writing lap_timer.egg-info/PKG-INFO
+writing dependency_links to lap_timer.egg-info/dependency_links.txt
+writing entry points to lap_timer.egg-info/entry_points.txt
+writing requirements to lap_timer.egg-info/requires.txt
+writing top-level names to lap_timer.egg-info/top_level.txt
+writing manifest file 'lap_timer.egg-info/SOURCES.txt'
+reading manifest file 'lap_timer.egg-info/SOURCES.txt'
+writing manifest file 'lap_timer.egg-info/SOURCES.txt'
+running build_ext
+Creating /home/haejum-park/2026_IFAC/install/lap_timer/lib/python3.10/site-packages/lap-timer.egg-link (link to .)
+Installing lap_timer script to /home/haejum-park/2026_IFAC/install/lap_timer/lib/lap_timer
+
+Installed /home/haejum-park/2026_IFAC/build/lap_timer
+running symlink_data
+creating /home/haejum-park/2026_IFAC/install/lap_timer/share/ament_index
+creating /home/haejum-park/2026_IFAC/install/lap_timer/share/ament_index/resource_index
+creating /home/haejum-park/2026_IFAC/install/lap_timer/share/ament_index/resource_index/packages
+symbolically linking /home/haejum-park/2026_IFAC/build/lap_timer/resource/lap_timer -> /home/haejum-park/2026_IFAC/install/lap_timer/share/ament_index/resource_index/packages
+symbolically linking /home/haejum-park/2026_IFAC/build/lap_timer/package.xml -> /home/haejum-park/2026_IFAC/install/lap_timer/share/lap_timer
+creating /home/haejum-park/2026_IFAC/install/lap_timer/share/lap_timer/launch
+symbolically linking /home/haejum-park/2026_IFAC/build/lap_timer/launch/lap_timer.launch.py -> /home/haejum-park/2026_IFAC/install/lap_timer/share/lap_timer/launch
+creating /home/haejum-park/2026_IFAC/install/lap_timer/share/lap_timer/config
+symbolically linking /home/haejum-park/2026_IFAC/build/lap_timer/config/params.yaml -> /home/haejum-park/2026_IFAC/install/lap_timer/share/lap_timer/config
+creating /home/haejum-park/2026_IFAC/install/lap_timer/share/lap_timer/rviz
+symbolically linking /home/haejum-park/2026_IFAC/build/lap_timer/rviz/lap_hud.rviz -> /home/haejum-park/2026_IFAC/install/lap_timer/share/lap_timer/rviz

@@ -1,0 +1,30 @@
+[0.701s] Invoking command in '/home/haejum-park/2026_IFAC/build/amcl_localization': PYTHONPATH=/home/haejum-park/2026_IFAC/build/amcl_localization/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/haejum-park/2026_IFAC/install/amcl_localization/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/haejum-park/2026_IFAC/build/amcl_localization/build --no-deps symlink_data
+[0.840s] running develop
+[0.911s] running egg_info
+[0.911s] creating amcl_localization.egg-info
+[0.911s] writing amcl_localization.egg-info/PKG-INFO
+[0.911s] writing dependency_links to amcl_localization.egg-info/dependency_links.txt
+[0.911s] writing entry points to amcl_localization.egg-info/entry_points.txt
+[0.911s] writing requirements to amcl_localization.egg-info/requires.txt
+[0.911s] writing top-level names to amcl_localization.egg-info/top_level.txt
+[0.911s] writing manifest file 'amcl_localization.egg-info/SOURCES.txt'
+[0.912s] package init file 'amcl_localization/__init__.py' not found (or not a regular file)
+[0.912s] reading manifest file 'amcl_localization.egg-info/SOURCES.txt'
+[0.912s] writing manifest file 'amcl_localization.egg-info/SOURCES.txt'
+[0.913s] running build_ext
+[0.913s] Creating /home/haejum-park/2026_IFAC/install/amcl_localization/lib/python3.10/site-packages/amcl-localization.egg-link (link to .)
+[0.913s] 
+[0.913s] Installed /home/haejum-park/2026_IFAC/build/amcl_localization
+[0.913s] running symlink_data
+[0.913s] creating /home/haejum-park/2026_IFAC/install/amcl_localization/share/ament_index
+[0.914s] creating /home/haejum-park/2026_IFAC/install/amcl_localization/share/ament_index/resource_index
+[0.914s] creating /home/haejum-park/2026_IFAC/install/amcl_localization/share/ament_index/resource_index/packages
+[0.914s] symbolically linking /home/haejum-park/2026_IFAC/build/amcl_localization/resource/amcl_localization -> /home/haejum-park/2026_IFAC/install/amcl_localization/share/ament_index/resource_index/packages
+[0.914s] symbolically linking /home/haejum-park/2026_IFAC/build/amcl_localization/package.xml -> /home/haejum-park/2026_IFAC/install/amcl_localization/share/amcl_localization
+[0.914s] creating /home/haejum-park/2026_IFAC/install/amcl_localization/share/amcl_localization/launch
+[0.914s] symbolically linking /home/haejum-park/2026_IFAC/build/amcl_localization/launch/localization_launch.py -> /home/haejum-park/2026_IFAC/install/amcl_localization/share/amcl_localization/launch
+[0.914s] creating /home/haejum-park/2026_IFAC/install/amcl_localization/share/amcl_localization/config
+[0.914s] symbolically linking /home/haejum-park/2026_IFAC/build/amcl_localization/config/amcl.yaml -> /home/haejum-park/2026_IFAC/install/amcl_localization/share/amcl_localization/config
+[0.914s] symbolically linking /home/haejum-park/2026_IFAC/build/amcl_localization/config/lifecycle_manager.yaml -> /home/haejum-park/2026_IFAC/install/amcl_localization/share/amcl_localization/config
+[0.914s] symbolically linking /home/haejum-park/2026_IFAC/build/amcl_localization/config/map_server.yaml -> /home/haejum-park/2026_IFAC/install/amcl_localization/share/amcl_localization/config
+[0.930s] Invoked command in '/home/haejum-park/2026_IFAC/build/amcl_localization' returned '0': PYTHONPATH=/home/haejum-park/2026_IFAC/build/amcl_localization/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/haejum-park/2026_IFAC/install/amcl_localization/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/haejum-park/2026_IFAC/build/amcl_localization/build --no-deps symlink_data

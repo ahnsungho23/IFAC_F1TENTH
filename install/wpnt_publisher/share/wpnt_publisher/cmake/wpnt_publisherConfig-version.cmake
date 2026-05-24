@@ -1,0 +1,1 @@
+/home/haejum-park/2026_IFAC/build/wpnt_publisher/ament_cmake_core/wpnt_publisherConfig-version.cmake

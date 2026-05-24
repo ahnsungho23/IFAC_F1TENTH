@@ -1,0 +1,20 @@
+{
+  "package_name": "f110_msgs",
+  "non_idl_tuples": [
+    "/home/haejum-park/2026_IFAC/f110_msgs:msg/CarState.msg",
+    "/home/haejum-park/2026_IFAC/f110_msgs:msg/CarStateStamped.msg",
+    "/home/haejum-park/2026_IFAC/f110_msgs:msg/GapData.msg",
+    "/home/haejum-park/2026_IFAC/f110_msgs:msg/LapData.msg",
+    "/home/haejum-park/2026_IFAC/f110_msgs:msg/Obstacle.msg",
+    "/home/haejum-park/2026_IFAC/f110_msgs:msg/ObstacleArray.msg",
+    "/home/haejum-park/2026_IFAC/f110_msgs:msg/OTWpntArray.msg",
+    "/home/haejum-park/2026_IFAC/f110_msgs:msg/OpponentTrajectory.msg",
+    "/home/haejum-park/2026_IFAC/f110_msgs:msg/OpponentTrajectories.msg",
+    "/home/haejum-park/2026_IFAC/f110_msgs:msg/OppWpnt.msg",
+    "/home/haejum-park/2026_IFAC/f110_msgs:msg/PidData.msg",
+    "/home/haejum-park/2026_IFAC/f110_msgs:msg/ProjOppPoint.msg",
+    "/home/haejum-park/2026_IFAC/f110_msgs:msg/ProjOppTraj.msg",
+    "/home/haejum-park/2026_IFAC/f110_msgs:msg/Wpnt.msg",
+    "/home/haejum-park/2026_IFAC/f110_msgs:msg/WpntArray.msg"
+  ]
+}

@@ -1,0 +1,40 @@
+// generated from rosidl_adapter/resource/msg.idl.em
+// with input from f110_msgs/msg/Wpnt.msg
+// generated code does not contain a copyright notice
+
+
+module f110_msgs {
+  module msg {
+    struct Wpnt {
+      int32 id;
+
+      @verbatim (language="comment", text=
+        "frenet coordinates")
+      double s_m;
+
+      double d_m;
+
+      @verbatim (language="comment", text=
+        "map coordinates")
+      double x_m;
+
+      double y_m;
+
+      @verbatim (language="comment", text=
+        "track bound distance")
+      double d_right;
+
+      double d_left;
+
+      @verbatim (language="comment", text=
+        "track information")
+      double psi_rad;
+
+      double kappa_radpm;
+
+      double vx_mps;
+
+      double ax_mps2;
+    };
+  };
+};

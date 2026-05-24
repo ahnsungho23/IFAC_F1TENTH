@@ -1,0 +1,7 @@
+lifecycle_manager_localization:
+  ros__parameters:
+    use_sim_time: true
+    autostart: true
+    node_names:
+      - amcl
+

@@ -1,0 +1,2 @@
+/usr/bin/ar qc libglobal_planner_rw.a CMakeFiles/global_planner_rw.dir/src/readwrite_global_waypoints.cpp.o
+/usr/bin/ranlib libglobal_planner_rw.a

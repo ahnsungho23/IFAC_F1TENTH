@@ -1,0 +1,186 @@
+[0.009s] Invoking command in '/home/haejum-park/2026_IFAC/build/particle_filter_cpp': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/haejum-park/sim_ws/install/f1tenth_gym_ros:/home/haejum-park/install/launch_testing_examples:/home/haejum-park/install/examples_rclpy_pointcloud_publisher:/home/haejum-park/install/examples_rclpy_minimal_subscriber:/home/haejum-park/install/examples_rclpy_minimal_service:/home/haejum-park/install/examples_rclpy_minimal_publisher:/home/haejum-park/install/examples_rclpy_minimal_client:/home/haejum-park/install/examples_rclpy_minimal_action_server:/home/haejum-park/install/examples_rclpy_minimal_action_client:/home/haejum-park/install/examples_rclpy_guard_conditions:/home/haejum-park/install/examples_rclpy_executors:/opt/ros/humble /usr/bin/cmake --build /home/haejum-park/2026_IFAC/build/particle_filter_cpp -- -j14 -l14
+[0.046s] [ 20%] [32mBuilding CXX object CMakeFiles/particle_filter_cpp_lib.dir/src/particle_filter.cpp.o[0m
+[1.711s] In file included from [01m[K/opt/ros/humble/include/rclcpp/rclcpp/logging.hpp:24[m[K,
+[1.711s]                  from [01m[K/opt/ros/humble/include/rclcpp/rclcpp/client.hpp:40[m[K,
+[1.711s]                  from [01m[K/opt/ros/humble/include/rclcpp/rclcpp/callback_group.hpp:24[m[K,
+[1.711s]                  from [01m[K/opt/ros/humble/include/rclcpp/rclcpp/any_executable.hpp:20[m[K,
+[1.711s]                  from [01m[K/opt/ros/humble/include/rclcpp/rclcpp/memory_strategy.hpp:25[m[K,
+[1.711s]                  from [01m[K/opt/ros/humble/include/rclcpp/rclcpp/memory_strategies.hpp:18[m[K,
+[1.711s]                  from [01m[K/opt/ros/humble/include/rclcpp/rclcpp/executor_options.hpp:20[m[K,
+[1.711s]                  from [01m[K/opt/ros/humble/include/rclcpp/rclcpp/executor.hpp:37[m[K,
+[1.711s]                  from [01m[K/opt/ros/humble/include/rclcpp/rclcpp/executors/multi_threaded_executor.hpp:25[m[K,
+[1.711s]                  from [01m[K/opt/ros/humble/include/rclcpp/rclcpp/executors.hpp:21[m[K,
+[1.711s]                  from [01m[K/opt/ros/humble/include/rclcpp/rclcpp/rclcpp.hpp:155[m[K,
+[1.711s]                  from [01m[K/home/haejum-park/2026_IFAC/monte_carlo_localization/include/particle_filter_cpp/particle_filter.hpp:17[m[K,
+[1.711s]                  from [01m[K/home/haejum-park/2026_IFAC/monte_carlo_localization/src/particle_filter.cpp:7[m[K:
+[1.711s] [01m[K/home/haejum-park/2026_IFAC/monte_carlo_localization/src/particle_filter.cpp:[m[K In member function ‘[01m[Kvoid particle_filter_cpp::ParticleFilter::lidarCB(sensor_msgs::msg::LaserScan_<std::allocator<void> >::SharedPtr)[m[K’:
+[1.711s] [01m[K/home/haejum-park/2026_IFAC/monte_carlo_localization/src/particle_filter.cpp:396:13:[m[K [01;35m[Kwarning: [m[Kformat ‘[01m[K%ld[m[K’ expects argument of type ‘[01m[Klong int[m[K’, but argument 5 has type ‘[01m[Kbuiltin_interfaces::msg::Time_<std::allocator<void> >::_sec_type[m[K’ {aka ‘[01m[Kint[m[K’} [[01;35m[K]8;;https://gcc.gnu.org/onlinedocs/gcc/Warning-Options.html#index-Wformat=-Wformat=]8;;[m[K]
+[1.711s]   396 |             [01;35m[K"LiDAR callback: new data received, timestamp: %ld.%09ld"[m[K,
+[1.711s]       |             [01;35m[K^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[m[K
+[1.711s]   397 |             [32m[Kmsg->header.stamp.sec[m[K, msg->header.stamp.nanosec);
+[1.711s]       |             [32m[K~~~~~~~~~~~~~~~~~~~~~[m[K
+[1.711s]       |                               [32m[K|[m[K
+[1.711s]       |                               [32m[Kbuiltin_interfaces::msg::Time_<std::allocator<void> >::_sec_type {aka int}[m[K
+[1.711s] [01m[K/home/haejum-park/2026_IFAC/monte_carlo_localization/src/particle_filter.cpp:396:62:[m[K [01;36m[Knote: [m[Kformat string is defined here
+[1.711s]   396 |             "LiDAR callback: new data received, timestamp: [01;36m[K%ld[m[K.%09ld",
+[1.711s]       |                                                            [01;36m[K~~^[m[K
+[1.711s]       |                                                              [01;36m[K|[m[K
+[1.711s]       |                                                              [01;36m[Klong int[m[K
+[1.711s]       |                                                            [32m[K%d[m[K
+[1.711s] In file included from [01m[K/opt/ros/humble/include/rclcpp/rclcpp/logging.hpp:24[m[K,
+[1.711s]                  from [01m[K/opt/ros/humble/include/rclcpp/rclcpp/client.hpp:40[m[K,
+[1.711s]                  from [01m[K/opt/ros/humble/include/rclcpp/rclcpp/callback_group.hpp:24[m[K,
+[1.711s]                  from [01m[K/opt/ros/humble/include/rclcpp/rclcpp/any_executable.hpp:20[m[K,
+[1.711s]                  from [01m[K/opt/ros/humble/include/rclcpp/rclcpp/memory_strategy.hpp:25[m[K,
+[1.711s]                  from [01m[K/opt/ros/humble/include/rclcpp/rclcpp/memory_strategies.hpp:18[m[K,
+[1.711s]                  from [01m[K/opt/ros/humble/include/rclcpp/rclcpp/executor_options.hpp:20[m[K,
+[1.712s]                  from [01m[K/opt/ros/humble/include/rclcpp/rclcpp/executor.hpp:37[m[K,
+[1.712s]                  from [01m[K/opt/ros/humble/include/rclcpp/rclcpp/executors/multi_threaded_executor.hpp:25[m[K,
+[1.712s]                  from [01m[K/opt/ros/humble/include/rclcpp/rclcpp/executors.hpp:21[m[K,
+[1.712s]                  from [01m[K/opt/ros/humble/include/rclcpp/rclcpp/rclcpp.hpp:155[m[K,
+[1.712s]                  from [01m[K/home/haejum-park/2026_IFAC/monte_carlo_localization/include/particle_filter_cpp/particle_filter.hpp:17[m[K,
+[1.712s]                  from [01m[K/home/haejum-park/2026_IFAC/monte_carlo_localization/src/particle_filter.cpp:7[m[K:
+[1.712s] [01m[K/home/haejum-park/2026_IFAC/monte_carlo_localization/src/particle_filter.cpp:396:13:[m[K [01;35m[Kwarning: [m[Kformat ‘[01m[K%ld[m[K’ expects argument of type ‘[01m[Klong int[m[K’, but argument 6 has type ‘[01m[Kbuiltin_interfaces::msg::Time_<std::allocator<void> >::_nanosec_type[m[K’ {aka ‘[01m[Kunsigned int[m[K’} [[01;35m[K]8;;https://gcc.gnu.org/onlinedocs/gcc/Warning-Options.html#index-Wformat=-Wformat=]8;;[m[K]
+[1.712s]   396 |             [01;35m[K"LiDAR callback: new data received, timestamp: %ld.%09ld"[m[K,
+[1.712s]       |             [01;35m[K^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[m[K
+[1.712s]   397 |             msg->header.stamp.sec, [32m[Kmsg->header.stamp.nanosec[m[K);
+[1.712s]       |                                    [32m[K~~~~~~~~~~~~~~~~~~~~~~~~~[m[K
+[1.712s]       |                                                      [32m[K|[m[K
+[1.712s]       |                                                      [32m[Kbuiltin_interfaces::msg::Time_<std::allocator<void> >::_nanosec_type {aka unsigned int}[m[K
+[1.712s] [01m[K/home/haejum-park/2026_IFAC/monte_carlo_localization/src/particle_filter.cpp:396:68:[m[K [01;36m[Knote: [m[Kformat string is defined here
+[1.712s]   396 |             "LiDAR callback: new data received, timestamp: %ld.[01;36m[K%09ld[m[K",
+[1.712s]       |                                                                [01;36m[K~~~~^[m[K
+[1.712s]       |                                                                    [01;36m[K|[m[K
+[1.712s]       |                                                                    [01;36m[Klong int[m[K
+[1.712s]       |                                                                [32m[K%09d[m[K
+[12.667s] [ 40%] [32m[1mLinking CXX shared library libparticle_filter_cpp_lib.so[0m
+[12.808s] [ 60%] Built target particle_filter_cpp_lib
+[12.824s] [ 80%] [32mBuilding CXX object CMakeFiles/particle_filter_node.dir/src/particle_filter.cpp.o[0m
+[14.455s] In file included from [01m[K/opt/ros/humble/include/rclcpp/rclcpp/logging.hpp:24[m[K,
+[14.455s]                  from [01m[K/opt/ros/humble/include/rclcpp/rclcpp/client.hpp:40[m[K,
+[14.455s]                  from [01m[K/opt/ros/humble/include/rclcpp/rclcpp/callback_group.hpp:24[m[K,
+[14.455s]                  from [01m[K/opt/ros/humble/include/rclcpp/rclcpp/any_executable.hpp:20[m[K,
+[14.455s]                  from [01m[K/opt/ros/humble/include/rclcpp/rclcpp/memory_strategy.hpp:25[m[K,
+[14.455s]                  from [01m[K/opt/ros/humble/include/rclcpp/rclcpp/memory_strategies.hpp:18[m[K,
+[14.455s]                  from [01m[K/opt/ros/humble/include/rclcpp/rclcpp/executor_options.hpp:20[m[K,
+[14.455s]                  from [01m[K/opt/ros/humble/include/rclcpp/rclcpp/executor.hpp:37[m[K,
+[14.455s]                  from [01m[K/opt/ros/humble/include/rclcpp/rclcpp/executors/multi_threaded_executor.hpp:25[m[K,
+[14.455s]                  from [01m[K/opt/ros/humble/include/rclcpp/rclcpp/executors.hpp:21[m[K,
+[14.455s]                  from [01m[K/opt/ros/humble/include/rclcpp/rclcpp/rclcpp.hpp:155[m[K,
+[14.455s]                  from [01m[K/home/haejum-park/2026_IFAC/monte_carlo_localization/include/particle_filter_cpp/particle_filter.hpp:17[m[K,
+[14.455s]                  from [01m[K/home/haejum-park/2026_IFAC/monte_carlo_localization/src/particle_filter.cpp:7[m[K:
+[14.455s] [01m[K/home/haejum-park/2026_IFAC/monte_carlo_localization/src/particle_filter.cpp:[m[K In member function ‘[01m[Kvoid particle_filter_cpp::ParticleFilter::lidarCB(sensor_msgs::msg::LaserScan_<std::allocator<void> >::SharedPtr)[m[K’:
+[14.455s] [01m[K/home/haejum-park/2026_IFAC/monte_carlo_localization/src/particle_filter.cpp:396:13:[m[K [01;35m[Kwarning: [m[Kformat ‘[01m[K%ld[m[K’ expects argument of type ‘[01m[Klong int[m[K’, but argument 5 has type ‘[01m[Kbuiltin_interfaces::msg::Time_<std::allocator<void> >::_sec_type[m[K’ {aka ‘[01m[Kint[m[K’} [[01;35m[K]8;;https://gcc.gnu.org/onlinedocs/gcc/Warning-Options.html#index-Wformat=-Wformat=]8;;[m[K]
+[14.455s]   396 |             [01;35m[K"LiDAR callback: new data received, timestamp: %ld.%09ld"[m[K,
+[14.455s]       |             [01;35m[K^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[m[K
+[14.455s]   397 |             [32m[Kmsg->header.stamp.sec[m[K, msg->header.stamp.nanosec);
+[14.455s]       |             [32m[K~~~~~~~~~~~~~~~~~~~~~[m[K
+[14.455s]       |                               [32m[K|[m[K
+[14.455s]       |                               [32m[Kbuiltin_interfaces::msg::Time_<std::allocator<void> >::_sec_type {aka int}[m[K
+[14.455s] [01m[K/home/haejum-park/2026_IFAC/monte_carlo_localization/src/particle_filter.cpp:396:62:[m[K [01;36m[Knote: [m[Kformat string is defined here
+[14.455s]   396 |             "LiDAR callback: new data received, timestamp: [01;36m[K%ld[m[K.%09ld",
+[14.455s]       |                                                            [01;36m[K~~^[m[K
+[14.456s]       |                                                              [01;36m[K|[m[K
+[14.456s]       |                                                              [01;36m[Klong int[m[K
+[14.456s]       |                                                            [32m[K%d[m[K
+[14.456s] In file included from [01m[K/opt/ros/humble/include/rclcpp/rclcpp/logging.hpp:24[m[K,
+[14.456s]                  from [01m[K/opt/ros/humble/include/rclcpp/rclcpp/client.hpp:40[m[K,
+[14.456s]                  from [01m[K/opt/ros/humble/include/rclcpp/rclcpp/callback_group.hpp:24[m[K,
+[14.456s]                  from [01m[K/opt/ros/humble/include/rclcpp/rclcpp/any_executable.hpp:20[m[K,
+[14.456s]                  from [01m[K/opt/ros/humble/include/rclcpp/rclcpp/memory_strategy.hpp:25[m[K,
+[14.456s]                  from [01m[K/opt/ros/humble/include/rclcpp/rclcpp/memory_strategies.hpp:18[m[K,
+[14.456s]                  from [01m[K/opt/ros/humble/include/rclcpp/rclcpp/executor_options.hpp:20[m[K,
+[14.456s]                  from [01m[K/opt/ros/humble/include/rclcpp/rclcpp/executor.hpp:37[m[K,
+[14.456s]                  from [01m[K/opt/ros/humble/include/rclcpp/rclcpp/executors/multi_threaded_executor.hpp:25[m[K,
+[14.456s]                  from [01m[K/opt/ros/humble/include/rclcpp/rclcpp/executors.hpp:21[m[K,
+[14.456s]                  from [01m[K/opt/ros/humble/include/rclcpp/rclcpp/rclcpp.hpp:155[m[K,
+[14.456s]                  from [01m[K/home/haejum-park/2026_IFAC/monte_carlo_localization/include/particle_filter_cpp/particle_filter.hpp:17[m[K,
+[14.456s]                  from [01m[K/home/haejum-park/2026_IFAC/monte_carlo_localization/src/particle_filter.cpp:7[m[K:
+[14.456s] [01m[K/home/haejum-park/2026_IFAC/monte_carlo_localization/src/particle_filter.cpp:396:13:[m[K [01;35m[Kwarning: [m[Kformat ‘[01m[K%ld[m[K’ expects argument of type ‘[01m[Klong int[m[K’, but argument 6 has type ‘[01m[Kbuiltin_interfaces::msg::Time_<std::allocator<void> >::_nanosec_type[m[K’ {aka ‘[01m[Kunsigned int[m[K’} [[01;35m[K]8;;https://gcc.gnu.org/onlinedocs/gcc/Warning-Options.html#index-Wformat=-Wformat=]8;;[m[K]
+[14.456s]   396 |             [01;35m[K"LiDAR callback: new data received, timestamp: %ld.%09ld"[m[K,
+[14.456s]       |             [01;35m[K^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[m[K
+[14.456s]   397 |             msg->header.stamp.sec, [32m[Kmsg->header.stamp.nanosec[m[K);
+[14.456s]       |                                    [32m[K~~~~~~~~~~~~~~~~~~~~~~~~~[m[K
+[14.456s]       |                                                      [32m[K|[m[K
+[14.456s]       |                                                      [32m[Kbuiltin_interfaces::msg::Time_<std::allocator<void> >::_nanosec_type {aka unsigned int}[m[K
+[14.456s] [01m[K/home/haejum-park/2026_IFAC/monte_carlo_localization/src/particle_filter.cpp:396:68:[m[K [01;36m[Knote: [m[Kformat string is defined here
+[14.456s]   396 |             "LiDAR callback: new data received, timestamp: %ld.[01;36m[K%09ld[m[K",
+[14.456s]       |                                                                [01;36m[K~~~~^[m[K
+[14.456s]       |                                                                    [01;36m[K|[m[K
+[14.456s]       |                                                                    [01;36m[Klong int[m[K
+[14.456s]       |                                                                [32m[K%09d[m[K
+[25.309s] [100%] [32m[1mLinking CXX executable particle_filter_node[0m
+[25.459s] [100%] Built target particle_filter_node
+[25.465s] Invoked command in '/home/haejum-park/2026_IFAC/build/particle_filter_cpp' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/haejum-park/sim_ws/install/f1tenth_gym_ros:/home/haejum-park/install/launch_testing_examples:/home/haejum-park/install/examples_rclpy_pointcloud_publisher:/home/haejum-park/install/examples_rclpy_minimal_subscriber:/home/haejum-park/install/examples_rclpy_minimal_service:/home/haejum-park/install/examples_rclpy_minimal_publisher:/home/haejum-park/install/examples_rclpy_minimal_client:/home/haejum-park/install/examples_rclpy_minimal_action_server:/home/haejum-park/install/examples_rclpy_minimal_action_client:/home/haejum-park/install/examples_rclpy_guard_conditions:/home/haejum-park/install/examples_rclpy_executors:/opt/ros/humble /usr/bin/cmake --build /home/haejum-park/2026_IFAC/build/particle_filter_cpp -- -j14 -l14
+[25.470s] Invoking command in '/home/haejum-park/2026_IFAC/build/particle_filter_cpp': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/haejum-park/sim_ws/install/f1tenth_gym_ros:/home/haejum-park/install/launch_testing_examples:/home/haejum-park/install/examples_rclpy_pointcloud_publisher:/home/haejum-park/install/examples_rclpy_minimal_subscriber:/home/haejum-park/install/examples_rclpy_minimal_service:/home/haejum-park/install/examples_rclpy_minimal_publisher:/home/haejum-park/install/examples_rclpy_minimal_client:/home/haejum-park/install/examples_rclpy_minimal_action_server:/home/haejum-park/install/examples_rclpy_minimal_action_client:/home/haejum-park/install/examples_rclpy_guard_conditions:/home/haejum-park/install/examples_rclpy_executors:/opt/ros/humble /usr/bin/cmake --install /home/haejum-park/2026_IFAC/build/particle_filter_cpp
+[25.474s] -- Install configuration: ""
+[25.474s] -- Execute custom install script
+[25.474s] -- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/lib/libparticle_filter_cpp_lib.so
+[25.474s] -- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/lib/particle_filter_cpp/particle_filter_node
+[25.474s] -- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/include//particle_filter_cpp/particle_filter.hpp
+[25.474s] -- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/include//particle_filter_cpp/utils.hpp
+[25.474s] -- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/environment/library_path.sh
+[25.474s] -- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/environment/library_path.dsv
+[25.474s] -- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/ament_index/resource_index/package_run_dependencies/particle_filter_cpp
+[25.474s] -- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/ament_index/resource_index/parent_prefix_path/particle_filter_cpp
+[25.475s] -- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/environment/ament_prefix_path.sh
+[25.475s] -- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/environment/ament_prefix_path.dsv
+[25.475s] -- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/environment/path.sh
+[25.475s] -- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/environment/path.dsv
+[25.475s] -- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/local_setup.bash
+[25.475s] -- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/local_setup.sh
+[25.475s] -- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/local_setup.zsh
+[25.475s] -- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/local_setup.dsv
+[25.475s] -- Symlinking: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/package.dsv
+[25.479s] -- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/ament_index/resource_index/packages/particle_filter_cpp
+[25.479s] -- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/ament_index/resource_index/rclcpp_components/particle_filter_cpp
+[25.479s] -- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/cmake/ament_cmake_export_dependencies-extras.cmake
+[25.479s] -- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/cmake/ament_cmake_export_include_directories-extras.cmake
+[25.479s] -- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/cmake/ament_cmake_export_libraries-extras.cmake
+[25.480s] -- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/cmake/particle_filter_cppConfig.cmake
+[25.480s] -- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/cmake/particle_filter_cppConfig-version.cmake
+[25.480s] -- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/package.xml
+[25.480s] -- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/launch/
+[25.480s] -- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/launch//mcl_launch.py
+[25.480s] -- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/config/
+[25.480s] -- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/config//mcl_config.yaml
+[25.480s] -- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps/
+[25.480s] -- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//map_1753950572.pgm
+[25.480s] -- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//redbull_1.yaml
+[25.480s] -- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//Spielberg_map.yaml
+[25.480s] -- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//fuck_f1.yaml
+[25.480s] -- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//new_map1.png
+[25.480s] -- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//map_1755669035.pgm
+[25.480s] -- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//fuck_jg_1.pgm
+[25.480s] -- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//fuck_f1.pgm
+[25.480s] -- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//fmap.png
+[25.480s] -- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//sibal1.yaml
+[25.480s] -- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//levine.pgm
+[25.480s] -- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//levine.yaml
+[25.480s] -- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//map_1755669035.yaml
+[25.480s] -- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//test_map.pgm
+[25.480s] -- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//oct_25_1.yaml
+[25.480s] -- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//test_map.yaml
+[25.480s] -- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//oct_25_1.pgm
+[25.480s] -- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//slam_map.png
+[25.480s] -- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//redbull_1.png
+[25.480s] -- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//Spielberg_map.png
+[25.480s] -- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//first_map.yaml
+[25.480s] -- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//icra_2_clean.png
+[25.480s] -- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//sibal1.png
+[25.480s] -- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//basement_fixed.png
+[25.480s] -- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//f2map.yaml
+[25.480s] -- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//basement_fixed.map.yaml
+[25.481s] -- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//icra_2_clean.yaml
+[25.481s] -- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//labtest.yaml
+[25.481s] -- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//first_map.pgm
+[25.481s] -- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//map_1753950572.yaml
+[25.481s] -- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//slam_map.yaml
+[25.481s] -- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//f2map.pgm
+[25.481s] -- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//labtest.pgm
+[25.481s] -- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//fuck_jg_1.yaml
+[25.481s] -- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//new_map1.yaml
+[25.481s] -- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//fmap.yaml
+[25.481s] -- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/rviz/
+[25.481s] -- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/rviz//particle_filter.rviz
+[25.481s] Invoked command in '/home/haejum-park/2026_IFAC/build/particle_filter_cpp' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/haejum-park/sim_ws/install/f1tenth_gym_ros:/home/haejum-park/install/launch_testing_examples:/home/haejum-park/install/examples_rclpy_pointcloud_publisher:/home/haejum-park/install/examples_rclpy_minimal_subscriber:/home/haejum-park/install/examples_rclpy_minimal_service:/home/haejum-park/install/examples_rclpy_minimal_publisher:/home/haejum-park/install/examples_rclpy_minimal_client:/home/haejum-park/install/examples_rclpy_minimal_action_server:/home/haejum-park/install/examples_rclpy_minimal_action_client:/home/haejum-park/install/examples_rclpy_guard_conditions:/home/haejum-park/install/examples_rclpy_executors:/opt/ros/humble /usr/bin/cmake --install /home/haejum-park/2026_IFAC/build/particle_filter_cpp

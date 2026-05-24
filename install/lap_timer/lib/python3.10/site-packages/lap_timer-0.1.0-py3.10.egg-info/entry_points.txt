@@ -1,0 +1,3 @@
+[console_scripts]
+lap_timer = lap_timer.lap_timer_node:main
+

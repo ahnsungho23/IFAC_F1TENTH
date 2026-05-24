@@ -1,0 +1,19 @@
+// generated from rosidl_adapter/resource/msg.idl.em
+// with input from f110_msgs/msg/ProjOppTraj.msg
+// generated code does not contain a copyright notice
+
+#include "f110_msgs/msg/ProjOppPoint.idl"
+
+module f110_msgs {
+  module msg {
+    struct ProjOppTraj {
+      double lapcount;
+
+      double nrofpoints;
+
+      boolean opp_is_on_trajectory;
+
+      sequence<f110_msgs::msg::ProjOppPoint> detections;
+    };
+  };
+};

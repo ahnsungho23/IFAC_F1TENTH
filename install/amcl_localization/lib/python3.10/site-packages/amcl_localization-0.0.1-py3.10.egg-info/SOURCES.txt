@@ -1,0 +1,15 @@
+package.xml
+setup.cfg
+setup.py
+../build/amcl_localization/amcl_localization.egg-info/PKG-INFO
+../build/amcl_localization/amcl_localization.egg-info/SOURCES.txt
+../build/amcl_localization/amcl_localization.egg-info/dependency_links.txt
+../build/amcl_localization/amcl_localization.egg-info/entry_points.txt
+../build/amcl_localization/amcl_localization.egg-info/requires.txt
+../build/amcl_localization/amcl_localization.egg-info/top_level.txt
+../build/amcl_localization/amcl_localization.egg-info/zip-safe
+config/amcl.yaml
+config/lifecycle_manager.yaml
+config/map_server.yaml
+launch/localization_launch.py
+resource/amcl_localization

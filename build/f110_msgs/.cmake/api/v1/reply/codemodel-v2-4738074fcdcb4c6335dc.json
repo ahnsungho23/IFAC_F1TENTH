@@ -1,0 +1,233 @@
+{
+	"configurations" : 
+	[
+		{
+			"directories" : 
+			[
+				{
+					"build" : ".",
+					"childIndexes" : 
+					[
+						1
+					],
+					"hasInstallRule" : true,
+					"jsonFile" : "directory-.-0896afec34e1d4010013.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.12"
+					},
+					"projectIndex" : 0,
+					"source" : ".",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						5,
+						6,
+						7,
+						8,
+						9,
+						10,
+						11,
+						12,
+						13,
+						14,
+						15,
+						16,
+						17
+					]
+				},
+				{
+					"build" : "f110_msgs__py",
+					"jsonFile" : "directory-f110_msgs__py-1c6b584a7418413cc740.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.12"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "/home/haejum-park/2026_IFAC/build/f110_msgs/f110_msgs__py",
+					"targetIndexes" : 
+					[
+						4
+					]
+				}
+			],
+			"name" : "",
+			"projects" : 
+			[
+				{
+					"directoryIndexes" : 
+					[
+						0,
+						1
+					],
+					"name" : "f110_msgs",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5,
+						6,
+						7,
+						8,
+						9,
+						10,
+						11,
+						12,
+						13,
+						14,
+						15,
+						16,
+						17
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "ament_cmake_python_build_f110_msgs_egg::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ament_cmake_python_build_f110_msgs_egg-97ff24e396286c967bf0.json",
+					"name" : "ament_cmake_python_build_f110_msgs_egg",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "ament_cmake_python_symlink_f110_msgs::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ament_cmake_python_symlink_f110_msgs-8f3e8a30f3f47004feb4.json",
+					"name" : "ament_cmake_python_symlink_f110_msgs",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "f110_msgs::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-f110_msgs-aaf01dd807384e6376ce.json",
+					"name" : "f110_msgs",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "f110_msgs__cpp::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-f110_msgs__cpp-4e18398d784685f7b358.json",
+					"name" : "f110_msgs__cpp",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 1,
+					"id" : "f110_msgs__py::@156c745a95625cbcbd3c",
+					"jsonFile" : "target-f110_msgs__py-8df46e4aa3dc84c58a08.json",
+					"name" : "f110_msgs__py",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "f110_msgs__rosidl_generator_c::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-f110_msgs__rosidl_generator_c-2b85d4a0907edc60d3da.json",
+					"name" : "f110_msgs__rosidl_generator_c",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "f110_msgs__rosidl_generator_py::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-f110_msgs__rosidl_generator_py-1ba10e196313d5e00534.json",
+					"name" : "f110_msgs__rosidl_generator_py",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "f110_msgs__rosidl_typesupport_c::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-f110_msgs__rosidl_typesupport_c-d990b7019d24716284c5.json",
+					"name" : "f110_msgs__rosidl_typesupport_c",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "f110_msgs__rosidl_typesupport_c__pyext::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-f110_msgs__rosidl_typesupport_c__pyext-d47d1cd32e87f4f0f657.json",
+					"name" : "f110_msgs__rosidl_typesupport_c__pyext",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "f110_msgs__rosidl_typesupport_cpp::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-f110_msgs__rosidl_typesupport_cpp-b50b6e7625b696c7cde6.json",
+					"name" : "f110_msgs__rosidl_typesupport_cpp",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "f110_msgs__rosidl_typesupport_fastrtps_c::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-f110_msgs__rosidl_typesupport_fastrtps_c-4fef1c0b649a678f08a4.json",
+					"name" : "f110_msgs__rosidl_typesupport_fastrtps_c",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "f110_msgs__rosidl_typesupport_fastrtps_c__pyext::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-f110_msgs__rosidl_typesupport_fastrtps_c__pyext-3746ab1b7bbbb886d27a.json",
+					"name" : "f110_msgs__rosidl_typesupport_fastrtps_c__pyext",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "f110_msgs__rosidl_typesupport_fastrtps_cpp::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-f110_msgs__rosidl_typesupport_fastrtps_cpp-421044cfe4a845490d14.json",
+					"name" : "f110_msgs__rosidl_typesupport_fastrtps_cpp",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "f110_msgs__rosidl_typesupport_introspection_c::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-f110_msgs__rosidl_typesupport_introspection_c-8db24f115da9abab2bd9.json",
+					"name" : "f110_msgs__rosidl_typesupport_introspection_c",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "f110_msgs__rosidl_typesupport_introspection_c__pyext::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-f110_msgs__rosidl_typesupport_introspection_c__pyext-05f1bed2b29b967a868b.json",
+					"name" : "f110_msgs__rosidl_typesupport_introspection_c__pyext",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "f110_msgs__rosidl_typesupport_introspection_cpp::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-f110_msgs__rosidl_typesupport_introspection_cpp-88dbb98b35ee9540a44e.json",
+					"name" : "f110_msgs__rosidl_typesupport_introspection_cpp",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "f110_msgs_uninstall::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-f110_msgs_uninstall-fae114ca9abe2494e0b8.json",
+					"name" : "f110_msgs_uninstall",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "uninstall::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-uninstall-3ccd6568b074beb42cc5.json",
+					"name" : "uninstall",
+					"projectIndex" : 0
+				}
+			]
+		}
+	],
+	"kind" : "codemodel",
+	"paths" : 
+	{
+		"build" : "/home/haejum-park/2026_IFAC/build/f110_msgs",
+		"source" : "/home/haejum-park/2026_IFAC/f110_msgs"
+	},
+	"version" : 
+	{
+		"major" : 2,
+		"minor" : 3
+	}
+}

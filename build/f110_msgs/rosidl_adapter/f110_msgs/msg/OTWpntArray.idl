@@ -1,0 +1,25 @@
+// generated from rosidl_adapter/resource/msg.idl.em
+// with input from f110_msgs/msg/OTWpntArray.msg
+// generated code does not contain a copyright notice
+
+#include "builtin_interfaces/msg/Time.idl"
+#include "f110_msgs/msg/Wpnt.idl"
+#include "std_msgs/msg/Header.idl"
+
+module f110_msgs {
+  module msg {
+    struct OTWpntArray {
+      std_msgs::msg::Header header;
+
+      builtin_interfaces::msg::Time last_switch_time;
+
+      boolean side_switch;
+
+      string ot_side;
+
+      string ot_line;
+
+      sequence<f110_msgs::msg::Wpnt> wpnts;
+    };
+  };
+};

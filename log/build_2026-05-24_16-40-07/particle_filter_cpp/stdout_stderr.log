@@ -1,0 +1,74 @@
+[35m[1mConsolidate compiler generated dependencies of target particle_filter_cpp_lib[0m
+[ 60%] Built target particle_filter_cpp_lib
+[35m[1mConsolidate compiler generated dependencies of target particle_filter_node[0m
+[100%] Built target particle_filter_node
+-- Install configuration: ""
+-- Execute custom install script
+-- Symlinking: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/lib/libparticle_filter_cpp_lib.so
+-- Symlinking: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/lib/particle_filter_cpp/particle_filter_node
+-- Symlinking: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/include//particle_filter_cpp/particle_filter.hpp
+-- Symlinking: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/include//particle_filter_cpp/utils.hpp
+-- Symlinking: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/environment/library_path.sh
+-- Symlinking: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/environment/library_path.dsv
+-- Symlinking: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/ament_index/resource_index/package_run_dependencies/particle_filter_cpp
+-- Symlinking: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/ament_index/resource_index/parent_prefix_path/particle_filter_cpp
+-- Symlinking: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/environment/ament_prefix_path.sh
+-- Symlinking: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/environment/ament_prefix_path.dsv
+-- Symlinking: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/environment/path.sh
+-- Symlinking: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/environment/path.dsv
+-- Symlinking: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/local_setup.bash
+-- Symlinking: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/local_setup.sh
+-- Symlinking: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/local_setup.zsh
+-- Symlinking: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/local_setup.dsv
+-- Symlinking: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/package.dsv
+-- Symlinking: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/ament_index/resource_index/packages/particle_filter_cpp
+-- Symlinking: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/ament_index/resource_index/rclcpp_components/particle_filter_cpp
+-- Symlinking: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/cmake/ament_cmake_export_dependencies-extras.cmake
+-- Symlinking: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/cmake/ament_cmake_export_include_directories-extras.cmake
+-- Symlinking: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/cmake/ament_cmake_export_libraries-extras.cmake
+-- Symlinking: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/cmake/particle_filter_cppConfig.cmake
+-- Symlinking: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/cmake/particle_filter_cppConfig-version.cmake
+-- Symlinking: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/package.xml
+-- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/launch/
+-- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/launch//mcl_launch.py
+-- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/config/
+-- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/config//mcl_config.yaml
+-- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps/
+-- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//map_1753950572.pgm
+-- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//redbull_1.yaml
+-- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//Spielberg_map.yaml
+-- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//fuck_f1.yaml
+-- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//new_map1.png
+-- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//map_1755669035.pgm
+-- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//fuck_jg_1.pgm
+-- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//fuck_f1.pgm
+-- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//fmap.png
+-- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//sibal1.yaml
+-- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//levine.pgm
+-- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//levine.yaml
+-- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//map_1755669035.yaml
+-- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//test_map.pgm
+-- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//oct_25_1.yaml
+-- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//test_map.yaml
+-- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//oct_25_1.pgm
+-- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//slam_map.png
+-- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//redbull_1.png
+-- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//Spielberg_map.png
+-- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//first_map.yaml
+-- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//icra_2_clean.png
+-- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//sibal1.png
+-- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//basement_fixed.png
+-- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//f2map.yaml
+-- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//basement_fixed.map.yaml
+-- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//icra_2_clean.yaml
+-- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//labtest.yaml
+-- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//first_map.pgm
+-- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//map_1753950572.yaml
+-- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//slam_map.yaml
+-- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//f2map.pgm
+-- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//labtest.pgm
+-- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//fuck_jg_1.yaml
+-- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//new_map1.yaml
+-- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//fmap.yaml
+-- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/rviz/
+-- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/rviz//particle_filter.rviz

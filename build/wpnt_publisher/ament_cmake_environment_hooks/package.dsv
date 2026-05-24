@@ -1,0 +1,4 @@
+source;share/wpnt_publisher/local_setup.bash
+source;share/wpnt_publisher/local_setup.dsv
+source;share/wpnt_publisher/local_setup.sh
+source;share/wpnt_publisher/local_setup.zsh

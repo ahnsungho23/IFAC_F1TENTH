@@ -1,0 +1,21 @@
+// generated from rosidl_adapter/resource/msg.idl.em
+// with input from f110_msgs/msg/LapData.msg
+// generated code does not contain a copyright notice
+
+#include "std_msgs/msg/Header.idl"
+
+module f110_msgs {
+  module msg {
+    struct LapData {
+      std_msgs::msg::Header header;
+
+      int32 lap_count;
+
+      double lap_time;
+
+      double average_lateral_error_to_global_waypoints;
+
+      double max_lateral_error_to_global_waypoints;
+    };
+  };
+};

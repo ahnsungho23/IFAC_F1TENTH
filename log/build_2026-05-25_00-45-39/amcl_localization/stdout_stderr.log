@@ -1,0 +1,28 @@
+running develop
+Removing /home/haejum-park/2026_IFAC/install/amcl_localization/lib/python3.10/site-packages/amcl-localization.egg-link (link to .)
+running egg_info
+writing ../build/amcl_localization/amcl_localization.egg-info/PKG-INFO
+writing dependency_links to ../build/amcl_localization/amcl_localization.egg-info/dependency_links.txt
+writing entry points to ../build/amcl_localization/amcl_localization.egg-info/entry_points.txt
+writing requirements to ../build/amcl_localization/amcl_localization.egg-info/requires.txt
+writing top-level names to ../build/amcl_localization/amcl_localization.egg-info/top_level.txt
+package init file 'amcl_localization/__init__.py' not found (or not a regular file)
+reading manifest file '../build/amcl_localization/amcl_localization.egg-info/SOURCES.txt'
+writing manifest file '../build/amcl_localization/amcl_localization.egg-info/SOURCES.txt'
+running build
+running build_py
+running install
+warning: install_lib: '/home/haejum-park/2026_IFAC/build/amcl_localization/build/lib' does not exist -- no Python modules to install
+
+running install_lib
+running install_data
+copying resource/amcl_localization -> /home/haejum-park/2026_IFAC/install/amcl_localization/share/ament_index/resource_index/packages
+copying package.xml -> /home/haejum-park/2026_IFAC/install/amcl_localization/share/amcl_localization
+copying launch/localization_launch.py -> /home/haejum-park/2026_IFAC/install/amcl_localization/share/amcl_localization/launch
+copying config/amcl.yaml -> /home/haejum-park/2026_IFAC/install/amcl_localization/share/amcl_localization/config
+copying config/lifecycle_manager.yaml -> /home/haejum-park/2026_IFAC/install/amcl_localization/share/amcl_localization/config
+copying config/map_server.yaml -> /home/haejum-park/2026_IFAC/install/amcl_localization/share/amcl_localization/config
+running install_egg_info
+Copying ../build/amcl_localization/amcl_localization.egg-info to /home/haejum-park/2026_IFAC/install/amcl_localization/lib/python3.10/site-packages/amcl_localization-0.0.1-py3.10.egg-info
+running install_scripts
+writing list of installed files to '/home/haejum-park/2026_IFAC/build/amcl_localization/install.log'

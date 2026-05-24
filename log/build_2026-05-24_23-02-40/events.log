@@ -1,0 +1,454 @@
+[0.000000] (-) TimerEvent: {}
+[0.000361] (-) JobUnselected: {'identifier': 'amcl_localization'}
+[0.000492] (-) JobUnselected: {'identifier': 'f110_msgs'}
+[0.000588] (-) JobUnselected: {'identifier': 'global_planner'}
+[0.000676] (-) JobUnselected: {'identifier': 'lap_timer'}
+[0.000796] (-) JobUnselected: {'identifier': 'new_map_con'}
+[0.000868] (-) JobUnselected: {'identifier': 'wpnt_publisher'}
+[0.000964] (particle_filter_cpp) JobQueued: {'identifier': 'particle_filter_cpp', 'dependencies': OrderedDict()}
+[0.001026] (particle_filter_cpp) JobStarted: {'identifier': 'particle_filter_cpp'}
+[0.007995] (particle_filter_cpp) JobProgress: {'identifier': 'particle_filter_cpp', 'progress': 'cmake'}
+[0.008186] (particle_filter_cpp) JobProgress: {'identifier': 'particle_filter_cpp', 'progress': 'build'}
+[0.008250] (particle_filter_cpp) Command: {'cmd': ['/usr/bin/cmake', '--build', '/home/haejum-park/2026_IFAC/build/particle_filter_cpp', '--', '-j14', '-l14'], 'cwd': '/home/haejum-park/2026_IFAC/build/particle_filter_cpp', 'env': OrderedDict([('USER', 'haejum-park'), ('HOSTNAME', 'f1-humble.haejum-park-System-Product-Name'), ('XDG_SESSION_TYPE', 'x11'), ('XDG_CACHE_HOME', '/home/haejum-park/.cache'), ('SHLVL', '2'), ('LD_LIBRARY_PATH', '/home/haejum-park/install/examples_rclcpp_wait_set/lib:/home/haejum-park/install/examples_rclcpp_minimal_subscriber/lib:/home/haejum-park/install/examples_rclcpp_minimal_composition/lib:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib'), ('LIBGL_ALWAYS_SOFTWARE', '1'), ('HOME', '/home/haejum-park'), ('OLDPWD', '/home/haejum-park'), ('LESS', '-R'), ('DESKTOP_SESSION', 'ubuntu'), ('ZSH', '/home/haejum-park/.oh-my-zsh'), ('LSCOLORS', 'Gxfxcxdxbxegedabagacad'), ('GNOME_SHELL_SESSION_MODE', 'ubuntu'), ('GTK_MODULES', 'gail:atk-bridge'), ('PAGER', 'less'), ('ROS_PYTHON_VERSION', '3'), ('XDG_STATE_HOME', '/home/haejum-park/.local/state'), ('GSM_SKIP_SSH_AGENT_WORKAROUND', 'true'), ('SYSTEMD_EXEC_PID', '2662'), ('DISTROBOX_ENTER_PATH', '/usr/bin/distrobox-enter'), ('DBUS_SESSION_BUS_ADDRESS', 'unix:path=/run/user/1000/bus'), ('container', 'podman'), ('COLORTERM', 'truecolor'), ('GNOME_KEYRING_CONTROL', '/run/user/1000/keyring'), ('_colcon_cd_root', '/opt/ros/humble/'), ('ROS_DISTRO', 'humble'), ('COLCON_PREFIX_PATH', '/home/haejum-park/sim_ws/install:/home/haejum-park/install'), ('LOGNAME', 'haejum-park'), ('_', '/usr/bin/colcon'), ('TERMINFO_DIRS', '/usr/share/terminfo:/run/host/usr/share/terminfo'), ('XDG_SESSION_CLASS', 'user'), ('MEMORY_PRESSURE_WATCH', '/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/session.slice/org.gnome.SettingsDaemon.MediaKeys.service/memory.pressure'), ('ROS_VERSION', '2'), ('USERNAME', 'haejum-park'), ('TERM', 'xterm-256color'), ('GNOME_DESKTOP_SESSION_ID', 'this-is-deprecated'), ('ROS_LOCALHOST_ONLY', '0'), ('WINDOWPATH', '2'), ('PATH', '/opt/ros/humble/bin:/home/haejum-park/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/snap/bin:/home/haejum-park/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/haejum-park/.local/bin'), ('SESSION_MANAGER', 'local/haejum-park-System-Product-Name:@/tmp/.ICE-unix/2423,unix/haejum-park-System-Product-Name:/tmp/.ICE-unix/2423'), ('XDG_MENU_PREFIX', 'gnome-'), ('GNOME_TERMINAL_SCREEN', '/org/gnome/Terminal/screen/8de6c3b2_45d3_459e_b9d3_9c3fac94f495'), ('XDG_RUNTIME_DIR', '/run/user/1000'), ('DISPLAY', ':1'), ('LANG', 'en_US.UTF-8'), ('XDG_CURRENT_DESKTOP', 'ubuntu:GNOME'), ('XMODIFIERS', '@im=ibus'), ('GNOME_TERMINAL_SERVICE', ':1.125'), ('XDG_CONFIG_HOME', '/home/haejum-park/.config'), ('XDG_DATA_HOME', '/home/haejum-park/.local/share'), ('XAUTHORITY', '/run/user/1000/gdm/Xauthority'), ('XDG_SESSION_DESKTOP', 'ubuntu'), ('LS_COLORS', 'rs=0:di=01;34:ln=01;36:mh=00:pi=40;33:so=01;35:do=01;35:bd=40;33;01:cd=40;33;01:or=40;31;01:mi=00:su=37;41:sg=30;43:ca=00:tw=30;42:ow=34;42:st=37;44:ex=01;32:*.tar=01;31:*.tgz=01;31:*.arc=01;31:*.arj=01;31:*.taz=01;31:*.lha=01;31:*.lz4=01;31:*.lzh=01;31:*.lzma=01;31:*.tlz=01;31:*.txz=01;31:*.tzo=01;31:*.t7z=01;31:*.zip=01;31:*.z=01;31:*.dz=01;31:*.gz=01;31:*.lrz=01;31:*.lz=01;31:*.lzo=01;31:*.xz=01;31:*.zst=01;31:*.tzst=01;31:*.bz2=01;31:*.bz=01;31:*.tbz=01;31:*.tbz2=01;31:*.tz=01;31:*.deb=01;31:*.rpm=01;31:*.jar=01;31:*.war=01;31:*.ear=01;31:*.sar=01;31:*.rar=01;31:*.alz=01;31:*.ace=01;31:*.zoo=01;31:*.cpio=01;31:*.7z=01;31:*.rz=01;31:*.cab=01;31:*.wim=01;31:*.swm=01;31:*.dwm=01;31:*.esd=01;31:*.avif=01;35:*.jpg=01;35:*.jpeg=01;35:*.mjpg=01;35:*.mjpeg=01;35:*.gif=01;35:*.bmp=01;35:*.pbm=01;35:*.pgm=01;35:*.ppm=01;35:*.tga=01;35:*.xbm=01;35:*.xpm=01;35:*.tif=01;35:*.tiff=01;35:*.png=01;35:*.svg=01;35:*.svgz=01;35:*.mng=01;35:*.pcx=01;35:*.mov=01;35:*.mpg=01;35:*.mpeg=01;35:*.m2v=01;35:*.mkv=01;35:*.webm=01;35:*.webp=01;35:*.ogm=01;35:*.mp4=01;35:*.m4v=01;35:*.mp4v=01;35:*.vob=01;35:*.qt=01;35:*.nuv=01;35:*.wmv=01;35:*.asf=01;35:*.rm=01;35:*.rmvb=01;35:*.flc=01;35:*.avi=01;35:*.fli=01;35:*.flv=01;35:*.gl=01;35:*.dl=01;35:*.xcf=01;35:*.xwd=01;35:*.yuv=01;35:*.cgm=01;35:*.emf=01;35:*.ogv=01;35:*.ogx=01;35:*.aac=00;36:*.au=00;36:*.flac=00;36:*.m4a=00;36:*.mid=00;36:*.midi=00;36:*.mka=00;36:*.mp3=00;36:*.mpc=00;36:*.ogg=00;36:*.ra=00;36:*.wav=00;36:*.oga=00;36:*.opus=00;36:*.spx=00;36:*.xspf=00;36:*~=00;90:*#=00;90:*.bak=00;90:*.crdownload=00;90:*.dpkg-dist=00;90:*.dpkg-new=00;90:*.dpkg-old=00;90:*.dpkg-tmp=00;90:*.old=00;90:*.orig=00;90:*.part=00;90:*.rej=00;90:*.rpmnew=00;90:*.rpmorig=00;90:*.rpmsave=00;90:*.swp=00;90:*.tmp=00;90:*.ucf-dist=00;90:*.ucf-new=00;90:*.ucf-old=00;90:'), ('SSH_AUTH_SOCK', '/run/user/1000/keyring/ssh'), ('AMENT_PREFIX_PATH', '/home/haejum-park/sim_ws/install/wall_follow:/home/haejum-park/sim_ws/install/lab5_pkg:/home/haejum-park/sim_ws/install/homework:/home/haejum-park/sim_ws/install/gap_follow:/home/haejum-park/sim_ws/install/f1tenth_gym_ros:/home/haejum-park/install/wall_follow:/home/haejum-park/install/my_new_package:/home/haejum-park/install/launch_testing_examples:/home/haejum-park/install/homework:/home/haejum-park/install/gap_follow:/home/haejum-park/install/examples_rclpy_pointcloud_publisher:/home/haejum-park/install/examples_rclpy_minimal_subscriber:/home/haejum-park/install/examples_rclpy_minimal_service:/home/haejum-park/install/examples_rclpy_minimal_publisher:/home/haejum-park/install/examples_rclpy_minimal_client:/home/haejum-park/install/examples_rclpy_minimal_action_server:/home/haejum-park/install/examples_rclpy_minimal_action_client:/home/haejum-park/install/examples_rclpy_guard_conditions:/home/haejum-park/install/examples_rclpy_executors:/home/haejum-park/install/examples_rclcpp_wait_set:/home/haejum-park/install/examples_rclcpp_multithreaded_executor:/home/haejum-park/install/examples_rclcpp_minimal_timer:/home/haejum-park/install/examples_rclcpp_minimal_subscriber:/home/haejum-park/install/examples_rclcpp_minimal_service:/home/haejum-park/install/examples_rclcpp_minimal_publisher:/home/haejum-park/install/examples_rclcpp_minimal_composition:/home/haejum-park/install/examples_rclcpp_minimal_client:/home/haejum-park/install/examples_rclcpp_minimal_action_server:/home/haejum-park/install/examples_rclcpp_minimal_action_client:/home/haejum-park/install/examples_rclcpp_cbg_executor:/home/haejum-park/install/examples_rclcpp_async_client:/opt/ros/humble'), ('SHELL', 'bash'), ('GDMSESSION', 'ubuntu'), ('QT_ACCESSIBILITY', '1'), ('GPG_AGENT_INFO', '/run/user/1000/gnupg/S.gpg-agent:0:1'), ('QT_IM_MODULE', 'ibus'), ('CONTAINER_ID', 'ubuntu22'), ('LC_ALL', 'en_US.UTF-8'), ('PWD', '/home/haejum-park/2026_IFAC/build/particle_filter_cpp'), ('XDG_CONFIG_DIRS', '/etc/xdg/xdg-ubuntu:/etc/xdg'), ('XDG_DATA_DIRS', '/usr/share/ubuntu:/usr/share/gnome:/usr/local/share/:/usr/share/:/var/lib/snapd/desktop:/usr/local/share:/usr/share'), ('PYTHONPATH', '/home/haejum-park/sim_ws/install/wall_follow/local/lib/python3.10/dist-packages:/home/haejum-park/sim_ws/install/lab5_pkg/local/lib/python3.10/dist-packages:/home/haejum-park/sim_ws/install/homework/local/lib/python3.10/dist-packages:/home/haejum-park/sim_ws/install/gap_follow/local/lib/python3.10/dist-packages:/home/haejum-park/sim_ws/build/f1tenth_gym_ros:/home/haejum-park/sim_ws/install/f1tenth_gym_ros/lib/python3.10/site-packages:/home/haejum-park/install/wall_follow/local/lib/python3.10/dist-packages:/home/haejum-park/install/wall_follow/lib/python3.10/site-packages:/home/haejum-park/install/launch_testing_examples/lib/python3.10/site-packages:/home/haejum-park/install/homework/local/lib/python3.10/dist-packages:/home/haejum-park/install/gap_follow/local/lib/python3.10/dist-packages:/home/haejum-park/install/f110_gym/lib/python3.10/site-packages:/home/haejum-park/install/examples_rclpy_pointcloud_publisher/lib/python3.10/site-packages:/home/haejum-park/install/examples_rclpy_minimal_subscriber/lib/python3.10/site-packages:/home/haejum-park/install/examples_rclpy_minimal_service/lib/python3.10/site-packages:/home/haejum-park/install/examples_rclpy_minimal_publisher/lib/python3.10/site-packages:/home/haejum-park/install/examples_rclpy_minimal_client/lib/python3.10/site-packages:/home/haejum-park/install/examples_rclpy_minimal_action_server/lib/python3.10/site-packages:/home/haejum-park/install/examples_rclpy_minimal_action_client/lib/python3.10/site-packages:/home/haejum-park/install/examples_rclpy_guard_conditions/lib/python3.10/site-packages:/home/haejum-park/install/examples_rclpy_executors/lib/python3.10/site-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages'), ('COLCON', '1'), ('VTE_VERSION', '7600'), ('MEMORY_PRESSURE_WRITE', 'c29tZSAyMDAwMDAgMjAwMDAwMAA='), ('CMAKE_PREFIX_PATH', '/home/haejum-park/sim_ws/install/wall_follow:/home/haejum-park/sim_ws/install/lab5_pkg:/home/haejum-park/sim_ws/install/homework:/home/haejum-park/sim_ws/install/gap_follow:/home/haejum-park/install/wall_follow:/home/haejum-park/install/my_new_package:/home/haejum-park/install/homework:/home/haejum-park/install/gap_follow:/home/haejum-park/install/examples_rclcpp_wait_set:/home/haejum-park/install/examples_rclcpp_multithreaded_executor:/home/haejum-park/install/examples_rclcpp_minimal_timer:/home/haejum-park/install/examples_rclcpp_minimal_subscriber:/home/haejum-park/install/examples_rclcpp_minimal_service:/home/haejum-park/install/examples_rclcpp_minimal_publisher:/home/haejum-park/install/examples_rclcpp_minimal_composition:/home/haejum-park/install/examples_rclcpp_minimal_client:/home/haejum-park/install/examples_rclcpp_minimal_action_server:/home/haejum-park/install/examples_rclcpp_minimal_action_client:/home/haejum-park/install/examples_rclcpp_cbg_executor:/home/haejum-park/install/examples_rclcpp_async_client:/home/haejum-park/sim_ws/install/f1tenth_gym_ros:/home/haejum-park/install/launch_testing_examples:/home/haejum-park/install/examples_rclpy_pointcloud_publisher:/home/haejum-park/install/examples_rclpy_minimal_subscriber:/home/haejum-park/install/examples_rclpy_minimal_service:/home/haejum-park/install/examples_rclpy_minimal_publisher:/home/haejum-park/install/examples_rclpy_minimal_client:/home/haejum-park/install/examples_rclpy_minimal_action_server:/home/haejum-park/install/examples_rclpy_minimal_action_client:/home/haejum-park/install/examples_rclpy_guard_conditions:/home/haejum-park/install/examples_rclpy_executors:/opt/ros/humble')]), 'shell': False}
+[0.047220] (particle_filter_cpp) StdoutLine: {'line': b'[ 20%] \x1b[32mBuilding CXX object CMakeFiles/particle_filter_cpp_lib.dir/src/particle_filter.cpp.o\x1b[0m\n'}
+[0.099410] (-) TimerEvent: {}
+[0.200090] (-) TimerEvent: {}
+[0.300388] (-) TimerEvent: {}
+[0.400640] (-) TimerEvent: {}
+[0.500881] (-) TimerEvent: {}
+[0.601173] (-) TimerEvent: {}
+[0.701491] (-) TimerEvent: {}
+[0.801734] (-) TimerEvent: {}
+[0.902064] (-) TimerEvent: {}
+[1.002367] (-) TimerEvent: {}
+[1.102620] (-) TimerEvent: {}
+[1.202955] (-) TimerEvent: {}
+[1.303268] (-) TimerEvent: {}
+[1.403570] (-) TimerEvent: {}
+[1.503903] (-) TimerEvent: {}
+[1.604221] (-) TimerEvent: {}
+[1.704554] (-) TimerEvent: {}
+[1.711828] (particle_filter_cpp) StderrLine: {'line': b'In file included from \x1b[01m\x1b[K/opt/ros/humble/include/rclcpp/rclcpp/logging.hpp:24\x1b[m\x1b[K,\n'}
+[1.711958] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/opt/ros/humble/include/rclcpp/rclcpp/client.hpp:40\x1b[m\x1b[K,\n'}
+[1.711989] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/opt/ros/humble/include/rclcpp/rclcpp/callback_group.hpp:24\x1b[m\x1b[K,\n'}
+[1.712015] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/opt/ros/humble/include/rclcpp/rclcpp/any_executable.hpp:20\x1b[m\x1b[K,\n'}
+[1.712033] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/opt/ros/humble/include/rclcpp/rclcpp/memory_strategy.hpp:25\x1b[m\x1b[K,\n'}
+[1.712052] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/opt/ros/humble/include/rclcpp/rclcpp/memory_strategies.hpp:18\x1b[m\x1b[K,\n'}
+[1.712070] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/opt/ros/humble/include/rclcpp/rclcpp/executor_options.hpp:20\x1b[m\x1b[K,\n'}
+[1.712087] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/opt/ros/humble/include/rclcpp/rclcpp/executor.hpp:37\x1b[m\x1b[K,\n'}
+[1.712104] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/opt/ros/humble/include/rclcpp/rclcpp/executors/multi_threaded_executor.hpp:25\x1b[m\x1b[K,\n'}
+[1.712123] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/opt/ros/humble/include/rclcpp/rclcpp/executors.hpp:21\x1b[m\x1b[K,\n'}
+[1.712140] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/opt/ros/humble/include/rclcpp/rclcpp/rclcpp.hpp:155\x1b[m\x1b[K,\n'}
+[1.712158] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/home/haejum-park/2026_IFAC/monte_carlo_localization/include/particle_filter_cpp/particle_filter.hpp:17\x1b[m\x1b[K,\n'}
+[1.712175] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/home/haejum-park/2026_IFAC/monte_carlo_localization/src/particle_filter.cpp:7\x1b[m\x1b[K:\n'}
+[1.712192] (particle_filter_cpp) StderrLine: {'line': b'\x1b[01m\x1b[K/home/haejum-park/2026_IFAC/monte_carlo_localization/src/particle_filter.cpp:\x1b[m\x1b[K In member function \xe2\x80\x98\x1b[01m\x1b[Kvoid particle_filter_cpp::ParticleFilter::lidarCB(sensor_msgs::msg::LaserScan_<std::allocator<void> >::SharedPtr)\x1b[m\x1b[K\xe2\x80\x99:\n'}
+[1.712213] (particle_filter_cpp) StderrLine: {'line': b'\x1b[01m\x1b[K/home/haejum-park/2026_IFAC/monte_carlo_localization/src/particle_filter.cpp:396:13:\x1b[m\x1b[K \x1b[01;35m\x1b[Kwarning: \x1b[m\x1b[Kformat \xe2\x80\x98\x1b[01m\x1b[K%ld\x1b[m\x1b[K\xe2\x80\x99 expects argument of type \xe2\x80\x98\x1b[01m\x1b[Klong int\x1b[m\x1b[K\xe2\x80\x99, but argument 5 has type \xe2\x80\x98\x1b[01m\x1b[Kbuiltin_interfaces::msg::Time_<std::allocator<void> >::_sec_type\x1b[m\x1b[K\xe2\x80\x99 {aka \xe2\x80\x98\x1b[01m\x1b[Kint\x1b[m\x1b[K\xe2\x80\x99} [\x1b[01;35m\x1b[K\x1b]8;;https://gcc.gnu.org/onlinedocs/gcc/Warning-Options.html#index-Wformat=\x07-Wformat=\x1b]8;;\x07\x1b[m\x1b[K]\n'}
+[1.712234] (particle_filter_cpp) StderrLine: {'line': b'  396 |             \x1b[01;35m\x1b[K"LiDAR callback: new data received, timestamp: %ld.%09ld"\x1b[m\x1b[K,\n'}
+[1.712250] (particle_filter_cpp) StderrLine: {'line': b'      |             \x1b[01;35m\x1b[K^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\x1b[m\x1b[K\n'}
+[1.712267] (particle_filter_cpp) StderrLine: {'line': b'  397 |             \x1b[32m\x1b[Kmsg->header.stamp.sec\x1b[m\x1b[K, msg->header.stamp.nanosec);\n'}
+[1.712284] (particle_filter_cpp) StderrLine: {'line': b'      |             \x1b[32m\x1b[K~~~~~~~~~~~~~~~~~~~~~\x1b[m\x1b[K\n'}
+[1.712300] (particle_filter_cpp) StderrLine: {'line': b'      |                               \x1b[32m\x1b[K|\x1b[m\x1b[K\n'}
+[1.712317] (particle_filter_cpp) StderrLine: {'line': b'      |                               \x1b[32m\x1b[Kbuiltin_interfaces::msg::Time_<std::allocator<void> >::_sec_type {aka int}\x1b[m\x1b[K\n'}
+[1.712334] (particle_filter_cpp) StderrLine: {'line': b'\x1b[01m\x1b[K/home/haejum-park/2026_IFAC/monte_carlo_localization/src/particle_filter.cpp:396:62:\x1b[m\x1b[K \x1b[01;36m\x1b[Knote: \x1b[m\x1b[Kformat string is defined here\n'}
+[1.712352] (particle_filter_cpp) StderrLine: {'line': b'  396 |             "LiDAR callback: new data received, timestamp: \x1b[01;36m\x1b[K%ld\x1b[m\x1b[K.%09ld",\n'}
+[1.712368] (particle_filter_cpp) StderrLine: {'line': b'      |                                                            \x1b[01;36m\x1b[K~~^\x1b[m\x1b[K\n'}
+[1.712384] (particle_filter_cpp) StderrLine: {'line': b'      |                                                              \x1b[01;36m\x1b[K|\x1b[m\x1b[K\n'}
+[1.712402] (particle_filter_cpp) StderrLine: {'line': b'      |                                                              \x1b[01;36m\x1b[Klong int\x1b[m\x1b[K\n'}
+[1.712418] (particle_filter_cpp) StderrLine: {'line': b'      |                                                            \x1b[32m\x1b[K%d\x1b[m\x1b[K\n'}
+[1.712437] (particle_filter_cpp) StderrLine: {'line': b'In file included from \x1b[01m\x1b[K/opt/ros/humble/include/rclcpp/rclcpp/logging.hpp:24\x1b[m\x1b[K,\n'}
+[1.712453] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/opt/ros/humble/include/rclcpp/rclcpp/client.hpp:40\x1b[m\x1b[K,\n'}
+[1.712470] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/opt/ros/humble/include/rclcpp/rclcpp/callback_group.hpp:24\x1b[m\x1b[K,\n'}
+[1.712486] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/opt/ros/humble/include/rclcpp/rclcpp/any_executable.hpp:20\x1b[m\x1b[K,\n'}
+[1.712503] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/opt/ros/humble/include/rclcpp/rclcpp/memory_strategy.hpp:25\x1b[m\x1b[K,\n'}
+[1.712518] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/opt/ros/humble/include/rclcpp/rclcpp/memory_strategies.hpp:18\x1b[m\x1b[K,\n'}
+[1.712534] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/opt/ros/humble/include/rclcpp/rclcpp/executor_options.hpp:20\x1b[m\x1b[K,\n'}
+[1.712549] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/opt/ros/humble/include/rclcpp/rclcpp/executor.hpp:37\x1b[m\x1b[K,\n'}
+[1.712565] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/opt/ros/humble/include/rclcpp/rclcpp/executors/multi_threaded_executor.hpp:25\x1b[m\x1b[K,\n'}
+[1.712582] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/opt/ros/humble/include/rclcpp/rclcpp/executors.hpp:21\x1b[m\x1b[K,\n'}
+[1.712599] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/opt/ros/humble/include/rclcpp/rclcpp/rclcpp.hpp:155\x1b[m\x1b[K,\n'}
+[1.712615] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/home/haejum-park/2026_IFAC/monte_carlo_localization/include/particle_filter_cpp/particle_filter.hpp:17\x1b[m\x1b[K,\n'}
+[1.712631] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/home/haejum-park/2026_IFAC/monte_carlo_localization/src/particle_filter.cpp:7\x1b[m\x1b[K:\n'}
+[1.712647] (particle_filter_cpp) StderrLine: {'line': b'\x1b[01m\x1b[K/home/haejum-park/2026_IFAC/monte_carlo_localization/src/particle_filter.cpp:396:13:\x1b[m\x1b[K \x1b[01;35m\x1b[Kwarning: \x1b[m\x1b[Kformat \xe2\x80\x98\x1b[01m\x1b[K%ld\x1b[m\x1b[K\xe2\x80\x99 expects argument of type \xe2\x80\x98\x1b[01m\x1b[Klong int\x1b[m\x1b[K\xe2\x80\x99, but argument 6 has type \xe2\x80\x98\x1b[01m\x1b[Kbuiltin_interfaces::msg::Time_<std::allocator<void> >::_nanosec_type\x1b[m\x1b[K\xe2\x80\x99 {aka \xe2\x80\x98\x1b[01m\x1b[Kunsigned int\x1b[m\x1b[K\xe2\x80\x99} [\x1b[01;35m\x1b[K\x1b]8;;https://gcc.gnu.org/onlinedocs/gcc/Warning-Options.html#index-Wformat=\x07-Wformat=\x1b]8;;\x07\x1b[m\x1b[K]\n'}
+[1.712665] (particle_filter_cpp) StderrLine: {'line': b'  396 |             \x1b[01;35m\x1b[K"LiDAR callback: new data received, timestamp: %ld.%09ld"\x1b[m\x1b[K,\n'}
+[1.712683] (particle_filter_cpp) StderrLine: {'line': b'      |             \x1b[01;35m\x1b[K^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\x1b[m\x1b[K\n'}
+[1.712699] (particle_filter_cpp) StderrLine: {'line': b'  397 |             msg->header.stamp.sec, \x1b[32m\x1b[Kmsg->header.stamp.nanosec\x1b[m\x1b[K);\n'}
+[1.712715] (particle_filter_cpp) StderrLine: {'line': b'      |                                    \x1b[32m\x1b[K~~~~~~~~~~~~~~~~~~~~~~~~~\x1b[m\x1b[K\n'}
+[1.712731] (particle_filter_cpp) StderrLine: {'line': b'      |                                                      \x1b[32m\x1b[K|\x1b[m\x1b[K\n'}
+[1.712746] (particle_filter_cpp) StderrLine: {'line': b'      |                                                      \x1b[32m\x1b[Kbuiltin_interfaces::msg::Time_<std::allocator<void> >::_nanosec_type {aka unsigned int}\x1b[m\x1b[K\n'}
+[1.712763] (particle_filter_cpp) StderrLine: {'line': b'\x1b[01m\x1b[K/home/haejum-park/2026_IFAC/monte_carlo_localization/src/particle_filter.cpp:396:68:\x1b[m\x1b[K \x1b[01;36m\x1b[Knote: \x1b[m\x1b[Kformat string is defined here\n'}
+[1.712779] (particle_filter_cpp) StderrLine: {'line': b'  396 |             "LiDAR callback: new data received, timestamp: %ld.\x1b[01;36m\x1b[K%09ld\x1b[m\x1b[K",\n'}
+[1.712794] (particle_filter_cpp) StderrLine: {'line': b'      |                                                                \x1b[01;36m\x1b[K~~~~^\x1b[m\x1b[K\n'}
+[1.712809] (particle_filter_cpp) StderrLine: {'line': b'      |                                                                    \x1b[01;36m\x1b[K|\x1b[m\x1b[K\n'}
+[1.712824] (particle_filter_cpp) StderrLine: {'line': b'      |                                                                    \x1b[01;36m\x1b[Klong int\x1b[m\x1b[K\n'}
+[1.712840] (particle_filter_cpp) StderrLine: {'line': b'      |                                                                \x1b[32m\x1b[K%09d\x1b[m\x1b[K\n'}
+[1.804726] (-) TimerEvent: {}
+[1.904967] (-) TimerEvent: {}
+[2.005277] (-) TimerEvent: {}
+[2.105620] (-) TimerEvent: {}
+[2.205933] (-) TimerEvent: {}
+[2.306258] (-) TimerEvent: {}
+[2.406609] (-) TimerEvent: {}
+[2.506944] (-) TimerEvent: {}
+[2.607311] (-) TimerEvent: {}
+[2.707682] (-) TimerEvent: {}
+[2.808178] (-) TimerEvent: {}
+[2.908492] (-) TimerEvent: {}
+[3.008813] (-) TimerEvent: {}
+[3.109128] (-) TimerEvent: {}
+[3.209450] (-) TimerEvent: {}
+[3.309779] (-) TimerEvent: {}
+[3.410127] (-) TimerEvent: {}
+[3.510484] (-) TimerEvent: {}
+[3.610806] (-) TimerEvent: {}
+[3.711114] (-) TimerEvent: {}
+[3.811418] (-) TimerEvent: {}
+[3.911739] (-) TimerEvent: {}
+[4.012069] (-) TimerEvent: {}
+[4.112395] (-) TimerEvent: {}
+[4.212729] (-) TimerEvent: {}
+[4.313051] (-) TimerEvent: {}
+[4.413364] (-) TimerEvent: {}
+[4.513618] (-) TimerEvent: {}
+[4.613955] (-) TimerEvent: {}
+[4.714286] (-) TimerEvent: {}
+[4.814613] (-) TimerEvent: {}
+[4.914948] (-) TimerEvent: {}
+[5.015267] (-) TimerEvent: {}
+[5.115590] (-) TimerEvent: {}
+[5.215922] (-) TimerEvent: {}
+[5.316240] (-) TimerEvent: {}
+[5.416565] (-) TimerEvent: {}
+[5.516899] (-) TimerEvent: {}
+[5.617203] (-) TimerEvent: {}
+[5.717534] (-) TimerEvent: {}
+[5.817841] (-) TimerEvent: {}
+[5.918161] (-) TimerEvent: {}
+[6.018465] (-) TimerEvent: {}
+[6.118787] (-) TimerEvent: {}
+[6.219099] (-) TimerEvent: {}
+[6.319399] (-) TimerEvent: {}
+[6.419740] (-) TimerEvent: {}
+[6.520144] (-) TimerEvent: {}
+[6.620470] (-) TimerEvent: {}
+[6.720782] (-) TimerEvent: {}
+[6.821151] (-) TimerEvent: {}
+[6.921490] (-) TimerEvent: {}
+[7.021820] (-) TimerEvent: {}
+[7.122133] (-) TimerEvent: {}
+[7.222446] (-) TimerEvent: {}
+[7.322746] (-) TimerEvent: {}
+[7.423058] (-) TimerEvent: {}
+[7.523363] (-) TimerEvent: {}
+[7.623700] (-) TimerEvent: {}
+[7.724010] (-) TimerEvent: {}
+[7.824329] (-) TimerEvent: {}
+[7.924639] (-) TimerEvent: {}
+[8.024924] (-) TimerEvent: {}
+[8.125235] (-) TimerEvent: {}
+[8.225557] (-) TimerEvent: {}
+[8.325890] (-) TimerEvent: {}
+[8.426202] (-) TimerEvent: {}
+[8.526512] (-) TimerEvent: {}
+[8.626823] (-) TimerEvent: {}
+[8.727121] (-) TimerEvent: {}
+[8.827417] (-) TimerEvent: {}
+[8.927770] (-) TimerEvent: {}
+[9.028073] (-) TimerEvent: {}
+[9.128403] (-) TimerEvent: {}
+[9.228674] (-) TimerEvent: {}
+[9.328984] (-) TimerEvent: {}
+[9.429329] (-) TimerEvent: {}
+[9.529678] (-) TimerEvent: {}
+[9.630008] (-) TimerEvent: {}
+[9.730323] (-) TimerEvent: {}
+[9.830650] (-) TimerEvent: {}
+[9.930981] (-) TimerEvent: {}
+[10.031283] (-) TimerEvent: {}
+[10.131488] (-) TimerEvent: {}
+[10.231819] (-) TimerEvent: {}
+[10.332123] (-) TimerEvent: {}
+[10.432449] (-) TimerEvent: {}
+[10.532748] (-) TimerEvent: {}
+[10.633040] (-) TimerEvent: {}
+[10.733274] (-) TimerEvent: {}
+[10.833590] (-) TimerEvent: {}
+[10.933905] (-) TimerEvent: {}
+[11.034201] (-) TimerEvent: {}
+[11.134549] (-) TimerEvent: {}
+[11.234917] (-) TimerEvent: {}
+[11.335252] (-) TimerEvent: {}
+[11.435574] (-) TimerEvent: {}
+[11.535897] (-) TimerEvent: {}
+[11.636215] (-) TimerEvent: {}
+[11.736552] (-) TimerEvent: {}
+[11.836974] (-) TimerEvent: {}
+[11.937273] (-) TimerEvent: {}
+[12.037594] (-) TimerEvent: {}
+[12.137900] (-) TimerEvent: {}
+[12.238211] (-) TimerEvent: {}
+[12.338540] (-) TimerEvent: {}
+[12.438786] (-) TimerEvent: {}
+[12.539100] (-) TimerEvent: {}
+[12.639331] (-) TimerEvent: {}
+[12.668287] (particle_filter_cpp) StdoutLine: {'line': b'[ 40%] \x1b[32m\x1b[1mLinking CXX shared library libparticle_filter_cpp_lib.so\x1b[0m\n'}
+[12.739519] (-) TimerEvent: {}
+[12.809206] (particle_filter_cpp) StdoutLine: {'line': b'[ 60%] Built target particle_filter_cpp_lib\n'}
+[12.825213] (particle_filter_cpp) StdoutLine: {'line': b'[ 80%] \x1b[32mBuilding CXX object CMakeFiles/particle_filter_node.dir/src/particle_filter.cpp.o\x1b[0m\n'}
+[12.839548] (-) TimerEvent: {}
+[12.939851] (-) TimerEvent: {}
+[13.040148] (-) TimerEvent: {}
+[13.140480] (-) TimerEvent: {}
+[13.240788] (-) TimerEvent: {}
+[13.341135] (-) TimerEvent: {}
+[13.441457] (-) TimerEvent: {}
+[13.541755] (-) TimerEvent: {}
+[13.642006] (-) TimerEvent: {}
+[13.742336] (-) TimerEvent: {}
+[13.842584] (-) TimerEvent: {}
+[13.942833] (-) TimerEvent: {}
+[14.043160] (-) TimerEvent: {}
+[14.143482] (-) TimerEvent: {}
+[14.243804] (-) TimerEvent: {}
+[14.344265] (-) TimerEvent: {}
+[14.444489] (-) TimerEvent: {}
+[14.455931] (particle_filter_cpp) StderrLine: {'line': b'In file included from \x1b[01m\x1b[K/opt/ros/humble/include/rclcpp/rclcpp/logging.hpp:24\x1b[m\x1b[K,\n'}
+[14.456055] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/opt/ros/humble/include/rclcpp/rclcpp/client.hpp:40\x1b[m\x1b[K,\n'}
+[14.456083] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/opt/ros/humble/include/rclcpp/rclcpp/callback_group.hpp:24\x1b[m\x1b[K,\n'}
+[14.456104] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/opt/ros/humble/include/rclcpp/rclcpp/any_executable.hpp:20\x1b[m\x1b[K,\n'}
+[14.456133] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/opt/ros/humble/include/rclcpp/rclcpp/memory_strategy.hpp:25\x1b[m\x1b[K,\n'}
+[14.456151] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/opt/ros/humble/include/rclcpp/rclcpp/memory_strategies.hpp:18\x1b[m\x1b[K,\n'}
+[14.456169] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/opt/ros/humble/include/rclcpp/rclcpp/executor_options.hpp:20\x1b[m\x1b[K,\n'}
+[14.456187] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/opt/ros/humble/include/rclcpp/rclcpp/executor.hpp:37\x1b[m\x1b[K,\n'}
+[14.456204] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/opt/ros/humble/include/rclcpp/rclcpp/executors/multi_threaded_executor.hpp:25\x1b[m\x1b[K,\n'}
+[14.456222] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/opt/ros/humble/include/rclcpp/rclcpp/executors.hpp:21\x1b[m\x1b[K,\n'}
+[14.456238] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/opt/ros/humble/include/rclcpp/rclcpp/rclcpp.hpp:155\x1b[m\x1b[K,\n'}
+[14.456255] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/home/haejum-park/2026_IFAC/monte_carlo_localization/include/particle_filter_cpp/particle_filter.hpp:17\x1b[m\x1b[K,\n'}
+[14.456275] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/home/haejum-park/2026_IFAC/monte_carlo_localization/src/particle_filter.cpp:7\x1b[m\x1b[K:\n'}
+[14.456293] (particle_filter_cpp) StderrLine: {'line': b'\x1b[01m\x1b[K/home/haejum-park/2026_IFAC/monte_carlo_localization/src/particle_filter.cpp:\x1b[m\x1b[K In member function \xe2\x80\x98\x1b[01m\x1b[Kvoid particle_filter_cpp::ParticleFilter::lidarCB(sensor_msgs::msg::LaserScan_<std::allocator<void> >::SharedPtr)\x1b[m\x1b[K\xe2\x80\x99:\n'}
+[14.456312] (particle_filter_cpp) StderrLine: {'line': b'\x1b[01m\x1b[K/home/haejum-park/2026_IFAC/monte_carlo_localization/src/particle_filter.cpp:396:13:\x1b[m\x1b[K \x1b[01;35m\x1b[Kwarning: \x1b[m\x1b[Kformat \xe2\x80\x98\x1b[01m\x1b[K%ld\x1b[m\x1b[K\xe2\x80\x99 expects argument of type \xe2\x80\x98\x1b[01m\x1b[Klong int\x1b[m\x1b[K\xe2\x80\x99, but argument 5 has type \xe2\x80\x98\x1b[01m\x1b[Kbuiltin_interfaces::msg::Time_<std::allocator<void> >::_sec_type\x1b[m\x1b[K\xe2\x80\x99 {aka \xe2\x80\x98\x1b[01m\x1b[Kint\x1b[m\x1b[K\xe2\x80\x99} [\x1b[01;35m\x1b[K\x1b]8;;https://gcc.gnu.org/onlinedocs/gcc/Warning-Options.html#index-Wformat=\x07-Wformat=\x1b]8;;\x07\x1b[m\x1b[K]\n'}
+[14.456334] (particle_filter_cpp) StderrLine: {'line': b'  396 |             \x1b[01;35m\x1b[K"LiDAR callback: new data received, timestamp: %ld.%09ld"\x1b[m\x1b[K,\n'}
+[14.456356] (particle_filter_cpp) StderrLine: {'line': b'      |             \x1b[01;35m\x1b[K^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\x1b[m\x1b[K\n'}
+[14.456374] (particle_filter_cpp) StderrLine: {'line': b'  397 |             \x1b[32m\x1b[Kmsg->header.stamp.sec\x1b[m\x1b[K, msg->header.stamp.nanosec);\n'}
+[14.456392] (particle_filter_cpp) StderrLine: {'line': b'      |             \x1b[32m\x1b[K~~~~~~~~~~~~~~~~~~~~~\x1b[m\x1b[K\n'}
+[14.456409] (particle_filter_cpp) StderrLine: {'line': b'      |                               \x1b[32m\x1b[K|\x1b[m\x1b[K\n'}
+[14.456425] (particle_filter_cpp) StderrLine: {'line': b'      |                               \x1b[32m\x1b[Kbuiltin_interfaces::msg::Time_<std::allocator<void> >::_sec_type {aka int}\x1b[m\x1b[K\n'}
+[14.456447] (particle_filter_cpp) StderrLine: {'line': b'\x1b[01m\x1b[K/home/haejum-park/2026_IFAC/monte_carlo_localization/src/particle_filter.cpp:396:62:\x1b[m\x1b[K \x1b[01;36m\x1b[Knote: \x1b[m\x1b[Kformat string is defined here\n'}
+[14.456464] (particle_filter_cpp) StderrLine: {'line': b'  396 |             "LiDAR callback: new data received, timestamp: \x1b[01;36m\x1b[K%ld\x1b[m\x1b[K.%09ld",\n'}
+[14.456486] (particle_filter_cpp) StderrLine: {'line': b'      |                                                            \x1b[01;36m\x1b[K~~^\x1b[m\x1b[K\n'}
+[14.456539] (particle_filter_cpp) StderrLine: {'line': b'      |                                                              \x1b[01;36m\x1b[K|\x1b[m\x1b[K\n'}
+[14.456590] (particle_filter_cpp) StderrLine: {'line': b'      |                                                              \x1b[01;36m\x1b[Klong int\x1b[m\x1b[K\n'}
+[14.456627] (particle_filter_cpp) StderrLine: {'line': b'      |                                                            \x1b[32m\x1b[K%d\x1b[m\x1b[K\n'}
+[14.456643] (particle_filter_cpp) StderrLine: {'line': b'In file included from \x1b[01m\x1b[K/opt/ros/humble/include/rclcpp/rclcpp/logging.hpp:24\x1b[m\x1b[K,\n'}
+[14.456659] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/opt/ros/humble/include/rclcpp/rclcpp/client.hpp:40\x1b[m\x1b[K,\n'}
+[14.456676] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/opt/ros/humble/include/rclcpp/rclcpp/callback_group.hpp:24\x1b[m\x1b[K,\n'}
+[14.456691] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/opt/ros/humble/include/rclcpp/rclcpp/any_executable.hpp:20\x1b[m\x1b[K,\n'}
+[14.456707] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/opt/ros/humble/include/rclcpp/rclcpp/memory_strategy.hpp:25\x1b[m\x1b[K,\n'}
+[14.456724] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/opt/ros/humble/include/rclcpp/rclcpp/memory_strategies.hpp:18\x1b[m\x1b[K,\n'}
+[14.456740] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/opt/ros/humble/include/rclcpp/rclcpp/executor_options.hpp:20\x1b[m\x1b[K,\n'}
+[14.456757] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/opt/ros/humble/include/rclcpp/rclcpp/executor.hpp:37\x1b[m\x1b[K,\n'}
+[14.456773] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/opt/ros/humble/include/rclcpp/rclcpp/executors/multi_threaded_executor.hpp:25\x1b[m\x1b[K,\n'}
+[14.456789] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/opt/ros/humble/include/rclcpp/rclcpp/executors.hpp:21\x1b[m\x1b[K,\n'}
+[14.456806] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/opt/ros/humble/include/rclcpp/rclcpp/rclcpp.hpp:155\x1b[m\x1b[K,\n'}
+[14.456821] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/home/haejum-park/2026_IFAC/monte_carlo_localization/include/particle_filter_cpp/particle_filter.hpp:17\x1b[m\x1b[K,\n'}
+[14.456838] (particle_filter_cpp) StderrLine: {'line': b'                 from \x1b[01m\x1b[K/home/haejum-park/2026_IFAC/monte_carlo_localization/src/particle_filter.cpp:7\x1b[m\x1b[K:\n'}
+[14.456854] (particle_filter_cpp) StderrLine: {'line': b'\x1b[01m\x1b[K/home/haejum-park/2026_IFAC/monte_carlo_localization/src/particle_filter.cpp:396:13:\x1b[m\x1b[K \x1b[01;35m\x1b[Kwarning: \x1b[m\x1b[Kformat \xe2\x80\x98\x1b[01m\x1b[K%ld\x1b[m\x1b[K\xe2\x80\x99 expects argument of type \xe2\x80\x98\x1b[01m\x1b[Klong int\x1b[m\x1b[K\xe2\x80\x99, but argument 6 has type \xe2\x80\x98\x1b[01m\x1b[Kbuiltin_interfaces::msg::Time_<std::allocator<void> >::_nanosec_type\x1b[m\x1b[K\xe2\x80\x99 {aka \xe2\x80\x98\x1b[01m\x1b[Kunsigned int\x1b[m\x1b[K\xe2\x80\x99} [\x1b[01;35m\x1b[K\x1b]8;;https://gcc.gnu.org/onlinedocs/gcc/Warning-Options.html#index-Wformat=\x07-Wformat=\x1b]8;;\x07\x1b[m\x1b[K]\n'}
+[14.456873] (particle_filter_cpp) StderrLine: {'line': b'  396 |             \x1b[01;35m\x1b[K"LiDAR callback: new data received, timestamp: %ld.%09ld"\x1b[m\x1b[K,\n'}
+[14.456890] (particle_filter_cpp) StderrLine: {'line': b'      |             \x1b[01;35m\x1b[K^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\x1b[m\x1b[K\n'}
+[14.456906] (particle_filter_cpp) StderrLine: {'line': b'  397 |             msg->header.stamp.sec, \x1b[32m\x1b[Kmsg->header.stamp.nanosec\x1b[m\x1b[K);\n'}
+[14.456922] (particle_filter_cpp) StderrLine: {'line': b'      |                                    \x1b[32m\x1b[K~~~~~~~~~~~~~~~~~~~~~~~~~\x1b[m\x1b[K\n'}
+[14.456939] (particle_filter_cpp) StderrLine: {'line': b'      |                                                      \x1b[32m\x1b[K|\x1b[m\x1b[K\n'}
+[14.456958] (particle_filter_cpp) StderrLine: {'line': b'      |                                                      \x1b[32m\x1b[Kbuiltin_interfaces::msg::Time_<std::allocator<void> >::_nanosec_type {aka unsigned int}\x1b[m\x1b[K\n'}
+[14.456974] (particle_filter_cpp) StderrLine: {'line': b'\x1b[01m\x1b[K/home/haejum-park/2026_IFAC/monte_carlo_localization/src/particle_filter.cpp:396:68:\x1b[m\x1b[K \x1b[01;36m\x1b[Knote: \x1b[m\x1b[Kformat string is defined here\n'}
+[14.456990] (particle_filter_cpp) StderrLine: {'line': b'  396 |             "LiDAR callback: new data received, timestamp: %ld.\x1b[01;36m\x1b[K%09ld\x1b[m\x1b[K",\n'}
+[14.457007] (particle_filter_cpp) StderrLine: {'line': b'      |                                                                \x1b[01;36m\x1b[K~~~~^\x1b[m\x1b[K\n'}
+[14.457024] (particle_filter_cpp) StderrLine: {'line': b'      |                                                                    \x1b[01;36m\x1b[K|\x1b[m\x1b[K\n'}
+[14.457040] (particle_filter_cpp) StderrLine: {'line': b'      |                                                                    \x1b[01;36m\x1b[Klong int\x1b[m\x1b[K\n'}
+[14.457057] (particle_filter_cpp) StderrLine: {'line': b'      |                                                                \x1b[32m\x1b[K%09d\x1b[m\x1b[K\n'}
+[14.544717] (-) TimerEvent: {}
+[14.644955] (-) TimerEvent: {}
+[14.745307] (-) TimerEvent: {}
+[14.845566] (-) TimerEvent: {}
+[14.945957] (-) TimerEvent: {}
+[15.046272] (-) TimerEvent: {}
+[15.146611] (-) TimerEvent: {}
+[15.246935] (-) TimerEvent: {}
+[15.347250] (-) TimerEvent: {}
+[15.447573] (-) TimerEvent: {}
+[15.547905] (-) TimerEvent: {}
+[15.648262] (-) TimerEvent: {}
+[15.748592] (-) TimerEvent: {}
+[15.848932] (-) TimerEvent: {}
+[15.949250] (-) TimerEvent: {}
+[16.049635] (-) TimerEvent: {}
+[16.149925] (-) TimerEvent: {}
+[16.250287] (-) TimerEvent: {}
+[16.350587] (-) TimerEvent: {}
+[16.450956] (-) TimerEvent: {}
+[16.551287] (-) TimerEvent: {}
+[16.651665] (-) TimerEvent: {}
+[16.751973] (-) TimerEvent: {}
+[16.852270] (-) TimerEvent: {}
+[16.952598] (-) TimerEvent: {}
+[17.052933] (-) TimerEvent: {}
+[17.153291] (-) TimerEvent: {}
+[17.253613] (-) TimerEvent: {}
+[17.353861] (-) TimerEvent: {}
+[17.454187] (-) TimerEvent: {}
+[17.554521] (-) TimerEvent: {}
+[17.654770] (-) TimerEvent: {}
+[17.755080] (-) TimerEvent: {}
+[17.855400] (-) TimerEvent: {}
+[17.955767] (-) TimerEvent: {}
+[18.056105] (-) TimerEvent: {}
+[18.156425] (-) TimerEvent: {}
+[18.256675] (-) TimerEvent: {}
+[18.356916] (-) TimerEvent: {}
+[18.457219] (-) TimerEvent: {}
+[18.557539] (-) TimerEvent: {}
+[18.657782] (-) TimerEvent: {}
+[18.758101] (-) TimerEvent: {}
+[18.858426] (-) TimerEvent: {}
+[18.958776] (-) TimerEvent: {}
+[19.059102] (-) TimerEvent: {}
+[19.159425] (-) TimerEvent: {}
+[19.259724] (-) TimerEvent: {}
+[19.360021] (-) TimerEvent: {}
+[19.460342] (-) TimerEvent: {}
+[19.560681] (-) TimerEvent: {}
+[19.661008] (-) TimerEvent: {}
+[19.761339] (-) TimerEvent: {}
+[19.861688] (-) TimerEvent: {}
+[19.962009] (-) TimerEvent: {}
+[20.062317] (-) TimerEvent: {}
+[20.162612] (-) TimerEvent: {}
+[20.262922] (-) TimerEvent: {}
+[20.363255] (-) TimerEvent: {}
+[20.463560] (-) TimerEvent: {}
+[20.563869] (-) TimerEvent: {}
+[20.664187] (-) TimerEvent: {}
+[20.764503] (-) TimerEvent: {}
+[20.864807] (-) TimerEvent: {}
+[20.965120] (-) TimerEvent: {}
+[21.065408] (-) TimerEvent: {}
+[21.165644] (-) TimerEvent: {}
+[21.265952] (-) TimerEvent: {}
+[21.366259] (-) TimerEvent: {}
+[21.466574] (-) TimerEvent: {}
+[21.566888] (-) TimerEvent: {}
+[21.667205] (-) TimerEvent: {}
+[21.767542] (-) TimerEvent: {}
+[21.867854] (-) TimerEvent: {}
+[21.968086] (-) TimerEvent: {}
+[22.068443] (-) TimerEvent: {}
+[22.168744] (-) TimerEvent: {}
+[22.269057] (-) TimerEvent: {}
+[22.369361] (-) TimerEvent: {}
+[22.469670] (-) TimerEvent: {}
+[22.569972] (-) TimerEvent: {}
+[22.670311] (-) TimerEvent: {}
+[22.770626] (-) TimerEvent: {}
+[22.870930] (-) TimerEvent: {}
+[22.971262] (-) TimerEvent: {}
+[23.071601] (-) TimerEvent: {}
+[23.171927] (-) TimerEvent: {}
+[23.272234] (-) TimerEvent: {}
+[23.372564] (-) TimerEvent: {}
+[23.472870] (-) TimerEvent: {}
+[23.573183] (-) TimerEvent: {}
+[23.673490] (-) TimerEvent: {}
+[23.773807] (-) TimerEvent: {}
+[23.874125] (-) TimerEvent: {}
+[23.974459] (-) TimerEvent: {}
+[24.074768] (-) TimerEvent: {}
+[24.175005] (-) TimerEvent: {}
+[24.275303] (-) TimerEvent: {}
+[24.375618] (-) TimerEvent: {}
+[24.475920] (-) TimerEvent: {}
+[24.576223] (-) TimerEvent: {}
+[24.676509] (-) TimerEvent: {}
+[24.776819] (-) TimerEvent: {}
+[24.877118] (-) TimerEvent: {}
+[24.977432] (-) TimerEvent: {}
+[25.077762] (-) TimerEvent: {}
+[25.178080] (-) TimerEvent: {}
+[25.278392] (-) TimerEvent: {}
+[25.310045] (particle_filter_cpp) StdoutLine: {'line': b'[100%] \x1b[32m\x1b[1mLinking CXX executable particle_filter_node\x1b[0m\n'}
+[25.378563] (-) TimerEvent: {}
+[25.459894] (particle_filter_cpp) StdoutLine: {'line': b'[100%] Built target particle_filter_node\n'}
+[25.466320] (particle_filter_cpp) CommandEnded: {'returncode': 0}
+[25.466576] (particle_filter_cpp) JobProgress: {'identifier': 'particle_filter_cpp', 'progress': 'install'}
+[25.470811] (particle_filter_cpp) Command: {'cmd': ['/usr/bin/cmake', '--install', '/home/haejum-park/2026_IFAC/build/particle_filter_cpp'], 'cwd': '/home/haejum-park/2026_IFAC/build/particle_filter_cpp', 'env': OrderedDict([('USER', 'haejum-park'), ('HOSTNAME', 'f1-humble.haejum-park-System-Product-Name'), ('XDG_SESSION_TYPE', 'x11'), ('XDG_CACHE_HOME', '/home/haejum-park/.cache'), ('SHLVL', '2'), ('LD_LIBRARY_PATH', '/home/haejum-park/install/examples_rclcpp_wait_set/lib:/home/haejum-park/install/examples_rclcpp_minimal_subscriber/lib:/home/haejum-park/install/examples_rclcpp_minimal_composition/lib:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib'), ('LIBGL_ALWAYS_SOFTWARE', '1'), ('HOME', '/home/haejum-park'), ('OLDPWD', '/home/haejum-park'), ('LESS', '-R'), ('DESKTOP_SESSION', 'ubuntu'), ('ZSH', '/home/haejum-park/.oh-my-zsh'), ('LSCOLORS', 'Gxfxcxdxbxegedabagacad'), ('GNOME_SHELL_SESSION_MODE', 'ubuntu'), ('GTK_MODULES', 'gail:atk-bridge'), ('PAGER', 'less'), ('ROS_PYTHON_VERSION', '3'), ('XDG_STATE_HOME', '/home/haejum-park/.local/state'), ('GSM_SKIP_SSH_AGENT_WORKAROUND', 'true'), ('SYSTEMD_EXEC_PID', '2662'), ('DISTROBOX_ENTER_PATH', '/usr/bin/distrobox-enter'), ('DBUS_SESSION_BUS_ADDRESS', 'unix:path=/run/user/1000/bus'), ('container', 'podman'), ('COLORTERM', 'truecolor'), ('GNOME_KEYRING_CONTROL', '/run/user/1000/keyring'), ('_colcon_cd_root', '/opt/ros/humble/'), ('ROS_DISTRO', 'humble'), ('COLCON_PREFIX_PATH', '/home/haejum-park/sim_ws/install:/home/haejum-park/install'), ('LOGNAME', 'haejum-park'), ('_', '/usr/bin/colcon'), ('TERMINFO_DIRS', '/usr/share/terminfo:/run/host/usr/share/terminfo'), ('XDG_SESSION_CLASS', 'user'), ('MEMORY_PRESSURE_WATCH', '/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/session.slice/org.gnome.SettingsDaemon.MediaKeys.service/memory.pressure'), ('ROS_VERSION', '2'), ('USERNAME', 'haejum-park'), ('TERM', 'xterm-256color'), ('GNOME_DESKTOP_SESSION_ID', 'this-is-deprecated'), ('ROS_LOCALHOST_ONLY', '0'), ('WINDOWPATH', '2'), ('PATH', '/opt/ros/humble/bin:/home/haejum-park/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/snap/bin:/home/haejum-park/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/haejum-park/.local/bin'), ('SESSION_MANAGER', 'local/haejum-park-System-Product-Name:@/tmp/.ICE-unix/2423,unix/haejum-park-System-Product-Name:/tmp/.ICE-unix/2423'), ('XDG_MENU_PREFIX', 'gnome-'), ('GNOME_TERMINAL_SCREEN', '/org/gnome/Terminal/screen/8de6c3b2_45d3_459e_b9d3_9c3fac94f495'), ('XDG_RUNTIME_DIR', '/run/user/1000'), ('DISPLAY', ':1'), ('LANG', 'en_US.UTF-8'), ('XDG_CURRENT_DESKTOP', 'ubuntu:GNOME'), ('XMODIFIERS', '@im=ibus'), ('GNOME_TERMINAL_SERVICE', ':1.125'), ('XDG_CONFIG_HOME', '/home/haejum-park/.config'), ('XDG_DATA_HOME', '/home/haejum-park/.local/share'), ('XAUTHORITY', '/run/user/1000/gdm/Xauthority'), ('XDG_SESSION_DESKTOP', 'ubuntu'), ('LS_COLORS', 'rs=0:di=01;34:ln=01;36:mh=00:pi=40;33:so=01;35:do=01;35:bd=40;33;01:cd=40;33;01:or=40;31;01:mi=00:su=37;41:sg=30;43:ca=00:tw=30;42:ow=34;42:st=37;44:ex=01;32:*.tar=01;31:*.tgz=01;31:*.arc=01;31:*.arj=01;31:*.taz=01;31:*.lha=01;31:*.lz4=01;31:*.lzh=01;31:*.lzma=01;31:*.tlz=01;31:*.txz=01;31:*.tzo=01;31:*.t7z=01;31:*.zip=01;31:*.z=01;31:*.dz=01;31:*.gz=01;31:*.lrz=01;31:*.lz=01;31:*.lzo=01;31:*.xz=01;31:*.zst=01;31:*.tzst=01;31:*.bz2=01;31:*.bz=01;31:*.tbz=01;31:*.tbz2=01;31:*.tz=01;31:*.deb=01;31:*.rpm=01;31:*.jar=01;31:*.war=01;31:*.ear=01;31:*.sar=01;31:*.rar=01;31:*.alz=01;31:*.ace=01;31:*.zoo=01;31:*.cpio=01;31:*.7z=01;31:*.rz=01;31:*.cab=01;31:*.wim=01;31:*.swm=01;31:*.dwm=01;31:*.esd=01;31:*.avif=01;35:*.jpg=01;35:*.jpeg=01;35:*.mjpg=01;35:*.mjpeg=01;35:*.gif=01;35:*.bmp=01;35:*.pbm=01;35:*.pgm=01;35:*.ppm=01;35:*.tga=01;35:*.xbm=01;35:*.xpm=01;35:*.tif=01;35:*.tiff=01;35:*.png=01;35:*.svg=01;35:*.svgz=01;35:*.mng=01;35:*.pcx=01;35:*.mov=01;35:*.mpg=01;35:*.mpeg=01;35:*.m2v=01;35:*.mkv=01;35:*.webm=01;35:*.webp=01;35:*.ogm=01;35:*.mp4=01;35:*.m4v=01;35:*.mp4v=01;35:*.vob=01;35:*.qt=01;35:*.nuv=01;35:*.wmv=01;35:*.asf=01;35:*.rm=01;35:*.rmvb=01;35:*.flc=01;35:*.avi=01;35:*.fli=01;35:*.flv=01;35:*.gl=01;35:*.dl=01;35:*.xcf=01;35:*.xwd=01;35:*.yuv=01;35:*.cgm=01;35:*.emf=01;35:*.ogv=01;35:*.ogx=01;35:*.aac=00;36:*.au=00;36:*.flac=00;36:*.m4a=00;36:*.mid=00;36:*.midi=00;36:*.mka=00;36:*.mp3=00;36:*.mpc=00;36:*.ogg=00;36:*.ra=00;36:*.wav=00;36:*.oga=00;36:*.opus=00;36:*.spx=00;36:*.xspf=00;36:*~=00;90:*#=00;90:*.bak=00;90:*.crdownload=00;90:*.dpkg-dist=00;90:*.dpkg-new=00;90:*.dpkg-old=00;90:*.dpkg-tmp=00;90:*.old=00;90:*.orig=00;90:*.part=00;90:*.rej=00;90:*.rpmnew=00;90:*.rpmorig=00;90:*.rpmsave=00;90:*.swp=00;90:*.tmp=00;90:*.ucf-dist=00;90:*.ucf-new=00;90:*.ucf-old=00;90:'), ('SSH_AUTH_SOCK', '/run/user/1000/keyring/ssh'), ('AMENT_PREFIX_PATH', '/home/haejum-park/sim_ws/install/wall_follow:/home/haejum-park/sim_ws/install/lab5_pkg:/home/haejum-park/sim_ws/install/homework:/home/haejum-park/sim_ws/install/gap_follow:/home/haejum-park/sim_ws/install/f1tenth_gym_ros:/home/haejum-park/install/wall_follow:/home/haejum-park/install/my_new_package:/home/haejum-park/install/launch_testing_examples:/home/haejum-park/install/homework:/home/haejum-park/install/gap_follow:/home/haejum-park/install/examples_rclpy_pointcloud_publisher:/home/haejum-park/install/examples_rclpy_minimal_subscriber:/home/haejum-park/install/examples_rclpy_minimal_service:/home/haejum-park/install/examples_rclpy_minimal_publisher:/home/haejum-park/install/examples_rclpy_minimal_client:/home/haejum-park/install/examples_rclpy_minimal_action_server:/home/haejum-park/install/examples_rclpy_minimal_action_client:/home/haejum-park/install/examples_rclpy_guard_conditions:/home/haejum-park/install/examples_rclpy_executors:/home/haejum-park/install/examples_rclcpp_wait_set:/home/haejum-park/install/examples_rclcpp_multithreaded_executor:/home/haejum-park/install/examples_rclcpp_minimal_timer:/home/haejum-park/install/examples_rclcpp_minimal_subscriber:/home/haejum-park/install/examples_rclcpp_minimal_service:/home/haejum-park/install/examples_rclcpp_minimal_publisher:/home/haejum-park/install/examples_rclcpp_minimal_composition:/home/haejum-park/install/examples_rclcpp_minimal_client:/home/haejum-park/install/examples_rclcpp_minimal_action_server:/home/haejum-park/install/examples_rclcpp_minimal_action_client:/home/haejum-park/install/examples_rclcpp_cbg_executor:/home/haejum-park/install/examples_rclcpp_async_client:/opt/ros/humble'), ('SHELL', 'bash'), ('GDMSESSION', 'ubuntu'), ('QT_ACCESSIBILITY', '1'), ('GPG_AGENT_INFO', '/run/user/1000/gnupg/S.gpg-agent:0:1'), ('QT_IM_MODULE', 'ibus'), ('CONTAINER_ID', 'ubuntu22'), ('LC_ALL', 'en_US.UTF-8'), ('PWD', '/home/haejum-park/2026_IFAC/build/particle_filter_cpp'), ('XDG_CONFIG_DIRS', '/etc/xdg/xdg-ubuntu:/etc/xdg'), ('XDG_DATA_DIRS', '/usr/share/ubuntu:/usr/share/gnome:/usr/local/share/:/usr/share/:/var/lib/snapd/desktop:/usr/local/share:/usr/share'), ('PYTHONPATH', '/home/haejum-park/sim_ws/install/wall_follow/local/lib/python3.10/dist-packages:/home/haejum-park/sim_ws/install/lab5_pkg/local/lib/python3.10/dist-packages:/home/haejum-park/sim_ws/install/homework/local/lib/python3.10/dist-packages:/home/haejum-park/sim_ws/install/gap_follow/local/lib/python3.10/dist-packages:/home/haejum-park/sim_ws/build/f1tenth_gym_ros:/home/haejum-park/sim_ws/install/f1tenth_gym_ros/lib/python3.10/site-packages:/home/haejum-park/install/wall_follow/local/lib/python3.10/dist-packages:/home/haejum-park/install/wall_follow/lib/python3.10/site-packages:/home/haejum-park/install/launch_testing_examples/lib/python3.10/site-packages:/home/haejum-park/install/homework/local/lib/python3.10/dist-packages:/home/haejum-park/install/gap_follow/local/lib/python3.10/dist-packages:/home/haejum-park/install/f110_gym/lib/python3.10/site-packages:/home/haejum-park/install/examples_rclpy_pointcloud_publisher/lib/python3.10/site-packages:/home/haejum-park/install/examples_rclpy_minimal_subscriber/lib/python3.10/site-packages:/home/haejum-park/install/examples_rclpy_minimal_service/lib/python3.10/site-packages:/home/haejum-park/install/examples_rclpy_minimal_publisher/lib/python3.10/site-packages:/home/haejum-park/install/examples_rclpy_minimal_client/lib/python3.10/site-packages:/home/haejum-park/install/examples_rclpy_minimal_action_server/lib/python3.10/site-packages:/home/haejum-park/install/examples_rclpy_minimal_action_client/lib/python3.10/site-packages:/home/haejum-park/install/examples_rclpy_guard_conditions/lib/python3.10/site-packages:/home/haejum-park/install/examples_rclpy_executors/lib/python3.10/site-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages'), ('COLCON', '1'), ('VTE_VERSION', '7600'), ('MEMORY_PRESSURE_WRITE', 'c29tZSAyMDAwMDAgMjAwMDAwMAA='), ('CMAKE_PREFIX_PATH', '/home/haejum-park/sim_ws/install/wall_follow:/home/haejum-park/sim_ws/install/lab5_pkg:/home/haejum-park/sim_ws/install/homework:/home/haejum-park/sim_ws/install/gap_follow:/home/haejum-park/install/wall_follow:/home/haejum-park/install/my_new_package:/home/haejum-park/install/homework:/home/haejum-park/install/gap_follow:/home/haejum-park/install/examples_rclcpp_wait_set:/home/haejum-park/install/examples_rclcpp_multithreaded_executor:/home/haejum-park/install/examples_rclcpp_minimal_timer:/home/haejum-park/install/examples_rclcpp_minimal_subscriber:/home/haejum-park/install/examples_rclcpp_minimal_service:/home/haejum-park/install/examples_rclcpp_minimal_publisher:/home/haejum-park/install/examples_rclcpp_minimal_composition:/home/haejum-park/install/examples_rclcpp_minimal_client:/home/haejum-park/install/examples_rclcpp_minimal_action_server:/home/haejum-park/install/examples_rclcpp_minimal_action_client:/home/haejum-park/install/examples_rclcpp_cbg_executor:/home/haejum-park/install/examples_rclcpp_async_client:/home/haejum-park/sim_ws/install/f1tenth_gym_ros:/home/haejum-park/install/launch_testing_examples:/home/haejum-park/install/examples_rclpy_pointcloud_publisher:/home/haejum-park/install/examples_rclpy_minimal_subscriber:/home/haejum-park/install/examples_rclpy_minimal_service:/home/haejum-park/install/examples_rclpy_minimal_publisher:/home/haejum-park/install/examples_rclpy_minimal_client:/home/haejum-park/install/examples_rclpy_minimal_action_server:/home/haejum-park/install/examples_rclpy_minimal_action_client:/home/haejum-park/install/examples_rclpy_guard_conditions:/home/haejum-park/install/examples_rclpy_executors:/opt/ros/humble')]), 'shell': False}
+[25.474535] (particle_filter_cpp) StdoutLine: {'line': b'-- Install configuration: ""\n'}
+[25.474859] (particle_filter_cpp) StdoutLine: {'line': b'-- Execute custom install script\n'}
+[25.474925] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/lib/libparticle_filter_cpp_lib.so\n'}
+[25.474956] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/lib/particle_filter_cpp/particle_filter_node\n'}
+[25.475190] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/include//particle_filter_cpp/particle_filter.hpp\n'}
+[25.475252] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/include//particle_filter_cpp/utils.hpp\n'}
+[25.475276] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/environment/library_path.sh\n'}
+[25.475297] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/environment/library_path.dsv\n'}
+[25.475327] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/ament_index/resource_index/package_run_dependencies/particle_filter_cpp\n'}
+[25.475348] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/ament_index/resource_index/parent_prefix_path/particle_filter_cpp\n'}
+[25.475666] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/environment/ament_prefix_path.sh\n'}
+[25.475734] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/environment/ament_prefix_path.dsv\n'}
+[25.475768] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/environment/path.sh\n'}
+[25.475795] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/environment/path.dsv\n'}
+[25.475821] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/local_setup.bash\n'}
+[25.475876] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/local_setup.sh\n'}
+[25.475904] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/local_setup.zsh\n'}
+[25.475924] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/local_setup.dsv\n'}
+[25.475942] (particle_filter_cpp) StdoutLine: {'line': b'-- Symlinking: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/package.dsv\n'}
+[25.478624] (-) TimerEvent: {}
+[25.480313] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/ament_index/resource_index/packages/particle_filter_cpp\n'}
+[25.480438] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/ament_index/resource_index/rclcpp_components/particle_filter_cpp\n'}
+[25.480469] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/cmake/ament_cmake_export_dependencies-extras.cmake\n'}
+[25.480491] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/cmake/ament_cmake_export_include_directories-extras.cmake\n'}
+[25.480510] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/cmake/ament_cmake_export_libraries-extras.cmake\n'}
+[25.480750] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/cmake/particle_filter_cppConfig.cmake\n'}
+[25.480815] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/cmake/particle_filter_cppConfig-version.cmake\n'}
+[25.480844] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date symlink: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/package.xml\n'}
+[25.480873] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/launch/\n'}
+[25.480895] (particle_filter_cpp) StdoutLine: {'line': b'-- Installing: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/launch//mcl_launch.py\n'}
+[25.480941] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/config/\n'}
+[25.480998] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/config//mcl_config.yaml\n'}
+[25.481020] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps/\n'}
+[25.481065] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//map_1753950572.pgm\n'}
+[25.481102] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//redbull_1.yaml\n'}
+[25.481122] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//Spielberg_map.yaml\n'}
+[25.481142] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//fuck_f1.yaml\n'}
+[25.481178] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//new_map1.png\n'}
+[25.481195] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//map_1755669035.pgm\n'}
+[25.481211] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//fuck_jg_1.pgm\n'}
+[25.481227] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//fuck_f1.pgm\n'}
+[25.481244] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//fmap.png\n'}
+[25.481259] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//sibal1.yaml\n'}
+[25.481277] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//levine.pgm\n'}
+[25.481292] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//levine.yaml\n'}
+[25.481308] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//map_1755669035.yaml\n'}
+[25.481325] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//test_map.pgm\n'}
+[25.481341] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//oct_25_1.yaml\n'}
+[25.481358] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//test_map.yaml\n'}
+[25.481374] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//oct_25_1.pgm\n'}
+[25.481391] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//slam_map.png\n'}
+[25.481407] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//redbull_1.png\n'}
+[25.481423] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//Spielberg_map.png\n'}
+[25.481442] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//first_map.yaml\n'}
+[25.481458] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//icra_2_clean.png\n'}
+[25.481474] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//sibal1.png\n'}
+[25.481490] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//basement_fixed.png\n'}
+[25.481506] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//f2map.yaml\n'}
+[25.481523] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//basement_fixed.map.yaml\n'}
+[25.481538] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//icra_2_clean.yaml\n'}
+[25.481553] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//labtest.yaml\n'}
+[25.481569] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//first_map.pgm\n'}
+[25.481586] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//map_1753950572.yaml\n'}
+[25.481603] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//slam_map.yaml\n'}
+[25.481620] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//f2map.pgm\n'}
+[25.481636] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//labtest.pgm\n'}
+[25.481654] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//fuck_jg_1.yaml\n'}
+[25.481670] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//new_map1.yaml\n'}
+[25.481686] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/maps//fmap.yaml\n'}
+[25.481703] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/rviz/\n'}
+[25.481718] (particle_filter_cpp) StdoutLine: {'line': b'-- Up-to-date: /home/haejum-park/2026_IFAC/install/particle_filter_cpp/share/particle_filter_cpp/rviz//particle_filter.rviz\n'}
+[25.482304] (particle_filter_cpp) CommandEnded: {'returncode': 0}
+[25.490533] (particle_filter_cpp) JobEnded: {'identifier': 'particle_filter_cpp', 'rc': 0}
+[25.490869] (-) EventReactorShutdown: {}

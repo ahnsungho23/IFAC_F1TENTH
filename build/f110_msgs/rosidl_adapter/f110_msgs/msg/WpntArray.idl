@@ -1,0 +1,16 @@
+// generated from rosidl_adapter/resource/msg.idl.em
+// with input from f110_msgs/msg/WpntArray.msg
+// generated code does not contain a copyright notice
+
+#include "f110_msgs/msg/Wpnt.idl"
+#include "std_msgs/msg/Header.idl"
+
+module f110_msgs {
+  module msg {
+    struct WpntArray {
+      std_msgs::msg::Header header;
+
+      sequence<f110_msgs::msg::Wpnt> wpnts;
+    };
+  };
+};
