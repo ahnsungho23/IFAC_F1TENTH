@@ -42,6 +42,7 @@ This file defines the working rules for AI coding agents in this repository. The
 - Node-level `AGENTS.md` files must describe the node-specific rules, package layout, message choices, parameter files, launch files, and documentation expectations.
 - Node-level instructions may add constraints, but must not weaken or contradict this root `AGENTS.md`.
 - Always follow the closest applicable `AGENTS.md` before editing a node.
+- You must update repo using git before modifing.
 
 ## Node Documentation
 
