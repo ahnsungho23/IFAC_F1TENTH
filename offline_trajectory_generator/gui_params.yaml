@@ -1,5 +1,5 @@
-map_yaml: /home/parkm/2026_IFAC/monte_carlo_localization/maps/fuck_f1.yaml
-output_dir: /home/parkm/2026_IFAC/offline_trajectory_generator/output/fuck_f1_1
+map_yaml: /home/haejun/2026_IFAC/monte_carlo_localization/maps/fuck_f1.yaml
+output_dir: /home/haejun/2026_IFAC/offline_trajectory_generator/output/fuck_f1
 optimizer: mincurv
 width_mode: distance
 show_centerline: true
@@ -12,16 +12,16 @@ waypoint_step: 0.36
 optimizer_step: 0.8
 safety_width: 0.7
 boundary_margin: 0.1
-max_width_distance: 2.8
+max_width_distance: 3.0
 max_speed: 9.0
 min_speed: 3.5000000000000004
 max_lateral_accel: 5.800000000000001
 max_accel: 5.8
 max_decel: 7.1
-smooth_sigma: 3.0
+smooth_sigma: 3.5
 median_kernel: 9
 morph_kernel: 11
-morph_open_iterations: 3
+morph_open_iterations: 4
 morph_close_iterations: 1
 skeleton_prune_iterations: 80
 min_skeleton_component_area: 40
@@ -29,5 +29,5 @@ min_centerline_angle: 75.0
 spike_filter_iterations: 8
 max_optimizer_iter: 120
 curvature_weight: 1.0
-smooth_weight: 0.04
-length_weight: 0.002
+smooth_weight: 0.035
+length_weight: 0.007

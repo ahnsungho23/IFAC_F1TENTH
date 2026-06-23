@@ -5,8 +5,7 @@ from launch_ros.actions import Node
 
 
 def generate_launch_description():
-    default_param_file = "/home/haejum-park/2026_IFAC/planning/global_planner/config/global_planning.yaml"
-
+    default_param_file = "/home/haejun/2026_IFAC/planning/global_planner/config/global_planning.yaml"
     params_arg = DeclareLaunchArgument(
         "params_file",
         default_value=default_param_file,
@@ -27,14 +26,6 @@ def generate_launch_description():
         ],
     )
 
-    global_planner = Node(
-        package="global_planner",
-        executable="global_planner_node",
-        name="global_planner_node",
-        output="screen",
-        parameters=[params],
-    )
-
     global_republisher = Node(
         package="global_planner",
         executable="global_trajectory_publisher_node",
@@ -53,7 +44,6 @@ def generate_launch_description():
     return LaunchDescription([
         params_arg,
         pythonpath_inject,
-        global_planner,
         global_republisher,
         frenet_odom,
     ])
