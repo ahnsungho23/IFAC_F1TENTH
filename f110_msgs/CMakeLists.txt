@@ -25,6 +25,7 @@ set(msg_files
   "msg/PidData.msg"
   "msg/ProjOppPoint.msg"
   "msg/ProjOppTraj.msg"
+  "msg/StateMachine.msg"
   "msg/Wpnt.msg"
   "msg/WpntArray.msg"
 )
