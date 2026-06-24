@@ -1,0 +1,16 @@
+state_machine_node:
+  ros__parameters:
+    state_topic: "/state"
+    frenet_odom_topic: "/car_state/frenet/odom"
+    global_waypoints_topic: "/global_waypoints"
+    avoidance_wpnts_topic: "/planner/avoidance/otwpnts"
+    scan_topic: "/scan"
+
+    frame_id: "map"
+    publish_rate_hz: 10.0
+    default_state: "global"
+
+    avoidance_stale_timeout_sec: 0.5
+    global_stale_timeout_sec: 2.0
+    frenet_stale_timeout_sec: 0.5
+    use_scan_subscription: false
