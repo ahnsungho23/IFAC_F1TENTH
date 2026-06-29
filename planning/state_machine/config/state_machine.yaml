@@ -3,14 +3,19 @@ state_machine_node:
     state_topic: "/state"
     frenet_odom_topic: "/car_state/frenet/odom"
     global_waypoints_topic: "/global_waypoints"
-    avoidance_wpnts_topic: "/planner/avoidance/otwpnts"
-    scan_topic: "/scan"
+    avoid_waypoints_topic: "/avoid_waypoints"
+    overtake_waypoints_topic: "/overtake_waypoints"
+    obstacles_topic: "/perception/obstacles"
 
     frame_id: "map"
     publish_rate_hz: 10.0
     default_state: "global"
 
-    avoidance_stale_timeout_sec: 0.5
+    avoid_stale_timeout_sec: 0.5
+    overtake_stale_timeout_sec: 0.5
     global_stale_timeout_sec: 2.0
     frenet_stale_timeout_sec: 0.5
-    use_scan_subscription: false
+    obstacles_stale_timeout_sec: 0.5
+
+    obstacle_lookahead_m: 3.0
+    global_blocking_d_threshold_m: 0.4
