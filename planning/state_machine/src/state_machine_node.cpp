@@ -19,9 +19,9 @@ StateMachineNode::StateMachineNode()
   declare_parameter<std::string>("global_waypoints_topic", "/global_waypoints");
   //global waypoint가 존재하는지 확인하고, 마지막 waypoint의 s_m 값을 이용해 track length를 추정
   declare_parameter<std::string>("avoid_waypoints_topic", "/avoid_waypoints");
-  //정적 장애물 회피용 local path 토픽입니다. STATE_AVOID 전이에 사용합니다.
+  //정적 장애물 회피용 local path 토픽. STATE_AVOID 전이에 사용함.
   declare_parameter<std::string>("overtake_waypoints_topic", "/overtake_waypoints");
-  //동적 장애물/상대 차량 추월용 local path 토픽입니다. STATE_OVERTAKE 전이에 사용합니다.
+  //동적 장애물/상대 차량 추월용 local path 토픽. STATE_OVERTAKE 전이에 사용함.
   declare_parameter<std::string>("obstacles_topic", "/perception/obstacles");
   //perception 노드가 발행하는 obstacle array를 받는 토픽
   declare_parameter<std::string>("frame_id", "map");
@@ -103,15 +103,13 @@ StateMachineNode::StateMachineNode()
 
 std::optional<uint8_t> StateMachineNode::parse_state(const std::string & state_name) const
 {
-  if (state_name == "global" || state_name == "state_global" || state_name == "0") {
+  if (state_name == "global") {
     return f110_msgs::msg::StateMachine::STATE_GLOBAL;
   }
-  if (state_name == "avoid" || state_name == "avoidance" || state_name == "state_avoid" ||
-    state_name == "1")
-  {
+  if (state_name == "avoid") {
     return f110_msgs::msg::StateMachine::STATE_AVOID;
   }
-  if (state_name == "overtake" || state_name == "state_overtake" || state_name == "2") {
+  if (state_name == "overtake") {
     return f110_msgs::msg::StateMachine::STATE_OVERTAKE;
   }
   return std::nullopt;
@@ -147,14 +145,17 @@ bool StateMachineNode::has_fresh_obstacles() const
   return has_obstacles_ && is_fresh(last_obstacles_time_, obstacles_stale_timeout_sec_);
 }
 
-
+///perception/obstacles 수신
+// on_obstacles()
+// compute_obstacle_evidence(*msg)
 //obstacle_evidence_에 저장
+//resolve_requested_state()에서 obstacle_evidence_를 보고 state 결정
 StateMachineNode::ObstacleEvidence StateMachineNode::compute_obstacle_evidence(
   const f110_msgs::msg::ObstacleArray & msg) const
 {
-  ObstacleEvidence evidence;
-  const f110_msgs::msg::Obstacle * closest_obstacle = nullptr;
-  bool closest_is_visible = false;
+  ObstacleEvidence evidence; //ObstacleEvidence는 구조체 종류, evidence는 구조체 변수
+  const f110_msgs::msg::Obstacle * closest_obstacle = nullptr; //가장 가까운 장애물을 가리킬 포인터 변수
+  bool closest_is_visible = false; ///closest_obstacle로 선택해둔 장애물이 visible인지 아닌지 기억하는 bool 변수
 
   for (const auto & obstacle : msg.obstacles) {
     if (obstacle.is_actually_a_gap) {

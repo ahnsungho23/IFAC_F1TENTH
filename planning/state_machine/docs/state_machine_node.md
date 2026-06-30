@@ -83,7 +83,7 @@ planning/state_machine/config/state_machine.yaml
 | `obstacles_topic` | `/perception/obstacles` | perception obstacle array 구독 토픽 |
 | `frame_id` | `map` | `/state` header frame |
 | `publish_rate_hz` | `10.0` | 상태 발행 주기 |
-| `default_state` | `global` | skeleton에서 사용할 요청 상태. 지원 값: `global`, `state_global`, `avoid`, `avoidance`, `state_avoid`, `overtake`, `state_overtake`, `0`, `1`, `2` |
+| `default_state` | `global` | skeleton에서 사용할 요청 상태. 지원 값: `global`, `avoid`, `overtake` |
 | `avoid_stale_timeout_sec` | `0.5` | `/avoid_waypoints` stale timeout. 양수 값 사용 |
 | `overtake_stale_timeout_sec` | `0.5` | `/overtake_waypoints` stale timeout. 양수 값 사용 |
 | `global_stale_timeout_sec` | `2.0` | global waypoint stale timeout. 양수 값 사용 |
