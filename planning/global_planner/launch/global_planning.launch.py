@@ -1,11 +1,18 @@
+import os
+
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, SetEnvironmentVariable
-from launch.substitutions import EnvironmentVariable, LaunchConfiguration, TextSubstitution
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
 def generate_launch_description():
-    default_param_file = "/home/haejun/2026_IFAC/planning/global_planner/config/global_planning.yaml"
+    default_param_file = os.path.join(
+        get_package_share_directory("global_planner"),
+        "config",
+        "global_planning.yaml",
+    )
     params_arg = DeclareLaunchArgument(
         "params_file",
         default_value=default_param_file,
@@ -13,18 +20,6 @@ def generate_launch_description():
     )
 
     params = LaunchConfiguration("params_file")
-    pythonpath_inject = SetEnvironmentVariable(
-        name="PYTHONPATH",
-        value=[
-            TextSubstitution(
-                text="/home/haejum-park/race_stack/system_identification/steering_lookup/src:"
-            ),
-            TextSubstitution(
-                text="/home/haejum-park/race_stack/f110_utils/libs/frenet_conversion/src:"
-            ),
-            EnvironmentVariable("PYTHONPATH", default_value=""),
-        ],
-    )
 
     global_republisher = Node(
         package="global_planner",
@@ -44,7 +39,6 @@ def generate_launch_description():
 
     return LaunchDescription([
         params_arg,
-        pythonpath_inject,
         global_republisher,
         frenet_odom,
     ])

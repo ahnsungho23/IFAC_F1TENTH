@@ -24,7 +24,7 @@ This file applies to the `planning/global_planner` package.
 - Keep topic names, frame names, loop mode, and debug publishing configurable through YAML.
 - For closed-loop tracks, close the reference path before building CLCS and wrap published `s` by CLCS path length.
 - Skip zero-length or invalid segments and avoid publishing if fewer than two waypoints are available.
-- Preserve `src/frenet_odom_node_legacy_polyline.cpp` as a non-built reference of the previous implementation.
+- The previous polyline-based implementation was removed; consult git history (commit `301a06e` and earlier) if the legacy `frenet_odom_node_legacy_polyline.cpp` reference is ever needed.
 
 ## Documentation
 

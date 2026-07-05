@@ -6,7 +6,7 @@
 ## 0) Scope
 
 1. 이 문서는 `planning` 패키지 내부 런타임 파이프라인을 중심으로 설명합니다.
-2. `wpnt_publisher`, `new_map_con`는 planning 바깥 패키지이지만, 인터페이스 연동에 필요한 최소 내용만 포함합니다.
+2. `wpnt_publisher`는 planning 바깥 패키지이지만, 인터페이스 연동에 필요한 최소 내용만 포함합니다.
 3. 과거 문서에 있던 `offline_trajectory_generator` GUI 파라미터 설명은 별도 도구 영역이므로 이 문서에서 분리했습니다.
 
 ## 1) Planning 디렉터리 구성
@@ -69,16 +69,6 @@ wpnt_publisher
     /car_state/frenet/odom
   출력:
     /local_waypoints
-
-new_map_con / MAP_controller.py
-  입력:
-    /global_waypoints
-    /local_waypoints
-    /pf/pose/odom
-    /car_state/frenet/odom
-    /odom, /scan, /sensors/imu/raw, /state
-  출력:
-    /drive
 ```
 
 ## 3) Node별 실제 역할 (코드 기준)
@@ -154,7 +144,6 @@ Downstream(참고):
 | 노드 | Subscribe | Publish |
 |---|---|---|
 | `wpnt_publisher` | `/global_waypoints`, `/car_state/frenet/odom`, `/planner/avoidance/otwpnts` | `/local_waypoints`, `/local_waypoints/path` |
-| `new_map_con/MAP_controller.py` | `/global_waypoints`, `/local_waypoints`, `/pf/pose/odom`, `/car_state/frenet/odom`, `/odom`, `/scan`, `/sensors/imu/raw`, `/state` | `/drive` |
 
 ## 6) Launch/Parameter 사용법
 
