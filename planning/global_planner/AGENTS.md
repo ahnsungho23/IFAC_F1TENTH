@@ -1,0 +1,33 @@
+# AGENTS.md
+
+This file applies to the `planning/global_planner` package.
+
+## Package Scope
+
+- Runtime ROS 2 nodes in this package must be C++.
+- Keep node sources in `src/` and public declarations or shared helpers in `include/`.
+- Keep package parameters in `config/global_planning.yaml` unless a node clearly needs a dedicated YAML file.
+- Keep launch entry points in `launch/`; launch files must load the matching YAML parameters.
+- Keep user-facing node documentation in `docs/`.
+
+## Messages and Dependencies
+
+- Prefer existing `f110_msgs` messages and ROS 2 standard messages.
+- `frenet_odom_node` uses `nav_msgs/msg/Odometry`, `f110_msgs/msg/WpntArray`, and CommonRoad-CLCS C++ core.
+- Do not add `tf2` to `frenet_odom_node`; yaw and heading-error handling must use local math helpers.
+- Do not create custom messages for debug data unless standard messages cannot represent the requirement.
+
+## Frenet Odom Node
+
+- Convert map-frame vehicle XY to Frenet `s`, `d` through `geometry::CurvilinearCoordinateSystem`.
+- Do not copy waypoint `d_m` into vehicle `d`; waypoint `d_m` may describe another lateral offset.
+- Keep topic names, frame names, loop mode, and debug publishing configurable through YAML.
+- For closed-loop tracks, close the reference path before building CLCS and wrap published `s` by CLCS path length.
+- Skip zero-length or invalid segments and avoid publishing if fewer than two waypoints are available.
+- Preserve `src/frenet_odom_node_legacy_polyline.cpp` as a non-built reference of the previous implementation.
+
+## Documentation
+
+- Update `docs/<node_name>.md` when node behavior, parameters, topics, or run commands change.
+- Keep step-by-step operator documentation in Korean.
+- Update package-level pipeline docs when a node's public behavior changes.

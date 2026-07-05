@@ -117,12 +117,15 @@ new_map_con / MAP_controller.py
 ### 3.3 `frenet_odom_node` (C++)
 
 1. `/global_waypoints`를 latched QoS로 구독하고 waypoint 배열을 저장합니다.
-2. `/pf/pose/odom` 수신 시 XY 기준 최근접 waypoint 인덱스를 탐색합니다.
-3. 출력 Odometry를 다음처럼 구성합니다.
-4. `header.frame_id = "frenet"`
-5. `child_frame_id = "<closest_index>"`
-6. `pose.pose.position.x = s_m`, `pose.pose.position.y = d_m`
-7. `/car_state/frenet/odom`으로 publish합니다.
+2. `/pf/pose/odom` 수신 시 차량 XY를 모든 인접 waypoint segment에 직교투영합니다.
+3. 투영점과 차량 위치 사이의 거리 제곱이 가장 작은 segment를 closest segment로 선택합니다.
+4. `s = waypoint[i].s_m + t * segment_length`로 계산하고, `closed_loop=true`이면 마지막 waypoint와 첫 번째 waypoint segment도 포함합니다.
+5. `d`는 segment 방향과 투영점 기준 차량 offset의 cross product 부호로 계산합니다.
+6. 출력 Odometry를 다음처럼 구성합니다.
+7. `header.frame_id = "frenet"`
+8. `child_frame_id = "<closest_segment_index>"`
+9. `pose.pose.position.x = calculated_s`, `pose.pose.position.y = calculated_d`
+10. `/car_state/frenet/odom`으로 publish합니다.
 
 ## 4) `global_planner_node`가 호출하는 vendor optimizer 내부 단계
 

@@ -39,6 +39,7 @@ def generate_launch_description():
         executable="frenet_odom_node",
         name="frenet_odom_node",
         output="screen",
+        parameters=[params],
     )
 
     return LaunchDescription([
