@@ -17,10 +17,12 @@
 7. dynamic obstacle이 global path를 막고 fresh한 `/overtake_waypoints`가 있으면 `STATE_OVERTAKE`를 발행한다.
 8. static obstacle과 dynamic obstacle이 동시에 감지되고 global path가 막히면 `STATE_AVOID`를 우선한다.
 9. obstacle 기반 강제 전이가 없으면 `default_state` 파라미터를 요청 상태로 사용한다.
-10. 요청 상태가 `avoid`인데 fresh한 `/avoid_waypoints`가 없으면 `STATE_GLOBAL`로 fallback한다.
-11. 요청 상태가 `overtake`인데 fresh한 `/overtake_waypoints`가 없으면 `STATE_GLOBAL`로 fallback한다.
+10. 요청 상태가 `avoid`인데 fresh하고 유효한 avoid path가 없으면 `STATE_GLOBAL`로 fallback한다.
+11. 요청 상태가 `overtake`인데 fresh하고 유효한 overtake path가 없으면 `STATE_GLOBAL`로 fallback한다.
 12. 요청 상태 문자열이 잘못되면 `STATE_GLOBAL`로 fallback한다.
-13. publish timer 주기마다 `/state`를 발행한다.
+13. publish tick마다 발행된 local path(`/avoid_waypoints`, `/overtake_waypoints`)를 재평가하고, 평가를 통과해야 전이를 허용한다 (5.1절).
+14. raw 요청 상태에 anti-oscillation 필터(dwell time + N-tick debounce)를 적용한 뒤 확정 상태를 발행한다 (5.2절).
+15. publish timer 주기마다 `/state`를 발행한다.
 
 ## 3. 구독 토픽
 
@@ -65,6 +67,33 @@ Obstacle evidence skeleton은 다음 원칙을 따른다.
 
 이 evidence는 `/state` 전이에 직접 사용된다. static path blocking은 `/avoid_waypoints` freshness와 함께 `STATE_AVOID` 조건이 되고, dynamic path blocking은 `/overtake_waypoints` freshness와 함께 `STATE_OVERTAKE` 조건이 된다.
 
+## 5.1 Local Path 평가 (LocalPathAssessment)
+
+freshness만으로는 planner가 발행한 local path가 실제로 따라갈 수 있는 경로인지 보장하지 못한다. `path_eval_enabled: true`이면 publish tick마다 마지막으로 수신한 `/avoid_waypoints`, `/overtake_waypoints`를 최신 ego pose와 obstacle set 기준으로 재평가하고, 아래 check를 전부 통과해야(`valid == true`) 해당 상태로의 전이를 허용한다.
+
+평가 절차는 다음과 같다.
+
+1. **has_path**: waypoint array가 비어 있지 않아야 한다.
+2. **long_enough**: path의 `s` span이 `path_min_length_m` 이상이어야 한다 (track wrap 고려).
+3. **starts_near_ego**: path 시작점이 ego의 현재 `s`에서 `path_start_max_gap_m` 안에 있어야 한다. 오래됐거나 엉뚱한 구간의 잔여 경로를 거부한다. ego pose가 없으면 보수적으로 거부한다.
+4. **within_track_bounds**: 모든 waypoint가 트랙 경계까지 `path_min_bound_margin_m` 이상의 마진을 유지해야 한다. planner가 `d_right`/`d_left`를 채우지 않으면(전부 0) 경계 정보 없음으로 보고 이 check는 통과시킨다.
+5. **collision_free**: 각 waypoint가 최신 obstacle의 `s` 구간과 겹칠 때 obstacle 폭 `[d_right, d_left]`까지의 lateral 간격이 `path_min_obstacle_gap_m` 이상이어야 한다. (TODO: dynamic obstacle 위치 예측, ego 차폭 inflation)
+6. **curvature_ok**: `max |kappa_radpm|`이 `path_max_kappa_radpm` 이하여야 한다. (TODO: 속도 프로파일과 마찰 한계 `kappa * v^2` 검사)
+
+평가 실패 시 어떤 check가 실패했는지 throttled warning으로 남긴다. `score` 필드는 향후 score 기반 히스테리시스와 AVOID/OVERTAKE tie-breaking 용도로 예약된 skeleton이다.
+
+## 5.2 전이 안정화 (Anti-Oscillation)
+
+obstacle evidence나 path freshness가 경계값 근처에서 흔들리면 `/state`가 tick마다 뒤바뀌는 oscillation이 발생할 수 있다. 이를 막기 위해 `resolve_requested_state()`의 raw 요청 상태에 `apply_transition_stability()` 필터를 적용한 결과를 발행한다.
+
+동작 규칙은 다음과 같다.
+
+1. **안전 fallback은 즉시**: 확정 상태(`AVOID`/`OVERTAKE`)를 지탱하는 path가 stale/empty/invalid가 되면 debounce와 dwell을 무시하고 즉시 `STATE_GLOBAL`로 복귀한다. 유효하지 않은 path로 회피/추월 상태를 유지하지 않는다.
+2. **debounce**: 새 요청 상태는 연속 `transition_confirm_ticks` tick(publish 주기 기준) 동안 유지되어야 전이가 확정된다. 요청이 중간에 바뀌면 카운트는 리셋된다.
+3. **dwell time**: 마지막 전이 후 `min_state_dwell_sec`이 지나야 다음 전이를 허용한다. 안전 fallback으로 `GLOBAL`에 떨어진 직후에도 dwell을 다시 채워야 재진입할 수 있어 stale-flicker에 의한 진동을 막는다.
+
+기본값(10 Hz, `transition_confirm_ticks: 3`, `min_state_dwell_sec: 1.0`) 기준으로 상태 진입은 최소 0.3 s의 일관된 evidence를 요구하고, 상태 간 전환은 1 s에 한 번으로 제한된다. 안전 방향(GLOBAL 복귀)만 지연이 없다.
+
 ## 6. 주요 파라미터
 
 YAML 위치:
@@ -91,6 +120,14 @@ planning/state_machine/config/state_machine.yaml
 | `obstacles_stale_timeout_sec` | `0.5` | obstacle array stale timeout. 양수 값 사용 |
 | `obstacle_lookahead_m` | `3.0` | global lane blocking 판단 전방 거리 |
 | `global_blocking_d_threshold_m` | `0.4` | global lane blocking 판단 lateral threshold |
+| `path_eval_enabled` | `true` | local path 품질 평가를 전이 게이트로 사용할지 여부 |
+| `path_min_length_m` | `1.5` | local path 최소 `s` span |
+| `path_start_max_gap_m` | `1.0` | path 시작점과 ego `s`의 최대 허용 거리 |
+| `path_min_bound_margin_m` | `0.05` | waypoint가 트랙 경계까지 유지할 최소 마진 |
+| `path_min_obstacle_gap_m` | `0.3` | path가 obstacle과 유지할 최소 lateral 간격 |
+| `path_max_kappa_radpm` | `3.0` | local path 최대 곡률 한계 |
+| `min_state_dwell_sec` | `1.0` | 전이 후 다음 전이까지 최소 체류 시간 (안전 fallback 제외) |
+| `transition_confirm_ticks` | `3` | 전이 확정에 필요한 연속 tick 수 (debounce) |
 
 ## 7. 실행 방법
 
@@ -162,9 +199,10 @@ wpnt_publisher
 ## 10. TODO
 
 1. Frenet `s`, `d`, closest index 기반으로 state transition 조건을 더 정교하게 정리한다.
-2. `global_blocked`에 hysteresis와 debounce를 추가한다.
-3. minimum state duration을 추가해 상태 떨림을 줄인다.
-4. `STATE_OVERTAKE` side selection과 abort 조건을 추가한다.
-5. `wpnt_publisher`에서 `/state` 기반 source selection을 연결한다.
-6. 상태 전이 로그와 debug topic을 추가한다.
-7. reactive/safety state 확장을 검토한다.
+2. `global_blocked` evidence 자체에 enter/release 이원화 threshold(히스테리시스)를 추가한다. (상태 수준 debounce/dwell은 5.2절에 구현됨)
+3. local path 평가에서 dynamic obstacle의 `vs`/`vd` 기반 위치 예측과 ego 차폭 inflation을 반영한다.
+4. `LocalPathAssessment.score`를 정규화 품질 점수로 구현하고 score 기반 히스테리시스로 확장한다.
+5. `STATE_OVERTAKE` side selection과 abort 조건을 추가한다.
+6. `wpnt_publisher`에서 `/state` 기반 source selection을 연결한다.
+7. 상태 전이 로그와 debug topic을 추가한다.
+8. reactive/safety state 확장을 검토한다.

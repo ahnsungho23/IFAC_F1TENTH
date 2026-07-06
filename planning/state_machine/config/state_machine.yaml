@@ -19,3 +19,15 @@ state_machine_node:
 
     obstacle_lookahead_m: 3.0
     global_blocking_d_threshold_m: 0.4
+
+    # Local path evaluation (transition gate on published local paths)
+    path_eval_enabled: true
+    path_min_length_m: 1.5
+    path_start_max_gap_m: 1.0
+    path_min_bound_margin_m: 0.05
+    path_min_obstacle_gap_m: 0.3
+    path_max_kappa_radpm: 3.0
+
+    # Transition stability (anti-oscillation)
+    min_state_dwell_sec: 1.0
+    transition_confirm_ticks: 3

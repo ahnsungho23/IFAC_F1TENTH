@@ -24,6 +24,7 @@ State machine package rules. These instructions apply to `planning/state_machine
 - Use existing `f110_msgs` message types for project-specific interfaces.
 - Use `f110_msgs/msg/ObstacleArray` for perception obstacle evidence.
 - Keep detailed obstacle and overtake decision algorithms as TODOs until they are explicitly requested.
+- Transition gating layers live in this node: `evaluate_local_path()` (published local path quality gate) and `apply_transition_stability()` (dwell + N-tick debounce, immediate safety fallback to GLOBAL). Keep refinements (dynamic obstacle prediction, score-based hysteresis) as TODOs.
 
 ## Parameters, Launch, Docs
 
