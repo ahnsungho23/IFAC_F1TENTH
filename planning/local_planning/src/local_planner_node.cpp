@@ -29,6 +29,17 @@ void LocalPlannerNode::initParameters()
   speed_reduction_ratio_ = this->declare_parameter<double>("speed_reduction_ratio", 0.6);
   publish_standalone_local_ = this->declare_parameter<bool>("publish_standalone_local", true);
   timer_period_ms_ = this->declare_parameter<int>("timer_period_ms", 500);
+
+  // 토픽 및 프레임 파라미터 선언
+  global_waypoints_topic_ = this->declare_parameter<std::string>("global_waypoints_topic", "/global_waypoints");
+  map_topic_ = this->declare_parameter<std::string>("map_topic", "/map");
+  frenet_odom_topic_ = this->declare_parameter<std::string>("frenet_odom_topic", "/car_state/frenet/odom");
+  ot_waypoints_topic_ = this->declare_parameter<std::string>("ot_waypoints_topic", "/planner/avoidance/otwpnts");
+  local_waypoints_topic_ = this->declare_parameter<std::string>("local_waypoints_topic", "/local_waypoints");
+  local_path_topic_ = this->declare_parameter<std::string>("local_path_topic", "/local_planning/path");
+  exact_local_path_topic_ = this->declare_parameter<std::string>("exact_local_path_topic", "/local_path");
+  marker_topic_ = this->declare_parameter<std::string>("marker_topic", "/local_planning/markers");
+  frame_id_ = this->declare_parameter<std::string>("frame_id", "map");
 }
 
 void LocalPlannerNode::initInterfaces()
@@ -39,23 +50,23 @@ void LocalPlannerNode::initInterfaces()
 
   // 구독자
   global_wpnts_sub_ = this->create_subscription<f110_msgs::msg::WpntArray>(
-    "/global_waypoints", qos_transient,
+    global_waypoints_topic_, qos_transient,
     std::bind(&LocalPlannerNode::onGlobalWaypoints, this, _1));
 
   map_sub_ = this->create_subscription<nav_msgs::msg::OccupancyGrid>(
-    "/map", qos_transient,
+    map_topic_, qos_transient,
     std::bind(&LocalPlannerNode::onMap, this, _1));
 
   odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
-    "/car_state/frenet/odom", qos_default,
+    frenet_odom_topic_, qos_default,
     std::bind(&LocalPlannerNode::onOdom, this, _1));
 
   // 발행자
-  ot_pub_ = this->create_publisher<f110_msgs::msg::OTWpntArray>("/planner/avoidance/otwpnts", qos_default);
-  local_wpnts_pub_ = this->create_publisher<f110_msgs::msg::WpntArray>("/local_waypoints", qos_default);
-  local_path_pub_ = this->create_publisher<nav_msgs::msg::Path>("/local_planning/path", qos_default);
-  exact_local_path_pub_ = this->create_publisher<nav_msgs::msg::Path>("/local_path", qos_default);
-  marker_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("/local_planning/markers", qos_default);
+  ot_pub_ = this->create_publisher<f110_msgs::msg::OTWpntArray>(ot_waypoints_topic_, qos_default);
+  local_wpnts_pub_ = this->create_publisher<f110_msgs::msg::WpntArray>(local_waypoints_topic_, qos_default);
+  local_path_pub_ = this->create_publisher<nav_msgs::msg::Path>(local_path_topic_, qos_default);
+  exact_local_path_pub_ = this->create_publisher<nav_msgs::msg::Path>(exact_local_path_topic_, qos_default);
+  marker_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(marker_topic_, qos_default);
 
   // 타이머 (500ms = 2Hz 주기 실행, 0.5초마다 갱신)
   timer_ = this->create_wall_timer(
@@ -308,7 +319,7 @@ void LocalPlannerNode::onTimer()
   // 3. 전체 웨이포인트를 글로벌 경로로 초기화 (기본 d = 0)
   f110_msgs::msg::WpntArray local_wpnts = global_wpnts_;
   local_wpnts.header.stamp = this->now();
-  local_wpnts.header.frame_id = global_wpnts_.header.frame_id.empty() ? "map" : global_wpnts_.header.frame_id;
+  local_wpnts.header.frame_id = global_wpnts_.header.frame_id.empty() ? frame_id_ : global_wpnts_.header.frame_id;
 
   std::vector<geometry_msgs::msg::Point> debug_obs_points;
 

@@ -31,12 +31,26 @@
 
 ## 3. 핵심 파라미터 (`config/local_planning.yaml`)
 
+### 3.1 핵심 알고리즘 파라미터
 - `lookahead_wpnt_num` (int, 기본값: 40): 로컬 플래너가 한번에 연산할 전방 웨이포인트 개수
 - `safety_margin` (double, 기본값: 0.65): 웨이포인트 중심에서 장애물을 감지할 마진 반경 (m)
+- `wall_margin` (double, 기본값: 0.35): 벽 안전 마진 (m)
 - `avoid_offset` (double, 기본값: 1.0): 장애물 회피 시 목표로 하는 횡방향 거리 (m)
 - `poly_degree` (int, 기본값: 3): 최소자승법 다항식 차수 (기본 3차 다항식 스플라인)
 - `speed_reduction_ratio` (double, 기본값: 0.6): 회피 경로 주행 시 적용할 속도 감속 비율
+- `publish_standalone_local` (bool, 기본값: true): `/local_waypoints` 토픽 직접 발행 여부
 - `timer_period_ms` (int, 기본값: 500): 연산 타이머 주기 (ms, 기본 500ms / 0.5초 주기 갱신)
+
+### 3.2 토픽 및 좌표계 프레임 파라미터
+- `global_waypoints_topic` (string, 기본값: `"/global_waypoints"`): 글로벌 웨이포인트 구독 토픽명
+- `map_topic` (string, 기본값: `"/map"`): 점유 격자 지도(Occupancy Grid Map) 구독 토픽명
+- `frenet_odom_topic` (string, 기본값: `"/car_state/frenet/odom"`): 프레네 좌표계 오도메트리 구독 토픽명
+- `ot_waypoints_topic` (string, 기본값: `"/planner/avoidance/otwpnts"`): 회피 웨이포인트(OTWpntArray) 발행 토픽명
+- `local_waypoints_topic` (string, 기본값: `"/local_waypoints"`): 스탠드얼론 로컬 웨이포인트 발행 토픽명
+- `local_path_topic` (string, 기본값: `"/local_planning/path"`): 로컬 플래닝 Path 메시지 발행 토픽명
+- `exact_local_path_topic` (string, 기본값: `"/local_path"`): 닫힌 곡선 Local Path 메시지 발행 토픽명
+- `marker_topic` (string, 기본값: `"/local_planning/markers"`): RViz 디버깅 마커 배열 발행 토픽명
+- `frame_id` (string, 기본값: `"map"`): 기본 좌표계 프레임 ID
 
 ---
 

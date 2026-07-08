@@ -117,6 +117,17 @@ private:
   double speed_reduction_ratio_{0.6};  // 장애물 회피 시 감속 비율
   bool publish_standalone_local_{true};// otwpnts 외에 /local_waypoints 직접 발행 여부
   int timer_period_ms_{500};           // 연산 주기 (밀리초) - 0.5초마다 갱신
+
+  // 토픽 및 프레임 설정 파라미터
+  std::string global_waypoints_topic_{"/global_waypoints"};
+  std::string map_topic_{"/map"};
+  std::string frenet_odom_topic_{"/car_state/frenet/odom"};
+  std::string ot_waypoints_topic_{"/planner/avoidance/otwpnts"};
+  std::string local_waypoints_topic_{"/local_waypoints"};
+  std::string local_path_topic_{"/local_planning/path"};
+  std::string exact_local_path_topic_{"/local_path"};
+  std::string marker_topic_{"/local_planning/markers"};
+  std::string frame_id_{"map"};
 };
 
 }  // namespace local_planning
