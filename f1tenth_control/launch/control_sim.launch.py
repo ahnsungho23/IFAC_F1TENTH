@@ -12,6 +12,18 @@ def generate_launch_description():
         description='true 시 조이스틱 없이 자율주행 모드 즉시 기동'
     )
 
+    controller_type_arg = DeclareLaunchArgument(
+        'controller_type',
+        default_value='l1',
+        description="조향 컨트롤러 선택 ('l1' 기본 등)"
+    )
+
+    waypoint_topic_arg = DeclareLaunchArgument(
+        'waypoint_topic',
+        default_value='',
+        description="구독할 웨이포인트 토픽 (비워두면 /global_waypoints 및 /local_waypoints 모두 구독)"
+    )
+
     steering_control = Node(
         package='f1tenth_control',
         executable='steering_control_node',
@@ -35,6 +47,8 @@ def generate_launch_description():
             'use_imu': False,       # 시뮬레이터에는 IMU 없음
             'curvature_ff_blend': 0.0,
             'heading_damping_gain': 0.0,
+            'controller_type': LaunchConfiguration('controller_type'),
+            'waypoint_topic': LaunchConfiguration('waypoint_topic'),
         }]
     )
 
@@ -56,6 +70,8 @@ def generate_launch_description():
 
     return LaunchDescription([
         force_autonomous_arg,
+        controller_type_arg,
+        waypoint_topic_arg,
         steering_control,
         joy_teleop_monitor,
     ])

@@ -73,6 +73,8 @@ public:
         this->declare_parameter<double>("max_lateral_accel", 6.0);
         this->declare_parameter<double>("curvature_ff_blend", 0.0); // 곡률 FF 비활성: 검증된 순수 L1 격리 (원본 MAP 컨트롤러 미보유 항목)
         this->declare_parameter<std::string>("odom_topic", "/ego_racecar/odom");
+        this->declare_parameter<std::string>("controller_type", "l1");
+        this->declare_parameter<std::string>("waypoint_topic", "");
 
         // 안전라인 시프트: 플래너 최적라인이 벽에 과도하게 붙은(클리어런스 부족) 구간에서
         // 차체(길이 0.58m)가 벽을 스치는 충돌을 방지하기 위해, 메시지의 d_left/d_right(트랙 경계까지
@@ -136,19 +138,19 @@ public:
         
         // 2차 시도 (install 폴더 직접 조회)
         if (!loaded) {
-            lut_file = "/home/tenmeneat/2026_IFAC/install/steering_lookup/share/steering_lookup/cfg/NUC6_glc_pacejka_lookup_table.csv";
+            lut_file = "/home/myungsub/2026_IFAC/install/steering_lookup/share/steering_lookup/cfg/NUC6_glc_pacejka_lookup_table.csv";
             loaded = lookup_table_.load(lut_file);
         }
 
         // 3차 시도 (확실한 로컬 F1tenth_control 패키지 폴더)
         if (!loaded) {
-            lut_file = "/home/tenmeneat/F1tenth_control/control_code/NUC6_glc_pacejka_lookup_table.csv";
+            lut_file = "/home/myungsub/F1tenth_control/control_code/NUC6_glc_pacejka_lookup_table.csv";
             loaded = lookup_table_.load(lut_file);
         }
 
         // 4차 시도 (싱크된 2026_IFAC 내 f1tenth_control 폴더)
         if (!loaded) {
-            lut_file = "/home/tenmeneat/2026_IFAC/f1tenth_control/control_code/NUC6_glc_pacejka_lookup_table.csv";
+            lut_file = "/home/myungsub/2026_IFAC/f1tenth_control/control_code/NUC6_glc_pacejka_lookup_table.csv";
             loaded = lookup_table_.load(lut_file);
         }
 
@@ -159,14 +161,28 @@ public:
         }
 
         // ==========================================
-        // 2. 글로벌 경로(Waypoints) 구독 설정
+        // 2. 글로벌/로컬 경로(Waypoints) 구독 설정
         // ==========================================
-        auto qos_gl = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local();
-        global_path_sub_ = this->create_subscription<f110_msgs::msg::WpntArray>(
-            "/global_waypoints", qos_gl,
-            std::bind(&SteeringControlNode::global_path_callback, this, std::placeholders::_1));
+        std::string waypoint_topic = "";
+        this->get_parameter("waypoint_topic", waypoint_topic);
 
-        RCLCPP_INFO(this->get_logger(), "플래닝 팀의 글로벌 경로 토픽(/global_waypoints) 구독 설정 완료.");
+        if (!waypoint_topic.empty()) {
+            local_path_sub_ = this->create_subscription<f110_msgs::msg::WpntArray>(
+                waypoint_topic, 10,
+                std::bind(&SteeringControlNode::global_path_callback, this, std::placeholders::_1));
+            RCLCPP_INFO(this->get_logger(), "지정된 웨이포인트 토픽(%s) 구독 설정 완료.", waypoint_topic.c_str());
+        } else {
+            auto qos_gl = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local();
+            global_path_sub_ = this->create_subscription<f110_msgs::msg::WpntArray>(
+                "/global_waypoints", qos_gl,
+                std::bind(&SteeringControlNode::global_path_callback, this, std::placeholders::_1));
+
+            local_path_sub_ = this->create_subscription<f110_msgs::msg::WpntArray>(
+                "/local_waypoints", 10,
+                std::bind(&SteeringControlNode::global_path_callback, this, std::placeholders::_1));
+
+            RCLCPP_INFO(this->get_logger(), "플래닝 팀의 글로벌(/global_waypoints) 및 로컬(/local_waypoints) 경로 토픽 구독 설정 완료.");
+        }
 
         // ==========================================
         // 3. 알고리즘 인스턴스 초기화 및 통신 채널 설정
@@ -673,6 +689,7 @@ private:
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
     rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
     rclcpp::Subscription<f110_msgs::msg::WpntArray>::SharedPtr global_path_sub_;
+    rclcpp::Subscription<f110_msgs::msg::WpntArray>::SharedPtr local_path_sub_;
     rclcpp::Publisher<ackermann_msgs::msg::AckermannDriveStamped>::SharedPtr drive_pub_;
     rclcpp::TimerBase::SharedPtr control_timer_;
 

@@ -40,6 +40,12 @@ def generate_launch_description():
         description="조향 컨트롤러: 'l1'(검증된 L1 Guidance) 또는 'mpc'(조향 MPC)"
     )
 
+    waypoint_topic_arg = DeclareLaunchArgument(
+        'waypoint_topic',
+        default_value='',
+        description="구독할 웨이포인트 토픽 (비워두면 /global_waypoints 및 /local_waypoints 모두 구독)"
+    )
+
     # 직선 최대 속도 [m/s] — 첫 실주행은 6.0 보수 캡. 셰이크다운 후 라이브 상향.
     # ⚠️ 하드웨어 ERPM(40000) 상한 = 바퀴 ~9 m/s. 6.0은 그 2/3 수준.
     max_speed_arg = DeclareLaunchArgument(
@@ -86,6 +92,7 @@ def generate_launch_description():
             'heading_damping_gain': 0.0,
             # ===== 조향 컨트롤러 선택 & MPC 파라미터 =====
             'controller_type': LaunchConfiguration('controller_type'),
+            'waypoint_topic': LaunchConfiguration('waypoint_topic'),
             'mpc_N': 12,
             'mpc_Ts': 0.05,
             'mpc_q_x': 5.0,
@@ -107,6 +114,7 @@ def generate_launch_description():
             # 실차지만 첫 셰이크다운에서 스틱(조향)+RT(가속)로 직접 몰아 모터/조향을 검증하려는 목적.
             # 효과: 시작은 MANUAL 대기(자율 자동출발 안 함) → 스틱/RT 수동주행 → LB로 AUTONOMOUS 전환.
             # 비상정지(B)·AEB는 수동/자율 양 모드에서 최우선 제동으로 항상 동작.
+            # is_simulation=True
             'is_simulation': True,
             'force_autonomous': LaunchConfiguration('force_autonomous'),
             'max_speed': 6.0,           # 수동 조이스틱 스로틀 스케일 [m/s] (RB 부스트 시 ×1.5)
@@ -149,6 +157,7 @@ def generate_launch_description():
         odom_topic_arg,
         force_autonomous_arg,
         controller_type_arg,
+        waypoint_topic_arg,
         max_speed_arg,
         speed_scale_arg,
         max_lateral_accel_arg,
