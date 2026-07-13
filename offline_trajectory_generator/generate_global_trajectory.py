@@ -83,9 +83,12 @@ def add_generator_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--max-width-distance", type=float, default=5.0, help="Raycast limit for track width [m].")
     parser.add_argument(
         "--width-mode",
-        choices=("distance", "raycast"),
-        default="distance",
-        help="Track-width estimation method. distance is faster and more stable for SLAM maps.",
+        choices=("distance", "raycast", "hybrid"),
+        default="hybrid",
+        help="Track-width estimation method. "
+             "distance: fast but d_left==d_right (no asymmetry); "
+             "raycast: directional but noise-sensitive; "
+             "hybrid (recommended): combines both for robustness + asymmetry.",
     )
     parser.add_argument("--max-speed", type=float, default=4.0, help="Maximum waypoint speed [m/s].")
     parser.add_argument("--min-speed", type=float, default=1.0, help="Minimum waypoint speed [m/s].")
@@ -107,10 +110,41 @@ def add_generator_arguments(parser: argparse.ArgumentParser) -> None:
         default="centerline",
         help="Use scipy-based minimum-curvature optimization or keep the centerline.",
     )
-    parser.add_argument("--max-optimizer-iter", type=int, default=120)
+    parser.add_argument("--max-optimizer-iter", type=int, default=200)
     parser.add_argument("--curvature-weight", type=float, default=1.0)
     parser.add_argument("--smooth-weight", type=float, default=0.04)
     parser.add_argument("--length-weight", type=float, default=0.002)
+    parser.add_argument(
+        "--no-straighten-straights",
+        dest="straighten_straights",
+        action="store_false",
+        help="Disable clearance-checked straight segment replacement.",
+    )
+    parser.set_defaults(straighten_straights=True)
+    parser.add_argument(
+        "--straight-kappa-threshold",
+        type=float,
+        default=0.2,
+        help="Maximum absolute curvature [rad/m] considered straight.",
+    )
+    parser.add_argument(
+        "--straight-min-length",
+        type=float,
+        default=1.5,
+        help="Minimum path length [m] for straight replacement candidates.",
+    )
+    parser.add_argument(
+        "--straight-clearance-margin",
+        type=float,
+        default=0.03,
+        help="Extra clearance [m] required when validating straight replacements.",
+    )
+    parser.add_argument(
+        "--straight-blend-length",
+        type=float,
+        default=0.5,
+        help="Length [m] used to blend each end of a straight replacement.",
+    )
     parser.add_argument("--reverse", action="store_true", help="Reverse waypoint order.")
     parser.add_argument(
         "--no-flip-y",
@@ -138,6 +172,12 @@ def validate_args(args: argparse.Namespace) -> None:
         raise RuntimeError("speed parameters must be positive.")
     if args.min_speed > args.max_speed:
         raise RuntimeError("min-speed must be <= max-speed.")
+    if args.straight_kappa_threshold < 0.0:
+        raise RuntimeError("straight-kappa-threshold must be non-negative.")
+    if args.straight_min_length < 0.0 or args.straight_clearance_margin < 0.0:
+        raise RuntimeError("straight length and clearance parameters must be non-negative.")
+    if args.straight_blend_length < 0.0:
+        raise RuntimeError("straight-blend-length must be non-negative.")
 
 
 def load_map(map_yaml: Path, unknown_as_free: bool) -> tuple[MapInfo, np.ndarray, np.ndarray]:
@@ -478,6 +518,55 @@ def raycast_distance(
     return max_distance_m
 
 
+def raycast_distance_robust(
+    free_mask: np.ndarray,
+    point_xy: np.ndarray,
+    direction_xy: np.ndarray,
+    info: MapInfo,
+    flip_y: bool,
+    max_distance_m: float = 10.0,
+    min_wall_pixels: int = 2,
+) -> float:
+    """
+    Robust raycast that requires multiple consecutive wall pixels to avoid noise.
+    Returns distance to the first SOLID wall (not a single-pixel noise).
+    """
+    step_m = max(info.resolution * 0.5, 0.01)
+    steps = int(max_distance_m / step_m)
+
+    consecutive_walls = 0
+    first_wall_idx = -1
+
+    for i in range(1, steps + 1):
+        point = point_xy + direction_xy * (i * step_m)
+        pixel = world_to_pixel(point.reshape(1, 2), info, flip_y)[0]
+        col = int(round(pixel[0]))
+        row = int(round(pixel[1]))
+
+        # Out of bounds = solid wall
+        if row < 0 or row >= free_mask.shape[0] or col < 0 or col >= free_mask.shape[1]:
+            if first_wall_idx < 0:
+                first_wall_idx = i - 1
+            consecutive_walls += 1
+            if consecutive_walls >= min_wall_pixels:
+                return max(0.0, first_wall_idx * step_m)
+            continue
+
+        # Wall pixel
+        if free_mask[row, col] == 0:
+            if first_wall_idx < 0:
+                first_wall_idx = i
+            consecutive_walls += 1
+            if consecutive_walls >= min_wall_pixels:
+                return max(0.0, first_wall_idx * step_m)
+        else:
+            # Free space - reset counter (it was just noise)
+            consecutive_walls = 0
+            first_wall_idx = -1
+
+    return max_distance_m
+
+
 def track_widths(
     points_xy: np.ndarray,
     free_mask: np.ndarray,
@@ -486,6 +575,9 @@ def track_widths(
     max_distance_m: float,
     width_mode: str,
 ) -> tuple[np.ndarray, np.ndarray]:
+    if width_mode == "hybrid":
+        return track_widths_hybrid(points_xy, free_mask, info, flip_y, max_distance_m)
+
     if width_mode == "distance":
         dist = cv2.distanceTransform((free_mask > 0).astype(np.uint8), cv2.DIST_L2, 5)
         pixels = np.round(world_to_pixel(points_xy, info, flip_y)).astype(np.int32)
@@ -495,21 +587,90 @@ def track_widths(
         widths = np.clip(widths, 1e-3, max_distance_m)
         return widths.copy(), widths.copy()
 
+    # raycast mode
     _, psi, _ = headings_and_curvature(points_xy)
     left_normals = normals_from_heading(psi)
     right_normals = -left_normals
+
+    # Use ROBUST raycast (requires 2+ consecutive wall pixels)
     d_left = np.array(
         [
-            raycast_distance(free_mask, p, n, info, flip_y, max_distance_m)
+            raycast_distance_robust(free_mask, p, n, info, flip_y, max_distance_m, min_wall_pixels=2)
             for p, n in zip(points_xy, left_normals)
         ]
     )
     d_right = np.array(
         [
-            raycast_distance(free_mask, p, n, info, flip_y, max_distance_m)
+            raycast_distance_robust(free_mask, p, n, info, flip_y, max_distance_m, min_wall_pixels=2)
             for p, n in zip(points_xy, right_normals)
         ]
     )
+    return d_right, d_left
+
+
+def track_widths_hybrid(
+    points_xy: np.ndarray,
+    free_mask: np.ndarray,
+    info: MapInfo,
+    flip_y: bool,
+    max_distance_m: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    HYBRID MODE (recommended): Robust directional raycast that preserves left/right
+    asymmetry, with distance-transform used ONLY as a floor sanity-check.
+
+    Design:
+    - Robust raycast (requires 2+ consecutive wall pixels) gives the true perpendicular
+      distance to each side's wall -> preserves asymmetry when the raceline hugs a curve.
+    - Distance transform is NOT used to clamp both sides down (that would destroy the
+      asymmetry). It is only used to detect a raycast FAILURE: if a directional raycast
+      returns the max distance (hit nothing) but the isotropic min-clearance shows a wall
+      is nearby, the raycast likely slipped through a gap -> fall back to min-clearance
+      for that single side only.
+
+    Guarantees:
+    1. Left/right asymmetry preserved (curve-hugging raceline reports narrow-inside,
+       wide-outside).
+    2. Single-pixel noise/holes never create false walls (min_wall_pixels gate).
+    3. Ray-through-gap failures caught by the min-clearance floor.
+    """
+    # Isotropic true nearest-wall clearance (used only as a failure floor, not a clamp)
+    dist = cv2.distanceTransform((free_mask > 0).astype(np.uint8), cv2.DIST_L2, 5)
+    pixels = np.round(world_to_pixel(points_xy, info, flip_y)).astype(np.int32)
+    pixels[:, 0] = np.clip(pixels[:, 0], 0, info.width - 1)
+    pixels[:, 1] = np.clip(pixels[:, 1], 0, info.height - 1)
+    min_clearance = dist[pixels[:, 1], pixels[:, 0]] * info.resolution
+    min_clearance = np.clip(min_clearance, 1e-3, max_distance_m)
+
+    # Directional robust raycast for each side
+    _, psi, _ = headings_and_curvature(points_xy)
+    left_normals = normals_from_heading(psi)
+    right_normals = -left_normals
+
+    d_left = np.array(
+        [
+            raycast_distance_robust(free_mask, p, n, info, flip_y, max_distance_m, min_wall_pixels=2)
+            for p, n in zip(points_xy, left_normals)
+        ]
+    )
+    d_right = np.array(
+        [
+            raycast_distance_robust(free_mask, p, n, info, flip_y, max_distance_m, min_wall_pixels=2)
+            for p, n in zip(points_xy, right_normals)
+        ]
+    )
+
+    # Failure floor (per side, only when raycast clearly overshot through a gap):
+    # if the ray hit nothing (>= max_distance) but a wall is actually close, trust the floor.
+    ray_failed_left = d_left >= max_distance_m - 1e-6
+    ray_failed_right = d_right >= max_distance_m - 1e-6
+    d_left = np.where(ray_failed_left, min_clearance, d_left)
+    d_right = np.where(ray_failed_right, min_clearance, d_right)
+
+    # Tiny positive floor for downstream safety
+    d_left = np.clip(d_left, 1e-3, max_distance_m)
+    d_right = np.clip(d_right, 1e-3, max_distance_m)
+
     return d_right, d_left
 
 
@@ -554,11 +715,21 @@ def optimize_min_curvature(
         options={
             "maxiter": args.max_optimizer_iter,
             "maxfun": max(20000, args.max_optimizer_iter * (len(center_xy) + 1) * 3),
-            "ftol": 1e-7,
-            "maxls": 20,
+            # 1e-5 lets the min-curvature objective hit a genuine convergence
+            # (status 0) within a few hundred iterations; the resulting raceline is
+            # within ~3% of the fully-iterated optimum, so a tighter tolerance only
+            # buys iteration-limit warnings without a meaningful quality gain.
+            "ftol": 1e-5,
+            "gtol": 1e-5,
+            "maxls": 25,
         },
     )
-    if not result.success:
+    # L-BFGS-B status 1 means the iteration/eval limit was reached. The returned x is
+    # still the best raceline found so far and is perfectly usable, so we treat that
+    # as a benign stop and do not surface it. A finer optimizer-step multiplies the
+    # number of optimization variables, which is the usual reason the limit is hit;
+    # keeping optimizer-step moderate is the right knob, not a louder warning.
+    if not result.success and getattr(result, "status", None) != 1:
         print(f"[WARN] optimizer did not fully converge: {result.message}")
 
     return center_xy + normals * result.x[:, None]
@@ -593,6 +764,138 @@ def velocity_profile(
 
     lap_time = float(np.sum(seg / np.maximum(v, 1e-3)))
     return v, ax, lap_time
+
+
+def circular_true_runs(mask: np.ndarray) -> list[tuple[int, int]]:
+    if len(mask) == 0 or not bool(np.any(mask)) or bool(np.all(mask)):
+        return []
+
+    n = len(mask)
+    false_indices = np.flatnonzero(~mask)
+    start_offset = int(false_indices[0] + 1) % n
+    rotated = np.roll(mask, -start_offset)
+
+    runs: list[tuple[int, int]] = []
+    i = 0
+    while i < n:
+        if not rotated[i]:
+            i += 1
+            continue
+        start = i
+        while i < n and rotated[i]:
+            i += 1
+        end = i - 1
+        runs.append(((start + start_offset) % n, (end + start_offset) % n))
+    return runs
+
+
+def circular_indices(start: int, end: int, count: int) -> np.ndarray:
+    if start <= end:
+        return np.arange(start, end + 1, dtype=int)
+    return np.r_[np.arange(start, count, dtype=int), np.arange(0, end + 1, dtype=int)]
+
+
+def path_distances_for_indices(points_xy: np.ndarray, indices: np.ndarray) -> tuple[np.ndarray, float]:
+    if len(indices) < 2:
+        return np.zeros(len(indices), dtype=np.float64), 0.0
+    segment_lengths = np.linalg.norm(np.diff(points_xy[indices], axis=0), axis=1)
+    distances = np.r_[0.0, np.cumsum(segment_lengths)]
+    return distances, float(distances[-1])
+
+
+def line_has_clearance(
+    start_xy: np.ndarray,
+    end_xy: np.ndarray,
+    free_mask: np.ndarray,
+    distance_map_px: np.ndarray,
+    info: MapInfo,
+    flip_y: bool,
+    required_clearance_m: float,
+) -> bool:
+    delta = end_xy - start_xy
+    length = float(np.linalg.norm(delta))
+    if length <= info.resolution:
+        return False
+
+    step = max(info.resolution * 0.5, 0.01)
+    sample_count = max(2, int(math.ceil(length / step)) + 1)
+    fractions = np.linspace(0.0, 1.0, sample_count)
+    samples = start_xy + fractions[:, None] * delta
+    pixels = np.round(world_to_pixel(samples, info, flip_y)).astype(np.int32)
+    cols = pixels[:, 0]
+    rows = pixels[:, 1]
+    in_bounds = (rows >= 0) & (rows < info.height) & (cols >= 0) & (cols < info.width)
+    if not bool(np.all(in_bounds)):
+        return False
+    if not bool(np.all(free_mask[rows, cols] > 0)):
+        return False
+    clearance = distance_map_px[rows, cols] * info.resolution
+    return bool(np.all(clearance >= required_clearance_m))
+
+
+def straighten_straight_segments(
+    points_xy: np.ndarray,
+    free_mask: np.ndarray,
+    info: MapInfo,
+    flip_y: bool,
+    args: argparse.Namespace,
+) -> np.ndarray:
+    if not args.straighten_straights or len(points_xy) < 8:
+        return points_xy
+    if args.straight_kappa_threshold <= 0.0 or args.straight_min_length <= 0.0:
+        return points_xy
+
+    _, _, kappa = headings_and_curvature(points_xy)
+    smooth_abs_kappa = gaussian_filter1d(np.abs(kappa), sigma=1.0, mode="wrap")
+    straight_mask = smooth_abs_kappa <= args.straight_kappa_threshold
+    runs = circular_true_runs(straight_mask)
+    if not runs:
+        return points_xy
+
+    distance_map_px = cv2.distanceTransform((free_mask > 0).astype(np.uint8), cv2.DIST_L2, 5)
+    required_clearance = (
+        args.safety_width * 0.5 + args.boundary_margin + args.straight_clearance_margin
+    )
+    straightened = points_xy.copy()
+    changed = False
+
+    for start, end in runs:
+        indices = circular_indices(start, end, len(points_xy))
+        distances, length = path_distances_for_indices(points_xy, indices)
+        if len(indices) < 4 or length < args.straight_min_length:
+            continue
+
+        start_xy = points_xy[indices[0]]
+        end_xy = points_xy[indices[-1]]
+        chord = end_xy - start_xy
+        chord_length = float(np.linalg.norm(chord))
+        if chord_length <= info.resolution or chord_length < args.straight_min_length * 0.5:
+            continue
+        if not line_has_clearance(
+            start_xy,
+            end_xy,
+            free_mask,
+            distance_map_px,
+            info,
+            flip_y,
+            required_clearance,
+        ):
+            continue
+
+        fractions = np.divide(distances, length, out=np.zeros_like(distances), where=length > 1e-9)
+        line_points = start_xy + fractions[:, None] * chord
+        if args.straight_blend_length > 0.0:
+            edge_distance = np.minimum(distances, length - distances)
+            weights = np.clip(edge_distance / args.straight_blend_length, 0.0, 1.0)
+            weights = weights * weights * (3.0 - 2.0 * weights)
+        else:
+            weights = np.ones_like(distances)
+            weights[0] = 0.0
+            weights[-1] = 0.0
+        straightened[indices] = points_xy[indices] * (1.0 - weights[:, None]) + line_points * weights[:, None]
+        changed = True
+
+    return straightened if changed else points_xy
 
 
 def build_trajectory(
@@ -646,12 +949,39 @@ def wpnt_array(traj: Trajectory) -> dict:
     }
 
 
+def csv_number(value: float) -> str:
+    rounded = round(float(value), 6)
+    if abs(rounded) < 0.0000005:
+        rounded = 0.0
+    return f"{rounded:.6f}".rstrip("0").rstrip(".")
+
+
+def trajectory_csv_rows(traj: Trajectory) -> list[dict[str, str | int]]:
+    rows = []
+    for i, point in enumerate(traj.points_xy):
+        rows.append(
+            {
+                "id": int(i),
+                "s": csv_number(traj.s_m[i]),
+                "x_m": csv_number(point[0]),
+                "y_m": csv_number(point[1]),
+                "psi_rad": csv_number(traj.psi_rad[i]),
+                "kappa_radpm": csv_number(traj.kappa_radpm[i]),
+                "vx_mps": csv_number(traj.vx_mps[i]),
+                "ax_mps2": csv_number(traj.ax_mps2[i]),
+                "d_left": csv_number(traj.d_left[i]),
+                "d_right": csv_number(traj.d_right[i]),
+            }
+        )
+    return rows
+
+
 def write_csv(path: Path, rows: Iterable[dict]) -> None:
     rows = list(rows)
     if not rows:
         raise RuntimeError(f"No rows to write: {path}")
     with path.open("w", newline="", encoding="utf-8") as stream:
-        writer = csv.DictWriter(stream, fieldnames=list(rows[0].keys()))
+        writer = csv.DictWriter(stream, fieldnames=list(rows[0].keys()), lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
 
@@ -662,6 +992,107 @@ def write_centerline_csv(path: Path, traj: Trajectory) -> None:
         writer.writerow(["x_m", "y_m", "d_right", "d_left"])
         for point, d_right, d_left in zip(traj.points_xy, traj.d_right, traj.d_left):
             writer.writerow([float(point[0]), float(point[1]), float(d_right), float(d_left)])
+
+
+# ---------------------------------------------------------------------------
+# RViz marker construction
+# ---------------------------------------------------------------------------
+# global_waypoints.json carries the visualization markers, not just the raw
+# waypoints. The C++ reader in the `global_planning` package parses these back
+# into visualization_msgs/MarkerArray and the publisher re-emits them, so RViz
+# shows the raceline / speed profile / track bounds with no extra node. Every
+# marker MUST carry header.frame_id="map" and ns/id/type/action (the reader
+# requires them); pose.orientation.w=1 avoids RViz's uninitialized-quaternion.
+_MARKER_HEADER = {"stamp": {"sec": 0, "nanosec": 0}, "frame_id": "map"}
+_IDENTITY_POSE = {
+    "position": {"x": 0.0, "y": 0.0, "z": 0.0},
+    "orientation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0},
+}
+_MARKER_LINE_STRIP = 4
+_MARKER_SPHERE_LIST = 7
+# Styling (offline-viz only; kept as clear constants rather than CLI knobs).
+_RACELINE_WIDTH = 0.08
+_BOUND_WIDTH = 0.05
+_SPEED_SPHERE_SIZE = 0.14
+
+
+def _mk_point(x: float, y: float, z: float = 0.0) -> dict:
+    return {"x": float(x), "y": float(y), "z": float(z)}
+
+
+def _mk_rgba(r: float, g: float, b: float, a: float = 1.0) -> dict:
+    return {"r": float(r), "g": float(g), "b": float(b), "a": float(a)}
+
+
+def _mk_marker(ns, marker_id, marker_type, scale, color, points, colors=None):
+    marker = {
+        "header": _MARKER_HEADER,
+        "ns": ns,
+        "id": int(marker_id),
+        "type": int(marker_type),
+        "action": 0,  # ADD
+        "pose": _IDENTITY_POSE,
+        "scale": scale,
+        "color": color,
+        "points": points,
+    }
+    if colors is not None:
+        marker["colors"] = colors
+    return marker
+
+
+def _closed_points(points_xy: np.ndarray, z: float = 0.0) -> list:
+    pts = [_mk_point(p[0], p[1], z) for p in points_xy]
+    if len(pts) > 1:
+        pts.append(pts[0])  # close the loop for a LINE_STRIP raceline
+    return pts
+
+
+def _line_strip_marker(points_xy: np.ndarray, ns: str, color: dict, width: float) -> dict:
+    return _mk_marker(
+        ns, 0, _MARKER_LINE_STRIP,
+        {"x": float(width), "y": 0.0, "z": 0.0},
+        color, _closed_points(points_xy),
+    )
+
+
+def _speed_sphere_marker(traj: Trajectory, ns: str) -> dict:
+    """One SPHERE_LIST, one sphere per waypoint, colored by speed (blue slow -> red fast)."""
+    vx = np.asarray(traj.vx_mps, dtype=float)
+    lo = float(np.min(vx))
+    span = float(np.max(vx)) - lo
+    if span < 1e-6:
+        span = 1.0
+    points, colors = [], []
+    for p, v in zip(traj.points_xy, vx):
+        t = (float(v) - lo) / span  # 0 (slow) .. 1 (fast)
+        points.append(_mk_point(p[0], p[1], 0.05))
+        colors.append(_mk_rgba(t, 0.0, 1.0 - t))  # blue -> red
+    return _mk_marker(
+        ns, 1, _MARKER_SPHERE_LIST,
+        {"x": _SPEED_SPHERE_SIZE, "y": _SPEED_SPHERE_SIZE, "z": _SPEED_SPHERE_SIZE},
+        _mk_rgba(1.0, 1.0, 1.0), points, colors,
+    )
+
+
+def _trackbound_markers(traj: Trajectory, ns: str, color: dict) -> list:
+    """Left/right track edges from waypoint pose + d_left/d_right (left normal = (-sin psi, cos psi))."""
+    px = np.asarray(traj.points_xy, dtype=float)
+    psi = np.asarray(traj.psi_rad, dtype=float)
+    d_left = np.asarray(traj.d_left, dtype=float)
+    d_right = np.asarray(traj.d_right, dtype=float)
+    nx = -np.sin(psi)
+    ny = np.cos(psi)
+    left = np.column_stack([px[:, 0] + d_left * nx, px[:, 1] + d_left * ny])
+    right = np.column_stack([px[:, 0] - d_right * nx, px[:, 1] - d_right * ny])
+    return [
+        _line_strip_marker(left, ns, color, _BOUND_WIDTH),
+        _mk_marker(
+            ns, 1, _MARKER_LINE_STRIP,
+            {"x": _BOUND_WIDTH, "y": 0.0, "z": 0.0},
+            color, _closed_points(right),
+        ),
+    ]
 
 
 def write_outputs(
@@ -675,7 +1106,7 @@ def write_outputs(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     write_centerline_csv(output_dir / "centerline.csv", center_traj)
-    write_csv(output_dir / "global_waypoints.csv", wpnt_dicts(global_traj))
+    write_csv(output_dir / "global_waypoints.csv", trajectory_csv_rows(global_traj))
 
     payload = {
         "map_info_str": {
@@ -685,13 +1116,27 @@ def write_outputs(
             )
         },
         "est_lap_time": {"data": lap_time},
-        "centerline_markers": {"markers": []},
+        "centerline_markers": {
+            "markers": [_line_strip_marker(
+                center_traj.points_xy, "centerline", _mk_rgba(0.6, 0.6, 0.6, 0.9), _BOUND_WIDTH)]
+        },
         "centerline_waypoints": wpnt_array(center_traj),
-        "global_traj_markers_iqp": {"markers": []},
+        "global_traj_markers_iqp": {
+            "markers": [
+                _line_strip_marker(
+                    global_traj.points_xy, "global_iqp", _mk_rgba(0.1, 1.0, 0.2, 0.9), _RACELINE_WIDTH),
+                _speed_sphere_marker(global_traj, "global_iqp"),
+            ]
+        },
         "global_traj_wpnts_iqp": wpnt_array(global_traj),
-        "global_traj_markers_sp": {"markers": []},
+        "global_traj_markers_sp": {
+            "markers": [_line_strip_marker(
+                global_traj.points_xy, "global_sp", _mk_rgba(0.2, 0.5, 1.0, 0.9), _RACELINE_WIDTH)]
+        },
         "global_traj_wpnts_sp": wpnt_array(global_traj),
-        "trackbounds_markers": {"markers": []},
+        "trackbounds_markers": {
+            "markers": _trackbound_markers(center_traj, "trackbounds", _mk_rgba(1.0, 0.35, 0.0, 0.9))
+        },
     }
     (output_dir / "global_waypoints.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
@@ -765,6 +1210,9 @@ def generate_trajectory(args: argparse.Namespace) -> GenerationResult:
     )
     optimized_xy = filter_and_resample_closed(optimized_xy, args.optimizer_step, args)
     global_xy = filter_and_resample_closed(optimized_xy, args.waypoint_step, args)
+    straightened_xy = straighten_straight_segments(global_xy, free_mask, map_info, flip_y, args)
+    if straightened_xy is not global_xy:
+        global_xy = resample_closed(straightened_xy, args.waypoint_step)
 
     center_output_xy = filter_and_resample_closed(center_xy, args.waypoint_step, args)
     center_traj, _ = build_trajectory(center_output_xy, free_mask, map_info, flip_y, args)

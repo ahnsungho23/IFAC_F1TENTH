@@ -1,0 +1,31 @@
+state_machine_node:
+  ros__parameters:
+    state_topic: "/state"
+    frenet_odom_topic: "/car_state/frenet/odom"
+    global_waypoints_topic: "/global_waypoints"
+    avoid_waypoints_topic: "/avoid_waypoints"
+    overtake_waypoints_topic: "/overtake_waypoints"
+
+    frame_id: "map"
+    publish_rate_hz: 10.0
+    default_state: "global"
+
+    avoid_stale_timeout_sec: 0.5
+    overtake_stale_timeout_sec: 0.5
+    global_stale_timeout_sec: 2.0
+    frenet_stale_timeout_sec: 0.5
+
+    # Local path evaluation (transition gate on published local paths)
+    path_eval_enabled: true
+    path_min_length_m: 1.5
+    path_start_max_gap_m: 1.0
+    path_min_bound_margin_m: 0.05
+    path_min_obstacle_gap_m: 0.3
+    path_max_kappa_radpm: 3.0
+
+    # Global re-entry (local path -> global path 합류 조건)
+    # 전제: local path(avoid/overtake)는 ego->merge 세그먼트 발행 규약을 따름
+    enter_global_sec: 0.5          # 합류 조건을 연속 만족해야 하는 최소 유지 시간
+    enter_global_threshold: 0.2    # d domain 기준 ego가 global/local tail 위에 있는지 판단하는 threshold (m)
+    enter_global_tail_ratio: 0.1   # local path 후방에서 tail(merge 합류 구간)로 간주하는 비율
+    enter_global_s_gap_tol_m: 0.5  # ego가 tail 구간에 실제 도달했는지 판정하는 순환 s-gap 상한 (m)

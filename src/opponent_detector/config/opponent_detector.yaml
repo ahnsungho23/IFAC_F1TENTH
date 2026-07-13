@@ -1,0 +1,165 @@
+# ================================================================================================
+# OPPONENT DETECTOR CONFIGURATION
+# ================================================================================================
+# LiDAR-only dynamic opponent detection & tracking with Frenet output.
+# The launch file overrides ego_odom_topic / simulator based on the `simulator:=` argument.
+# ================================================================================================
+
+opponent_detector:
+  ros__parameters:
+    # === ROS INTERFACE ===
+    scan_topic: "/scan"                       # LaserScan input (ego)
+    global_waypoints_topic: "/global_waypoints"   # f110_msgs/WpntArray (latched) from new_map_con
+    map_topic: "/map"                          # nav_msgs/OccupancyGrid (latched) from MCL
+    ego_odom_topic: "/pf/pose/odom"            # ego pose in map frame (MCL). Sim: /ego_racecar/odom
+    obstacles_topic: "/perception/obstacles"   # tracked obstacles (ObstacleArray)
+    raw_obstacles_topic: "/perception/detection/raw_obstacles"
+    proj_opp_traj_topic: "/proj_opponent_trajectory"   # ProjOppTraj (Frenet opponent output)
+    markers_topic: "/perception/obstacles/markers"
+    map_frame: "map"
+    simulator: false
+
+    max_range: 10.0                            # ignore returns beyond this (m)
+
+    # === CLUSTERING (adaptive breakpoint detector) ===
+    lambda_deg: 10.0                           # min reliable incidence angle (deg)
+    cluster_sigma: 0.03                        # LiDAR range noise std (m)
+    min_2_points_dist: 0.01                    # floor on the breakpoint threshold (m)
+    min_cluster_points: 5                      # discard clusters with fewer points
+    max_obs_size: 0.8                          # max box size (m); > diagonal of a 0.5x0.5 obstacle
+                                               #   (0.707) so car-sized static obstacles pass
+
+    # === STATIC FILTERING (map + track boundary) ===
+    max_viewing_distance: 9.0                  # only consider obstacles up to this far ahead (m)
+    view_behind_distance: 1.0                  # small allowance behind ego (m)
+    boundaries_inflation: 0.1                  # shrink drivable corridor inward (m) to kill walls
+    fallback_track_halfwidth: 1.5              # used when waypoint d_left/d_right are unset (m)
+    use_map_filter: true                       # drop clusters on known static structure (/map)
+    map_occupied_thresh: 50                    # occupancy value considered "occupied"
+    map_inflation_cells: 1                     # neighbourhood radius (cells) for the map check
+    map_point_reject_ratio: 0.6                # drop cluster if this fraction of points are on map
+
+    # === OUTPUT ===
+    publish_raw: true                          # also publish pre-tracking clusters
+    publish_markers: true                      # RViz MarkerArray
+    proj_traj_max_points: 200                  # rolling ProjOppTraj buffer length
+
+    # === TRACKING (constant-velocity Kalman, Frenet state [s, vs, d, vd]) ===
+    meas_var_s: 0.002
+    meas_var_d: 0.002
+    process_var_vs: 2.0
+    process_var_vd: 8.0
+    assoc_gate: 0.5                            # Frenet association gate (m)
+    aggro_multi: 2.0                           # gate multiplier once a track is dynamic
+    ttl_dynamic: 40                            # frames to keep a lost dynamic track
+    ttl_static: 3                              # frames to keep a lost static track
+    min_hits_confirm: 3                        # measurements before a track is reported
+
+    # === STATIC / DYNAMIC CLASSIFICATION ===
+    classifier_mode: "velocity"                # "velocity" | "std" | "both"
+    dyn_vel_enter: 0.5                         # speed RELATIVE to the static field to become dynamic (m/s)
+    dyn_vel_exit: 0.25                         # relative speed to fall back to static (m/s, hysteresis)
+    dyn_min_frames: 3                          # sustained frames before flipping the label
+    vs_reset: 0.1                              # relative-speed backstop -> force static (m/s)
+    static_ref_gate: 0.3                       # tracks slower than this define the static-field velocity
+                                               #   (walls + stationary obstacles); opponent excluded (m/s)
+    std_window: 30                             # history window for the std classifier
+    min_nb_meas: 5                             # measurements before the std classifier votes
+    min_std: 0.16                              # below on both axes -> static vote (m)
+    max_std: 0.20                              # above on either axis -> dynamic (m)
+    dt_max: 0.5                                # clamp for the Kalman prediction step (s)
+
+    # === OVERTAKE PLANNER (committed spline overtaking line, state machine) ===
+    # The node turns the detected dynamic opponent into a committed local overtaking path
+    # (PCHIP lateral profile d(s) from the CURRENT ego pose, around the PREDICTED pass point,
+    # merging back onto the global raceline). It publishes OTWpntArray ONLY while a maneuver is
+    # committed; on completion/abort ONE empty OT is sent (wpnt_publisher falls back to global)
+    # and publishing stops. Commit requires ALL gates: corridor blocked + enough relative speed +
+    # no sharp corner on the maneuver + lateral room at the pass point.
+    avoidance_enabled: true                    # master on/off for the overtake planner
+    avoidance_ot_topic: "/overtake_waypoints"   # OTWpntArray output (wpnt_publisher input)
+    avoidance_path_topic: "/planner/avoidance/path"    # nav_msgs/Path mirror of the overtake line (RViz)
+    opponent_path_topic: "/perception/opponent/path"   # nav_msgs/Path of the tracked opponent (RViz)
+    # --- trigger window & corridor block ---
+    avoid_trigger_min_ds: 0.5                  # only consider an opponent >= this far ahead (m)
+    avoid_trigger_max_ds: 8.0                  # ...and <= this far ahead (m); else follow global
+    avoid_block_margin: 0.15                   # opponent blocks us when |opp_d| < ego_half + opp_half + this
+    # --- catchability gates (relative velocity must be enough to actually pass) ---
+    ot_min_rel_vel: 0.5                        # commit only when (attainable ego v - opp vs) >= this (m/s)
+    ot_abort_rel_vel: 0.2                      # abort a committed pass below this rel. speed (m/s, hysteresis)
+    ot_max_catch_time: 6.0                     # commit only when predicted catch time <= this (s)
+    # --- corner gate (no overtaking through a sharp corner) ---
+    ot_max_kappa: 1.0                          # max raceline |kappa| allowed anywhere on the maneuver (1/m)
+                                               #   (this track's raceline peaks at ~0.78; 1.0 allows all
+                                               #    of it — lower toward 0.6 to forbid the tightest corners)
+    # --- spline shape (arc-length knots of the d(s) curve) ---
+    avoid_pre_distance: 2.0                    # min ramp length from ego d to the apex offset (m)
+    avoid_post_distance: 2.0                   # return-to-raceline length after the pass zone (m)
+    ot_pass_clearance_s: 1.0                   # hold the apex offset this far around the pass point (m)
+    avoid_spline_resolution: 0.15              # sample spacing along the overtake line (m)
+    # --- lateral clearance & safety ---
+    avoid_lateral_clearance: 0.30              # extra gap beyond ego+opponent half-widths at apex (m)
+    avoid_boundary_margin: 0.35                # keep the line this far inside the track edge (m)
+                                               #   (side gap to the wall = this value; raise for more
+                                               #    wall safety, lower on narrow tracks if no side has room)
+    ot_map_clearance: 0.20                     # every path sample must have this much free space in the
+                                               #   LIVE /map (m). Catches walls/baked obstacles that the
+                                               #   raceline CSV d_left/d_right raycast does not know about
+                                               #   — a path can never cut through real structure.
+    ego_half_width: 0.15                       # ego half-width (m)
+    opponent_half_width: 0.25                  # assumed opponent half-width (m)
+    ot_max_d_slope: 0.40                        # STEERING LIMIT: max |dd/ds| of the overtake spline
+                                               #   (~tan of the heading offset vs the raceline). Entry/
+                                               #   exit ramps are lengthened and the apex flattened so
+                                               #   the line never demands a sharper steer than this —
+                                               #   lower = gentler weave, higher = tighter/faster swerve.
+    ot_max_path_kappa: 0.5                      # CURVATURE LIMIT: max |d2d/ds2| (1/m) the lateral spline
+                                               #   may ADD. Curvature sets the steering ANGLE, so a spike
+                                               #   spins the car even at modest slope (tight/short-ramp
+                                               #   edge cases). Ramps/apex are sized for it and the fitted
+                                               #   spline is verified — lower = safer, longer swerves.
+    avoid_side_mode: "auto"                    # "auto" (more room) | "left" | "right"
+    avoid_min_points: 5                        # reject a line shorter than this many samples
+    # --- speed (curvature-limited: v = sqrt(a_cap / kappa_tot), a_cap trusts the raceline's grip) ---
+    avoid_max_lat_accel: 4.0                   # FLOOR lateral-accel budget [m/s^2]. Per sample the
+                                               #   capacity is max(this, raceline vx^2*|kappa_r|) —
+                                               #   the raceline speed is feasible by construction, so
+                                               #   its own grip usage is trusted and the cap can never
+                                               #   drag the car under the raceline speed where the
+                                               #   spline adds no curvature. This value only governs
+                                               #   how hard the swerve itself may corner (straights).
+    ot_max_long_accel: 4.0                      # longitudinal-accel budget [m/s^2] for the fwd/bwd speed
+                                               #   smoothing. The car brakes THIS hard BEFORE a tight
+                                               #   section (a per-sample cap slows too late -> too fast
+                                               #   into the wall). Lower = earlier/gentler braking.
+    avoid_speed_scale: 1.5                     # final multiplier on the curvature-limited speed
+    avoid_v_floor: 8.0                         # min overtake speed [m/s]
+    avoid_v_ceiling: 13.0                      # max overtake speed [m/s]
+    ot_speed_blend_s: 1.5                      # blend the profile from the CURRENT ego speed at the path
+                                               #   start and into the raceline speed at the merge end (m),
+                                               #   so the local<->global handoff never steps the speed
+                                               #   setpoint (no hard accel on entry / brake on exit).
+    # --- committed-path validity monitoring (the opponent keeps moving) ---
+    path_intrusion_margin: 0.5                 # opponent within this lateral distance of the committed
+                                               #   path -> side switch, else abort (m)
+    replan_ds_threshold: 0.5                   # opponent s drift since last plan that forces a replan (m)
+    replan_dd_threshold: 0.2                   # opponent d drift since last plan that forces a replan (m)
+    ot_ego_dev_replan: 0.4                     # EGO lateral deviation from the committed path that forces
+                                               #   a replan from the CURRENT pose (m). Above 2x this the
+                                               #   maneuver aborts (crash/slide — the line is meaningless);
+                                               #   guards against chasing a path the car is no longer on.
+    ego_pose_grace_s: 0.3                      # max age (s) of the last SUCCESSFUL ego Frenet projection
+                                               #   the planner may plan from. Older (ego off the CLCS
+                                               #   domain, e.g. pushed off-track by a crash) -> the active
+                                               #   path is cleared once and the planner stays silent, so
+                                               #   downstream falls back to the global raceline.
+    ot_completion_margin: 1.0                  # ego must be this far past the opponent to complete (m)
+    ot_max_duration_s: 10.0                    # hard cap on a single committed maneuver (s)
+    ot_cooldown_s: 2.0                         # silent time after completion/abort before a new commit (s)
+
+    # --- trailing (추종): 추월 불가 시 상대 속도로 감속해 뒤따라가는 로컬 경로 ---
+    ot_trail_enabled: true                     # follow (decelerate to opponent speed) when blocked
+                                               #   but the overtake gates reject / during abort cooldown
+    ot_trail_gap: 1.5                          # following distance held behind the opponent [m]
+                                               #   (s-gap between vehicle centres; speed matches the
+                                               #   opponent AT this point via the fwd/bwd accel pass)

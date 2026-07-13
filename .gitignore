@@ -2,3 +2,13 @@
 build/
 install/
 log/
+
+# Editor generated output
+.vscode/
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Matplotlib font cache
+.matplotlib/

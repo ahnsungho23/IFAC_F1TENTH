@@ -9,3 +9,4 @@ Rules:
 - Outputs should stay compatible with the existing `f110_msgs/Wpnt` field names when practical.
 - Put user-facing operation docs in Korean.
 - Prefer configurable CLI arguments over hard-coded map, speed, width, or smoothing values.
+- When adding or changing generator parameters, update the GUI defaults, saved parameter YAML, and Korean README in the same change.

@@ -42,42 +42,61 @@ class NumericSpec:
     max_value: float
     resolution: float
     integer: bool = False
+    group: str = "General"
 
 
 NUMERIC_SPECS = [
-    NumericSpec("waypoint_step", "Waypoint step", 0.1, 0.03, 0.5, 0.01),
-    NumericSpec("optimizer_step", "Optimizer step", 0.2, 0.05, 0.8, 0.01),
-    NumericSpec("safety_width", "Safety width", 0.35, 0.08, 1.0, 0.01),
-    NumericSpec("boundary_margin", "Boundary margin", 0.03, 0.0, 0.25, 0.005),
-    NumericSpec("max_width_distance", "Max width dist", 5.0, 0.3, 8.0, 0.1),
-    NumericSpec("max_speed", "Max speed", 4.0, 0.5, 9.0, 0.1),
-    NumericSpec("min_speed", "Min speed", 1.0, 0.1, 4.0, 0.1),
-    NumericSpec("max_lateral_accel", "Max lat accel", 4.0, 0.5, 10.0, 0.1),
-    NumericSpec("max_accel", "Max accel", 3.0, 0.1, 6.0, 0.1),
-    NumericSpec("max_decel", "Max decel", 5.0, 0.1, 10.0, 0.1),
-    NumericSpec("smooth_sigma", "Smooth sigma", 2.0, 0.0, 6.0, 0.1),
-    NumericSpec("median_kernel", "Median kernel", 3, 1, 11, 2, integer=True),
-    NumericSpec("morph_kernel", "Morph kernel", 5, 1, 15, 2, integer=True),
-    NumericSpec("morph_open_iterations", "Morph open", 1, 0, 4, 1, integer=True),
-    NumericSpec("morph_close_iterations", "Morph close", 1, 0, 4, 1, integer=True),
-    NumericSpec("skeleton_prune_iterations", "Skel prune", 80, 0, 250, 5, integer=True),
-    NumericSpec("min_skeleton_component_area", "Skel min area", 40, 0, 1000, 10, integer=True),
-    NumericSpec("min_centerline_angle", "Min path angle", 75.0, 0.0, 120.0, 1.0),
-    NumericSpec("spike_filter_iterations", "Spike filter", 8, 0, 12, 1, integer=True),
-    NumericSpec("max_optimizer_iter", "Optimizer iter", 120, 20, 300, 10, integer=True),
-    NumericSpec("curvature_weight", "Curvature wt", 1.0, 0.0, 5.0, 0.05),
-    NumericSpec("smooth_weight", "Smooth wt", 0.04, 0.0, 0.3, 0.005),
-    NumericSpec("length_weight", "Length wt", 0.002, 0.0, 0.02, 0.0005),
+    # Sampling resolution
+    NumericSpec("waypoint_step", "Waypoint step", 0.1, 0.03, 0.5, 0.01, group="Sampling"),
+    NumericSpec("optimizer_step", "Optimizer step", 0.2, 0.1, 0.8, 0.01, group="Sampling"),
+    # Track width & safety
+    NumericSpec("safety_width", "Safety width", 0.35, 0.08, 1.0, 0.01, group="Track & safety"),
+    NumericSpec("boundary_margin", "Boundary margin", 0.03, 0.0, 0.25, 0.005, group="Track & safety"),
+    NumericSpec("max_width_distance", "Max width dist", 5.0, 0.3, 8.0, 0.1, group="Track & safety"),
+    # Speed profile
+    NumericSpec("max_speed", "Max speed", 4.0, 0.5, 9.0, 0.1, group="Speed profile"),
+    NumericSpec("min_speed", "Min speed", 1.0, 0.1, 4.0, 0.1, group="Speed profile"),
+    NumericSpec("max_lateral_accel", "Max lat accel", 4.0, 0.5, 10.0, 0.1, group="Speed profile"),
+    NumericSpec("max_accel", "Max accel", 3.0, 0.1, 6.0, 0.1, group="Speed profile"),
+    NumericSpec("max_decel", "Max decel", 5.0, 0.1, 10.0, 0.1, group="Speed profile"),
+    # Map cleanup & smoothing
+    NumericSpec("smooth_sigma", "Smooth sigma", 2.0, 0.0, 6.0, 0.1, group="Map cleanup"),
+    NumericSpec("median_kernel", "Median kernel", 3, 1, 11, 2, integer=True, group="Map cleanup"),
+    NumericSpec("morph_kernel", "Morph kernel", 5, 1, 15, 2, integer=True, group="Map cleanup"),
+    NumericSpec("morph_open_iterations", "Morph open", 1, 0, 4, 1, integer=True, group="Map cleanup"),
+    NumericSpec("morph_close_iterations", "Morph close", 1, 0, 4, 1, integer=True, group="Map cleanup"),
+    # Centerline extraction
+    NumericSpec("skeleton_prune_iterations", "Skel prune", 80, 0, 250, 5, integer=True, group="Centerline"),
+    NumericSpec("min_skeleton_component_area", "Skel min area", 40, 0, 1000, 10, integer=True, group="Centerline"),
+    NumericSpec("min_centerline_angle", "Min path angle", 75.0, 0.0, 120.0, 1.0, group="Centerline"),
+    NumericSpec("spike_filter_iterations", "Spike filter", 8, 0, 12, 1, integer=True, group="Centerline"),
+    # Min-curvature optimizer
+    NumericSpec("max_optimizer_iter", "Optimizer iter", 200, 40, 400, 10, integer=True, group="Min-curvature"),
+    NumericSpec("curvature_weight", "Curvature wt", 1.0, 0.0, 5.0, 0.05, group="Min-curvature"),
+    NumericSpec("smooth_weight", "Smooth wt", 0.04, 0.0, 0.3, 0.005, group="Min-curvature"),
+    NumericSpec("length_weight", "Length wt", 0.002, 0.0, 0.02, 0.0005, group="Min-curvature"),
+    # Straight-segment replacement
+    NumericSpec("straight_kappa_threshold", "Straight kappa", 0.2, 0.0, 0.3, 0.005, group="Straightening"),
+    NumericSpec("straight_min_length", "Straight min len", 1.5, 0.3, 8.0, 0.1, group="Straightening"),
+    NumericSpec("straight_clearance_margin", "Straight margin", 0.03, 0.0, 0.3, 0.005, group="Straightening"),
+    NumericSpec("straight_blend_length", "Straight blend", 0.5, 0.0, 2.0, 0.05, group="Straightening"),
 ]
 SPEC_BY_KEY = {spec.key: spec for spec in NUMERIC_SPECS}
 
 
-def normalize_numeric_value(spec: NumericSpec, value: Any) -> float | int:
+def normalize_numeric_value(
+    spec: NumericSpec,
+    value: Any,
+    *,
+    clamp_to_slider: bool = False,
+) -> float | int:
     number = float(value)
     if spec.resolution > 0.0:
         steps = round((number - spec.min_value) / spec.resolution)
         number = spec.min_value + steps * spec.resolution
-    number = min(max(number, spec.min_value), spec.max_value)
+    number = max(number, spec.min_value)
+    if clamp_to_slider:
+        number = min(number, spec.max_value)
     if spec.integer:
         return int(round(number))
     return float(number)
@@ -133,6 +152,7 @@ def default_gui_values() -> dict[str, Any]:
             "show_rt_lane": True,
             "debug_image": True,
             "reverse": False,
+            "straighten_straights": True,
             "no_flip_y": False,
             "unknown_as_free": False,
         }
@@ -204,7 +224,12 @@ def make_namespace(values: dict[str, Any]) -> argparse.Namespace:
         curvature_weight=float(values["curvature_weight"]),
         smooth_weight=float(values["smooth_weight"]),
         length_weight=float(values["length_weight"]),
+        straight_kappa_threshold=float(values["straight_kappa_threshold"]),
+        straight_min_length=float(values["straight_min_length"]),
+        straight_clearance_margin=float(values["straight_clearance_margin"]),
+        straight_blend_length=float(values["straight_blend_length"]),
         reverse=bool(values["reverse"]),
+        straighten_straights=bool(values["straighten_straights"]),
         no_flip_y=bool(values["no_flip_y"]),
         unknown_as_free=bool(values["unknown_as_free"]),
         debug_image=bool(values.get("debug_image", False)),
@@ -283,8 +308,12 @@ class TrajectoryGui:
         self.root.title("Offline Trajectory Generator")
         self.root.geometry("1280x820")
         self.root.minsize(940, 620)
+        self._setup_style()
 
         self.variables: dict[str, tk.Variable] = {}
+        self.scale_variables: dict[str, tk.DoubleVar] = {}
+        self.label_variables: dict[str, tk.StringVar] = {}
+        self.entry_variables: dict[str, tk.StringVar] = {}
         self.pending_after: str | None = None
         self.generation_id = 0
         self.running = False
@@ -301,6 +330,23 @@ class TrajectoryGui:
             self.root.after(100, self.prompt_initial_map)
         else:
             self.schedule_generate(delay_ms=100)
+
+    def _setup_style(self) -> None:
+        style = ttk.Style()
+        for preferred in ("clam", "alt", "default"):
+            if preferred in style.theme_names():
+                style.theme_use(preferred)
+                break
+        accent = "#3a6ea5"
+        self.root.configure(background="#f3f4f6")
+        style.configure(".", background="#f3f4f6")
+        style.configure("TFrame", background="#f3f4f6")
+        style.configure("TLabel", background="#f3f4f6")
+        style.configure("TCheckbutton", background="#f3f4f6")
+        style.configure("Section.TLabel", font=("", 11, "bold"), foreground="#1b1f23")
+        style.configure("Group.TLabel", font=("", 9, "bold"), foreground=accent)
+        style.configure("TButton", padding=4)
+        style.configure("Accent.TButton", padding=5)
 
     def _build_layout(
         self,
@@ -320,11 +366,16 @@ class TrajectoryGui:
         panel_canvas = tk.Canvas(left, highlightthickness=0, width=390)
         panel_scroll = ttk.Scrollbar(left, orient="vertical", command=panel_canvas.yview)
         self.panel = ttk.Frame(panel_canvas)
+        panel_window = panel_canvas.create_window((0, 0), window=self.panel, anchor="nw")
         self.panel.bind(
             "<Configure>",
             lambda event: panel_canvas.configure(scrollregion=panel_canvas.bbox("all")),
         )
-        panel_canvas.create_window((0, 0), window=self.panel, anchor="nw")
+        panel_canvas.bind(
+            "<Configure>",
+            lambda event: panel_canvas.itemconfigure(panel_window, width=event.width),
+        )
+        self._bind_panel_scroll(panel_canvas)
         panel_canvas.configure(yscrollcommand=panel_scroll.set)
         panel_canvas.grid(row=0, column=0, sticky="nsew")
         panel_scroll.grid(row=0, column=1, sticky="ns")
@@ -348,6 +399,31 @@ class TrajectoryGui:
 
         self._build_controls(initial_map, initial_output, initial_values)
 
+    def _bind_panel_scroll(self, panel_canvas: tk.Canvas) -> None:
+        def pointer_inside_canvas(event: tk.Event) -> bool:
+            x0 = panel_canvas.winfo_rootx()
+            y0 = panel_canvas.winfo_rooty()
+            x1 = x0 + panel_canvas.winfo_width()
+            y1 = y0 + panel_canvas.winfo_height()
+            return x0 <= event.x_root <= x1 and y0 <= event.y_root <= y1
+
+        def on_mousewheel(event: tk.Event) -> str | None:
+            if not pointer_inside_canvas(event):
+                return None
+            if getattr(event, "num", None) == 4:
+                delta = -3
+            elif getattr(event, "num", None) == 5:
+                delta = 3
+            else:
+                delta = -int(event.delta / 120) if event.delta else 0
+            if delta:
+                panel_canvas.yview_scroll(delta, "units")
+            return "break"
+
+        self.root.bind_all("<MouseWheel>", on_mousewheel, add="+")
+        self.root.bind_all("<Button-4>", on_mousewheel, add="+")
+        self.root.bind_all("<Button-5>", on_mousewheel, add="+")
+
     def _build_controls(
         self,
         initial_map: Path | None,
@@ -357,7 +433,7 @@ class TrajectoryGui:
         pad = {"padx": 8, "pady": 4}
         row = 0
 
-        ttk.Label(self.panel, text="Map", font=("", 11, "bold")).grid(row=row, column=0, sticky="w", **pad)
+        ttk.Label(self.panel, text="Map", style="Section.TLabel").grid(row=row, column=0, sticky="w", **pad)
         row += 1
         map_value = str(initial_map) if initial_map is not None else str(initial_values.get("map_yaml", ""))
         self.variables["map_yaml"] = tk.StringVar(value=map_value)
@@ -390,7 +466,7 @@ class TrajectoryGui:
         ttk.Separator(self.panel).grid(row=row, column=0, columnspan=3, sticky="ew", padx=8, pady=8)
         row += 1
 
-        ttk.Label(self.panel, text="Trajectory", font=("", 11, "bold")).grid(row=row, column=0, sticky="w", **pad)
+        ttk.Label(self.panel, text="Trajectory", style="Section.TLabel").grid(row=row, column=0, sticky="w", **pad)
         row += 1
 
         self.variables["optimizer"] = tk.StringVar(value=str(initial_values.get("optimizer", "centerline")))
@@ -409,23 +485,35 @@ class TrajectoryGui:
         row = self._check(row, "Save debug image", self.variables["debug_image"], render_only=False)
 
         self.variables["reverse"] = tk.BooleanVar(value=bool(initial_values.get("reverse", False)))
+        self.variables["straighten_straights"] = tk.BooleanVar(
+            value=bool(initial_values.get("straighten_straights", True))
+        )
         self.variables["no_flip_y"] = tk.BooleanVar(value=bool(initial_values.get("no_flip_y", False)))
         self.variables["unknown_as_free"] = tk.BooleanVar(value=bool(initial_values.get("unknown_as_free", False)))
         row = self._check(row, "Reverse", self.variables["reverse"])
+        row = self._check(row, "Straighten straights", self.variables["straighten_straights"])
         row = self._check(row, "No flip Y", self.variables["no_flip_y"])
         row = self._check(row, "Unknown as free", self.variables["unknown_as_free"])
 
         ttk.Separator(self.panel).grid(row=row, column=0, columnspan=3, sticky="ew", padx=8, pady=8)
         row += 1
 
-        ttk.Label(self.panel, text="Parameters", font=("", 11, "bold")).grid(row=row, column=0, sticky="w", **pad)
+        ttk.Label(self.panel, text="Parameters", style="Section.TLabel").grid(row=row, column=0, sticky="w", **pad)
         row += 1
 
+        current_group: str | None = None
         for spec in NUMERIC_SPECS:
+            if spec.group != current_group:
+                current_group = spec.group
+                ttk.Label(
+                    self.panel,
+                    text=current_group,
+                    style="Group.TLabel",
+                ).grid(row=row, column=0, columnspan=3, sticky="w", padx=8, pady=(10, 1))
+                row += 1
             value = normalize_numeric_value(spec, initial_values.get(spec.key, spec.default))
             self.variables[spec.key] = tk.DoubleVar(value=float(value))
-            self._scale(row, spec)
-            row += 1
+            row = self._scale(row, spec)
 
         self.panel.columnconfigure(1, weight=1)
         self.panel.columnconfigure(2, weight=0)
@@ -456,43 +544,74 @@ class TrajectoryGui:
         )
         return row + 1
 
-    def _scale(self, row: int, spec: NumericSpec) -> None:
+    def _scale(self, row: int, spec: NumericSpec) -> int:
         variable = self.variables[spec.key]
+        slider_var = tk.DoubleVar(
+            value=float(normalize_numeric_value(spec, variable.get(), clamp_to_slider=True))
+        )
+        self.scale_variables[spec.key] = slider_var
         label_var = tk.StringVar()
         entry_var = tk.StringVar()
+        self.label_variables[spec.key] = label_var
+        self.entry_variables[spec.key] = entry_var
+        syncing_slider = False
 
-        def update_label(*_: Any) -> None:
+        def update_widgets(*_: Any, force_entry: bool = False) -> None:
+            nonlocal syncing_slider
             formatted = format_numeric_value(spec, variable.get())
-            label_var.set(f"{spec.label}: {formatted}")
-            if self.root.focus_get() is not entry:
+            label_var.set(spec.label)
+            if force_entry or self.root.focus_get() is not entry:
                 entry_var.set(formatted)
+            slider_value = normalize_numeric_value(spec, variable.get(), clamp_to_slider=True)
+            if abs(float(slider_var.get()) - float(slider_value)) > 1e-12:
+                syncing_slider = True
+                try:
+                    slider_var.set(float(slider_value))
+                finally:
+                    syncing_slider = False
 
         def apply_entry(_event: tk.Event | None = None) -> str:
             text = entry_var.get().strip()
             try:
                 value = normalize_numeric_value(spec, text)
             except (TypeError, ValueError):
-                update_label()
+                update_widgets(force_entry=True)
                 self.status_var.set(f"Invalid {spec.label}: {text}")
                 return "break"
             variable.set(float(value))
             entry_var.set(format_numeric_value(spec, value))
             return "break"
 
-        variable.trace_add("write", update_label)
-        ttk.Label(self.panel, textvariable=label_var).grid(row=row, column=0, sticky="w", padx=8, pady=3)
+        def apply_scale(value_text: str) -> None:
+            if syncing_slider:
+                return
+            value = normalize_numeric_value(spec, value_text, clamp_to_slider=True)
+            if abs(float(variable.get()) - float(value)) > 1e-12:
+                variable.set(float(value))
+
+        variable.trace_add("write", update_widgets)
+        control = ttk.Frame(self.panel)
+        control.grid(row=row, column=0, columnspan=3, sticky="ew", padx=8, pady=(3, 3))
+        control.columnconfigure(2, weight=1)
+
+        ttk.Label(control, textvariable=label_var, width=22, anchor="w").grid(
+            row=0, column=0, sticky="w"
+        )
+        entry = ttk.Entry(control, textvariable=entry_var, width=9, justify="right")
+        entry.grid(row=0, column=1, sticky="ew", padx=(6, 6))
         scale = ttk.Scale(
-            self.panel,
+            control,
             from_=spec.min_value,
             to=spec.max_value,
-            variable=variable,
+            variable=slider_var,
+            command=apply_scale,
         )
-        scale.grid(row=row, column=1, sticky="ew", padx=8, pady=3)
-        entry = ttk.Entry(self.panel, textvariable=entry_var, width=8, justify="right")
-        entry.grid(row=row, column=2, sticky="e", padx=(0, 8), pady=3)
+        scale.grid(row=0, column=2, sticky="ew")
         entry.bind("<Return>", apply_entry)
+        entry.bind("<KP_Enter>", apply_entry)
         entry.bind("<FocusOut>", apply_entry)
-        update_label()
+        update_widgets(force_entry=True)
+        return row + 1
 
     def browse_map(self) -> None:
         filename = filedialog.askopenfilename(
@@ -712,6 +831,7 @@ def run_render_test(map_yaml: Path, output_png: Path) -> int:
             "optimizer": "centerline",
             "width_mode": "distance",
             "reverse": False,
+            "straighten_straights": True,
             "no_flip_y": False,
             "unknown_as_free": False,
             "debug_image": False,
