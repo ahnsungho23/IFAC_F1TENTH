@@ -12,7 +12,7 @@ global_trajectory_publisher_node:
     # Switch maps by changing map_name only. Relative paths resolve from the
     # `ros2 launch` working directory, so launch from the workspace root (~/2026_IFAC).
     output_base_dir: "offline_trajectory_generator/output"
-    map_name: "fuck_f1"
+    map_name: "ifac_track"
     # map_path: ""   # optional explicit directory override (bypasses output_base_dir/map_name)
     publish_markers: true
     publish_shortest_path: true

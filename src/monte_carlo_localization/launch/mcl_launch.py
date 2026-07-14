@@ -36,7 +36,7 @@ def generate_launch_description():
     
     map_name_arg = DeclareLaunchArgument(
         'map_name',
-        default_value='sibal1',
+        default_value='ifac_track',
         description='Map name (without .yaml extension)'
     )
     
