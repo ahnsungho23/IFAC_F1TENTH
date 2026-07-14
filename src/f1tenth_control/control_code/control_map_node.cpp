@@ -24,9 +24,9 @@
 
 using namespace f1tenth_control;
 
-class SteeringControlNode : public rclcpp::Node {
+class ControlMapNode : public rclcpp::Node {
 public:
-    SteeringControlNode() : Node("steering_control_node") {
+    ControlMapNode() : Node("control_map_node") {
         // ==========================================
         // 1. ROS 2 파라미터 선언 및 초기화
         // ==========================================
@@ -73,8 +73,6 @@ public:
         this->declare_parameter<double>("max_lateral_accel", 6.0);
         this->declare_parameter<double>("curvature_ff_blend", 0.0); // 곡률 FF 비활성: 검증된 순수 L1 격리 (원본 MAP 컨트롤러 미보유 항목)
         this->declare_parameter<std::string>("odom_topic", "/ego_racecar/odom");
-        this->declare_parameter<std::string>("controller_type", "l1");
-        this->declare_parameter<std::string>("waypoint_topic", "");
 
         // 안전라인 시프트: 플래너 최적라인이 벽에 과도하게 붙은(클리어런스 부족) 구간에서
         // 차체(길이 0.58m)가 벽을 스치는 충돌을 방지하기 위해, 메시지의 d_left/d_right(트랙 경계까지
@@ -136,53 +134,30 @@ public:
             } catch (...) {}
         }
         
-        // 2차 시도 (install 폴더 직접 조회)
+        // 2차 시도 (f1tenth_control 패키지 자체 share/cfg — 이식성 확보. 하드코딩 홈 경로 제거)
         if (!loaded) {
-            lut_file = "/home/tenmeneat/2026_IFAC/install/steering_lookup/share/steering_lookup/cfg/NUC6_glc_pacejka_lookup_table.csv";
-            loaded = lookup_table_.load(lut_file);
-        }
-
-        // 3차 시도 (확실한 로컬 F1tenth_control 패키지 폴더)
-        if (!loaded) {
-            lut_file = "/home/myungsub/F1tenth_control/control_code/NUC6_glc_pacejka_lookup_table.csv";
-            loaded = lookup_table_.load(lut_file);
-        }
-
-        // 4차 시도 (싱크된 2026_IFAC 내 f1tenth_control 폴더)
-        if (!loaded) {
-            lut_file = "/home/tenmeneat/2026_IFAC/f1tenth_control/control_code/NUC6_glc_pacejka_lookup_table.csv";
-            loaded = lookup_table_.load(lut_file);
+            try {
+                std::string share_dir = ament_index_cpp::get_package_share_directory("f1tenth_control");
+                lut_file = share_dir + "/cfg/NUC6_glc_pacejka_lookup_table.csv";
+                loaded = lookup_table_.load(lut_file);
+            } catch (...) {}
         }
 
         if (!loaded) {
-            RCLCPP_ERROR(this->get_logger(), "❌ [SteeringControlNode] 모든 경로에서 룩업 테이블(LUT) 로드 실패! 조향각이 0.0으로 고정됩니다.");
+            RCLCPP_ERROR(this->get_logger(), "❌ [ControlMapNode] 모든 경로에서 룩업 테이블(LUT) 로드 실패! 조향각이 0.0으로 고정됩니다.");
         } else {
-            RCLCPP_INFO(this->get_logger(), "🟢 [SteeringControlNode] 룩업 테이블(LUT) 로드 성공: %s", lut_file.c_str());
+            RCLCPP_INFO(this->get_logger(), "🟢 [ControlMapNode] 룩업 테이블(LUT) 로드 성공: %s", lut_file.c_str());
         }
 
         // ==========================================
-        // 2. 글로벌/로컬 경로(Waypoints) 구독 설정
+        // 2. 글로벌 경로(Waypoints) 구독 설정
         // ==========================================
-        std::string waypoint_topic = "";
-        this->get_parameter("waypoint_topic", waypoint_topic);
+        auto qos_gl = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local();
+        global_path_sub_ = this->create_subscription<f110_msgs::msg::WpntArray>(
+            "/global_waypoints", qos_gl,
+            std::bind(&ControlMapNode::global_path_callback, this, std::placeholders::_1));
 
-        if (!waypoint_topic.empty()) {
-            local_path_sub_ = this->create_subscription<f110_msgs::msg::WpntArray>(
-                waypoint_topic, 10,
-                std::bind(&SteeringControlNode::global_path_callback, this, std::placeholders::_1));
-            RCLCPP_INFO(this->get_logger(), "지정된 웨이포인트 토픽(%s) 구독 설정 완료.", waypoint_topic.c_str());
-        } else {
-            auto qos_gl = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local();
-            global_path_sub_ = this->create_subscription<f110_msgs::msg::WpntArray>(
-                "/global_waypoints", qos_gl,
-                std::bind(&SteeringControlNode::global_path_callback, this, std::placeholders::_1));
-
-            local_path_sub_ = this->create_subscription<f110_msgs::msg::WpntArray>(
-                "/local_waypoints", 10,
-                std::bind(&SteeringControlNode::global_path_callback, this, std::placeholders::_1));
-
-            RCLCPP_INFO(this->get_logger(), "플래닝 팀의 글로벌(/global_waypoints) 및 로컬(/local_waypoints) 경로 토픽 구독 설정 완료.");
-        }
+        RCLCPP_INFO(this->get_logger(), "플래닝 팀의 글로벌 경로 토픽(/global_waypoints) 구독 설정 완료.");
 
         // ==========================================
         // 2.5 로컬 경로(Local Waypoints) 구독 + 장애물 회피 폴백 파라미터
@@ -191,7 +166,7 @@ public:
         // 신선한 로컬이 있으면 글로벌보다 우선 추종하고, 끊기면 글로벌로 폴백한다.
         local_fresh_timeout_ = this->declare_parameter<double>("local_fresh_timeout", 0.3);
         // 로컬 회피경로가 없을 때, 글로벌 추종 중 앞이 막히면 GapFollower로 회피 폴백하는 파라미터
-        obstacle_avoid_enable_ = this->declare_parameter<bool>("obstacle_avoid_enable", true);
+        obstacle_avoid_enable_ = this->declare_parameter<bool>("obstacle_avoid_enable", false);
         obstacle_cone_halfangle_ = this->declare_parameter<double>("obstacle_cone_halfangle", 0.14);
         obstacle_trigger_dist_ = this->declare_parameter<double>("obstacle_trigger_dist", 1.5);
         obstacle_margin_ = this->declare_parameter<double>("obstacle_margin", 0.3);
@@ -199,7 +174,7 @@ public:
         auto qos_local = rclcpp::QoS(rclcpp::KeepLast(1)).reliable(); // 로컬 퍼블리셔에 맞춰 volatile
         local_path_sub_ = this->create_subscription<f110_msgs::msg::WpntArray>(
             "/local_waypoints", qos_local,
-            std::bind(&SteeringControlNode::local_path_callback, this, std::placeholders::_1));
+            std::bind(&ControlMapNode::local_path_callback, this, std::placeholders::_1));
         local_last_recv_time_ = this->now(); // 노드 클럭 타입으로 초기화(비교 시 clock mismatch 방지)
         RCLCPP_INFO(this->get_logger(), "로컬 경로 토픽(/local_waypoints) 구독 설정 완료.");
 
@@ -211,15 +186,15 @@ public:
 
         odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
             odom_topic_, 10,
-            std::bind(&SteeringControlNode::odom_callback, this, std::placeholders::_1));
+            std::bind(&ControlMapNode::odom_callback, this, std::placeholders::_1));
 
         imu_sub_ = this->create_subscription<sensor_msgs::msg::Imu>(
             "/imu/data", 10,
-            std::bind(&SteeringControlNode::imu_callback, this, std::placeholders::_1));
+            std::bind(&ControlMapNode::imu_callback, this, std::placeholders::_1));
 
         scan_sub_ = this->create_subscription<sensor_msgs::msg::LaserScan>(
             "/scan", 10,
-            std::bind(&SteeringControlNode::scan_callback, this, std::placeholders::_1));
+            std::bind(&ControlMapNode::scan_callback, this, std::placeholders::_1));
 
         drive_pub_ = this->create_publisher<ackermann_msgs::msg::AckermannDriveStamped>(
             "/drive_autonomous", 10);
@@ -227,7 +202,7 @@ public:
         // 실시간 50Hz (20ms) 주기 타이머 가동
         control_timer_ = this->create_wall_timer(
             std::chrono::milliseconds(20),
-            std::bind(&SteeringControlNode::control_loop, this));
+            std::bind(&ControlMapNode::control_loop, this));
 
         last_time_ = this->now();
         RCLCPP_INFO(this->get_logger(), "RoboRacer L1 Guidance & Steer LUT 제어 노드가 시작되었습니다.");
@@ -268,6 +243,11 @@ private:
             return;
         }
 
+        // global_republisher_node 등 플래너는 동일 경로를 주기적으로 재발행할 수 있음
+        // (예: publish_period_sec=2.0). 최초 수신 여부를 먼저 기록해 아래 인덱스 재초기화
+        // 범위를 최초 1회로 제한한다(이유는 아래 주석 참고).
+        const bool first_reception = !waypoints_initialized_;
+
         waypoints_.clear();
         waypoints_.reserve(msg->wpnts.size());
 
@@ -306,19 +286,28 @@ private:
             waypoints_.push_back(interp_wp);
         }
 
-        // 새 경로 수신 시 최단 거리 인덱스로 초기화
-        double min_dist = std::numeric_limits<double>::max();
-        size_t closest_idx = 0;
-        for (size_t i = 0; i < waypoints_.size(); ++i) {
-            double dx = waypoints_[i].x - current_x_;
-            double dy = waypoints_[i].y - current_y_;
-            double dist = std::hypot(dx, dy);
-            if (dist < min_dist) {
-                min_dist = dist;
-                closest_idx = i;
+        // 경로 수신 시 최단 거리 인덱스로 초기화 — 단 "최초 수신"이거나 기존 인덱스가
+        // 새 배열 범위를 벗어났을 때만 전체 재탐색을 수행한다. 매 재발행마다 전체
+        // 재탐색하면 스타트/피니시처럼 유클리드 거리는 가깝지만 인덱스는 트랙 반대편인
+        // 구간에서 엉뚱한 인덱스로 스냅되어 조향 포화·속도 붕괴로 이어질 수 있다
+        // (global_republisher_node의 주기 재발행 시 상시 발생 가능). 최초 수신 이후엔
+        // control_loop이 매 사이클 윈도우 탐색으로 인덱스를 계속 추적하므로 재초기화가
+        // 필요 없다.
+        if (first_reception || last_target_idx_ >= waypoints_.size()) {
+            double min_dist = std::numeric_limits<double>::max();
+            size_t closest_idx = 0;
+            for (size_t i = 0; i < waypoints_.size(); ++i) {
+                double dx = waypoints_[i].x - current_x_;
+                double dy = waypoints_[i].y - current_y_;
+                double dist = std::hypot(dx, dy);
+                if (dist < min_dist) {
+                    min_dist = dist;
+                    closest_idx = i;
+                }
             }
+            last_target_idx_ = closest_idx;
+            waypoints_initialized_ = true;
         }
-        last_target_idx_ = closest_idx;
 
         // 전체 경로의 평균 곡률을 한 번만 계산 (control_loop에서 매 사이클 반복 제거)
         double sum_kappa = 0.0;
@@ -326,6 +315,46 @@ private:
             sum_kappa += std::abs(wp.curvature);
         }
         mean_track_curvature_ = waypoints_.empty() ? 0.0 : (sum_kappa / waypoints_.size());
+
+        // 평균 웨이포인트 간격(닫힌 루프 둘레/개수) — closest_idx 윈도우 탐색 크기와 아래
+        // 곡률 평활 창 크기를 물리 거리 기준으로 산출하는 데 사용(웨이포인트 밀도가 소스마다
+        // 크게 다를 수 있음).
+        double total_path_length = 0.0;
+        for (size_t i = 0; i + 1 < waypoints_.size(); ++i) {
+            total_path_length += std::hypot(waypoints_[i + 1].x - waypoints_[i].x,
+                                             waypoints_[i + 1].y - waypoints_[i].y);
+        }
+        if (waypoints_.size() > 1) {
+            total_path_length += std::hypot(waypoints_.front().x - waypoints_.back().x,
+                                             waypoints_.front().y - waypoints_.back().y);
+        }
+        avg_waypoint_spacing_ = waypoints_.empty() ? 0.36
+                                                    : std::max(0.01, total_path_length / waypoints_.size());
+
+        // 곡률 사전감속(1.5절)용 물리거리 창 평활 곡률 계산.
+        //
+        // wp.curvature(kappa_radpm)는 인접점 헤딩차분으로 산출되어, 웨이포인트가 촘촘할수록
+        // 짧은 구간의 헤딩 노이즈가 증폭돼 개별 포인트 kappa가 실제 지속 곡률보다 훨씬 크게
+        // 튈 수 있다. 사전감속이 "윈도우 내 최대 단일점 kappa"를 그대로 쓰면 노이즈 스파이크
+        // 하나로 오프라인 최적화된 프로파일 속도보다 훨씬 낮게 순간 과잉감속된다. 물리거리
+        // ±0.3m(총 0.6m) 창으로 |kappa| 평균을 내면 순간 노이즈는 눌리되 실제 지속 곡률(헤어핀
+        // 등)은 거의 그대로 반영된다. 원본 wp.curvature 필드는 FF 조향(curvature_ff_blend_,
+        // 기본 비활성) 등 다른 용도를 위해 그대로 둔다.
+        {
+            const double window_half_m = 0.3;
+            const int half_n = std::max(1, static_cast<int>(std::round(window_half_m / avg_waypoint_spacing_)));
+            const int n = static_cast<int>(waypoints_.size());
+            for (int i = 0; i < n; ++i) {
+                double sum = 0.0;
+                int cnt = 0;
+                for (int off = -half_n; off <= half_n; ++off) {
+                    int idx = ((i + off) % n + n) % n;
+                    sum += std::abs(waypoints_[idx].curvature);
+                    ++cnt;
+                }
+                waypoints_[i].smoothed_curvature = (cnt > 0) ? (sum / cnt) : std::abs(waypoints_[i].curvature);
+            }
+        }
 
         RCLCPP_INFO(this->get_logger(), "🔄 플래닝 팀의 글로벌 경로 수신 완료! 웨이포인트 개수: %zu, 초기 인덱스: %zu", waypoints_.size(), last_target_idx_);
     }
@@ -345,6 +374,7 @@ private:
             w.y = wp.y_m;
             w.speed = wp.vx_mps;
             w.curvature = wp.kappa_radpm;
+            w.smoothed_curvature = wp.kappa_radpm; // 로컬(짧은 회피경로)은 창 평활 미적용, 원본 그대로
             w.raw_speed_limit = wp.vx_mps;
             w.yaw = wp.psi_rad;
             local_waypoints_.push_back(w);
@@ -448,8 +478,22 @@ private:
 
         if (closed) {
             // 글로벌(닫힌 루프): 직전 인덱스 주변 윈도우 스캔 + 이탈 시 전역 재탐색
+            //
+            // 윈도우 크기는 고정 인덱스 개수가 아니라 물리 거리(후방 1m·전방 3m) 기준으로
+            // 웨이포인트 밀도에 맞춰 동적 산출한다. 고정 개수였다면 웨이포인트 간격이 촘촘한
+            // 소스에서 물리적 탐색 반경이 크게 줄어, 트랙이 스스로에게 가까워지는 구간(스타트/
+            // 피니시 등)에서 윈도우가 진짜 최근접점을 놓치고 엉뚱한 인덱스에 잠길 수 있다.
+            // 이때 min_dist가 fail-safe 임계(2.5m) 밑이면 전역 재탐색도 발동하지 않아
+            // 인덱스가 역행/진동하며 조향 포화·속도 붕괴로 이어진다.
+            const double spacing = std::max(0.01, avg_waypoint_spacing_);
+            int back_count = std::max(2, static_cast<int>(std::ceil(1.0 / spacing)));
+            int fwd_count = std::max(8, static_cast<int>(std::ceil(3.0 / spacing)));
+            const int half_n = static_cast<int>(n / 2);
+            back_count = std::min(back_count, half_n);
+            fwd_count = std::min(fwd_count, half_n);
+
             closest_idx = last_target_idx_;
-            for (int i = -2; i <= 8; ++i) {
+            for (int i = -back_count; i <= fwd_count; ++i) {
                 size_t idx = (last_target_idx_ + i + n) % n;
                 double dx = wps[idx].x - current_x_;
                 double dy = wps[idx].y - current_y_;
@@ -496,13 +540,26 @@ private:
         double min_lookahead_dist = static_cast<double>(curvature_lookahead_count_) * 0.1; // 기존 고정값을 하한으로 유지
         double curv_lookahead_dist = std::max(min_lookahead_dist, brake_dist);
 
-        double max_upcoming_kappa = 0.0;
+        // 프로파일 신뢰형 사전감속 (backward-pass): 오프라인 최적화된 프로파일 vx_mps는 이미
+        // 각 지점의 최적 속도(코너 감속 램프 포함)를 담고 있다는 전제로, 전방 각 지점의 그립
+        // 제한 목표속도 v_cap[i] = min(vx_profile[i], √(a_lat/κ_smoothed[i]))까지
+        // base_max_decel로 감속 가능한 현재 최대 속도 v_reach = √(v_cap[i]² + 2·a_decel·d_i)의
+        // 최소값을 사전감속 캡으로 쓴다(accum=0인 현재 위치 항이 순간 그립 클램프 역할도 겸함).
+        // 직선·완만구간은 κ≈0 → v_cap=프로파일이라 안 눌리고, 코너는 제동거리만큼 앞에서부터
+        // 정확히 그립속도로 선제동된다. (구 방식인 "창 내 최대 κ로 √(a_lat/κ) 블랭킷 재캡"은
+        // 프로파일보다 낮은 속도로 전 구간을 과잉감속시켜 폐기 — 상세 비교는 CLAUDE.md 참고.)
+        double curvature_speed_limit = std::numeric_limits<double>::max();
         double accum_curv_dist = 0.0;
         size_t curv_scan_idx = closest_idx;
         while (accum_curv_dist < curv_lookahead_dist) {
-            double kappa_abs = std::abs(wps[curv_scan_idx].curvature);
-            if (kappa_abs > max_upcoming_kappa) {
-                max_upcoming_kappa = kappa_abs;
+            double v_cap_i = wps[curv_scan_idx].speed;
+            double k_i = std::abs(wps[curv_scan_idx].smoothed_curvature);
+            if (k_i > 0.01) {
+                v_cap_i = std::min(v_cap_i, std::sqrt(max_lateral_accel_ / k_i));
+            }
+            double v_reach = std::sqrt(v_cap_i * v_cap_i + 2.0 * base_max_decel_ * accum_curv_dist);
+            if (v_reach < curvature_speed_limit) {
+                curvature_speed_limit = v_reach;
             }
             size_t next_idx;
             if (closed) {
@@ -517,12 +574,7 @@ private:
             curv_scan_idx = next_idx;
             if (closed && curv_scan_idx == closest_idx) break; // 한바퀴 방지
         }
-        // v_max = sqrt(a_lat_max / kappa_max) — 곡률이 높으면 속도를 제한
-        double curvature_speed_limit = max_speed_;
-        if (max_upcoming_kappa > 0.01) {
-            curvature_speed_limit = std::sqrt(max_lateral_accel_ / max_upcoming_kappa);
-            curvature_speed_limit = std::max(min_speed_, curvature_speed_limit);
-        }
+        curvature_speed_limit = std::max(min_speed_, curvature_speed_limit);
 
         // ==========================================
         // 2. L1 Guidance Distance 계산 및 L1 Point 스캔
@@ -649,6 +701,17 @@ private:
         while (heading_err > PI) heading_err -= 2.0 * PI;
         while (heading_err < -PI) heading_err += 2.0 * PI;
         steering_angle += heading_damping_gain_ * heading_err;
+
+        // 3.8) 요레이트 피드백 카운터스티어 (횡슬립/언더스티어 보정)
+        // 방금 확정한 명령 조향각이 기하학적으로 의도하는 기대 요레이트(v·tanδ/L) 대비
+        // IMU 실측 요레이트의 오차에 비례해 조향을 보정한다. 언더스티어(실측<기대) 시
+        // +방향으로 더 꺾어 슬립을 상쇄. rate limit·물리 클리핑 이전에 더해 보정분까지
+        // 안전 한계(±0.41, rate 0.4) 안으로 함께 수렴시킨다. IMU 미장착 시(use_imu=false)
+        // 무효. 저속(<0.5m/s) 특이점은 함수 내부에서 0으로 게이트됨.
+        if (use_imu_) {
+            steering_angle += stability_controller_->calculate_yaw_rate_correction(
+                current_speed_, steering_angle, wheelbase_, yaw_rate_gain_);
+        }
 
         // 4) Rate limit
         double threshold = 0.4;
@@ -812,6 +875,8 @@ private:
     rclcpp::Time last_time_;
 
     size_t last_target_idx_ = 0;
+    bool waypoints_initialized_ = false; // 최초 global_waypoints 수신 여부(재발행 시 인덱스 오초기화 방지)
+    double avg_waypoint_spacing_ = 0.36; // global_path_callback에서 실측 갱신, 수신 전 보수적 기본값
 
     std::vector<Waypoint> waypoints_;          // 글로벌 경로 (닫힌 루프)
     double mean_track_curvature_ = 0.0;
@@ -822,7 +887,7 @@ private:
     double local_fresh_timeout_ = 0.3;         // 이 시간(s) 넘게 로컬 미수신 시 글로벌로 폴백
 
     // 장애물 차단 시 GapFollower 회피 폴백 (글로벌 추종 중, 로컬 회피경로 없을 때)
-    bool obstacle_avoid_enable_ = true;
+    bool obstacle_avoid_enable_ = false;
     double obstacle_cone_halfangle_ = 0.14;    // L1 방향 콘 반각 [rad] (~8도)
     double obstacle_trigger_dist_ = 1.5;       // 이 거리[m] 이내 근접 시 차단 판정
     double obstacle_margin_ = 0.3;             // 목표점 거리 대비 최소 여유[m]
@@ -846,7 +911,7 @@ private:
 
 int main(int argc, char* argv[]) {
     rclcpp::init(argc, argv);
-    auto node = std::make_shared<SteeringControlNode>();
+    auto node = std::make_shared<ControlMapNode>();
     rclcpp::spin(node);
     rclcpp::shutdown();
     return 0;
