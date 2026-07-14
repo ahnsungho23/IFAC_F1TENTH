@@ -40,6 +40,8 @@ python3 offline_trajectory_generator/trajectory_gui.py \
 
 화면 왼쪽에는 map 경로, 저장 위치, trajectory 파라미터가 표시된다. 숫자 파라미터는 `Sampling`, `Track & safety`, `Speed profile`, `Map cleanup`, `Centerline`, `Min-curvature`, `Straightening` 그룹별 소제목으로 묶여 있어 원하는 항목을 빠르게 찾을 수 있다. 오른쪽에는 map 이미지 위에 centerline과 RT lane이 함께 표시된다. 슬라이더나 체크박스를 바꾸면 잠시 후 자동으로 다시 계산되어 overlay가 갱신된다.
 
+`AI Optimize` 버튼을 누르면 옵티마이저가 `ai`로 전환되고, GPU 경사하강 포트폴리오 + 정확 재채점 + 진화 탐색(ES) 폴리싱을 `AI epochs`(Optimizer 탭)만큼 반복해 랩타임이 가장 짧은 라인을 자동으로 찾는다(자세한 동작은 3장의 `--optimizer ai` 설명 참고). torch 또는 MLX가 설치되어 있어야 한다. 최적화 진행 로그(`[laptime] iter ...`, `[ai] epoch ...`)는 실행 중 상태바에 실시간으로 표시되므로, 반복 수가 커서 수십 초가 걸려도 멈춘 것이 아니다.
+
 각 숫자 파라미터는 이름 옆 입력칸에 현재 값이 표시되고, 그 칸에 값을 직접 입력할 수도 있다. 입력칸에서 `Enter`를 누르거나 다른 칸으로 이동하면 값이 적용된다. 직접 입력값은 파라미터 단위에 맞게 반올림되고 최소값보다 작으면 최소값으로 제한되지만, 슬라이더 최대 범위보다 큰 값도 그대로 사용할 수 있다. 이때 슬라이더는 빠른 조정용 범위 끝에 머물고, 실제 적용값은 입력칸과 저장 YAML에 유지된다. 파라미터가 화면 아래에 있으면 왼쪽 패널 위에서 마우스 휠이나 스크롤바로 이동한다.
 
 GUI에서 `Save`를 누르면 현재 화면에 보이는 trajectory가 `global_waypoints.json`, `global_waypoints.csv`, `centerline.csv`, `metadata.json`으로 저장된다.
@@ -81,18 +83,57 @@ offline_trajectory_generator/output/<map_yaml_file_name>/
 - `--max-speed`: waypoint 속도 상한이다. 기본값은 `4.0` m/s이다.
 - `--min-speed`: waypoint 속도 하한이다. 기본값은 `1.0` m/s이다.
 - `--max-lateral-accel`: 곡률 기반 속도 계산에 쓰는 횡가속도 한계이다.
+- `--max-curvature`: 차량 조향 한계를 경로 최대 곡률[rad/m]로 지정한다(= `tan(최대조향각)/휠베이스`,
+  F1TENTH 기준 약 `1.2`). 속도 모델은 급커브에서 감속만 할 뿐 "그 커브를 아예 돌 수 없다"는 사실을
+  모르기 때문에, 이 한계가 없으면 옵티마이저가 차가 물리적으로 추종 불가능한 꺾임(회전반경 수 cm)으로
+  코너를 자른다. mincurv/laptime/ai 손실에 페널티로 들어가고, 최종 waypoint도 검증해 초과 시
+  경고를 출력한다(GUI 상태바 ⚠ + `max |κ|` 지표 표시). `0`이면 비활성.
+- `--raceline-smooth-sigma`: 최종 waypoint 재샘플 직후 raceline에 적용하는 가우시안 평활(샘플 단위,
+  기본 `1.0`)이다. 옵티마이저는 `optimizer-step` 간격 꼭짓점을 가진 꺾은선을 내놓는데, 이를 더 촘촘한
+  `waypoint-step`으로 선형 재샘플하면 꼭짓점마다 유령 곡률 스파이크가 생겨 조향 한계 위반·과잉 감속을
+  일으킨다. 1 샘플 정도의 평활이 기하를 바꾸지 않고 이 꺾임만 제거한다(oct_28 실측: 유령 스파이크
+  감속이 사라져 랩타임 12.2s → 10.5s). `0`이면 비활성.
 - `--median-kernel`: SLAM map의 작은 점 노이즈를 제거하는 median 필터 크기이다. 홀수 값으로 사용된다.
 - `--morph-kernel`: map cleanup에 쓰는 픽셀 커널 크기이다. 노이즈가 많은 map에서는 키우되, 너무 크면 좁은 통로가 사라질 수 있다.
 - `--morph-open-iterations`: 작은 free-space 점 노이즈를 제거하는 반복 횟수이다.
 - `--morph-close-iterations`: 끊긴 free-space를 메우는 반복 횟수이다.
 - `--skeleton-prune-iterations`: skeleton의 막다른 가지를 반복적으로 잘라내는 횟수이다.
 - `--min-skeleton-component-area`: 너무 작은 skeleton 조각을 버리는 최소 픽셀 수이다.
+- `--min-track-width`: 이 값[m]보다 좁은 free-space 위의 skeleton 픽셀을 제거한다(기본 `0.3`).
+  차가 물리적으로 지나갈 수 없는 폭의 스캔 노이즈 영역(긁힌 자국, 벽 틈 새어나감)에 centerline이
+  생기는 것을 차단한다. `0`이면 끈다.
 - `--min-centerline-angle`: 경로가 한 점에서 되돌아가는 핀 형태를 제거하기 위한 최소 진행 각도이다.
 - `--spike-filter-iterations`: 핀 제거 필터를 반복하는 횟수이다.
 - `--reverse`: 생성된 waypoint 주행 방향을 반대로 뒤집는다.
 - `--debug-image`: map 이미지 위에 centerline과 global trajectory를 그린 PNG를 저장한다.
 - `--optimizer centerline`: 기본값이다. SLAM map에서 안정적으로 동작한다.
 - `--optimizer mincurv`: scipy 기반 최소 곡률 보정을 시도한다. map 품질에 따라 튜닝이 필요할 수 있다.
+- `--optimizer laptime`: **랩타임 자체를 손실함수로 GPU에서 직접 경사하강**하는 옵티마이저다(`optimize_laptime.py`).
+  mincurv처럼 곡률·평활·길이 가중치를 손으로 맞춰 간접적으로 시간을 줄이는 대신, 곡률 제한 속도
+  `v=√(a_lat/|κ|)`와 가감속 한계까지 미분 가능하게 모델링한 랩타임을 직접 최소화한다. 경계는
+  sigmoid 재매개변수화로 하드 보장되어 트랙을 절대 벗어나지 않는다. `--laptime-restarts`개의 후보
+  라인을 GPU에서 **동시에** 최적화(멀티스타트)하고 가장 빠른 라인을 선택하며, 한 후보는 mincurv
+  해로 웜스타트한다(`--laptime-no-warm-start`로 끔). torch(CUDA) 또는 Apple MLX(Metal)가 필요하고
+  `--laptime-backend auto`가 설치된 쪽을 자동 선택한다. 실측: fuck_f1 맵(198 wpt) 기준 24개
+  라인 × 3000 스텝이 Apple M-시리즈에서 3.4초, 랩타임 6.70s → 5.90s(−12%).
+- `--laptime-iters` / `--laptime-restarts` / `--laptime-lr` / `--laptime-smooth-weight`:
+  laptime 옵티마이저의 반복 수 / 동시 후보 수 / 학습률(3단계 감쇠) / 횡오프셋 평활 가중치다.
+  후보 수를 늘리면 지역해 탈출 확률이 오르고, GPU에서는 비용이 거의 늘지 않는다.
+- `--optimizer ai`: **여러 기법을 epoch 단위로 번갈아 적용해 랩타임을 더 줄이는 자동 탐색**이다
+  (GUI의 `AI Optimize` 버튼과 동일). 탐색은 **mincurv 해를 기준으로 한다**: 시작 시 mincurv
+  웜스타트 라인을 채점해 기준선으로 삼고, 초기 후보의 대부분(3/4)은 mincurv/현재 최적 해 주변의
+  평활 섭동이며 전역 무작위 후보는 1/4만 둔다. 한 epoch는 ① GPU 경사하강 포트폴리오 — 재시작
+  배치 안에서 후보마다 **서로 다른 평활 가중치**(x0.25/x1/x4)를 배정해 여러 정규화 세팅을 한 번에
+  탐색 — ② **정확 재채점** — 모든 후보를 미분 모델이 아니라 실제 파이프라인과 같은 후처리(스파이크
+  필터 + 재샘플)를 거친 `velocity_profile` 랩타임 + 조향 한계 페널티(score)로 다시 채점해 진짜
+  승자를 선택 — ③ **진화 탐색(ES) 폴리싱** — 미분 불가능한 실제 score를 직접 줄이는 (1+λ) 진화
+  전략과 수렴 후 디위글(불필요한 잔물결 펴기) 스윕 — 으로 구성되고, 다음 epoch는 그 결과에서
+  웜스타트한다(basin hopping). laptime과 같은 `--laptime-*`
+  설정을 그대로 쓴다. 정확 재채점에 조향 한계 페널티가 포함되므로 **주행 불가능한 후보가 순위에서
+  탈락한다** — 실측(fuck_f1, 동일 설정): laptime 승자는 κ=2.2 rad/m 코너가 남지만(경고 출력)
+  ai 승자는 max |κ|=1.19로 조향 한계 위반 0이다.
+- `--ai-epochs`: ai 탐색의 epoch 수다. 기본 `3`. epoch마다 무작위 재시작 시드가 바뀌므로 늘릴수록
+  지역해 탈출 기회가 늘지만 시간도 비례해 늘어난다.
 - `--max-optimizer-iter`: 최소 곡률 최적화(L-BFGS-B)의 최대 반복 횟수이다. 기본값은 `200`이다. `optimizer-step`을 적정 범위로 두면 보통 이 한도 안에서 정상 수렴한다. 변수가 많거나 map이 어려운 경우에만 한도에 도달하는데, 이때도 그때까지 찾은 최적 경로를 그대로 사용하므로 별도 경고를 출력하지 않는다. 경고가 자주 보인다면 `optimizer-step`을 키우는 것이 정석적인 해결책이다.
 - `--no-straighten-straights`: 직선 후보 구간을 직선으로 보정하는 후처리를 끈다.
 - `--straight-kappa-threshold`: 이 값보다 작은 절대 곡률을 직선 후보로 본다. 기본값은 `0.2` rad/m이다.
@@ -138,7 +179,6 @@ CSV의 `x_m`, `y_m`은 선택한 ROS map YAML의 `resolution`과 `origin`이 적
 - `centerline_waypoints`: 추출된 centerline waypoint 배열
 - `est_lap_time`: 속도 프로파일 기반 예상 랩타임
 - `map_info_str`: 입력 map과 생성 설정 요약
-- `*_markers` (`global_traj_markers_iqp`, `trackbounds_markers`, `centerline_markers`, `global_traj_markers_sp`): RViz 시각화용 `visualization_msgs/MarkerArray`. waypoint 배열로부터 자동 생성한다 — raceline은 LINE_STRIP + 속도색 SPHERE_LIST(파랑 느림→빨강 빠름), 트랙 경계는 좌/우 LINE_STRIP(waypoint pose와 `d_left/d_right`로 계산). 모든 마커는 `frame_id=map`. `global_planning`의 `global_trajectory_publisher_node`가 이 마커를 그대로 `/global_waypoints/markers` 등으로 재발행하므로 별도 노드 없이 RViz에서 바로 보인다. (마커 스타일 상수는 `generate_global_trajectory.py`의 마커 헬퍼 상단에 있다.)
 
 ## 6. 의존성
 
@@ -147,6 +187,21 @@ CSV의 `x_m`, `y_m`은 선택한 ROS map YAML의 `resolution`과 `origin`이 적
 ```bash
 python3 -m pip install -r offline_trajectory_generator/requirements.txt
 ```
+
+`--optimizer laptime`과 `--optimizer ai`만 추가로 ML 프레임워크가 필요하다(둘 중 하나):
+
+- `torch` — Ubuntu/실차 PC. CUDA가 있으면 자동으로 GPU를 쓴다(`--laptime-device cuda`로 강제 가능).
+- `mlx` — Apple Silicon macOS. Metal GPU를 자동 사용한다.
+
+centerline 추출은 노이즈에 강건하게 동작한다: ① `--min-track-width`보다 좁은 영역의 skeleton은
+노이즈로 보고 제거하고, ② 후보 루프 중 **둘러싼 면적이 가장 큰 폐곡선**(=실제 트랙 루프)을
+선택하며(길이 기준이 아님 — 가늘고 긴 노이즈 낙서가 이기지 못한다), ③ opencv contrib
+(`ximgproc.thinning`)가 없으면 내장 Zhang-Suen thinning으로 대체하므로 추가 설치 없이도
+스켈레톤 루프가 연결된 상태로 추출된다. 또한 ④ **map cleanup(median/morph close)은 실측 벽을
+절대 지우지 못한다** — 큰 morph 커널이 얇은 내부 벽(예: 트랙 가운데 칸막이)을 free-space로
+삼켜 경로가 벽을 관통하는 문제를 막기 위해, 정리 후 원본 occupied 픽셀을 다시 새긴다(스페클
+크기 이하의 점 노이즈는 제외). 최종 경로는 웨이포인트 사이 구간까지 ~2픽셀 간격으로 조밀하게
+검사해 free-space를 벗어나면 경고를 출력한다(GUI 상태바에도 ⚠ 표시).
 
 ROS 2, `rclpy`, `quadprog`, `skimage`는 필요하지 않다.
 

@@ -54,6 +54,13 @@ class GenerationResult:
     global_traj: Trajectory
     lap_time: float
     flip_y: bool
+    # Waypoints that ended up outside the drivable free space. Non-zero means
+    # the extraction most likely latched onto map noise instead of the track.
+    off_map_wpnts: int = 0
+    # Waypoints whose curvature exceeds the vehicle steering limit
+    # (--max-curvature). Non-zero means the raceline is not drivable as-is.
+    kappa_violations: int = 0
+    max_abs_kappa: float = 0.0
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -95,25 +102,74 @@ def add_generator_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--max-lateral-accel", type=float, default=4.0, help="Lateral acceleration limit [m/s^2].")
     parser.add_argument("--max-accel", type=float, default=3.0, help="Longitudinal acceleration limit [m/s^2].")
     parser.add_argument("--max-decel", type=float, default=5.0, help="Longitudinal deceleration limit [m/s^2].")
+    parser.add_argument(
+        "--max-curvature", type=float, default=1.2,
+        help="Vehicle steering limit as max path curvature [rad/m] "
+             "(= tan(max_steer)/wheelbase; ~1.2 for F1TENTH). The raceline "
+             "optimizers penalize sharper bends as undrivable and the final "
+             "trajectory is validated against it. 0 disables.",
+    )
     parser.add_argument("--smooth-sigma", type=float, default=2.0, help="Closed-curve smoothing sigma in samples.")
+    parser.add_argument(
+        "--raceline-smooth-sigma", type=float, default=1.0,
+        help="Gaussian smoothing (in samples) applied to the final raceline after "
+             "the waypoint-step resample. The optimizers emit piecewise-linear "
+             "lines with vertices at optimizer-step spacing; resampling those "
+             "finer concentrates each vertex's heading change into one waypoint "
+             "and produces phantom curvature spikes above the steering limit. "
+             "~1 sample removes the kinks without changing the geometry. 0 disables.",
+    )
     parser.add_argument("--median-kernel", type=int, default=3, help="Odd pixel kernel for salt-and-pepper map denoising.")
     parser.add_argument("--morph-kernel", type=int, default=5, help="Map cleanup kernel size in pixels.")
     parser.add_argument("--morph-open-iterations", type=int, default=1)
     parser.add_argument("--morph-close-iterations", type=int, default=1)
     parser.add_argument("--skeleton-prune-iterations", type=int, default=80)
     parser.add_argument("--min-skeleton-component-area", type=int, default=40)
+    parser.add_argument(
+        "--min-track-width",
+        type=float,
+        default=0.3,
+        help="Drop skeleton pixels where the free space is narrower than this [m]. "
+             "Suppresses centerline candidates inside scan-noise regions the car "
+             "could never drive through. 0 disables.",
+    )
     parser.add_argument("--min-centerline-angle", type=float, default=75.0)
     parser.add_argument("--spike-filter-iterations", type=int, default=8)
     parser.add_argument(
         "--optimizer",
-        choices=("mincurv", "centerline"),
+        choices=("mincurv", "centerline", "laptime", "ai"),
         default="centerline",
-        help="Use scipy-based minimum-curvature optimization or keep the centerline.",
+        help="centerline: keep the skeleton line; mincurv: scipy minimum-curvature; "
+             "laptime: differentiable lap-time gradient descent on GPU "
+             "(torch CUDA or Apple MLX; see optimize_laptime.py); "
+             "ai: multi-technique search — per-epoch GD portfolio + exact rescoring "
+             "+ evolution-strategy polish (see --ai-epochs).",
     )
     parser.add_argument("--max-optimizer-iter", type=int, default=200)
     parser.add_argument("--curvature-weight", type=float, default=1.0)
     parser.add_argument("--smooth-weight", type=float, default=0.04)
     parser.add_argument("--length-weight", type=float, default=0.002)
+    # --- laptime optimizer (only used with --optimizer laptime) ---
+    parser.add_argument("--laptime-iters", type=int, default=2000,
+                        help="laptime: gradient-descent iterations.")
+    parser.add_argument("--laptime-restarts", type=int, default=16,
+                        help="laptime: candidate lines optimized in parallel on the GPU.")
+    parser.add_argument("--laptime-lr", type=float, default=0.08,
+                        help="laptime: Adam learning rate (step-decayed 1x/0.3x/0.1x).")
+    parser.add_argument("--laptime-smooth-weight", type=float, default=0.2,
+                        help="laptime: weight of the lateral-offset smoothness regularizer.")
+    parser.add_argument("--laptime-init-spread", type=float, default=2.0,
+                        help="laptime: stddev of the random restart initializations (logit space).")
+    parser.add_argument("--laptime-seed", type=int, default=0)
+    parser.add_argument("--laptime-backend", choices=("auto", "torch", "mlx"), default="auto",
+                        help="laptime: ML framework (auto = torch if installed, else mlx).")
+    parser.add_argument("--laptime-device", type=str, default="auto",
+                        help="laptime, torch only: auto (CUDA if available), cpu, cuda, cuda:N.")
+    parser.add_argument("--laptime-no-warm-start", action="store_true",
+                        help="laptime: skip seeding one restart from the min-curvature solution.")
+    parser.add_argument("--ai-epochs", type=int, default=3,
+                        help="ai: alternation rounds of (GPU GD portfolio -> exact rescoring "
+                             "-> ES polish); each epoch warm-restarts from the best line so far.")
     parser.add_argument(
         "--no-straighten-straights",
         dest="straighten_straights",
@@ -229,12 +285,20 @@ def load_map(map_yaml: Path, unknown_as_free: bool) -> tuple[MapInfo, np.ndarray
     return info, image, free.astype(np.uint8)
 
 
+def occupied_mask_from(image: np.ndarray, info: MapInfo) -> np.ndarray:
+    """Binary mask of measured (occupied) wall pixels from the raw map image."""
+    normalized = image.astype(np.float64) / 255.0
+    occupancy = normalized if info.negate else 1.0 - normalized
+    return (occupancy >= info.occupied_thresh).astype(np.uint8)
+
+
 def cleanup_free_mask(
     free_mask: np.ndarray,
     median_kernel: int,
     morph_kernel: int,
     open_iterations: int,
     close_iterations: int,
+    occupied_mask: np.ndarray | None = None,
 ) -> np.ndarray:
     mask = (free_mask > 0).astype(np.uint8) * 255
     median_size = max(1, median_kernel)
@@ -252,6 +316,18 @@ def cleanup_free_mask(
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=close_iterations)
     if open_iterations > 0:
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=open_iterations)
+
+    if occupied_mask is not None:
+        # Cleanup may only reclaim unknown/noise pixels — never measured walls.
+        # Median blur / morphological closing with a large kernel can otherwise
+        # swallow a thin interior wall entirely, and every later stage (widths,
+        # corridor bounds, off-map validation) would then believe the wall's
+        # area is drivable, letting the raceline cut straight through it.
+        # Sub-speckle occupied blobs stay removable so LiDAR salt noise inside
+        # the track does not needlessly pinch the corridor.
+        speckle_area = max(9, median_size * median_size)
+        walls = remove_small_components((occupied_mask > 0).astype(np.uint8), speckle_area)
+        mask = np.where(walls > 0, 0, mask).astype(np.uint8)
 
     mask[0, :] = 0
     mask[-1, :] = 0
@@ -280,29 +356,50 @@ def remove_small_components(binary_mask: np.ndarray, min_area: int) -> np.ndarra
     return cleaned
 
 
-def keep_largest_component(binary_mask: np.ndarray) -> np.ndarray:
-    mask = (binary_mask > 0).astype(np.uint8)
-    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(mask, 8)
-    if num_labels <= 1:
-        return mask
-    largest = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
-    return (labels == largest).astype(np.uint8)
+def _zhang_suen_thinning(binary01: np.ndarray) -> np.ndarray:
+    """Vectorized Zhang-Suen thinning: topology-preserving 1-px skeleton.
+
+    Unlike the morphological-erosion "skeleton", this keeps the track loop
+    connected, so the extraction does not need opencv-contrib's
+    cv2.ximgproc.thinning to produce a usable centerline.
+    """
+    img = (binary01 > 0).astype(np.uint8)
+    changed = True
+    while changed:
+        changed = False
+        for step in (0, 1):
+            p = np.pad(img, 1)
+            p2 = p[0:-2, 1:-1]
+            p3 = p[0:-2, 2:]
+            p4 = p[1:-1, 2:]
+            p5 = p[2:, 2:]
+            p6 = p[2:, 1:-1]
+            p7 = p[2:, 0:-2]
+            p8 = p[1:-1, 0:-2]
+            p9 = p[0:-2, 0:-2]
+            ring = (p2, p3, p4, p5, p6, p7, p8, p9, p2)
+            b = (
+                p2.astype(np.int16) + p3 + p4 + p5 + p6 + p7 + p8 + p9
+            )
+            a = np.zeros_like(b)
+            for k in range(8):
+                a += ((ring[k] == 0) & (ring[k + 1] == 1)).astype(np.int16)
+            if step == 0:
+                cond = (p2 * p4 * p6 == 0) & (p4 * p6 * p8 == 0)
+            else:
+                cond = (p2 * p4 * p8 == 0) & (p2 * p6 * p8 == 0)
+            remove = (img == 1) & (b >= 2) & (b <= 6) & (a == 1) & cond
+            if bool(np.any(remove)):
+                img[remove] = 0
+                changed = True
+    return (img * 255).astype(np.uint8)
 
 
 def skeletonize(binary_mask: np.ndarray) -> np.ndarray:
     image = np.where(binary_mask > 0, 255, 0).astype(np.uint8)
     if hasattr(cv2, "ximgproc") and hasattr(cv2.ximgproc, "thinning"):
         return cv2.ximgproc.thinning(image)
-
-    skeleton = np.zeros_like(image)
-    element = cv2.getStructuringElement(cv2.MORPH_CROSS, (3, 3))
-
-    while cv2.countNonZero(image) > 0:
-        opened = cv2.morphologyEx(image, cv2.MORPH_OPEN, element)
-        skeleton = cv2.bitwise_or(skeleton, cv2.subtract(image, opened))
-        image = cv2.erode(image, element)
-
-    return skeleton
+    return _zhang_suen_thinning(image)
 
 
 def prune_skeleton(
@@ -320,7 +417,9 @@ def prune_skeleton(
             break
         mask[endpoints] = 0
     mask = remove_small_components(mask, min_component_area)
-    mask = keep_largest_component(mask)
+    # Deliberately no keep_largest_component here: pixel count is a poor
+    # discriminator against noise blobs. The contour stage picks the loop with
+    # the largest ENCLOSED area instead, which is the actual track loop.
     return (mask * 255).astype(np.uint8)
 
 
@@ -347,7 +446,10 @@ def extract_centerline_pixels(
     if not candidates:
         raise RuntimeError("Could not extract a closed centerline from the skeletonized map.")
 
-    candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    # Enclosed area first: the real track loop encircles the map interior,
+    # while long-but-thin noise contours (scan artifacts, hatching) enclose
+    # almost nothing even though they beat the loop on arc length.
+    candidates.sort(key=lambda item: (item[1], item[0]), reverse=True)
     return remove_consecutive_duplicates(candidates[0][2].astype(np.float64))
 
 
@@ -459,13 +561,19 @@ def filter_and_resample_closed(
         args.min_centerline_angle,
         args.spike_filter_iterations,
     )
+    # A spike filter that eats a large share of the points is misfiring on the
+    # path shape (e.g. a tightly-cut raceline), not removing pin artifacts.
+    # Resampling the surviving points would bridge the gaps with wall-crossing
+    # chords, so prefer the unfiltered path in that case.
+    if len(filtered) < max(4, int(0.7 * len(points_xy))):
+        filtered = points_xy
     sampled = resample_closed(filtered, step)
     post_filtered = remove_sharp_spikes(
         sampled,
         args.min_centerline_angle,
         args.spike_filter_iterations,
     )
-    if len(post_filtered) < len(sampled):
+    if max(4, int(0.7 * len(sampled))) <= len(post_filtered) < len(sampled):
         sampled = resample_closed(post_filtered, step)
     return sampled
 
@@ -696,16 +804,25 @@ def optimize_min_curvature(
     bounds = list(zip(lower, upper))
     x0 = np.zeros(len(center_xy), dtype=np.float64)
 
+    max_curv = float(getattr(args, "max_curvature", 0.0))
+
     def objective(alpha: np.ndarray) -> float:
         shifted = center_xy + normals * alpha[:, None]
         seg = np.linalg.norm(np.roll(shifted, -1, axis=0) - shifted, axis=1)
         _, _, kappa = headings_and_curvature(shifted)
         dalpha = np.diff(np.r_[alpha, alpha[0]])
-        return float(
+        cost = float(
             args.curvature_weight * np.mean(kappa * kappa)
             + args.smooth_weight * np.mean(dalpha * dalpha)
             + args.length_weight * np.mean(seg)
         )
+        if max_curv > 0.0:
+            # Bends sharper than the steering limit are undrivable, not just slow.
+            # Mean (not sum) keeps the term smooth enough for L-BFGS-B's numerical
+            # gradients — a stiff sum-based penalty destabilizes the solve.
+            excess = np.maximum(np.abs(kappa) - max_curv, 0.0)
+            cost += 25.0 * float(np.mean(excess * excess))
+        return cost
 
     result = minimize(
         objective,
@@ -733,6 +850,154 @@ def optimize_min_curvature(
         print(f"[WARN] optimizer did not fully converge: {result.message}")
 
     return center_xy + normals * result.x[:, None]
+
+
+def limit_curvature_spikes(
+    points_xy: np.ndarray,
+    max_curv: float,
+    iterations: int = 40,
+    max_run: int = 3,
+) -> np.ndarray:
+    """Flatten ISOLATED curvature spikes above the steering limit.
+
+    Piecewise-linear resample vertices and filter/straightening joints show up
+    as 1-3 waypoint spikes of huge curvature; blending just those waypoints
+    toward their neighbours' midpoint removes them with millimetre-level moves.
+    Runs longer than ``max_run`` are real corners — touching them here only
+    shifts the kink to the run boundary (measured: it amplified a 6 rad/m
+    corner to 17 rad/m), so they are left intact for the validation warning.
+    """
+    pts = points_xy.copy()
+    n = len(pts)
+    for _ in range(iterations):
+        _, _, kappa = headings_and_curvature(pts)
+        bad = np.abs(kappa) > max_curv
+        if not bad.any():
+            break
+        target = np.zeros(n, dtype=bool)
+        for start, end in circular_true_runs(bad):
+            idxs = circular_indices(start, end, n)
+            if len(idxs) <= max_run:
+                target[idxs] = True
+        if not target.any():
+            break
+        target = target | np.roll(target, 1) | np.roll(target, -1)
+        chord_mid = 0.5 * (np.roll(pts, 1, axis=0) + np.roll(pts, -1, axis=0))
+        pts[target] = 0.7 * pts[target] + 0.3 * chord_mid[target]
+    return pts
+
+
+def count_off_map_waypoints(
+    points_xy: np.ndarray,
+    free_mask: np.ndarray,
+    info: MapInfo,
+    flip_y: bool,
+) -> int:
+    """Number of waypoints whose segment to the next waypoint leaves free space.
+
+    The check is done on a densified copy (~2 px spacing) so a segment slicing
+    through a thin wall between two waypoints is caught as well.
+    """
+    dense = resample_closed(points_xy, max(info.resolution * 2.0, 1e-3))
+    pixels = np.round(world_to_pixel(dense, info, flip_y)).astype(int)
+    cols = np.clip(pixels[:, 0], 0, info.width - 1)
+    rows = np.clip(pixels[:, 1], 0, info.height - 1)
+    off = free_mask[rows, cols] == 0
+    if not bool(np.any(off)):
+        return 0
+    # Map dense hits back to waypoint count: one per waypoint whose span is hit.
+    s_dense, total = cumulative_s(dense)
+    s_wpts, _ = cumulative_s(points_xy)
+    hit_s = s_dense[off]
+    spans = np.searchsorted(s_wpts, hit_s, side="right") - 1
+    return int(len(np.unique(np.clip(spans, 0, len(points_xy) - 1))))
+
+
+def optimize_raceline(
+    center_xy: np.ndarray,
+    d_right: np.ndarray,
+    d_left: np.ndarray,
+    args: argparse.Namespace,
+) -> np.ndarray:
+    """Dispatch to the selected raceline optimizer (centerline/mincurv/laptime/ai)."""
+    if args.optimizer not in ("laptime", "ai"):
+        return optimize_min_curvature(
+            center_xy, d_right, d_left, args.safety_width, args.boundary_margin, args
+        )
+
+    # Lazy import: torch/mlx are optional deps, only needed for laptime/ai.
+    import sys
+
+    module_dir = str(Path(__file__).resolve().parent)
+    if module_dir not in sys.path:
+        sys.path.insert(0, module_dir)
+    from optimize_laptime import optimize_lap_time, optimize_lap_time_ai
+
+    # The GUI injects progress_log to mirror optimizer progress in its status
+    # bar (long ai/laptime runs otherwise look frozen there); CLI keeps print.
+    log = getattr(args, "progress_log", print)
+
+    warm_alpha = None
+    if not getattr(args, "laptime_no_warm_start", False):
+        mincurv_xy = optimize_min_curvature(
+            center_xy, d_right, d_left, args.safety_width, args.boundary_margin, args
+        )
+        _, psi, _ = headings_and_curvature(center_xy)
+        normals = normals_from_heading(psi)
+        warm_alpha = np.sum((mincurv_xy - center_xy) * normals, axis=1)
+
+    if args.optimizer == "ai":
+        def evaluate(points_xy: np.ndarray) -> float:
+            # The exact objective the tool reports: velocity_profile lap time
+            # after the SAME post-processing the pipeline applies to the winner
+            # (spike filter + optimizer_step and waypoint_step resamples; only
+            # the straightening pass is skipped as it needs the map). Scoring
+            # the raw coarse line instead would reward/punish sampling
+            # artifacts the pipeline later removes, ranking candidates by the
+            # wrong number.
+            pts = filter_and_resample_closed(points_xy, args.optimizer_step, args)
+            pts = filter_and_resample_closed(pts, args.waypoint_step, args)
+            raceline_sigma = float(getattr(args, "raceline_smooth_sigma", 0.0))
+            if raceline_sigma > 0.0:
+                pts = smooth_closed(pts, raceline_sigma)
+            _, _, kappa = headings_and_curvature(pts)
+            _, _, lap = velocity_profile(
+                pts, kappa, args.max_speed, args.min_speed,
+                args.max_lateral_accel, args.max_accel, args.max_decel,
+            )
+            max_curv = float(getattr(args, "max_curvature", 0.0))
+            if max_curv > 0.0:
+                # Undrivable bends must lose the ranking even when the speed
+                # model (floored at min_speed) barely penalizes them.
+                seg = np.linalg.norm(np.roll(pts, -1, axis=0) - pts, axis=1)
+                excess = np.maximum(np.abs(kappa) - max_curv, 0.0)
+                lap += 20.0 * float(np.sum(excess * excess * seg))
+            return lap
+
+        raceline, _info = optimize_lap_time_ai(
+            center_xy,
+            d_right,
+            d_left,
+            args.safety_width,
+            args.boundary_margin,
+            args,
+            evaluate=evaluate,
+            warm_alpha=warm_alpha,
+            log=log,
+        )
+        return raceline
+
+    raceline, _info = optimize_lap_time(
+        center_xy,
+        d_right,
+        d_left,
+        args.safety_width,
+        args.boundary_margin,
+        args,
+        warm_alpha=warm_alpha,
+        log=log,
+    )
+    return raceline
 
 
 def velocity_profile(
@@ -994,107 +1259,6 @@ def write_centerline_csv(path: Path, traj: Trajectory) -> None:
             writer.writerow([float(point[0]), float(point[1]), float(d_right), float(d_left)])
 
 
-# ---------------------------------------------------------------------------
-# RViz marker construction
-# ---------------------------------------------------------------------------
-# global_waypoints.json carries the visualization markers, not just the raw
-# waypoints. The C++ reader in the `global_planning` package parses these back
-# into visualization_msgs/MarkerArray and the publisher re-emits them, so RViz
-# shows the raceline / speed profile / track bounds with no extra node. Every
-# marker MUST carry header.frame_id="map" and ns/id/type/action (the reader
-# requires them); pose.orientation.w=1 avoids RViz's uninitialized-quaternion.
-_MARKER_HEADER = {"stamp": {"sec": 0, "nanosec": 0}, "frame_id": "map"}
-_IDENTITY_POSE = {
-    "position": {"x": 0.0, "y": 0.0, "z": 0.0},
-    "orientation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0},
-}
-_MARKER_LINE_STRIP = 4
-_MARKER_SPHERE_LIST = 7
-# Styling (offline-viz only; kept as clear constants rather than CLI knobs).
-_RACELINE_WIDTH = 0.08
-_BOUND_WIDTH = 0.05
-_SPEED_SPHERE_SIZE = 0.14
-
-
-def _mk_point(x: float, y: float, z: float = 0.0) -> dict:
-    return {"x": float(x), "y": float(y), "z": float(z)}
-
-
-def _mk_rgba(r: float, g: float, b: float, a: float = 1.0) -> dict:
-    return {"r": float(r), "g": float(g), "b": float(b), "a": float(a)}
-
-
-def _mk_marker(ns, marker_id, marker_type, scale, color, points, colors=None):
-    marker = {
-        "header": _MARKER_HEADER,
-        "ns": ns,
-        "id": int(marker_id),
-        "type": int(marker_type),
-        "action": 0,  # ADD
-        "pose": _IDENTITY_POSE,
-        "scale": scale,
-        "color": color,
-        "points": points,
-    }
-    if colors is not None:
-        marker["colors"] = colors
-    return marker
-
-
-def _closed_points(points_xy: np.ndarray, z: float = 0.0) -> list:
-    pts = [_mk_point(p[0], p[1], z) for p in points_xy]
-    if len(pts) > 1:
-        pts.append(pts[0])  # close the loop for a LINE_STRIP raceline
-    return pts
-
-
-def _line_strip_marker(points_xy: np.ndarray, ns: str, color: dict, width: float) -> dict:
-    return _mk_marker(
-        ns, 0, _MARKER_LINE_STRIP,
-        {"x": float(width), "y": 0.0, "z": 0.0},
-        color, _closed_points(points_xy),
-    )
-
-
-def _speed_sphere_marker(traj: Trajectory, ns: str) -> dict:
-    """One SPHERE_LIST, one sphere per waypoint, colored by speed (blue slow -> red fast)."""
-    vx = np.asarray(traj.vx_mps, dtype=float)
-    lo = float(np.min(vx))
-    span = float(np.max(vx)) - lo
-    if span < 1e-6:
-        span = 1.0
-    points, colors = [], []
-    for p, v in zip(traj.points_xy, vx):
-        t = (float(v) - lo) / span  # 0 (slow) .. 1 (fast)
-        points.append(_mk_point(p[0], p[1], 0.05))
-        colors.append(_mk_rgba(t, 0.0, 1.0 - t))  # blue -> red
-    return _mk_marker(
-        ns, 1, _MARKER_SPHERE_LIST,
-        {"x": _SPEED_SPHERE_SIZE, "y": _SPEED_SPHERE_SIZE, "z": _SPEED_SPHERE_SIZE},
-        _mk_rgba(1.0, 1.0, 1.0), points, colors,
-    )
-
-
-def _trackbound_markers(traj: Trajectory, ns: str, color: dict) -> list:
-    """Left/right track edges from waypoint pose + d_left/d_right (left normal = (-sin psi, cos psi))."""
-    px = np.asarray(traj.points_xy, dtype=float)
-    psi = np.asarray(traj.psi_rad, dtype=float)
-    d_left = np.asarray(traj.d_left, dtype=float)
-    d_right = np.asarray(traj.d_right, dtype=float)
-    nx = -np.sin(psi)
-    ny = np.cos(psi)
-    left = np.column_stack([px[:, 0] + d_left * nx, px[:, 1] + d_left * ny])
-    right = np.column_stack([px[:, 0] - d_right * nx, px[:, 1] - d_right * ny])
-    return [
-        _line_strip_marker(left, ns, color, _BOUND_WIDTH),
-        _mk_marker(
-            ns, 1, _MARKER_LINE_STRIP,
-            {"x": _BOUND_WIDTH, "y": 0.0, "z": 0.0},
-            color, _closed_points(right),
-        ),
-    ]
-
-
 def write_outputs(
     output_dir: Path,
     map_info: MapInfo,
@@ -1116,27 +1280,13 @@ def write_outputs(
             )
         },
         "est_lap_time": {"data": lap_time},
-        "centerline_markers": {
-            "markers": [_line_strip_marker(
-                center_traj.points_xy, "centerline", _mk_rgba(0.6, 0.6, 0.6, 0.9), _BOUND_WIDTH)]
-        },
+        "centerline_markers": {"markers": []},
         "centerline_waypoints": wpnt_array(center_traj),
-        "global_traj_markers_iqp": {
-            "markers": [
-                _line_strip_marker(
-                    global_traj.points_xy, "global_iqp", _mk_rgba(0.1, 1.0, 0.2, 0.9), _RACELINE_WIDTH),
-                _speed_sphere_marker(global_traj, "global_iqp"),
-            ]
-        },
+        "global_traj_markers_iqp": {"markers": []},
         "global_traj_wpnts_iqp": wpnt_array(global_traj),
-        "global_traj_markers_sp": {
-            "markers": [_line_strip_marker(
-                global_traj.points_xy, "global_sp", _mk_rgba(0.2, 0.5, 1.0, 0.9), _RACELINE_WIDTH)]
-        },
+        "global_traj_markers_sp": {"markers": []},
         "global_traj_wpnts_sp": wpnt_array(global_traj),
-        "trackbounds_markers": {
-            "markers": _trackbound_markers(center_traj, "trackbounds", _mk_rgba(1.0, 0.35, 0.0, 0.9))
-        },
+        "trackbounds_markers": {"markers": []},
     }
     (output_dir / "global_waypoints.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
@@ -1148,9 +1298,10 @@ def write_outputs(
         "waypoint_count": int(len(global_traj.points_xy)),
         "centerline_count": int(len(center_traj.points_xy)),
         "estimated_lap_time_sec": lap_time,
-        "args": vars(args) | {
-            "map_yaml": str(args.map_yaml),
-            "output_dir": str(args.output_dir) if args.output_dir is not None else None,
+        "args": {
+            key: str(value) if isinstance(value, Path) else value
+            for key, value in vars(args).items()
+            if not callable(value)  # GUI injects progress_log; keep metadata JSON-safe
         },
     }
     (output_dir / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
@@ -1183,8 +1334,16 @@ def generate_trajectory(args: argparse.Namespace) -> GenerationResult:
         args.morph_kernel,
         args.morph_open_iterations,
         args.morph_close_iterations,
+        occupied_mask=occupied_mask_from(image, map_info),
     )
     skeleton = skeletonize(free_mask)
+    min_track_width = float(getattr(args, "min_track_width", 0.0))
+    if min_track_width > 0.0:
+        # The car cannot drive where the corridor is narrower than the track
+        # width, so any skeleton pixel there is scan noise, not centerline.
+        clearance_px = cv2.distanceTransform((free_mask > 0).astype(np.uint8), cv2.DIST_L2, 5)
+        too_narrow = clearance_px * (2.0 * map_info.resolution) < min_track_width
+        skeleton = np.where(too_narrow, 0, skeleton).astype(np.uint8)
     center_px = extract_centerline_pixels(
         skeleton,
         args.skeleton_prune_iterations,
@@ -1200,23 +1359,47 @@ def generate_trajectory(args: argparse.Namespace) -> GenerationResult:
     center_right, center_left = track_widths(
         center_xy, free_mask, map_info, flip_y, args.max_width_distance, args.width_mode
     )
-    optimized_xy = optimize_min_curvature(
-        center_xy,
-        center_right,
-        center_left,
-        args.safety_width,
-        args.boundary_margin,
-        args,
-    )
+    optimized_xy = optimize_raceline(center_xy, center_right, center_left, args)
     optimized_xy = filter_and_resample_closed(optimized_xy, args.optimizer_step, args)
     global_xy = filter_and_resample_closed(optimized_xy, args.waypoint_step, args)
+    raceline_sigma = float(getattr(args, "raceline_smooth_sigma", 0.0))
+    if raceline_sigma > 0.0:
+        # Remove the piecewise-linear vertex kinks left by the coarse optimizer
+        # grid (they read as phantom steering-limit violations at fine spacing).
+        global_xy = smooth_closed(global_xy, raceline_sigma)
     straightened_xy = straighten_straight_segments(global_xy, free_mask, map_info, flip_y, args)
     if straightened_xy is not global_xy:
         global_xy = resample_closed(straightened_xy, args.waypoint_step)
+    max_curv = float(getattr(args, "max_curvature", 0.0))
+    if max_curv > 0.0:
+        global_xy = limit_curvature_spikes(global_xy, max_curv)
 
     center_output_xy = filter_and_resample_closed(center_xy, args.waypoint_step, args)
     center_traj, _ = build_trajectory(center_output_xy, free_mask, map_info, flip_y, args)
     global_traj, lap_time = build_trajectory(global_xy, free_mask, map_info, flip_y, args)
+
+    off_map = count_off_map_waypoints(global_traj.points_xy, free_mask, map_info, flip_y)
+    if off_map:
+        print(
+            f"[WARN] {off_map}/{len(global_traj.points_xy)} waypoints lie outside the "
+            "drivable free space — the extraction likely picked a noise region. "
+            "Check debug_overlay.png; raise --min-track-width or the map-cleanup "
+            "parameters (median/morph kernels)."
+        )
+
+    max_abs_kappa = float(np.max(np.abs(global_traj.kappa_radpm)))
+    kappa_violations = 0
+    if max_curv > 0.0:
+        kappa_violations = int(np.sum(np.abs(global_traj.kappa_radpm) > max_curv))
+        if kappa_violations:
+            print(
+                f"[WARN] {kappa_violations}/{len(global_traj.points_xy)} waypoints exceed "
+                f"the steering limit --max-curvature {max_curv:.2f} rad/m "
+                f"(max |kappa| = {max_abs_kappa:.2f}) — the raceline is not drivable "
+                "as-is. Widen --safety-width/--boundary-margin, raise --smooth-sigma, "
+                "or check whether the track corner itself is tighter than the car's "
+                "turning radius."
+            )
 
     return GenerationResult(
         map_info=map_info,
@@ -1226,6 +1409,9 @@ def generate_trajectory(args: argparse.Namespace) -> GenerationResult:
         global_traj=global_traj,
         lap_time=lap_time,
         flip_y=flip_y,
+        off_map_wpnts=off_map,
+        kappa_violations=kappa_violations,
+        max_abs_kappa=max_abs_kappa,
     )
 
 
