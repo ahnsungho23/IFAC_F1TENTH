@@ -48,11 +48,10 @@ ROS 2 Humble workspace for the 2026 IFAC F1TENTH stack. ROS packages live under 
 │   └── README.md / README_en.md
 │
 ├── src/                          # ROS 2 packages
-│   ├── f1tenth_control/          # vehicle control: AEB, gap follower, IMU stability, MPC, steering, joy teleop
-│   │   ├── config/aeb_params.yaml
-│   │   ├── control_code/         # *.cpp nodes + MAP controller reference / steer lookup (Python)
+│   ├── f1tenth_control/          # 차량 제어: MAP(L1 Guidance+Steering LUT)/MPPI 이중 컨트롤러, joy Mux, LUT 실측 보정
+│   │   ├── control_code/         # control_map_node, control_mppi_node(+solver_cpu/gpu), joy_teleop_monitor(Mux), teleop_dashboard_node, lut_calibrator_node, sim_imu_bridge_node, gap_follower, imu_stability_controller, steer lookup(Python/CSV)
 │   │   ├── include/f1tenth_control/
-│   │   ├── launch/               # aeb / control_real / control_sim / joy
+│   │   ├── launch/               # control_real / control_sim / dashboard / lut_calibration
 │   │   ├── vesc_appconf.xml, vesc_mcconf.xml
 │   │   ├── CMakeLists.txt, package.xml, CLAUDE.md, WORKLOG.md
 │   │
@@ -258,7 +257,14 @@ ros2 run wpnt_publisher wpnt_publisher
 
 ### 터미널 7 — 제어
 
-L1 Guidance + Steering LUT 기반 조향/속도 제어. `force_autonomous:=true`면 조이스틱 없이 즉시 자율주행합니다.
+L1 Guidance + Steering LUT 기반 조향/속도 제어(MAP). 나란히 MPPI 컨트롤러도 항상 구동되며
+조이스틱 RB 버튼으로 즉시 전환됩니다. **실차와 시뮬은 launch 파일이 다릅니다** — `control_sim.launch.py`는
+`sim_imu_bridge_node`(gym이 IMU를 발행하지 않아 odom→IMU를 중계), `control_real.launch.py`는
+`ackermann_to_vesc_node`(최종 `/drive`→VESC 모터/서보 명령 변환)를 각각 갖고 있어 노드 구성 자체가
+다르기 때문입니다. 인자 하나로 합치면 환경을 잘못 고를 경우 안전 관련 노드가 조용히 빠진 채
+기동될 위험이 있어 의도적으로 분리해뒀습니다.
+
+**시뮬 — `control_sim.launch.py`**
 
 ```bash
 cd ~/2026_IFAC
@@ -266,6 +272,23 @@ source /opt/ros/humble/setup.zsh
 source install/setup.zsh
 ros2 launch f1tenth_control control_sim.launch.py force_autonomous:=true
 ```
+
+`force_autonomous:=true`면 조이스틱 없이 즉시 자율주행합니다. 생략하면 MANUAL로 시작하며
+조이스틱 LB 버튼으로 AUTONOMOUS 전환이 필요합니다.
+
+**실차 — `control_real.launch.py`**
+
+```bash
+cd ~/2026_IFAC
+source /opt/ros/humble/setup.zsh
+source install/setup.zsh
+ros2 launch f1tenth_control control_real.launch.py
+```
+
+전제: **f110 단축어(`f1tenth_stack`)로 라이다·조이스틱·VESC 드라이버가 먼저 떠 있어야 합니다**
+(`/scan`, `/joy`, VESC IMU 등). 이 launch는 그 위에서 제어 로직(MAP+MPPI) + Mux
+(`joy_teleop_monitor`) + `ackermann_to_vesc_node`만 담당하며, 자체적으로 조이스틱을 기동하지
+않습니다. 기본 시작 모드는 MANUAL(조이스틱 LB로 AUTONOMOUS 전환).
 
 ---
 
@@ -300,6 +323,37 @@ ros2 launch opponent_detector opponent_detector.launch.py simulator:=true
 ```
 
 RViz에서 `/perception/obstacles/markers`(빨강=동적 상대차, 파랑=정적)를 Add 하면 검출 결과가 보입니다.
+
+---
+
+## 3-2. (선택) 컨트롤 파트 보조 런치 — 실차 전용
+
+> 아래 두 런치는 각각 다른 터미널에서 **`control_real.launch.py`와 함께** 띄웁니다(대체 아님, 추가).
+
+### 대시보드 — 조이스틱 키매핑/입력 상태 확인 (선택)
+
+```bash
+ros2 launch f1tenth_control dashboard.launch.py
+```
+
+현재 조향/트리거 입력, MANUAL/AUTONOMOUS, MAP/MPPI, 비상정지 상태 등을 별도 터미널에서
+실시간으로 보여주는 표시 전용 뷰어입니다. 안 띄워도 주행에는 영향 없습니다.
+
+### LUT 캘리브레이션 — 실측 조향 LUT 갱신 (트랙 시험 주행 시 필수)
+
+```bash
+ros2 launch f1tenth_control lut_calibration.launch.py
+```
+
+**실차로 트랙을 시험 주행할 때는 항상 이 런치를 함께 켜두세요.** 실측 요레이트·속도·조향각으로
+Steering LUT를 갱신하는 관찰 전용 노드로, `/drive`를 발행하지 않아 주행 제어에는 영향이 없습니다.
+결과는 `~/f1tenth_lut_calibration/`에 주행할 때마다 누적 저장되며, 다음 주행에 반영하려면
+`control_real.launch.py`에 다음과 같이 지정합니다:
+
+```bash
+ros2 launch f1tenth_control control_real.launch.py \
+  lookup_table_file:=$HOME/f1tenth_lut_calibration/NUC6_glc_pacejka_lookup_table_calibrated.csv
+```
 
 ---
 
@@ -372,6 +426,13 @@ ros2 launch local_planning local_planning.launch.py \
                     │
                     ▼
 [터미널 7] f1tenth_control
-     /global_waypoints + /local_waypoints 구독
-     ──► /drive_autonomous ──(Mux)──► /drive
+     /global_waypoints, /local_waypoints 구독 (실차: f110 스택이 /scan, /joy, VESC IMU 별도 공급)
+     ├─ control_map_node  (MAP: L1 Guidance+Steering LUT)  ──► /drive_autonomous ─┐
+     └─ control_mppi_node (MPPI: 샘플링 기반, 나란히 상시구동) ──► /drive_mppi ───┤
+                                                                                   ▼
+                                             joy_teleop_monitor (Mux — RB로 MAP/MPPI 선택)
+                                                                                   │
+                                                                                   ▼
+                                                                                /drive
+                                                (시뮬: gym_bridge가 직접 구독 / 실차: ackermann_to_vesc_node → VESC)
 ```
