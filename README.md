@@ -333,16 +333,31 @@ RViz에서 `/perception/obstacles/markers`(빨강=동적 상대차, 파랑=정�
 
 ## 3-2. (선택) 컨트롤 파트 보조 런치 — 실차 전용
 
-> 아래 두 런치는 각각 다른 터미널에서 **`control_real.launch.py`와 함께** 띄웁니다(대체 아님, 추가).
+> 아래 런치들은 필요 시 별도 터미널에서 추가로 띄웁니다(대체 아님). **대시보드는 각자 노트북에서**(원격 모니터링), **LUT 캘리브레이션은 차량에서 `control_real.launch.py`와 함께** 띄웁니다.
 
-### 대시보드 — 조이스틱 키매핑/입력 상태 확인 (선택)
+### 대시보드 (원격) — 차량/조이스틱 상태 확인 (선택)
+
+젯슨 연산을 아끼려고 **대시보드는 차가 아니라 각자 노트북에서** 띄웁니다(젯슨은 토픽만 발행,
+렌더링은 노트북). 무선에선 DDS 기본 멀티캐스트 디스커버리가 막혀 **Fast DDS Discovery Server**로
+붙습니다.
+
+**1) 디스커버리 서버** — 차량(젯슨) 쪽에서 상시 1개만 띄웁니다(이미 떠 있으면 생략):
 
 ```bash
-ros2 launch f1tenth_control dashboard.launch.py
+fastdds discovery -i 0 -l 10.1.1.3 -p 11811
 ```
 
-현재 조향/트리거 입력, MANUAL/AUTONOMOUS, MAP/MPPI, 비상정지 상태 등을 별도 터미널에서
-실시간으로 보여주는 표시 전용 뷰어입니다. 안 띄워도 주행에는 영향 없습니다.
+**2) 노트북에서 대시보드** — 각자 실행(젯슨과 같은 네트워크):
+
+```bash
+ROS_DISCOVERY_SERVER="10.1.1.3:11811" ros2 launch f1tenth_control dashboard.launch.py mode:=real
+```
+
+> 안 뜨면 `ROS_SUPER_CLIENT=true`도 함께 걸어보세요. 유선(피트)에선 멀티캐스트가 되므로 env 없이
+> `mode:=real`만으로도 붙습니다. (`mode:=sim`은 시뮬 로컬 뷰어 — 실차엔 빈 화면)
+
+E-Stop on/off, 주행 모드(MANUAL/AUTONOMOUS/ESTOP), 알고리즘(MAP/MPPI), 스로틀·조향 %, 현재
+속도·ERPM·종/횡가속도를 실시간 표시하는 표시 전용 뷰어입니다. 안 띄워도 주행에는 영향 없습니다.
 
 ### LUT 캘리브레이션 — 실측 조향 LUT 갱신 (트랙 시험 주행 시 필수)
 
