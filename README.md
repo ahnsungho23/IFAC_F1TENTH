@@ -281,9 +281,14 @@ ros2 launch f1tenth_control control_sim.launch.py force_autonomous:=true
 ```bash
 cd ~/2026_IFAC
 source /opt/ros/humble/setup.zsh
+source ~/f1tenth_ws/install/setup.zsh
 source install/setup.zsh
 ros2 launch f1tenth_control control_real.launch.py
 ```
+
+⚠️ `ackermann_to_vesc_node`가 `vesc_ackermann` 패키지(f1tenth_stack 소속, `2026_IFAC`가 아니라
+별도 워크스페이스 `~/f1tenth_ws`에 설치됨)에 의존합니다 — `~/f1tenth_ws/install/setup.zsh`를
+같이 소싱하지 않으면 `Package 'vesc_ackermann' not found`로 실행이 실패합니다.
 
 전제: **f110 단축어(`f1tenth_stack`)로 라이다·조이스틱·VESC 드라이버가 먼저 떠 있어야 합니다**
 (`/scan`, `/joy`, VESC IMU 등). 이 launch는 그 위에서 제어 로직(MAP+MPPI) + Mux
