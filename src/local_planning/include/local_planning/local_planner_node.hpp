@@ -2,13 +2,17 @@
 #define LOCAL_PLANNING__LOCAL_PLANNER_NODE_HPP_
 
 #include <rclcpp/rclcpp.hpp>
+#include <rcl_interfaces/msg/set_parameters_result.hpp>
 #include <std_msgs/msg/string.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <nav_msgs/msg/occupancy_grid.hpp>
 #include <nav_msgs/msg/path.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
-#include <geometry_msgs/msg/point.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
+#include <sensor_msgs/msg/laser_scan.hpp>
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_listener.h>
+#include <geometry_msgs/msg/point_stamped.hpp>
 #include <f110_msgs/msg/wpnt_array.hpp>
 #include <f110_msgs/msg/ot_wpnt_array.hpp>
 
@@ -22,7 +26,7 @@ namespace local_planning
 {
 
 /**
- * @brief 웨이포인트별 장애물 바운드 정보 구조체
+ * @brief 웨이포인트별 장애물/벽 좌우 여유폭 및 충돌 정보
  */
 struct ObstacleBound {
   double min_d{1e9};
@@ -43,11 +47,14 @@ private:
   // ROS 2 파라미터 로드 및 초기화
   void initParameters();
   void initInterfaces();
+  rcl_interfaces::msg::SetParametersResult onParameterChange(
+    const std::vector<rclcpp::Parameter> & parameters);
 
   // 콜백 함수들
   void onGlobalWaypoints(const f110_msgs::msg::WpntArray::SharedPtr msg);
   void onMap(const nav_msgs::msg::OccupancyGrid::SharedPtr msg);
   void onOdom(const nav_msgs::msg::Odometry::SharedPtr msg);
+  void onScan(const sensor_msgs::msg::LaserScan::SharedPtr msg);
   void onTimer();
 
   // 핵심 알고리즘 함수들
@@ -92,6 +99,7 @@ private:
   rclcpp::Subscription<f110_msgs::msg::WpntArray>::SharedPtr global_wpnts_sub_;
   rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr map_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
   rclcpp::TimerBase::SharedPtr timer_;
 
   rclcpp::Publisher<f110_msgs::msg::OTWpntArray>::SharedPtr ot_pub_;
@@ -99,6 +107,7 @@ private:
   rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr local_path_pub_;
   rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr exact_local_path_pub_; // /local_path (하나의 닫힌 곡선)
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr marker_pub_;
+  rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr param_callback_handle_;
 
   // 내부 상태 변수
   f110_msgs::msg::WpntArray global_wpnts_;
@@ -107,6 +116,11 @@ private:
   bool has_global_{false};
   bool has_map_{false};
   bool has_odom_{false};
+  bool has_scan_{false};
+
+  std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
+  std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
+  std::vector<geometry_msgs::msg::Point> latest_scan_points_map_;
 
   // 파라미터 변수
   int lookahead_wpnt_num_{40};         // 로컬 경로로 생성할 웨이포인트 수
@@ -116,12 +130,17 @@ private:
   int poly_degree_{3};                 // 최소자승법 다항식 차수 (기본 3차 다항식)
   double speed_reduction_ratio_{0.6};  // 장애물 회피 시 감속 비율
   bool publish_standalone_local_{false};// otwpnts 외에 /local_waypoints 직접 발행 여부(기본 off: wpnt_publisher 경유로 일원화)
-  int timer_period_ms_{500};           // 연산 주기 (밀리초) - 0.5초마다 갱신
+  int timer_period_ms_{50};            // 연산 주기 (밀리초) - 50ms(20Hz)마다 갱신
+
+  rclcpp::Time last_eval_time_;
+  double min_eval_interval_sec_{0.015}; // 15ms 쓰로틀링
+  void triggerEventDrivenPlanning();
 
   // 토픽 및 프레임 설정 파라미터
   std::string global_waypoints_topic_{"/global_waypoints"};
   std::string map_topic_{"/map"};
   std::string frenet_odom_topic_{"/car_state/frenet/odom"};
+  std::string scan_topic_{"/scan"};
   std::string ot_waypoints_topic_{"/avoid_waypoints"};
   std::string local_waypoints_topic_{"/local_waypoints"};
   std::string local_path_topic_{"/local_planning/path"};

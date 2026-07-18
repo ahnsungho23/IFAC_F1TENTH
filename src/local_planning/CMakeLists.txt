@@ -12,6 +12,10 @@ find_package(nav_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(f110_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
 find_package(Eigen3 REQUIRED)
 
 include_directories(
@@ -27,11 +31,32 @@ ament_target_dependencies(local_planner_node
   geometry_msgs
   visualization_msgs
   f110_msgs
+  sensor_msgs
+  tf2
+  tf2_ros
+  tf2_geometry_msgs
 )
 target_link_libraries(local_planner_node Eigen3::Eigen)
 
+add_executable(static_obstacle_avoidance_node src/static_obstacle_avoidance_node.cpp)
+ament_target_dependencies(static_obstacle_avoidance_node
+  rclcpp
+  std_msgs
+  nav_msgs
+  geometry_msgs
+  visualization_msgs
+  f110_msgs
+)
+target_link_libraries(static_obstacle_avoidance_node Eigen3::Eigen)
+
 install(TARGETS
   local_planner_node
+  static_obstacle_avoidance_node
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+install(PROGRAMS
+  scripts/local_planning_gui.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

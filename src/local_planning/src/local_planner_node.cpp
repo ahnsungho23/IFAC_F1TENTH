@@ -28,12 +28,15 @@ void LocalPlannerNode::initParameters()
   poly_degree_ = this->declare_parameter<int>("poly_degree", 3);
   speed_reduction_ratio_ = this->declare_parameter<double>("speed_reduction_ratio", 0.6);
   publish_standalone_local_ = this->declare_parameter<bool>("publish_standalone_local", false);
-  timer_period_ms_ = this->declare_parameter<int>("timer_period_ms", 500);
+  timer_period_ms_ = this->declare_parameter<int>("timer_period_ms", 50);
+
+  last_eval_time_ = this->now();
 
   // 토픽 및 프레임 파라미터 선언
   global_waypoints_topic_ = this->declare_parameter<std::string>("global_waypoints_topic", "/global_waypoints");
   map_topic_ = this->declare_parameter<std::string>("map_topic", "/map");
   frenet_odom_topic_ = this->declare_parameter<std::string>("frenet_odom_topic", "/car_state/frenet/odom");
+  scan_topic_ = this->declare_parameter<std::string>("scan_topic", "/scan");
   ot_waypoints_topic_ = this->declare_parameter<std::string>("ot_waypoints_topic", "/avoid_waypoints");
   local_waypoints_topic_ = this->declare_parameter<std::string>("local_waypoints_topic", "/local_waypoints");
   local_path_topic_ = this->declare_parameter<std::string>("local_path_topic", "/local_planning/path");
@@ -61,6 +64,13 @@ void LocalPlannerNode::initInterfaces()
     frenet_odom_topic_, qos_default,
     std::bind(&LocalPlannerNode::onOdom, this, _1));
 
+  tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
+  tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
+
+  scan_sub_ = this->create_subscription<sensor_msgs::msg::LaserScan>(
+    scan_topic_, rclcpp::SensorDataQoS(),
+    std::bind(&LocalPlannerNode::onScan, this, _1));
+
   // 발행자
   ot_pub_ = this->create_publisher<f110_msgs::msg::OTWpntArray>(ot_waypoints_topic_, qos_default);
   local_wpnts_pub_ = this->create_publisher<f110_msgs::msg::WpntArray>(local_waypoints_topic_, qos_default);
@@ -72,6 +82,40 @@ void LocalPlannerNode::initInterfaces()
   timer_ = this->create_wall_timer(
     std::chrono::milliseconds(timer_period_ms_),
     std::bind(&LocalPlannerNode::onTimer, this));
+
+  // 동적 파라미터 변경 콜백 등록 (GUI 조작 시 RViz 즉각 반영)
+  param_callback_handle_ = this->add_on_set_parameters_callback(
+    std::bind(&LocalPlannerNode::onParameterChange, this, _1));
+}
+
+rcl_interfaces::msg::SetParametersResult LocalPlannerNode::onParameterChange(
+  const std::vector<rclcpp::Parameter> & parameters)
+{
+  rcl_interfaces::msg::SetParametersResult result;
+  result.successful = true;
+  result.reason = "Success";
+
+  for (const auto & param : parameters) {
+    const std::string & name = param.get_name();
+    if (name == "lookahead_wpnt_num") {
+      lookahead_wpnt_num_ = param.as_int();
+    } else if (name == "safety_margin") {
+      safety_margin_ = param.as_double();
+    } else if (name == "wall_margin") {
+      wall_margin_ = param.as_double();
+    } else if (name == "avoid_offset") {
+      avoid_offset_ = param.as_double();
+    } else if (name == "poly_degree") {
+      poly_degree_ = param.as_int();
+    } else if (name == "speed_reduction_ratio") {
+      speed_reduction_ratio_ = param.as_double();
+    }
+  }
+
+  // 파라미터 변경 직후 즉각 궤적 재생성 및 RViz 마커/경로 갱신
+  triggerEventDrivenPlanning();
+
+  return result;
 }
 
 void LocalPlannerNode::onGlobalWaypoints(const f110_msgs::msg::WpntArray::SharedPtr msg)
@@ -89,6 +133,7 @@ void LocalPlannerNode::onMap(const nav_msgs::msg::OccupancyGrid::SharedPtr msg)
   if (!msg) return;
   grid_map_ = *msg;
   has_map_ = true;
+  triggerEventDrivenPlanning();
 }
 
 void LocalPlannerNode::onOdom(const nav_msgs::msg::Odometry::SharedPtr msg)
@@ -96,6 +141,73 @@ void LocalPlannerNode::onOdom(const nav_msgs::msg::Odometry::SharedPtr msg)
   if (!msg) return;
   current_odom_ = *msg;
   has_odom_ = true;
+  triggerEventDrivenPlanning();
+}
+
+void LocalPlannerNode::onScan(const sensor_msgs::msg::LaserScan::SharedPtr msg)
+{
+  if (!msg) return;
+
+  std::string target_frame = frame_id_.empty() ? "map" : frame_id_;
+  geometry_msgs::msg::TransformStamped tf_stamped;
+  try {
+    tf_stamped = tf_buffer_->lookupTransform(
+      target_frame, msg->header.frame_id,
+      tf2::TimePointZero);
+  } catch (const tf2::TransformException & ex) {
+    RCLCPP_DEBUG_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+      "LiDAR TF 변환 실패: %s", ex.what());
+    return;
+  }
+
+  std::vector<geometry_msgs::msg::Point> scan_points_map;
+  scan_points_map.reserve(msg->ranges.size());
+
+  double angle = msg->angle_min;
+  for (size_t i = 0; i < msg->ranges.size(); ++i, angle += msg->angle_increment) {
+    double r = msg->ranges[i];
+    if (!std::isfinite(r) || r < msg->range_min || r > msg->range_max) {
+      continue;
+    }
+    double x_l = r * std::cos(angle);
+    double y_l = r * std::sin(angle);
+    double z_l = 0.0;
+
+    const auto & t = tf_stamped.transform.translation;
+    const auto & q = tf_stamped.transform.rotation;
+
+    double qx = q.x, qy = q.y, qz = q.z, qw = q.w;
+    double ix =  qw * x_l + qy * z_l - qz * y_l;
+    double iy =  qw * y_l + qz * x_l - qx * z_l;
+    double iz =  qw * z_l + qx * y_l - qy * x_l;
+    double iw = -qx * x_l - qy * y_l - qz * z_l;
+
+    double x_m = ix * qw + iw * -qx + iy * -qz - iz * -qy + t.x;
+    double y_m = iy * qw + iw * -qy + iz * -qx - ix * -qz + t.y;
+    double z_m = iz * qw + iw * -qz + ix * -qy - iy * -qx + t.z;
+
+    geometry_msgs::msg::Point pt;
+    pt.x = x_m;
+    pt.y = y_m;
+    pt.z = z_m;
+    scan_points_map.push_back(pt);
+  }
+
+  latest_scan_points_map_ = std::move(scan_points_map);
+  has_scan_ = true;
+  triggerEventDrivenPlanning();
+}
+
+void LocalPlannerNode::triggerEventDrivenPlanning()
+{
+  if (!has_global_ || !has_odom_ || (!has_map_ && !has_scan_)) {
+    return;
+  }
+  auto now = this->now();
+  if ((now - last_eval_time_).seconds() >= min_eval_interval_sec_) {
+    last_eval_time_ = now;
+    onTimer();
+  }
 }
 
 std::optional<int> LocalPlannerNode::parseIndex(const std::string & s)
@@ -145,16 +257,18 @@ void LocalPlannerNode::detectObstaclesAndDecideDirection(
   collision_indices.clear();
   obs_bounds.assign(count, ObstacleBound{});
 
-  if (!has_map_) return;
+  if (!has_map_ && !has_scan_) return;
 
   int total = static_cast<int>(global_wpnts_.wpnts.size());
-  double res = grid_map_.info.resolution;
-  if (res <= 0.0 || total == 0) return;
+  if (total == 0) return;
 
-  double origin_x = grid_map_.info.origin.position.x;
-  double origin_y = grid_map_.info.origin.position.y;
-  int width = static_cast<int>(grid_map_.info.width);
-  int height = static_cast<int>(grid_map_.info.height);
+  double res = has_map_ ? grid_map_.info.resolution : 0.05;
+  if (has_map_ && res <= 0.0) return;
+
+  double origin_x = has_map_ ? grid_map_.info.origin.position.x : 0.0;
+  double origin_y = has_map_ ? grid_map_.info.origin.position.y : 0.0;
+  int width = has_map_ ? static_cast<int>(grid_map_.info.width) : 0;
+  int height = has_map_ ? static_cast<int>(grid_map_.info.height) : 0;
 
   double total_room_left = 0.0;
   double total_room_right = 0.0;
@@ -164,52 +278,80 @@ void LocalPlannerNode::detectObstaclesAndDecideDirection(
     int idx = (start_idx + k) % total;
     const auto & wp = global_wpnts_.wpnts[idx];
 
-    // 웨이포인트 주변 안전 반경(또는 좌우 트랙 폭) 내 셀 탐색
+    // 웨이포인트 주변 안전 반경(또는 좌우 트랙 폭) 내 셀 및 LiDAR 점 탐색
     double search_radius = std::max({safety_margin_, wp.d_left, wp.d_right});
-    int radius_cells = static_cast<int>(std::ceil(search_radius / res));
-
-    int c_center = static_cast<int>((wp.x_m - origin_x) / res);
-    int r_center = static_cast<int>((wp.y_m - origin_y) / res);
 
     bool col_found_at_wp = false;
     double min_d = 1e9;
     double max_d = -1e9;
 
-    for (int dr = -radius_cells; dr <= radius_cells; ++dr) {
-      for (int dc = -radius_cells; dc <= radius_cells; ++dc) {
-        if (dr * dr + dc * dc > radius_cells * radius_cells) continue;
-        int c = c_center + dc;
-        int r = r_center + dr;
-        if (c < 0 || c >= width || r < 0 || r >= height) continue;
+    if (has_map_ && res > 0.0) {
+      int radius_cells = static_cast<int>(std::ceil(search_radius / res));
+      int c_center = static_cast<int>((wp.x_m - origin_x) / res);
+      int r_center = static_cast<int>((wp.y_m - origin_y) / res);
 
-        int grid_idx = r * width + c;
-        if (grid_idx >= 0 && grid_idx < static_cast<int>(grid_map_.data.size()) && grid_map_.data[grid_idx] > 50) {
-          double cell_x = origin_x + c * res;
-          double cell_y = origin_y + r * res;
-          double dx = cell_x - wp.x_m;
-          double dy = cell_y - wp.y_m;
+      for (int dr = -radius_cells; dr <= radius_cells; ++dr) {
+        for (int dc = -radius_cells; dc <= radius_cells; ++dc) {
+          if (dr * dr + dc * dc > radius_cells * radius_cells) continue;
+          int c = c_center + dc;
+          int r = r_center + dr;
+          if (c < 0 || c >= width || r < 0 || r >= height) continue;
 
-          // 웨이포인트 진행 방향 기준 종방향/횡방향 상대 거리
-          double lon_s = dx * std::cos(wp.psi_rad) + dy * std::sin(wp.psi_rad);
-          if (std::abs(lon_s) > res * 2.0) continue; // 다른 웨이포인트 구간 셀 제외
+          int grid_idx = r * width + c;
+          if (grid_idx >= 0 && grid_idx < static_cast<int>(grid_map_.data.size()) && grid_map_.data[grid_idx] > 50) {
+            double cell_x = origin_x + c * res;
+            double cell_y = origin_y + r * res;
+            double dx = cell_x - wp.x_m;
+            double dy = cell_y - wp.y_m;
 
-          double lat_d = -dx * std::sin(wp.psi_rad) + dy * std::cos(wp.psi_rad);
+            double lon_s = dx * std::cos(wp.psi_rad) + dy * std::sin(wp.psi_rad);
+            if (std::abs(lon_s) > std::max(res * 3.0, 0.25)) continue;
 
-          // 1. 벽(Wall) 필터링: 트랙 좌우 경계(wall_margin) 바깥이나 인접한 셀은 벽으로 판정하고 장애물에서 제외
-          double left_wall_bound = wp.d_left - wall_margin_;
-          double right_wall_bound = -wp.d_right + wall_margin_;
+            double lat_d = -dx * std::sin(wp.psi_rad) + dy * std::cos(wp.psi_rad);
 
-          if (lat_d >= left_wall_bound || lat_d <= right_wall_bound) {
-            // 정적 벽(Wall)이므로 장애물 충돌 검사에서 제외
-            continue;
+            double safe_margin_left = std::min(wall_margin_, wp.d_left * 0.6);
+            double safe_margin_right = std::min(wall_margin_, wp.d_right * 0.6);
+            double left_wall_bound = wp.d_left - safe_margin_left;
+            double right_wall_bound = -(wp.d_right - safe_margin_right);
+
+            if (lat_d >= left_wall_bound || lat_d <= right_wall_bound) {
+              continue;
+            }
+
+            col_found_at_wp = true;
+            obs_detected = true;
+            if (lat_d < min_d) min_d = lat_d;
+            if (lat_d > max_d) max_d = lat_d;
           }
-
-          // 2. 주행 가능 공간 내의 장애물 판정
-          col_found_at_wp = true;
-          obs_detected = true;
-          if (lat_d < min_d) min_d = lat_d;
-          if (lat_d > max_d) max_d = lat_d;
         }
+      }
+    }
+
+    // 실시간 LiDAR 점군 탐색
+    if (has_scan_) {
+      for (const auto & pt : latest_scan_points_map_) {
+        double dx = pt.x - wp.x_m;
+        double dy = pt.y - wp.y_m;
+        if (dx * dx + dy * dy > search_radius * search_radius) continue;
+
+        double lon_s = dx * std::cos(wp.psi_rad) + dy * std::sin(wp.psi_rad);
+        if (std::abs(lon_s) > std::max(res > 0.0 ? res * 3.0 : 0.15, 0.25)) continue;
+
+        double lat_d = -dx * std::sin(wp.psi_rad) + dy * std::cos(wp.psi_rad);
+
+        double safe_margin_left = std::min(wall_margin_, wp.d_left * 0.6);
+        double safe_margin_right = std::min(wall_margin_, wp.d_right * 0.6);
+        double left_wall_bound = wp.d_left - safe_margin_left;
+        double right_wall_bound = -(wp.d_right - safe_margin_right);
+
+        if (lat_d >= left_wall_bound || lat_d <= right_wall_bound) {
+          continue;
+        }
+
+        col_found_at_wp = true;
+        obs_detected = true;
+        if (lat_d < min_d) min_d = lat_d;
+        if (lat_d > max_d) max_d = lat_d;
       }
     }
 
@@ -220,8 +362,10 @@ void LocalPlannerNode::detectObstaclesAndDecideDirection(
       obs_bounds[k].collision = true;
 
       // 좌측 회피 가용 통로폭(room_left) vs 우측 회피 가용 통로폭(room_right) 계산
-      double room_left = (wp.d_left - wall_margin_) - (max_d + safety_margin_);
-      double room_right = (min_d - safety_margin_) - (-wp.d_right + wall_margin_);
+      double safe_margin_left = std::min(wall_margin_, wp.d_left * 0.6);
+      double safe_margin_right = std::min(wall_margin_, wp.d_right * 0.6);
+      double room_left = (wp.d_left - safe_margin_left) - (max_d + safety_margin_);
+      double room_right = (min_d - safety_margin_) - (-(wp.d_right - safe_margin_right));
       total_room_left += std::max(0.0, room_left);
       total_room_right += std::max(0.0, room_right);
       obs_count++;
@@ -323,7 +467,7 @@ void LocalPlannerNode::onTimer()
 
   std::vector<geometry_msgs::msg::Point> debug_obs_points;
 
-  // 4. 장애물이 감지된 경우, 해당 구간 주변을 윈도우로 잡아 가중 최소자승법 스플라인 회피 경로 생성 및 엮기
+  // 4. 장애물이 감지된 경우, 해당 구간 주변을 윈도우로 잡아 가중 최소자승법 스플라인 회피 경로 생성 및 엮기 (4f00941 알고리즘 차용)
   if (obs_detected && !collision_indices.empty()) {
     int col_min = collision_indices.front();
     int col_max = collision_indices.back();
@@ -375,7 +519,6 @@ void LocalPlannerNode::onTimer()
 
       // 가중 최소자승법(Weighted Least Squares)으로 3차 다항식 계수 계산
       Eigen::VectorXd coeffs = computeLeastSquaresSpline(s_vals, d_vals, w_vals, poly_degree_);
-
       // 계산된 스플라인을 해당 윈도우 구간의 글로벌 웨이포인트에 부드럽게 엮어 넣기 (Weaving into Closed Loop)
       for (int i = 0; i < win_count; ++i) {
         int k = start_win + i;
@@ -415,7 +558,7 @@ void LocalPlannerNode::onTimer()
         wp.d_m = d_final;
 
         if (std::abs(d_final) > 0.05) {
-          wp.vx_mps *= speed_reduction_ratio_;
+          wp.vx_mps = std::max(wp.vx_mps * std::max(0.8, speed_reduction_ratio_), 3.0);
         }
       }
     }
@@ -438,7 +581,11 @@ void LocalPlannerNode::onTimer()
   ot_msg.side_switch = obs_detected;
   ot_msg.ot_side = avoid_left ? "left" : "right";
   ot_msg.ot_line = "least_squares_spline_closed_loop";
-  ot_msg.wpnts = local_wpnts.wpnts;
+  if (obs_detected && !collision_indices.empty()) {
+    ot_msg.wpnts = local_wpnts.wpnts;
+  } else {
+    ot_msg.wpnts.clear(); // 장애물 미감지 시 빈 배열 발행으로 즉각 회피 상태 해제 유도
+  }
   ot_pub_->publish(ot_msg);
 
   // 6. 스탠드얼론 로컬 웨이포인트 발행 (옵션)
@@ -468,7 +615,6 @@ void LocalPlannerNode::onTimer()
   publishDebugVisualization(local_wpnts, debug_obs_points);
 }
 
-
 void LocalPlannerNode::publishDebugVisualization(
   const f110_msgs::msg::WpntArray & local_wpnts,
   const std::vector<geometry_msgs::msg::Point> & obs_points)
@@ -493,7 +639,7 @@ void LocalPlannerNode::publishDebugVisualization(
   obs_marker.points = obs_points;
   markers.markers.push_back(obs_marker);
 
-  // 마커 2: 최소자승법 스플라인 로컬 경로 (녹색 라인 스트립)
+  // 마커 2: 최소자승법 스플라인 로컬 경로
   visualization_msgs::msg::Marker path_marker;
   path_marker.header = local_wpnts.header;
   path_marker.ns = "least_squares_spline";
@@ -501,7 +647,7 @@ void LocalPlannerNode::publishDebugVisualization(
   path_marker.type = visualization_msgs::msg::Marker::LINE_STRIP;
   path_marker.action = visualization_msgs::msg::Marker::ADD;
   path_marker.pose.orientation.w = 1.0;
-  path_marker.scale.x = 0.1; // 선 두께
+  path_marker.scale.x = 0.1;
   path_marker.color.r = 0.0f;
   path_marker.color.g = 1.0f;
   path_marker.color.b = 0.2f;
