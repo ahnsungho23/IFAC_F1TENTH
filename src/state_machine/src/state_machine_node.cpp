@@ -54,11 +54,11 @@ StateMachineNode::StateMachineNode()
   //다만 avoid는 fresh한 avoid waypoint, overtake는 fresh한 overtake waypoint가 있어야 유지
   declare_parameter<double>("publish_rate_hz", 10.0);
   //state를 몇 Hz로 publish할지 정함.
-  declare_parameter<double>("avoid_stale_timeout_sec", 2.0);
+  declare_parameter<double>("avoid_stale_timeout_sec", 0.5);
   //avoid_waypoints가 얼마나 오래되면 stale로 볼지 정함.
-  declare_parameter<double>("overtake_stale_timeout_sec", 2.0);
+  declare_parameter<double>("overtake_stale_timeout_sec", 0.5);
   //overtake_waypoints가 얼마나 오래되면 stale로 볼지 정함.
-  declare_parameter<double>("global_stale_timeout_sec", 2.0);
+  declare_parameter<double>("global_stale_timeout_sec", 0.5);
   //global_waypoints가 얼마나 오래되면 stale로 볼지 정함.
   declare_parameter<double>("frenet_stale_timeout_sec", 0.5);
   ///car_state/frenet/odom이 얼마나 오래되면 stale로 볼지 정함.
