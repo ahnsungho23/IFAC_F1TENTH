@@ -3,8 +3,9 @@
 // ----------------------------------------------------------------------------
 // control_map_node.cpp(L1+LUT)와 동급의 상시 구동 컨트롤러 노드. 글로벌 경로를 추종하되
 // L1 대신 샘플링 기반 MPPI로 조향+종가속을 동시 최적화한다. 결과를 `/drive_mppi`로
-// 발행하고, Mux(joy_teleop_monitor)가 RB 버튼 상태(current_algorithm_)에 따라
-// `/drive_autonomous`(MAP) ↔ `/drive_mppi`(MPPI) 중 하나를 최종 `/drive`로 라우팅한다.
+// 발행하고, RB 버튼 상태에 따라 `/drive_autonomous`(MAP) ↔ `/drive_mppi`(MPPI) 중 하나가
+// 최종 `/drive`로 라우팅된다. 라우터는 환경별로 다르다 — 시뮬은 joy_teleop_monitor,
+// 실차는 drive_source_selector(실차엔 joy_teleop_monitor가 없음).
 //
 // 솔버 = 컴파일 타임 자동선택:
 //   - CUDA 있으면(USE_MPPI_GPU) GPU 솔버(control_mppi_solver_gpu.cu, float32, 병렬 롤아웃)
@@ -51,9 +52,7 @@ using SParams  = f1tenth_control::MppiParams;
 class ControlMppiNode : public rclcpp::Node {
  public:
     ControlMppiNode() : Node("control_mppi_node") {
-        // ==========================================
         // 1. 파라미터 선언·1회 읽기 (control_map_node 패턴: 콜백 없음, 재시작 시 반영)
-        // ==========================================
         // double로 선언·읽기 → float/double 솔버 파라미터에 대입(narrowing 허용).
         auto dparam = [&](const std::string& name, double def) {
             return this->declare_parameter<double>(name, def);
@@ -98,9 +97,7 @@ class ControlMppiNode : public rclcpp::Node {
         // RB로 활성화되면 다음 사이클부터 즉시 매 틱 풀 연산으로 복귀(전환 지연 없음).
         idle_solve_decimation_ = iparam("idle_solve_decimation", 5);
 
-        // ==========================================
         // 2. 구독 / 발행 / 타이머 (control_map_node와 동일 QoS)
-        // ==========================================
         auto qos_gl = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local();
         global_path_sub_ = this->create_subscription<f110_msgs::msg::WpntArray>(
             "/global_waypoints", qos_gl,
@@ -114,7 +111,8 @@ class ControlMppiNode : public rclcpp::Node {
             "/imu/data", 10,
             std::bind(&ControlMppiNode::imu_callback, this, std::placeholders::_1));
 
-        // joy_teleop_monitor(Mux)가 RB 상태를 latched로 발행 — 이 노드가 나중에 떠도
+        // 라우터(시뮬 joy_teleop_monitor / 실차 drive_source_selector)가 RB 상태를
+        // latched로 발행 — 이 노드가 나중에 떠도
         // 최신 활성/비활성 상태를 즉시 수신한다.
         mppi_active_sub_ = this->create_subscription<std_msgs::msg::Bool>(
             "/mppi_active", rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local(),

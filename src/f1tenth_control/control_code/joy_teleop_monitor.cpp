@@ -12,7 +12,6 @@
 #include "std_msgs/msg/string.hpp"
 
 // 수학 상수 정의
-const double PI = 3.14159265358979323846;
 
 class JoyTeleopMonitor : public rclcpp::Node {
 public:
@@ -20,9 +19,7 @@ public:
     enum class ControlAlgorithm { MAP, MPPI };
 
     JoyTeleopMonitor() : Node("joy_teleop_monitor") {
-        // ==========================================
         // 1. 파라미터 정의 및 설정
-        // ==========================================
         // 버튼/축 매핑은 실차 젯슨 f1tenth_stack의 drive_mode_manager와 일치시킨다(2026-07-17) —
         // 시뮬(이 노드)과 실차의 조이스틱 조작감을 같게 해 근육기억이 그대로 전이되게 하기 위함.
         //   A(0)=자율, B(1)=비상정지, X(2)=수동, 좌스틱 세로(axis1)=속도, 우스틱 가로(axis3)=조향.
@@ -38,9 +35,9 @@ public:
         this->declare_parameter<int>("algorithm_button", 5);         // RB 버튼 — MAP/MPPI 알고리즘 전환
         this->declare_parameter<bool>("is_simulation", false);       // 시뮬레이터 환경 모드 여부
         this->declare_parameter<bool>("force_autonomous", false);     // 조이스틱 연결 없이 자율주행 모드 즉시 기동 여부
-        // 속도[m/s]→VESC ERPM 환산 게인. ackermann_to_vesc_node(vesc_ackermann)의
-        // speed_to_erpm_gain과 반드시 동일해야 함(대시보드 표시 전용, 실제 변환은 그쪽이 수행) —
-        // _control_common.py의 공용 launch 인자로 양쪽에 동일하게 전달됨.
+        // 속도[m/s]→VESC ERPM 환산 게인. **표시 전용** — 실제 변환은 f1tenth_stack의
+        // ackermann_to_vesc_node가 젯슨 vesc.yaml 값으로 수행한다(이 저장소 밖).
+        // 대시보드 RPM이 실제와 맞으려면 그쪽 값과 같아야 한다.
         this->declare_parameter<double>("speed_to_erpm_gain", 4614.0);
 
         this->get_parameter("max_steering_angle", max_steering_angle_);
@@ -65,9 +62,7 @@ public:
             current_mode_ = ControlMode::AUTONOMOUS;
         }
 
-        // ==========================================
         // 2. 통신 및 타이머 바인딩
-        // ==========================================
         // 조이스틱 토픽 구독
         joy_sub_ = this->create_subscription<sensor_msgs::msg::Joy>(
             "/joy", 10,
@@ -206,9 +201,6 @@ private:
             input_throttle_pct_ = throttle_input * 100.0;
             input_brake_pct_ = 0.0;
         }
-
-        raw_axes_ = msg->axes;
-        raw_buttons_ = msg->buttons;
 
         // 5. 비상 정지(수동 B버튼)가 트리거된 경우 제동 명령 최우선 송출
         if (is_emergency_stop_) {
@@ -400,8 +392,6 @@ private:
     bool lt_pressed_once_ = false;
 
     // 조이스틱 상태 캐싱
-    std::vector<float> raw_axes_;
-    std::vector<int> raw_buttons_;
 
     // ROS 2 통신 개체
     rclcpp::Subscription<sensor_msgs::msg::Joy>::SharedPtr joy_sub_;
