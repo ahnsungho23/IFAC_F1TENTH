@@ -1,42 +1,242 @@
 local_planner_node:
   ros__parameters:
-    lookahead_wpnt_num: 40
-    safety_margin: 0.28
-    wall_margin: 0.35
-    avoid_offset: 1.0
-    poly_degree: 3
-    speed_reduction_ratio: 0.8
-    publish_standalone_local: false
+    # 전방 경로 및 장애물 검사 범위
+    # ifac_track waypoint 간격은 약 0.1 m입니다. 최소 10 m보다 긴 약 12 m 전방을 검출하고,
+    # 약 18 m의 경로를 발행해 제어기가 회피 진입-통과-복귀를 한 번에 볼 수 있게 합니다.
+    lookahead_wpnt_num: 180
+    detection_lookahead_wpnt_num: 120
+    spline_window_margin_wpnts: 70
+    # 급코너에서도 약 7.0 m 전부터 횡이동해 장애물 직전의 급조향을 피합니다.
+    corner_spline_window_margin_wpnts: 70
+
+    # 회피 경로 형상과 최종 안전 검사
+    # 직사각형 footprint, localization(0.04), path clearance(0.03), corridor
+    # margin(0.03), perception padding(0.10)이 별도로 적용됩니다. 여기서 0.30 m를
+    # 다시 더하면 총 횡여유가 약 0.8~0.9 m가 되어 곡선 Frenet 경로가 접힙니다.
+    # 중복되지 않는 추가 여유 0.08 m만 적용합니다.
+    safety_margin: 0.08
+    # 최종 차량 충돌 반경(0.25 m)보다 넓고, 좁은 장애물 구간을 통과할 수 있는 값입니다.
+    wall_margin: 0.30
+    avoid_offset: 0.45
+    # 급코너는 필요한 만큼만 이동해 안쪽 벽 여유를 유지합니다(장애물 경계에 따라 자동 증가).
+    corner_avoid_offset: 0.30
+    # 횡방향 통로는 앞범퍼 길이를 반경으로 쓰는 원이 아니라 실제 직사각형 차폭으로
+    # 검사합니다. 원형 값은 호환용이며 아래 옵션이 false일 때 hard check에 쓰지 않습니다.
+    vehicle_radius: 0.12
+    path_clearance_margin: 0.03
+    # base_link(후륜축 기준)에서 본 차체 크기입니다. 직사각형 footprint와 기존 보수적 원형을
+    # 동시에 검사하며, 위치추정 오차와 추가 안전 여유를 차체 외곽에 더합니다.
+    vehicle_front_extent_m: 0.3302
+    vehicle_rear_extent_m: 0.05
+    vehicle_width_m: 0.2413
+    localization_margin_m: 0.04
+    corridor_safety_margin_m: 0.03
+    preserve_circular_collision_check: false
+    # false이면 quintic d(s)의 형상을 점별 clamp하지 않고 회랑 밖 후보 전체를 폐기합니다.
+    legacy_clamp_candidate_d: false
+    # 급코너에서는 차체 회전과 L1 추종 오차를 고려해 장애물을 더 넓게 검출합니다.
+    corner_tracking_margin: 0.10
+    # 단일 waypoint의 약 0.95 rad/m 곡률 잡음을 급커브로 오인하지 않도록 실제 헤어핀 수준에서 적용합니다.
+    corner_curvature_threshold: 1.20
+    # 고정 검색폭이 아니라, 이 값을 최솟값으로 하여 waypoint 반간격 + 차체 종방향 길이 +
+    # 셀 반대각선까지 자동 확장합니다. 얇거나 대각선인 셀이 waypoint 사이에 있어도 검출됩니다.
+    longitudinal_search_half_width_m: 0.15
+    # 일반 회피 구간은 글로벌 기준 속도의 93%를 사용합니다. 급코너 감속은 아래 값으로 유지합니다.
+    speed_reduction_ratio: 0.93
+    # 급코너는 검증된 안전 감속을 유지합니다.
+    corner_speed_reduction_ratio: 0.55
+    # 장애물 뒤 합류 구간에서는 횡오프셋이 줄어드는 만큼 글로벌 속도로 부드럽게 회복합니다.
+    # 곡률 기반 횡가속도 상한은 이 비율보다 항상 우선합니다.
+    post_obstacle_speed_recovery_ratio: 1.0
+    # 속도 회복과 선제 감속을 각각 제한해 local waypoint 사이의 급격한 속도 변화를 방지합니다.
+    lattice_max_longitudinal_accel_mps2: 3.0
+    lattice_max_longitudinal_decel_mps2: 6.0
+
+    # Frenet lattice 후보 생성
+    # 장애물 구간 전체에서 겹치는 safe corridor를 우선 사용합니다. 공통 d가 없지만
+    # 각 단면이 통과 가능하면 진입/탈출 d를 따로 샘플링해 가변 quintic으로 연결합니다.
+    # lateral_step은 이전 설정 호환을 위해 유지되며 새 corridor sampling에는 쓰이지 않습니다.
+    # 경계 표본을 대량 검사하지 않고 선호점/회랑 중심/한쪽 내부점만 먼저 검사합니다.
+    lattice_lateral_samples: 3
+    lattice_lateral_step_m: 0.06
+    # corridor 경계 수치 오차를 피하기 위한 목표 d 내부 여유입니다.
+    lattice_corridor_target_inset_m: 0.060
+    # quintic 보간과 3 cm occupancy grid 양자화에서 생기는 mm 단위 경계 오차만 허용합니다.
+    # 최종 footprint/점유격자 충돌 검사는 별도로 동일하게 유지됩니다.
+    lattice_corridor_validation_tolerance_m: 0.010
+    # 공통 통로 폭이 이 값보다 좁으면 더 긴 전환 후보를 추가해 차체 yaw와 벽 접근을 줄입니다.
+    lattice_narrow_corridor_width_threshold_m: 0.20
+    lattice_narrow_corridor_transition_scales: [1.40, 1.80, 2.20]
+    # 충돌 샘플 간격이 이 값보다 크면 별도 장애물 군집으로 보고 가까운 군집부터 계획합니다.
+    lattice_obstacle_cluster_gap_wpnts: 16
+    # 전구간 guided recovery는 약 1.2 m 간격의 knot부터 시작합니다. 0.3 m knot는 tracker/grid의
+    # 작은 경계 변화를 그대로 조향으로 바꿔 곡률 spike를 만들었습니다. 긴 구간 연결이 회랑을
+    # 벗어날 때만 6→3→1 waypoint 간격으로 자동 재시도하므로 좁은 통로 안전성은 유지합니다.
+    lattice_corridor_knot_stride_wpnts: 12
+    # knot별 조합을 전부 폭발시키지 않고 연속성과 선호 오프셋이 좋은 프로필만 유지합니다.
+    lattice_corridor_beam_width: 8
+    # 긴 전환을 먼저 평가해 장애물 직전의 급격한 횡이동과 곡률 탈락을 줄입니다.
+    lattice_transition_scales: [1.40, 1.0, 0.75, 1.80]
+    lattice_min_transition_wpnts: 10
+    # 1차 후보가 모두 실패하면 진입-장애물-합류 전체 safe corridor를 따라 복구 lattice를
+    # 먼저 탐색합니다. 이 전구간 후보도 없을 때만 아래 샘플을 장애물 구간 fallback에
+    # 사용하며, 어느 단계에서도 충돌 여유는 완화하지 않습니다.
+    lattice_recovery_lateral_samples: 4
+    lattice_recovery_lateral_step_m: 0.04
+    lattice_recovery_transition_scales: [1.80, 1.40, 1.0, 0.75]
+    lattice_recovery_min_transition_wpnts: 10
+    # beam의 전구간 후보를 4개만 검사하던 제한을 넓혀 서로 다른 통로 형상을 보존합니다.
+    lattice_recovery_profile_limit: 2
+    # 탐색 도중 차량이 장애물까지 이동하지 않도록 primary/recovery 계산시간을 제한합니다.
+    lattice_primary_search_budget_ms: 180
+    lattice_recovery_search_budget_ms: 100
+    # 계산 시작점에서 이 거리 이상 진행했거나 pose reset이 발생한 결과는 발행하지 않습니다.
+    lattice_max_result_pose_drift_m: 1.00
+    # 일반 후보보다 약간 급한 기하는 허용하되 흔들림을 만드는 과도한 곡률/변화율은 제한합니다.
+    # 헤어핀에서 기준선 자체의 이산 곡률 변화가 크므로 복구 후보에만 넓은 기하 상한을
+    # 허용합니다. 횡가속도 제한이 해당 후보의 속도를 자동으로 낮추고, 비용함수는 여전히
+    # 가능한 후보 중 곡률과 곡률 변화가 가장 작은 경로를 선택합니다.
+    lattice_recovery_max_curvature_scale: 2.00
+    lattice_recovery_max_curvature_rate_scale: 3.00
+
+    # 후보의 차량 가능성 및 연속 구간 충돌 검사
+    # ifac_track 글로벌 경로의 최대 곡률은 약 2.07 rad/m입니다.
+    lattice_max_curvature_radpm: 2.80
+    # 거리당 곡률 변화율은 조향이 좌우로 얼마나 빠르게 반전되는지를 제한합니다.
+    lattice_max_curvature_rate_radpm2: 18.0
+    lattice_max_lateral_accel_mps2: 5.80
+    lattice_speed_safety_factor: 0.95
+    lattice_collision_sample_step_m: 0.04
+    # 차량 중심에서 벽/장애물 점유 셀까지 0.40 m 이상인 후보를 우선합니다.
+    # 공간이 좁아 달성하지 못해도 즉시 폐기하지 않고 아래 최소 이격 벌점으로 비교합니다.
+    lattice_preferred_clearance_m: 0.40
+
+    # Frenet lattice 비용함수 가중치
+    # 평균 clearance와 경로의 가장 좁은 지점을 함께 평가해 벽-장애물 통로 중앙을 선호합니다.
+    lattice_weight_clearance: 2.0
+    lattice_weight_min_clearance: 12.0
+    lattice_weight_deviation: 1.0
+    lattice_weight_curvature: 0.30
+    # 이제 단순 인접점 곡률 차이가 아니라 |delta_kappa| / ds 비용입니다.
+    lattice_weight_curvature_change: 0.12
+    # Werling et al.의 저속 Frenet 식 C_d = k_j J_s + k_t S + k_d d_end^2를 반영합니다.
+    # J_s는 실제 기준선 호길이 s에 대한 횡오프셋 3차 미분 제곱 적분이며,
+    # 두 항의 균형으로 너무 짧고 급한 전환과 지나치게 긴 전환을 함께 억제합니다.
+    lattice_weight_spatial_lateral_jerk: 0.02
+    lattice_weight_maneuver_length: 0.08
+    lattice_weight_path_length: 0.30
+    lattice_weight_speed_loss: 0.20
+    # 회피가 시작되면 같은 방향을 유지하고, 현재 방향이 불가능할 때만 반대편을 선택합니다.
+    lattice_weight_opposite_side: 2.0
+    # 최초로 선택한 충돌 없는 경로를 장애물 검출이 해제될 때까지 재사용해 재계획 흔들림을 막습니다.
+    lattice_commit_path_until_clear: true
+    # 현재 merge 약 2.5 m 전부터 다음 장애물 군집을 미리 계획합니다. 새 경로 시작점이 실제
+    # 차량에서 멀거나 안전 검사를 실패하면 기존 커밋 경로를 그대로 유지합니다.
+    lattice_preplan_before_merge_m: 10.0
+    lattice_preplan_max_start_gap_m: 0.35
+    # 실제 합류점 뒤에 충돌 없는 글로벌 경로를 약 4 m 덧붙여 제어기의 전방 경로를 확보합니다.
+    # 합류 인덱스 자체는 별도로 보존하므로 차량이 합류점에 도달하면 정상적으로 GLOBAL로 복귀합니다.
+    lattice_post_merge_lookahead_wpnts: 60
+    # 설계 합류점을 지나도 실제 차량 d가 충분히 작아질 때까지 같은 경로 소스를 유지합니다.
+    lattice_merge_lateral_tolerance_m: 0.15
+    lattice_merge_settle_max_wpnts: 30
+    # 기본/복구 lattice가 모두 실패하면 장애물 약 0.8 m 앞까지 점진 감속 경로를 발행합니다.
+    lattice_safe_stop_buffer_wpnts: 8
+    lattice_safe_stop_deceleration_mps2: 2.50
+    # 연속 장애물로 경로를 넘기는 순간 새 lattice가 한두 주기 실패하면, 직전 전체 경로를
+    # 현재 지도에서 다시 검사해 충돌 전 감속 prefix로 사용합니다. 오래된 경로는 사용하지 않습니다.
+    lattice_replan_brake_timeout_sec: 1.50
+    # 이동/감속 경로가 모두 실패했을 때 현재 위치에 만드는 정지 경로의 점 간격입니다.
+    stationary_hold_point_spacing_m: 0.03
+
+    # 점유 판정은 전체 grid를 사용합니다. 컴포넌트 면적은 시각화/로그 그룹에만 적용되므로
+    # 벽에 붙은 장애물과 2.0 m²보다 큰 장애물도 검출 및 hard rejection 대상입니다.
+    occupied_threshold: 50
+    # /map은 벽과 맵 경계의 안전 검사용으로 유지하고, opponent_detector가 추적한
+    # Frenet 장애물 상자를 planning grid에 겹쳐 기존 safe-corridor/lattice 로직으로 회피합니다.
+    use_perception_obstacles: true
+    require_perception_obstacles: true
+    obstacles_topic: "/perception/obstacles"
+    # local planner는 정적 장애물만 담당하고, 동적 상대차는 opponent_detector의 추월/추종에 맡깁니다.
+    perception_static_only: true
+    # opponent_detector가 is_static을 확정하기 전에도 Frenet 추정속도가 거의 0이면
+    # 정적 후보로 먼저 반영합니다. 실제 동적 상대차는 이 문턱을 넘어 제외됩니다.
+    perception_static_speed_threshold_mps: 0.25
+    # tracker 상자의 불확실성과 rasterization 오차를 보상하는 추가 외곽 여유입니다.
+    # tracker의 횡경계가 주행 중 10 cm 이상 흔들린 실제 로그와 3 cm grid 양자화를
+    # 흡수합니다. 차체 hard check와 합쳐 중심선 옆 장애물도 미리 회피 대상으로 만듭니다.
+    perception_obstacle_padding_m: 0.10
+    # 정적 tracker는 scan보다 느리게 planning grid에 반영해 전체 맵 거리장 재계산이
+    # Frenet odometry callback을 굶기지 않도록 합니다. 첫 메시지는 즉시 반영됩니다.
+    # 정적 장애물만 사용하므로 매 planning tick마다 676x451 맵을 다시 만들 필요가 없습니다.
+    # 한 번의 rasterization이 약 0.55~1.17 s 걸려 0.20 s 주기는 callback backlog를 만들고,
+    # 다음 장애물을 지난 뒤에야 odom/obstacle을 처리하게 했습니다.
+    perception_grid_update_period_sec: 1.00
+    # 정적 tracker의 중심/크기가 이 값보다 적게 흔들리면 기존 occupancy/distance
+    # grid를 재사용합니다. 3 cm 셀 몇 개의 jitter 때문에 0.6초 전체 재계산을 하지 않습니다.
+    perception_grid_rebuild_motion_m: 0.12
+    # detector가 같은 정적 물체에 새 ID를 붙여도 Frenet 상자 위치가 겹치면 하나의
+    # 물리 장애물로 유지합니다.
+    perception_static_grid_match_gate_m: 0.75
+    # 최근 관측만으로 정적 장애물 외곽을 계산합니다. 최초의 부분 검출은 후속 관측으로
+    # 확장하되, 오래된 큰 오측정은 이 창을 벗어나면 제거되어 상자가 영구 팽창하지 않습니다.
+    perception_static_history_size: 6
+    # 한 프레임의 큰 외곽값은 무시하고 같은 확장이 연속으로 관측될 때만 반영합니다.
+    # 새 물리 장애물의 최초 등록 자체는 이 확인을 기다리지 않고 즉시 반영됩니다.
+    perception_static_expand_confirm_cycles: 2
+    # 안전에 필요한 외곽 확장은 즉시 반영하지만, 축소는 연속 관측으로 확인하여 최근 관측
+    # 창의 경계값 교체만으로 planning grid가 반복 재생성되는 것을 방지합니다.
+    perception_static_shrink_confirm_cycles: 3
+    # Stabilize static tracks before rasterizing them into the planning grid.
+    perception_filter_alpha: 0.25
+    # 정적 장애물을 한 바퀴 동안 기억해 가시권을 벗어날 때마다 grid에서 지웠다가
+    # 다음 바퀴에 다시 추가하는 전체 재계산을 방지합니다.
+    perception_track_hold_sec: 60.0
+    perception_association_gate_m: 0.35
+    perception_max_s_step_m: 0.20
+    perception_max_d_step_m: 0.12
+    # 회피 경로 확정 시 사용한 정적 장애물 박스를 merge 완료까지 고정하여
+    # detector jitter가 이미 검증된 경로를 침범하는 현상을 막습니다.
+    freeze_committed_static_obstacles: true
+    # snapshot 장애물과 새 검출이 같은 물체인지 판단하는 Frenet 중심 거리입니다.
+    committed_obstacle_match_distance_m: 0.35
+    obstacle_component_min_area_m2: 0.002
+    obstacle_component_max_area_m2: 2.0
+    # treat_as_free | treat_as_occupied | reject_candidate
+    unknown_cell_policy: "reject_candidate"
+
+    # 검출 히스테리시스와 실행 주기
+    # /map의 정적 컴포넌트는 센서 프레임 잡음이 아니므로 첫 검출 주기에 확정합니다.
+    detection_confirm_cycles: 1
+    detection_clear_cycles: 3
+    # 시작 직후 잘못된 Frenet 좌표 한 프레임으로 먼 경로를 선택하지 않도록 연속 입력을 확인합니다.
+    frenet_odom_confirm_cycles: 3
+    # 짧은 연속 좌표 이상은 직전 유효 상태로 넘기고, 입력 공백에는 마지막 검증 경로를 제한시간 유지합니다.
+    frenet_odom_invalid_grace_cycles: 5
+    frenet_odom_stale_timeout_sec: 0.50
+    frenet_odom_path_hold_timeout_sec: 3.00
+    frenet_odom_max_s_jump_m: 1.00
+    # 저주기 odometry에서 정상 이동량이 1 m를 넘을 수 있으므로 |v|*dt 기반 허용치를 함께 씁니다.
+    frenet_odom_speed_jump_scale: 1.50
+    frenet_odom_jump_slack_m: 0.25
+    frenet_odom_track_margin_m: 0.10
     timer_period_ms: 50
-    lattice_num_candidates: 9
-    max_lat_accel: 6.0
-    min_speed: 1.5
-    weight_obs: 10.0
-    weight_lat: 1.0
-    weight_smooth: 2.4000000000000004
-    weight_speed: 1.5
-    global_waypoints_topic: /global_waypoints
-    map_topic: /map
-    frenet_odom_topic: /car_state/frenet/odom
-    scan_topic: /scan
-    ot_waypoints_topic: /avoid_waypoints
-    local_waypoints_topic: /local_waypoints
-    local_path_topic: /local_planning/path
-    exact_local_path_topic: /local_path
-    marker_topic: /local_planning/markers
-    frame_id: map
-static_obstacle_avoidance_node:
-  ros__parameters:
-    planning_frequency: 50.0
-    lookahead_distance: 15.0
-    corridor_width: 0.64
-    safety_margin: 0.28
-    passing_buffer_s: 1.2
-    waypoint_step: 0.1
-    max_lat_accel: 6.0
-    min_speed: 1.5
-    static_vel_threshold: 0.35000000000000003
-    weight_obs: 10.0
-    weight_lat: 1.0
-    weight_smooth: 2.4000000000000004
-    weight_speed: 1.5
+    # 안전 검사는 20 Hz로 유지하고 RViz 진단 마커 직렬화만 5 Hz로 제한합니다.
+    debug_publish_period_ms: 200
+    publish_standalone_local: false
+
+    # RViz 표시
+    obstacle_marker_scale: 0.35
+    path_marker_width: 0.08
+    corridor_debug_stride: 2
+
+    # 토픽 및 프레임
+    global_waypoints_topic: "/global_waypoints"
+    map_topic: "/map"
+    frenet_odom_topic: "/car_state/frenet/odom"
+    ot_waypoints_topic: "/avoid_waypoints"
+    local_waypoints_topic: "/local_waypoints"
+    local_path_topic: "/local_planning/path"
+    exact_local_path_topic: "/local_path"
+    marker_topic: "/local_planning/markers"
+    frame_id: "map"
