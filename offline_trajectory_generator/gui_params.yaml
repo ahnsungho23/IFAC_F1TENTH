@@ -1,6 +1,6 @@
-map_yaml: /Users/parkm/Downloads/ifac_track.yaml
-output_dir: /Users/parkm/Desktop
-optimizer: ai
+map_yaml: ~/2026_IFAC/src/monte_carlo_localization/maps/ifac_track.yaml
+output_dir: ~/2026_IFAC/offline_trajectory_generator/output/ifac_track
+optimizer: mincurve
 width_mode: distance
 show_centerline: true
 show_rt_lane: true
