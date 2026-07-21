@@ -12,36 +12,6 @@ from launch.substitutions import LaunchConfiguration
 # ============================================================================
 # IMU 각속도 단위 보정 계수 — 하드웨어 상수 (여기가 유일한 정의 위치)
 # ============================================================================
-#   ⚠️⚠️ **이 값은 시뮬과 실차가 다르다 — 진입점 런치 파일에서 각각 넘긴다.**
-#      실차: VESC가 deg/s로 발행 → pi/180 (= IMU_ANGULAR_SCALE_REAL)
-#      시뮬: sim_imu_bridge_node가 odom angular.z(이미 rad/s)를 그대로 중계 → 1.0
-#      공용 상수 하나로 두면 시뮬에서 올바른 rad/s에 또 pi/180이 곱해져 실측 요레이트가
-#      1/57로 죽고, 카운터스티어가 `gain*(기대값 - 0)`이라는 엉뚱한 조향을 계속 더한다
-#      (2026-07-19 실제로 이 실수를 해서 시뮬 랩 완주가 깨졌었음).
-#
-#   ✅ 2026-07-19 실차 확인 완료 — **deg/s로 발행되는 것이 확정됐다.** 팀원이 젯슨에서 측정:
-#      차를 손으로 좌우 왕복 회전시켰을 때 |angular_velocity.z|가 60을 넘었다. rad/s였다면
-#      60 rad/s = 초당 9.5바퀴라 손으로 불가능한 값이다(60 deg/s ≈ 1.05 rad/s가 실제 회전).
-#      부호는 정상 — 반시계(좌회전)에서 양수로 REP-103과 일치하므로 부호 보정은 불필요.
-#      따라서 이 상수는 1.0이 아니라 pi/180이어야 한다.
-#
-#   ⚠️ 이 값은 "튜닝 노브"가 아니라 **하드웨어의 물리적 성질**이다. 주행마다 바꿀 값이
-#      아니므로 런치 인자로 매번 넘기지 말고 **여기 기본값을 고칠 것.** 인자로 넘기는
-#      방식은 빠뜨렸을 때 57배 틀린 값으로 조용히 주행하게 되는데, 특히
-#      lut_calibrator_node는 /drive를 발행하지 않아 **주행 중 아무 증상이 없어서**
-#      LUT가 통째로 오염된 걸 나중에야 알게 된다.
-#
-#   재확인 절차(드라이버/펌웨어를 건드린 뒤에는 반드시 다시 볼 것):
-#     ros2 topic hz /imu/data
-#     timeout 8 ros2 topic echo /imu/data --field angular_velocity.z \
-#       | awk '$1+0==$1 {v=($1<0?-$1:$1); if(v>m){m=v}} END{printf "최댓값 = %.3f\n", m}'
-#     → 차를 손으로 들고 좌우 왕복 회전(1초에 반 바퀴 정도). 최댓값이
-#       1~5 이면 rad/s(→ 1.0) / 60~300 이면 deg/s(→ 0.0174533)
-#
-#   ⚠️ 근본 해결은 젯슨 vesc_driver 수정이다(sensor_msgs/Imu의 rad/s 규약 위반을 우리 쪽에서
-#      상쇄하고 있는 상태). 거기서 고쳐지면 **반드시 1.0으로 되돌릴 것** — 양쪽에 걸면 이중
-#      보정되어 요레이트가 1/57로 죽는다. 팀에 넘길 때 "임시로 막아둔 것"임을 명시할 것.
-#   ⚠️ rosbag에는 보정 전 원시값(deg/s)이 기록된다. 오프라인 분석 시 직접 pi/180을 곱할 것.
 #
 #   이 상수는 control_map_node(요레이트 카운터스티어)와 lut_calibrator_node(실측 횡가속도
 #   a_lat = v*yaw_rate) 양쪽이 공유한다. lut_calibration.launch.py도 이 값을 import 해서
@@ -52,22 +22,7 @@ IMU_ANGULAR_SCALE_SIM  = 1.0         # sim_imu_bridge_node는 이미 rad/s로 �
 # ============================================================================
 # IMU 선형가속도 단위 보정 계수 — 하드웨어 상수 (여기가 유일한 정의 위치)
 # ============================================================================
-#   ✅ 2026-07-19 소스로 확정 — **VESC가 g로 발행한다.** 자이로의 deg/s와 같은 계열의
-#      비-SI 발행이다. 팀 저장소 커밋 148e9ea의 vesc_driver 소스에서 확인:
-#        vesc_packet.cpp : `double VescPacketImu::acc_x() const { return acc_x_; }  // g/s`
-#                          (`g/s`는 물리적으로 성립하지 않는 오타 — 단위는 g)
-#        vesc_driver.cpp : `std_imu_msg.linear_acceleration.y = imuData->acc_y();` ← 변환 없음
-#      즉 sensor_msgs/Imu가 요구하는 m/s²가 아니라 g가 그대로 /imu/data에 실린다.
-#
-#   ⚠️ 보정 전에는 control_map_node의 acc_mean이 실제의 1/9.8이라, 가감속 조향 스케일러의
-#      ±1.0 임계값(control_map_node.cpp의 acc_mean >= 1.0 / <= -1.0)에 사실상 도달하지
-#      못했다 — base_max_accel 9.0 m/s²(≈0.92g)로 최대 가속을 해도 1.0g에 못 미친다.
-#      즉 스케일러가 실차에서 계속 중립으로 놀고 있었다. 이 보정을 넣으면 비로소 동작한다.
-#
-#   각속도와 마찬가지로 sim/real을 나눈다. 현재 sim_imu_bridge_node는 linear_acceleration을
-#   채우지 않아(0 고정) 어떤 계수를 곱해도 0이라 무해하지만, 나중에 브릿지가 odom 미분으로
-#   종가속을 싣게 되면 그 값은 이미 m/s²라 실차 계수를 곱하면 9.8배로 틀어진다.
-#   (2026-07-19에 각속도를 공용 상수 하나로 뒀다가 똑같은 이유로 시뮬이 깨졌던 전례를 반복하지 않기 위함)
+
 IMU_LINEAR_SCALE_REAL = 9.80665      # g → m/s². VESC가 g로 발행(2026-07-19 소스 확인)
 IMU_LINEAR_SCALE_SIM  = 1.0          # sim_imu_bridge_node는 0 고정(향후 싣더라도 m/s²) → 보정 불필요
 
@@ -130,6 +85,22 @@ def declare_common_args():
         DeclareLaunchArgument(
             'decel_attenuation', default_value='0.6',
             description='롤 비율에 따른 가감속 한계 축소 비율'
+        ),
+
+        # ── 경로 이탈 복구 가드 (2026-07-21) ──
+        # 횡오차가 recovery_lat_error를 넘으면 L1 목표점을 차량 기준 직선거리로 재선정하고
+        # 속도를 recovery_speed로 낮춰 라인 복귀를 우선한다. 0이면 비활성(기존 거동).
+        # ⚠️ 기본 1.0m는 ifac_track 반폭(0.55~0.8m) 기준으로 "정상 추종 중엔 절대 안 걸리게"
+        #    잡은 값이다. **트랙 폭이 다른 맵에서는 반드시 재검토할 것** — 넓은 트랙에서
+        #    회피/추월 라인이 글로벌 대비 1m 넘게 벌어지면 정상 주행 중에 가드가 걸려
+        #    불필요하게 recovery_speed로 감속한다. 대략 트랙 반폭보다 조금 크게 잡으면 된다.
+        DeclareLaunchArgument(
+            'recovery_lat_error', default_value='0.0',
+            description='경로 이탈 복구 가드 발동 횡오차 [m] (0=비활성). 트랙 반폭보다 크게 잡을 것'
+        ),
+        DeclareLaunchArgument(
+            'recovery_speed', default_value='2.0',
+            description='이탈 복구 중 속도 상한 [m/s] (선회반경을 줄여 라인 복귀를 돕는다)'
         ),
 
         # ── 경로소스 신선도 / 장애물 회피 폴백(GapFollower) ──
@@ -257,6 +228,8 @@ def build_control_map_node(*, odom_topic, max_speed, max_lateral_accel, base_max
             'base_max_accel': base_max_accel,
             'base_max_decel': LaunchConfiguration('base_max_decel'),
             'wall_safety_margin': 0.6,
+            'recovery_lat_error': LaunchConfiguration('recovery_lat_error'),
+            'recovery_speed': LaunchConfiguration('recovery_speed'),
             'lookup_table_file': lookup_table_file,
             'use_imu': ParameterValue(LaunchConfiguration('use_imu'), value_type=bool),
             'imu_angular_scale': imu_angular_scale,
