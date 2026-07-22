@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import threading
 import time
+import traceback
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -201,13 +202,13 @@ def make_namespace(values: dict[str, Any]) -> argparse.Namespace:
     map_yaml_text = str(values["map_yaml"]).strip()
     if not map_yaml_text:
         raise ValueError("map YAML is empty")
-    map_yaml = Path(map_yaml_text)
+    map_yaml = Path(map_yaml_text).expanduser()
     if not map_yaml.is_file():
         raise ValueError(f"map YAML does not exist: {map_yaml}")
 
     return argparse.Namespace(
         map_yaml=map_yaml,
-        output_dir=Path(values["output_dir"]) if values.get("output_dir") else None,
+        output_dir=Path(values["output_dir"]).expanduser() if values.get("output_dir") else None,
         waypoint_step=float(values["waypoint_step"]),
         optimizer_step=float(values["optimizer_step"]),
         raceline_smooth_sigma=float(values["raceline_smooth_sigma"]),
@@ -857,7 +858,11 @@ class TrajectoryGui:
             try:
                 result = generate_trajectory(args)
             except Exception as exc:  # noqa: BLE001 - GUI reports calculation failures to the user.
-                self.root.after(0, lambda: self.finish_error(generation_id, exc))
+                # Bind `exc` as a default argument: Python clears the `except`
+                # target when the block exits, so a plain closure would raise
+                # NameError once Tk actually runs the callback.
+                traceback.print_exc()
+                self.root.after(0, lambda error=exc: self.finish_error(generation_id, error))
                 return
             elapsed = time.perf_counter() - started
             self.root.after(0, lambda: self.finish_generate(generation_id, args, result, elapsed))
@@ -970,7 +975,11 @@ class TrajectoryGui:
             messagebox.showwarning("Save", "No trajectory has been generated yet.")
             return
         output_dir_text = self.variables["output_dir"].get().strip()
-        output_dir = Path(output_dir_text) if output_dir_text else default_output_dir(self.current_args.map_yaml)
+        output_dir = (
+            Path(output_dir_text).expanduser()
+            if output_dir_text
+            else default_output_dir(self.current_args.map_yaml)
+        )
         args = self.current_args
         args.output_dir = output_dir
         args.debug_image = bool(self.variables["debug_image"].get())
