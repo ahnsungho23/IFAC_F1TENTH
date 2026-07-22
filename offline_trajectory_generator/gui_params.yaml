@@ -1,6 +1,6 @@
 map_yaml: /home/haejun/2026_IFAC/src/monte_carlo_localization/maps/ifac_track.yaml
 output_dir: ~/2026_IFAC/offline_trajectory_generator/output/ifac_track
-optimizer: centerline
+optimizer: mincurv
 width_mode: hybrid
 show_centerline: true
 show_rt_lane: true
@@ -13,7 +13,7 @@ waypoint_step: 0.25
 optimizer_step: 0.45999999999999996
 raceline_smooth_sigma: 1.0
 safety_width: 0.5
-boundary_margin: 0.12
+boundary_margin: 0.3
 max_width_distance: 1.5000000000000002
 max_speed: 6.5
 min_speed: 4.0
@@ -21,7 +21,7 @@ max_lateral_accel: 10.0
 max_accel: 3.7
 max_decel: 2.0
 max_curvature: 1.2000000000000002
-smooth_sigma: 3.4000000000000004
+smooth_sigma: 4.1000000000000005
 median_kernel: 5
 morph_kernel: 11
 morph_open_iterations: 3
