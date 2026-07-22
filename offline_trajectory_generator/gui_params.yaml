@@ -5,7 +5,7 @@ width_mode: hybrid
 show_centerline: true
 show_rt_lane: true
 debug_image: true
-reverse: true
+reverse: False
 straighten_straights: true
 no_flip_y: false
 unknown_as_free: false
