@@ -14,7 +14,6 @@
 #include "global_planning/clcs_frenet_converter.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "rclcpp/rclcpp.hpp"
-#include "std_msgs/msg/float64_multi_array.hpp"
 
 namespace global_planning
 {
@@ -94,11 +93,6 @@ public:
     frenet_pub_ = create_publisher<nav_msgs::msg::Odometry>(
       frenet_odom_topic_, rclcpp::QoS(rclcpp::KeepLast(20)).reliable());
 
-    if (publish_debug_) {
-      debug_pub_ = create_publisher<std_msgs::msg::Float64MultiArray>(
-        debug_topic_, rclcpp::QoS(rclcpp::KeepLast(20)).reliable());
-    }
-
     if (enable_path_smoothing_ || enable_curvature_reduction_ || reference_resample_step_ > 0.0) {
       RCLCPP_WARN(
         get_logger(),
@@ -122,15 +116,12 @@ private:
     declare_parameter<std::string>("odom_topic", "/pf/pose/odom");
     declare_parameter<std::string>("waypoint_topic", "/global_waypoints");
     declare_parameter<std::string>("frenet_odom_topic", "/car_state/frenet/odom");
-    declare_parameter<std::string>("debug_topic", "/car_state/frenet/debug");
     declare_parameter<std::string>("frenet_frame_id", "frenet");
     declare_parameter<std::string>("projection_failure_policy", "drop_message");
     declare_parameter<std::string>("velocity_frame", "body");
     declare_parameter<std::string>("covariance_mode", "zero");
 
     declare_parameter<bool>("closed_loop", true);
-    declare_parameter<bool>("publish_debug", true);
-    declare_parameter<bool>("debug_timing", true);
     declare_parameter<bool>("publish_heading_error", true);
     declare_parameter<bool>("publish_frenet_velocity", true);
     declare_parameter<bool>("compatibility_mode", false);
@@ -156,7 +147,6 @@ private:
     odom_topic_ = get_parameter("odom_topic").as_string();
     waypoint_topic_ = get_parameter("waypoint_topic").as_string();
     frenet_odom_topic_ = get_parameter("frenet_odom_topic").as_string();
-    debug_topic_ = get_parameter("debug_topic").as_string();
     frenet_frame_id_ = get_parameter("frenet_frame_id").as_string();
     projection_failure_policy_name_ = get_parameter("projection_failure_policy").as_string();
     projection_failure_policy_ =
@@ -164,8 +154,6 @@ private:
     covariance_mode_ = get_parameter("covariance_mode").as_string();
 
     config_.closed_loop = get_parameter("closed_loop").as_bool();
-    publish_debug_ = get_parameter("publish_debug").as_bool();
-    debug_timing_ = get_parameter("debug_timing").as_bool();
     publish_heading_error_ = get_parameter("publish_heading_error").as_bool();
     config_.publish_frenet_velocity = get_parameter("publish_frenet_velocity").as_bool();
     compatibility_mode_ = get_parameter("compatibility_mode").as_bool();
@@ -295,7 +283,6 @@ private:
     last_valid_odom_ = output;
     has_last_valid_odom_ = true;
     frenet_pub_->publish(output);
-    publishDebug(conversion, true);
   }
 
   nav_msgs::msg::Odometry buildOutputOdometry(
@@ -333,8 +320,6 @@ private:
       get_logger(), *get_clock(), 2000,
       "CLCS projection failed: %s", conversion.error_message.c_str());
 
-    publishDebug(conversion, false);
-
     if (projection_failure_policy_ == ProjectionFailurePolicy::kDropMessage) {
       return;
     }
@@ -361,34 +346,7 @@ private:
     frenet_pub_->publish(output);
   }
 
-  void publishDebug(const ClcsConversionResult & conversion, const bool projection_valid)
-  {
-    if (!debug_pub_) {
-      return;
-    }
-
-    std_msgs::msg::Float64MultiArray debug;
-    debug.data = {
-      conversion.s,
-      conversion.d,
-      conversion.reference_yaw,
-      conversion.heading_error,
-      conversion.v_s,
-      conversion.v_d,
-      conversion.track_length,
-      projection_valid ? 1.0 : 0.0,
-      debug_timing_ ? conversion.conversion_time_us : 0.0,
-      conversion.clcs_build_time_ms,
-      conversion.waypoint_s_max_error,
-      static_cast<double>(conversion.path_version),
-      conversion.reconstruction_error,
-      static_cast<double>(conversion.segment_index)};
-    debug_pub_->publish(debug);
-  }
-
   ClcsFrenetConfig config_;
-  bool publish_debug_{true};
-  bool debug_timing_{true};
   bool publish_heading_error_{true};
   bool compatibility_mode_{false};
   bool use_path_preprocessing_{true};
@@ -401,7 +359,6 @@ private:
   std::string odom_topic_;
   std::string waypoint_topic_;
   std::string frenet_odom_topic_;
-  std::string debug_topic_;
   std::string frenet_frame_id_;
   std::string projection_failure_policy_name_;
   std::string covariance_mode_;
@@ -415,7 +372,6 @@ private:
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Subscription<f110_msgs::msg::WpntArray>::SharedPtr waypoint_sub_;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr frenet_pub_;
-  rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr debug_pub_;
 };
 
 }  // namespace global_planning

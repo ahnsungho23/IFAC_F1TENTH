@@ -19,6 +19,10 @@ global_trajectory_publisher_node:
     publish_centerline: true
     publish_lattice: false
     publish_period_sec: 2.0
+    # Marker generation (node builds RViz markers from waypoints; JSON has none).
+    marker_frame_id: "map"
+    traj_marker_width: 0.10
+    trackbound_marker_width: 0.05
 
 frenet_odom_node:
   ros__parameters:
@@ -27,9 +31,6 @@ frenet_odom_node:
     frenet_odom_topic: "/car_state/frenet/odom"
     frenet_frame_id: "frenet"
     closed_loop: true
-    publish_debug: true
-    debug_topic: "/car_state/frenet/debug"
-    debug_timing: true
     projection_failure_policy: "drop_message"
     path_change_tolerance: 0.0001
     duplicate_point_tolerance: 0.001

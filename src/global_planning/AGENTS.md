@@ -17,16 +17,24 @@ The package name, C++ namespace (`namespace global_planning`), include prefix
 - Prefer existing `f110_msgs` messages and ROS 2 standard messages.
 - `frenet_odom_node` uses `nav_msgs/msg/Odometry`, `f110_msgs/msg/WpntArray`, and CommonRoad-CLCS C++ core.
 - Do not add `tf2` to `frenet_odom_node`; yaw and heading-error handling must use local math helpers.
-- Do not create custom messages for debug data unless standard messages cannot represent the requirement.
+- `global_trajectory_publisher_node` builds RViz markers with `visualization_msgs/msg/MarkerArray`.
 
 ## Frenet Odom Node
 
 - Convert map-frame vehicle XY to Frenet `s`, `d` through `geometry::CurvilinearCoordinateSystem`.
 - Do not copy waypoint `d_m` into vehicle `d`; waypoint `d_m` may describe another lateral offset.
-- Keep topic names, frame names, loop mode, and debug publishing configurable through YAML.
+- Keep topic names, frame names, and loop mode configurable through YAML.
 - For closed-loop tracks, close the reference path before building CLCS and wrap published `s` by CLCS path length.
 - Skip zero-length or invalid segments and avoid publishing if fewer than two waypoints are available.
 - The previous polyline-based implementation was removed; consult git history (commit `301a06e` and earlier) if the legacy `frenet_odom_node_legacy_polyline.cpp` reference is ever needed.
+
+## Global Trajectory Publisher Node
+
+- Reads `global_waypoints.json` and republishes waypoints on latched topics.
+- The offline generator writes empty marker arrays, so this node builds `/global_waypoints/markers`
+  (speed-colored racing line) and `/trackbounds/markers` (left/right bounds from `d_left`/`d_right`
+  and `psi_rad`) from the waypoints themselves in `generateMarkers()`.
+- Generated markers only fill arrays the JSON left empty; keep marker frame and line widths in YAML.
 
 ## Documentation
 

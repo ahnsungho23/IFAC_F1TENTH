@@ -28,29 +28,9 @@
 | 토픽 | 타입 | 설명 |
 | --- | --- | --- |
 | `/car_state/frenet/odom` | `nav_msgs/msg/Odometry` | Frenet 좌표 결과. `pose.pose.position.x=s`, `pose.pose.position.y=d`, `pose.pose.position.z=0.0`이다. |
-| `/car_state/frenet/debug` | `std_msgs/msg/Float64MultiArray` | debug 배열. 순서는 아래 표를 따른다. |
 
 출력 odometry의 `header.frame_id` 기본값은 `frenet`이고, `child_frame_id`에는 closest segment index 문자열을 넣는다.
 `pose.pose.position.x=s`, `pose.pose.position.y=d`이고, 설정에 따라 twist의 `linear.x`, `linear.y`에는 Frenet velocity `v_s`, `v_d`가 들어간다.
-
-debug 배열 순서는 다음과 같다.
-
-| index | 값 |
-| --- | --- |
-| 0 | `s` |
-| 1 | `d` |
-| 2 | reference yaw |
-| 3 | heading error |
-| 4 | `v_s` |
-| 5 | `v_d` |
-| 6 | track length |
-| 7 | projection valid flag |
-| 8 | conversion time us |
-| 9 | CLCS build time ms |
-| 10 | waypoint `s_m` max error |
-| 11 | reference path version |
-| 12 | Cartesian reconstruction error |
-| 13 | closest segment index |
 
 ## 5. 주요 파라미터
 
@@ -63,8 +43,6 @@ debug 배열 순서는 다음과 같다.
 | `frenet_odom_topic` | `/car_state/frenet/odom` | 출력 Frenet odometry 토픽 |
 | `closed_loop` | `true` | 마지막 waypoint와 첫 번째 waypoint를 연결할지 여부 |
 | `frenet_frame_id` | `frenet` | 출력 odometry frame id |
-| `publish_debug` | `true` | debug 배열 publish 여부 |
-| `debug_topic` | `/car_state/frenet/debug` | debug 배열 토픽 |
 | `projection_failure_policy` | `drop_message` | projection 실패 시 처리 방식. `drop_message`, `publish_last_valid`, `publish_nan` |
 | `velocity_frame` | `body` | 입력 odometry twist를 body frame 또는 map frame으로 해석 |
 
@@ -93,4 +71,3 @@ ros2 run global_planning frenet_odom_node --ros-args --params-file src/global_pl
 2. `/pf/pose/odom`이 차량 위치를 publish하는지 확인한다.
 3. `/car_state/frenet/odom`의 `pose.pose.position.x`, `pose.pose.position.y`가 각각 계산된 `s`, `d`인지 확인한다.
 4. `/car_state/frenet/odom.child_frame_id`가 closest segment index 문자열인지 확인한다.
-5. `/car_state/frenet/debug`에서 segment index, `s`, `d`, track length를 확인한다.
