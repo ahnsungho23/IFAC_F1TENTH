@@ -27,6 +27,48 @@ offline gui 파일을 로컬에서 젯슨으로 전송
 scp -r ~/2026_IFAC/offline_trajectory_generator/output/map \
     miru@10.1.1.3:~/2026_IFAC/offline_trajectory_generator/output/
 
+터미널1
+cd ~/2026_IFAC
+source /opt/ros/humble/setup.zsh
+source install/setup.zsh
+ros2 launch particle_filter_cpp mcl_launch.py mod:=sim map_name:=map
+
+터미널2
+cd ~/2026_IFAC
+source /opt/ros/humble/setup.zsh
+source install/setup.zsh
+ros2 launch global_planning global_planning.launch.py
+
+터미널3
+cd ~/2026_IFAC
+source /opt/ros/humble/setup.zsh
+source install/setup.zsh
+ros2 launch local_planning local_planning.launch.py
+
+터미널4
+cd ~/2026_IFAC
+source /opt/ros/humble/setup.zsh
+source install/setup.zsh
+ros2 launch state_machine state_machine.launch.py
+
+터미널5
+cd ~/2026_IFAC
+source /opt/ros/humble/setup.zsh
+source install/setup.zsh
+ros2 launch state_machine state_machine.launch.py
+
+터미널6
+cd ~/2026_IFAC
+source /opt/ros/humble/setup.zsh
+source install/setup.zsh
+ros2 run wpnt_publisher wpnt_publisher
+
+터미널7
+cd ~/2026_IFAC
+source /opt/ros/humble/setup.zsh
+source ~/f1tenth_ws/install/setup.zsh
+source install/setup.zsh
+ros2 launch f1tenth_control control_real.launch.py
 ---
 
 ## 프로젝트 구조
