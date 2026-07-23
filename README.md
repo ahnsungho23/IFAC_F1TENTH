@@ -69,6 +69,26 @@ source /opt/ros/humble/setup.zsh
 source ~/f1tenth_ws/install/setup.zsh
 source install/setup.zsh
 ros2 launch f1tenth_control control_real.launch.py
+
+
+
+rosbag
+cd ~/miru/2026_IFAC
+
+source /opt/ros/humble/setup.zsh
+source install/setup.zsh
+
+ros2 bag record \
+  /tf \
+  /odom \
+  /scan \
+  /pose \
+  /look_ahead \
+  /sensors/imu/raw \
+  /estop_lock \
+  /commands/motor/brake \
+  /joy
+
 ---
 
 ## 프로젝트 구조
