@@ -4,6 +4,29 @@ F1TENTH 자율주행 스택입니다. 위치추정(MCL), 글로벌 플래닝, �
 
 시뮬레이터는 별도 워크스페이스(`~/sim_ws`)의 `f1tenth_gym_ros`를 사용합니다.
 
+
+slam launch방법 로컬에서
+cd ~/slam_toolbox
+source /opt/ros/humble/setup.zsh
+source install/setup.zsh
+ros2 launch slam_toolbox online_async_launch.py use_sim_time:=false
+
+slam 저장방법 로컬에서
+cd ~/slam_toolbox
+source /opt/ros/humble/setup.zsh
+source install/setup.zsh
+ros2 run nav2_map_server map_saver_cli \
+    -f /home/haejun/slam_toolbox/map
+    
+딴 맵을 로컬에서 젯슨으로 맵 전송
+scp ~/slam_toolbox/map.png ~/slam_toolbox/map.yaml \
+    miru@10.1.1.3:~/2026_IFAC/src/monte_carlo_localization/maps/
+    
+    
+offline gui 파일을 로컬에서 젯슨으로 전송
+scp -r ~/2026_IFAC/offline_trajectory_generator/output/map \
+    miru@10.1.1.3:~/2026_IFAC/offline_trajectory_generator/output/
+
 ---
 
 ## 프로젝트 구조
