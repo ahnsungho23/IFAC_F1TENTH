@@ -427,7 +427,9 @@ ros2 launch new_map_con opponent_simulator.launch.py
 
 ### 터미널 9 — 상대차 검출기 (opponent detector)
 
-에고 `/scan`으로 상대차를 검출해 `/perception/obstacles`·`/proj_opponent_trajectory`를 발행합니다.
+에고 `/scan`으로 장애물·상대차를 검출해 `/perception/obstacles`·`/proj_opponent_trajectory`를
+발행합니다. IMU/odom 기반 스캔 deskew와 불확실성 기반 추적을 사용하며, 정적 장애물의 장기 기억과
+회피 판단은 로컬 플래너가 담당합니다.
 
 ```bash
 cd ~/2026_IFAC

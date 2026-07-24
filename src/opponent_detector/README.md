@@ -41,9 +41,7 @@ optimization…*)의 상대차 검출 아이디어를 이 저장소(카메라 �
    **"벽과 같은 속도면 정적, 뚜렷이 다르면 동적(상대차)"**. 기준은 느린 트랙(`static_ref_gate` 미만)의
    평균이라 지역화 드리프트가 상쇄되고, 상대차는 기준에서 제외된다. (히스테리시스 + 상대`vs<reset`
    백스톱, `std` 위치표준편차 방식도 토글.)
-8. 추적 결과를 `ObstacleArray`로 발행하고, 정적 장애물은 별도 토픽에 Cartesian 중심 `(x,y)`,
-   Frenet 중심 `(s,d)`, 전체 AABB를 감싸는 원의 반지름
-   `r=0.5·hypot(x_max-x_min, y_max-y_min)`으로 발행한다. 동적 상대차는 Frenet
+8. 추적 결과를 `ObstacleArray`로(정적 장애물은 `is_static=true`), 동적 상대차를 Frenet
    `ProjOppTraj`로 발행한다. Perception은 정적 장애물을 계속 재검출·발행하며, `ttl_static`은 짧은
    센서 누락만 잇는다. 장기 기억과 회피 판단은 로컬 플래너의 책임이다.
 9. **추월 플래너(상태머신 + PCHIP spline)** — `Idle → Committed → Cooldown` 상태머신이 추월
@@ -141,7 +139,6 @@ LiDAR 하드웨어의 `/scan`, 선택적 deskew용 IMU `/sensors/imu/raw`를 구
 | 구독 | `imu_topic` | `sensor_msgs/Imu` | `/sensors/imu/raw` (선택, 없으면 odom fallback) |
 | 구독 | TF | `map → <scan frame>` | MCL/시뮬레이터가 제공 |
 | 발행 | `obstacles_topic` | `f110_msgs/ObstacleArray` | `/perception/obstacles` |
-| 발행 | `static_obstacles_topic` | `f110_msgs/ObstacleArray` | `/perception/static_obstacles` |
 | 발행 | `raw_obstacles_topic` | `f110_msgs/ObstacleArray` | `/perception/detection/raw_obstacles` |
 | 발행 | `proj_opp_traj_topic` | `f110_msgs/ProjOppTraj` | `/proj_opponent_trajectory` |
 | 발행 | `avoidance_ot_topic` | `f110_msgs/OTWpntArray` | `/overtake_waypoints` (→ `wpnt_publisher`; Committed 동안만, 종료 시 빈 OT 1회 후 침묵) |

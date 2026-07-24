@@ -45,9 +45,7 @@ ego pose.
    clearly different → dynamic opponent." The reference is the mean of the slow tracks (below
    `static_ref_gate`), which cancels common ego-localization drift and excludes the opponent.
    (Hysteresis + relative-`vs<reset` backstop; a `std` positional classifier is also a toggle.)
-8. Publish tracked obstacles as `ObstacleArray`, mirror static tracks with Cartesian `(x,y)`,
-   Frenet `(s,d)`, and an enclosing-circle radius equal to half the AABB diagonal on
-   `/perception/static_obstacles`, and publish the
+8. Publish tracked obstacles as `ObstacleArray` (stationary obstacles as `is_static=true`), and the
    dynamic opponent as Frenet `ProjOppTraj`. Perception repeatedly re-detects and publishes static
    obstacles; `ttl_static` only bridges brief sensor misses. Long-term memory and avoidance
    decisions belong to the local planner.
@@ -160,7 +158,6 @@ RViz visualization.
 | Sub | `imu_topic` | `sensor_msgs/Imu` | `/sensors/imu/raw` (optional; odom fallback) |
 | Sub | TF | `map → <scan frame>` | provided by MCL / simulator |
 | Pub | `obstacles_topic` | `f110_msgs/ObstacleArray` | `/perception/obstacles` |
-| Pub | `static_obstacles_topic` | `f110_msgs/ObstacleArray` | `/perception/static_obstacles` |
 | Pub | `raw_obstacles_topic` | `f110_msgs/ObstacleArray` | `/perception/detection/raw_obstacles` |
 | Pub | `proj_opp_traj_topic` | `f110_msgs/ProjOppTraj` | `/proj_opponent_trajectory` |
 | Pub | `avoidance_ot_topic` | `f110_msgs/OTWpntArray` | `/overtake_waypoints` (→ `wpnt_publisher`; only while committed, one empty OT on finish then silent) |

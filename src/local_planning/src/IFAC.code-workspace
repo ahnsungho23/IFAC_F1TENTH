@@ -1,0 +1,37 @@
+{
+	"folders": [
+		{
+			"name": "2026_IFAC",
+			"path": "../../.."
+		},
+		{
+			"name": "f1sim_C",
+			"path": "../../../../f1sim_C"
+		},
+		{
+			"name": "Desktop",
+			"path": "../../../../Desktop"
+		}
+	],
+	"settings": {
+		"ROS2.distro": "humble",
+		"python.autoComplete.extraPaths": [
+			"/home/myungsub/2026_IFAC/build/steering_lookup",
+			"/home/myungsub/2026_IFAC/install/steering_lookup/lib/python3.10/site-packages",
+			"/home/myungsub/2026_IFAC/build/lap_timer",
+			"/home/myungsub/2026_IFAC/install/lap_timer/lib/python3.10/site-packages",
+			"/home/myungsub/2026_IFAC/install/f110_msgs/local/lib/python3.10/dist-packages",
+			"/opt/ros/humble/lib/python3.10/site-packages",
+			"/opt/ros/humble/local/lib/python3.10/dist-packages"
+		],
+		"python.analysis.extraPaths": [
+			"/home/myungsub/2026_IFAC/build/steering_lookup",
+			"/home/myungsub/2026_IFAC/install/steering_lookup/lib/python3.10/site-packages",
+			"/home/myungsub/2026_IFAC/build/lap_timer",
+			"/home/myungsub/2026_IFAC/install/lap_timer/lib/python3.10/site-packages",
+			"/home/myungsub/2026_IFAC/install/f110_msgs/local/lib/python3.10/dist-packages",
+			"/opt/ros/humble/lib/python3.10/site-packages",
+			"/opt/ros/humble/local/lib/python3.10/dist-packages"
+		]
+	}
+}

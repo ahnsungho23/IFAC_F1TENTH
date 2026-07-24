@@ -71,8 +71,6 @@ OpponentDetectorNode::OpponentDetectorNode(const rclcpp::NodeOptions &options)
         std::bind(&OpponentDetectorNode::imuCallback, this, std::placeholders::_1));
 
     obstacles_pub_ = this->create_publisher<f110_msgs::msg::ObstacleArray>(obstacles_topic_, 10);
-    static_obstacles_pub_ =
-        this->create_publisher<f110_msgs::msg::ObstacleArray>(static_obstacles_topic_, 10);
     if (publish_raw_)
     {
         raw_obstacles_pub_ =
@@ -110,8 +108,6 @@ void OpponentDetectorNode::declareParameters()
     this->declare_parameter<std::string>("ego_odom_topic", "/pf/pose/odom");
     this->declare_parameter<std::string>("imu_topic", "/sensors/imu/raw");
     this->declare_parameter<std::string>("obstacles_topic", "/perception/obstacles");
-    this->declare_parameter<std::string>(
-        "static_obstacles_topic", "/perception/static_obstacles");
     this->declare_parameter<std::string>("raw_obstacles_topic", "/perception/detection/raw_obstacles");
     this->declare_parameter<std::string>("proj_opp_traj_topic", "/proj_opponent_trajectory");
     this->declare_parameter<std::string>("markers_topic", "/perception/obstacles/markers");
@@ -248,7 +244,6 @@ void OpponentDetectorNode::loadParameters()
     ego_odom_topic_ = this->get_parameter("ego_odom_topic").as_string();
     imu_topic_ = this->get_parameter("imu_topic").as_string();
     obstacles_topic_ = this->get_parameter("obstacles_topic").as_string();
-    static_obstacles_topic_ = this->get_parameter("static_obstacles_topic").as_string();
     raw_obstacles_topic_ = this->get_parameter("raw_obstacles_topic").as_string();
     proj_opp_topic_ = this->get_parameter("proj_opp_traj_topic").as_string();
     markers_topic_ = this->get_parameter("markers_topic").as_string();
@@ -1001,10 +996,6 @@ void OpponentDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
         det.size = size;
         det.x = cx;
         det.y = cy;
-        det.x_min = minx;
-        det.x_max = maxx;
-        det.y_min = miny;
-        det.y_max = maxy;
         const double mean_range = std::accumulate(
             cluster.begin(), cluster.end(), 0.0,
             [](double sum, const ScanPoint &point) { return sum + point.range; }) /
@@ -1027,14 +1018,6 @@ void OpponentDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
         {
             f110_msgs::msg::Obstacle ob;
             ob.id = raw_id++;
-            ob.has_cartesian = true;
-            ob.x_center = cx;
-            ob.y_center = cy;
-            ob.radius = 0.5 * size;
-            ob.x_min = minx;
-            ob.x_max = maxx;
-            ob.y_min = miny;
-            ob.y_max = maxy;
             ob.s_center = fp.s;
             ob.d_center = fp.d;
             ob.s_start = fp.s - size / 2.0;
@@ -1074,8 +1057,6 @@ void OpponentDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
     f110_msgs::msg::ObstacleArray obs_array;
     obs_array.header = msg->header;
     obs_array.header.frame_id = map_frame_;
-    f110_msgs::msg::ObstacleArray static_array;
-    static_array.header = obs_array.header;
     for (const auto &t : tracker_.tracks())
     {
         if (t.hits < tracker_params_.min_hits_confirm)
@@ -1084,19 +1065,6 @@ void OpponentDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
         }
         f110_msgs::msg::Obstacle ob;
         ob.id = t.id;
-        ob.has_cartesian = true;
-        ob.x_center = t.x_map;
-        ob.y_center = t.y_map;
-        ob.radius = 0.5 * t.size;
-        ob.x_min = t.x_min_map;
-        ob.x_max = t.x_max_map;
-        ob.y_min = t.y_min_map;
-        ob.y_max = t.y_max_map;
-        // Cartesian covariance is approximated from the Frenet covariance. A rotated covariance
-        // would require the local CLCS tangent; the conservative max keeps this frame contract
-        // useful without understating uncertainty.
-        ob.x_var = std::max(t.P(0, 0), t.P(2, 2));
-        ob.y_var = ob.x_var;
         ob.s_center = t.s();
         ob.d_center = t.d();
         ob.s_start = t.s() - t.size / 2.0;
@@ -1114,13 +1082,8 @@ void OpponentDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
         ob.is_visible = t.is_visible;
         ob.is_actually_a_gap = false;
         obs_array.obstacles.push_back(ob);
-        if (ob.is_static)
-        {
-            static_array.obstacles.push_back(ob);
-        }
     }
     obstacles_pub_->publish(obs_array);
-    static_obstacles_pub_->publish(static_array);
 
     // ---- opponent -> projected Frenet trajectory ----
     const int opp = tracker_.opponentIndex(ego_s_);
