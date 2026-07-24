@@ -83,7 +83,7 @@ ros2 bag record \
   /odom \
   /scan \
   /pf/pose/odom \
-  /look_ahead \
+  /debug/l1_lookahead \
   /sensors/imu/raw \
   /estop_lock \
   /commands/motor/brake \
