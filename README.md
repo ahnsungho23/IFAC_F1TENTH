@@ -31,7 +31,7 @@ scp -r ~/2026_IFAC/offline_trajectory_generator/output/map \
 cd ~/2026_IFAC
 source /opt/ros/humble/setup.zsh
 source install/setup.zsh
-ros2 launch particle_filter_cpp mcl_launch.py mod:=sim map_name:=map
+ros2 launch particle_filter_cpp mcl_launch.py mod:=real map_name:=map
 
 터미널2
 cd ~/2026_IFAC
@@ -82,12 +82,15 @@ ros2 bag record \
   /tf \
   /odom \
   /scan \
-  /pose \
+  /pf/pose/odom \
   /look_ahead \
   /sensors/imu/raw \
   /estop_lock \
   /commands/motor/brake \
-  /joy
+  /joy \
+  /debug/l1_lookahead \
+  /drive_autonomous\ 
+  /drive
 
 ---
 
