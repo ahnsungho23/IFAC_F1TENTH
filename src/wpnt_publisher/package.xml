@@ -10,7 +10,7 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
   
   <depend>rclcpp</depend>
-  <depend>nav_mags</depend>
+  <depend>nav_msgs</depend>
   <depend>f110_msgs</depend>
 
 

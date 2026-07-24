@@ -9,7 +9,7 @@ This file defines the working rules for Claude in this repository. These rules a
 
 ## Target Environment
 
-- Target platform: ROS 2 Humble.
+- Target platform: ROS 2 Kilted.
 - New ROS 2 runtime code must be written in C++.
 - Use Python only where ROS 2 conventionally requires it, such as `launch.py` files or build/config helper scripts.
 - Actively check and use relevant aliases from `~/.zshrc` when running build, test, launch, or debugging commands.
@@ -79,7 +79,7 @@ Before finishing any ROS 2 node change, verify:
 
 ```bash
 cd ~/sim_ws
-source /opt/ros/humble/setup.zsh
+source /opt/ros/kilted/setup.zsh
 source install/setup.zsh
 ros2 launch f1tenth_gym_ros gym_bridge_launch.py
 ```
@@ -90,7 +90,7 @@ ros2 launch f1tenth_gym_ros gym_bridge_launch.py
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/kilted/setup.zsh
 source install/setup.zsh
 ros2 launch particle_filter_cpp mcl_launch.py mod:=sim map_name:=fuck_f1 use_rviz:=true
 ```
@@ -107,7 +107,7 @@ ros2 launch particle_filter_cpp mcl_launch.py mod:=sim map_name:=fuck_f1 use_rvi
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/kilted/setup.zsh
 source install/setup.zsh
 ros2 launch global_planning global_planning.launch.py
 ```
@@ -118,7 +118,7 @@ ros2 launch global_planning global_planning.launch.py
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/kilted/setup.zsh
 source install/setup.zsh
 ros2 launch local_planning local_planning.launch.py
 ```
@@ -129,7 +129,7 @@ ros2 launch local_planning local_planning.launch.py
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/kilted/setup.zsh
 source install/setup.zsh
 ros2 launch state_machine state_machine.launch.py
 ```
@@ -140,7 +140,7 @@ ros2 launch state_machine state_machine.launch.py
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/kilted/setup.zsh
 source install/setup.zsh
 ros2 run wpnt_publisher wpnt_publisher
 ```
@@ -151,7 +151,7 @@ L1 Guidance + Steering LUT 기반 조향/속도 제어. `force_autonomous:=true`
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/kilted/setup.zsh
 source install/setup.zsh
 ros2 launch f1tenth_control control_sim.launch.py force_autonomous:=true
 ```
@@ -172,7 +172,7 @@ global 라인을 0.8배속으로 따라가도록 f1sim 상대차량에 `/opp_dri
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/kilted/setup.zsh
 source install/setup.zsh
 ros2 launch new_map_con opponent_simulator.launch.py
 ```
@@ -183,7 +183,7 @@ ros2 launch new_map_con opponent_simulator.launch.py
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/kilted/setup.zsh
 source install/setup.zsh
 ros2 launch opponent_detector opponent_detector.launch.py simulator:=true
 ```

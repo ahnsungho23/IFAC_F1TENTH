@@ -25,7 +25,6 @@ find_package(tf2_geometry_msgs REQUIRED)
 find_package(tf2_eigen REQUIRED)
 find_package(eigen3_cmake_module REQUIRED)
 find_package(Eigen3 REQUIRED)
-find_package(angles REQUIRED)
 find_package(OpenMP REQUIRED)
 # find_package(rclcpp_parameters REQUIRED)
 
@@ -49,7 +48,6 @@ set(dependencies
   tf2_geometry_msgs
   tf2_eigen
   Eigen3
-  angles
   # rclcpp_parameters
 )
 

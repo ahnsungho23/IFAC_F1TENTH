@@ -5,7 +5,7 @@
 - Publishes an ego-to-merge avoidance segment as `/avoid_waypoints` (OTWpntArray). If the primary lattice is infeasible, run the denser recovery lattice without relaxing collision clearance. If recovery also fails, publish a collision-checked gradual-braking segment before the obstacle; publish an empty array only when even that segment cannot be formed. `wpnt_publisher` routes this segment into `/local_waypoints`; standalone publishing remains disabled by default.
 
 ## 2. Key Rules & Conventions
-- Written in modern C++17 for ROS 2 Humble.
+- Written in modern C++17 for ROS 2 Kilted.
 - Generate the primary lattice by sampling both lateral target offsets and longitudinal transition lengths, then select the minimum-cost feasible candidate.
 - Plan the nearest longitudinal obstacle cluster first. Prefer one lateral target from the full-span corridor intersection. If the primary lattice fails, guide recovery across the complete entry-obstacle-merge horizon with a bounded beam search over safe-corridor knots; enforce the selected side through the obstacle span and hard-check every connecting segment. Obstacle-only guided profiles are a last-resort compatibility fallback, not the first recovery stage.
 - Identify a committed collision cluster in global-waypoint coordinates. As the moving horizon clips its passed prefix, treat a stable nearby cluster endpoint as the same cluster and reuse the validated commitment instead of rebuilding the lattice every timer cycle.

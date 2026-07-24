@@ -3,7 +3,7 @@
 `local_planning`은 벽만 포함한 `fuck_f1`의 `/map`과 opponent detector가 발행하는
 `/perception/obstacles`를 함께 사용합니다. 이 중 `is_static=true`인 정적 장애물만 planning
 grid에 합성하고, 글로벌 기준 경로에서 장애물의 왼쪽 또는 오른쪽으로 우회한 뒤 다시 합류하는
-회피 구간을 생성하는 ROS 2 Humble 패키지입니다. 동적 장애물은 이 패키지에서 경로 생성에
+회피 구간을 생성하는 ROS 2 Kilted 패키지입니다. 동적 장애물은 이 패키지에서 경로 생성에
 사용하지 않으며 opponent detector의 추월·추종 로직이 담당합니다.
 
 이 패키지의 핵심 역할은 다음과 같습니다.

@@ -48,12 +48,12 @@
 
 ## 6. 실행 방법
 
-1. ROS 2 Humble 환경을 source한다.
+1. ROS 2 Kilted 환경을 source한다.
 2. 패키지를 빌드한다.
 3. launch 파일을 실행한다.
 
 ```bash
-source /opt/ros/humble/setup.zsh
+source /opt/ros/kilted/setup.zsh
 colcon build --packages-select global_planning
 source install/setup.zsh
 ros2 launch global_planning global_planning.launch.py

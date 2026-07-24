@@ -15,7 +15,7 @@ static structure sits still in that frame, the opponent moves. Output is ForzaET
 
 ## Rules
 
-- Runtime node is C++ (ROS 2 Humble). Do not add a Python runtime node here. The `test/` script is
+- Runtime node is C++ (ROS 2 Kilted). Do not add a Python runtime node here. The `test/` script is
   a manual integration harness only (allowed as a test helper), not a runtime dependency.
 - Frenet projection uses **`global_planning`'s CLCS converter** (`global_planning::ClcsFrenetConverter`),
   linked as an exported library — `opponent_detector` depends on `global_planning` (build it first). Do

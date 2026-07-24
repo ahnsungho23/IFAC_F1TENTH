@@ -133,7 +133,7 @@
 
 ```zsh
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/kilted/setup.zsh
 source install/setup.zsh
 ros2 launch local_planning local_planning.launch.py
 ```

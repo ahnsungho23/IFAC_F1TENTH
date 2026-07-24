@@ -12,7 +12,7 @@ A C++ ROS 2 node that judges and records one closed-loop rollout in
 
 ## Rules
 
-- Runtime node is C++ (ROS 2 Humble). Do not add a Python runtime node here.
+- Runtime node is C++ (ROS 2 Kilted). Do not add a Python runtime node here.
 - Use ROS standard messages: `nav_msgs/Odometry`, `sensor_msgs/LaserScan`,
   `ackermann_msgs/AckermannDriveStamped`. Do not introduce a new message type
   for rollout results; results are files (`summary.json` + `trace.csv`) so the

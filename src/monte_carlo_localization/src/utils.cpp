@@ -7,7 +7,8 @@
 
 #include "particle_filter_cpp/utils.hpp"
 
-#include <tf2/LinearMath/Quaternion.h>
+#include <tf2/LinearMath/Matrix3x3.hpp>
+#include <tf2/LinearMath/Quaternion.hpp>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include <algorithm>
 #include <chrono>

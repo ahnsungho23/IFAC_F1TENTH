@@ -11,8 +11,8 @@
 #include <f110_msgs/msg/obstacle.hpp>
 #include <geometry_msgs/msg/quaternion.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
-#include <tf2/exceptions.h>
-#include <tf2/time.h>
+#include <tf2/exceptions.hpp>
+#include <tf2/time.hpp>
 #include <visualization_msgs/msg/marker.hpp>
 
 namespace opponent_detector
