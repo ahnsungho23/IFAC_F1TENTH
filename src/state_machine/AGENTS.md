@@ -20,7 +20,7 @@ State machine package rules. These instructions apply to `src/state_machine`.
 
 ## Runtime Code
 
-- Runtime code must be C++ for ROS 2 Kilted.
+- Runtime code must be C++ for ROS 2 Jazzy.
 - Use existing `f110_msgs` message types for project-specific interfaces.
 - Transition logic is a `committed_state_`-based FSM (dwell and safety fallback were removed 2026-07-13):
   - `is_not_null_ptr()` / `can_enter_avoid()` / `can_enter_overtake()`: GLOBAL→AVOID / GLOBAL→OVERTAKE entry gate. The local path must stay non-empty longer than its stale timeout before entry; AVOID has priority when both gates hold.

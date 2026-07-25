@@ -7,13 +7,13 @@ F1TENTH 자율주행 스택입니다. 위치추정(MCL), 글로벌 플래닝, �
 
 slam launch방법 로컬에서
 cd ~/slam_toolbox
-source /opt/ros/kilted/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 ros2 launch slam_toolbox online_async_launch.py use_sim_time:=false
 
 slam 저장방법 로컬에서
 cd ~/slam_toolbox
-source /opt/ros/kilted/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 ros2 run nav2_map_server map_saver_cli \
     -f /home/haejun/slam_toolbox/map
@@ -29,43 +29,43 @@ scp -r ~/2026_IFAC/offline_trajectory_generator/output/map \
 
 터미널1
 cd ~/2026_IFAC
-source /opt/ros/kilted/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 ros2 launch particle_filter_cpp mcl_launch.py mod:=real map_name:=map
 
 터미널2
 cd ~/2026_IFAC
-source /opt/ros/kilted/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 ros2 launch global_planning global_planning.launch.py
 
 터미널3
 cd ~/2026_IFAC
-source /opt/ros/kilted/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 ros2 launch local_planning local_planning.launch.py
 
 터미널4
 cd ~/2026_IFAC
-source /opt/ros/kilted/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 ros2 launch state_machine state_machine.launch.py
 
 터미널5
 cd ~/2026_IFAC
-source /opt/ros/kilted/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 ros2 launch state_machine state_machine.launch.py
 
 터미널6
 cd ~/2026_IFAC
-source /opt/ros/kilted/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 ros2 run wpnt_publisher wpnt_publisher
 
 터미널7
 cd ~/2026_IFAC
-source /opt/ros/kilted/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source ~/f1tenth_ws/install/setup.zsh
 source install/setup.zsh
 ros2 launch f1tenth_control control_real.launch.py
@@ -75,7 +75,7 @@ ros2 launch f1tenth_control control_real.launch.py
 rosbag
 cd ~/miru/2026_IFAC
 
-source /opt/ros/kilted/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 
 ros2 bag record \
@@ -96,7 +96,7 @@ ros2 bag record \
 
 ## 프로젝트 구조
 
-ROS 2 Kilted workspace for the 2026 IFAC F1TENTH stack. ROS packages live under `src/`.
+ROS 2 Jazzy workspace for the 2026 IFAC F1TENTH stack. ROS packages live under `src/`.
 
 ```text
 2026_IFAC/
@@ -238,7 +238,7 @@ ROS 2 Kilted workspace for the 2026 IFAC F1TENTH stack. ROS packages live under 
 
 ## 1. 사전 요구사항
 
-- ROS 2 Kilted
+- ROS 2 Jazzy
 - 시뮬레이터 워크스페이스 `~/sim_ws` (`f1tenth_gym_ros` 빌드 완료)
 - 이 저장소가 `~/2026_IFAC`에 위치
 
@@ -248,7 +248,7 @@ ROS 2 Kilted workspace for the 2026 IFAC F1TENTH stack. ROS packages live under 
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/kilted/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 colcon build --symlink-install
 ```
 
@@ -269,7 +269,7 @@ symlink-install 덕분에 `config/*.yaml`과 `launch/*.launch.py`는 수정 후 
 각 터미널 공통 준비:
 
 ```bash
-source /opt/ros/kilted/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh   # bash 사용 시 setup.bash
 ```
 
@@ -277,7 +277,7 @@ source install/setup.zsh   # bash 사용 시 setup.bash
 
 ```bash
 cd ~/sim_ws
-source /opt/ros/kilted/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 ros2 launch f1tenth_gym_ros gym_bridge_launch.py
 ```
@@ -288,7 +288,7 @@ ros2 launch f1tenth_gym_ros gym_bridge_launch.py
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/kilted/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 ros2 launch particle_filter_cpp mcl_launch.py mod:=sim map_name:=fuck_f1 use_rviz:=true
 ```
@@ -305,7 +305,7 @@ ros2 launch particle_filter_cpp mcl_launch.py mod:=sim map_name:=fuck_f1 use_rvi
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/kilted/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 ros2 launch global_planning global_planning.launch.py
 ```
@@ -316,7 +316,7 @@ ros2 launch global_planning global_planning.launch.py
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/kilted/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 ros2 launch local_planning local_planning.launch.py
 ```
@@ -327,7 +327,7 @@ ros2 launch local_planning local_planning.launch.py
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/kilted/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 ros2 launch state_machine state_machine.launch.py
 ```
@@ -338,7 +338,7 @@ ros2 launch state_machine state_machine.launch.py
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/kilted/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 ros2 run wpnt_publisher wpnt_publisher
 ```
@@ -356,7 +356,7 @@ L1 Guidance + Steering LUT 기반 조향/속도 제어(MAP). 나란히 MPPI 컨�
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/kilted/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 ros2 launch f1tenth_control control_sim.launch.py force_autonomous:=true
 ```
@@ -368,7 +368,7 @@ ros2 launch f1tenth_control control_sim.launch.py force_autonomous:=true
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/kilted/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source ~/f1tenth_ws/install/setup.zsh
 source install/setup.zsh
 ros2 launch f1tenth_control control_real.launch.py
@@ -399,7 +399,7 @@ global 라인을 0.8배속으로 따라가도록 f1sim 상대차량에 `/opp_dri
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/kilted/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 ros2 launch new_map_con opponent_simulator.launch.py
 ```
@@ -410,7 +410,7 @@ ros2 launch new_map_con opponent_simulator.launch.py
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/kilted/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 ros2 launch opponent_detector opponent_detector.launch.py simulator:=true
 ```

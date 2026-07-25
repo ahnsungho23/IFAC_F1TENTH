@@ -9,7 +9,7 @@ This file defines the working rules for AI coding agents in this repository. The
 
 ## Target Environment
 
-- Target platform: ROS 2 Kilted.
+- Target platform: ROS 2 Jazzy.
 - New ROS 2 runtime code must be written in C++.
 - Use Python only where ROS 2 conventionally requires it, such as `launch.py` files or build/config helper scripts.
 - Actively check and use relevant aliases from `~/.zshrc` when running build, test, launch, or debugging commands.

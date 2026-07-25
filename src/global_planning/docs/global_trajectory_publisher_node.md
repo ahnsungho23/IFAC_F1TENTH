@@ -57,12 +57,12 @@ RViz 시각화 마커를 ROS 2 토픽으로 재발행(republish)한다.
 
 ## 6. 실행 방법
 
-1. ROS 2 Kilted 환경을 source한다.
+1. ROS 2 Jazzy 환경을 source한다.
 2. 패키지를 빌드한다.
 3. 워크스페이스 루트(`~/2026_IFAC`)에서 launch를 실행한다 (상대경로 JSON 해석 기준).
 
 ```bash
-source /opt/ros/kilted/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 colcon build --packages-select global_planning
 source install/setup.zsh
 ros2 launch global_planning global_planning.launch.py

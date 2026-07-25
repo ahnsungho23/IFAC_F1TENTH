@@ -50,7 +50,7 @@ nav2 map_server(`negate=0`)는 `occ = (255 − pixel)/255` 로 분류합니다.
 ```bash
 cd ~/2026_IFAC
 colcon build --packages-select particle_filter_cpp      # 맵을 install에 반영
-source /opt/ros/kilted/setup.zsh && source install/setup.zsh
+source /opt/ros/jazzy/setup.zsh && source install/setup.zsh
 ros2 launch particle_filter_cpp mcl_launch.py mod:=sim map_name:=ifac_track use_rviz:=true
 ```
 
