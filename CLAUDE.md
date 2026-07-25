@@ -75,6 +75,10 @@ Before finishing any ROS 2 node change, verify:
 기본 주행은 터미널 7개를 아래 순서대로 띄웁니다. 순서가 중요합니다.
 상대차 검출·추월까지 보려면 터미널 8·9를 **추가로** 띄웁니다(터미널 7은 유지).
 
+> **원클릭 실행**: Terminator가 설치되어 있으면 `./sim/open_sim.sh`(터미널 1~7 분할) 또는
+> `./sim/open_sim.sh --opp`(터미널 1~9 분할) 한 번으로 전체 스택을 띄울 수 있습니다.
+> 자세한 내용은 `sim/README.md` 참고.
+
 ### 터미널 1 — 시뮬레이터 (gym bridge)
 
 ```bash

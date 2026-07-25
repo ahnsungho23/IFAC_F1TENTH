@@ -1,0 +1,137 @@
+# =================================================================================================
+# Terminator config for the FULL 9-node loop: base 7 nodes + opponent simulator + opponent detector.
+# Launch it with:  ~/2026_IFAC/sim/open_sim.sh --opp
+#
+# Layout `f1sim_opp` = one maximised window, 9 panes (root CLAUDE.md run order, terminals 1-9):
+#   LEFT  column : 1 f1sim · 2 mcl · 3 global_planning · 4 local_planning · 5 state_machine
+#   RIGHT column : 6 wpnt_publisher · 7 f1tenth_control · 8 opponent sim · 9 opponent detector
+#
+# PREREQUISITE: the gym bridge must run with num_agent: 2 (sim_ws config/sim.yaml), otherwise the
+# opponent car never spawns. Terminal 7 (ego control) must KEEP running — the 2-agent bridge only
+# steps physics when both cars publish drive.
+# =================================================================================================
+[global_config]
+  suppress_multiple_term_dialog = True
+  title_transmit_bg_color = "#2e3436"
+[keybindings]
+[profiles]
+  [[default]]
+    scrollback_infinite = True
+    show_titlebar = True
+    cursor_blink = False
+    background_darkness = 0.95
+[layouts]
+  [[default]]
+    [[[window0]]]
+      type = Window
+      parent = ""
+  [[f1sim_opp]]
+    [[[window0]]]
+      type = Window
+      parent = ""
+      maximised = True
+      title = f1sim full loop — 9 nodes with opponent (ROS 2 Jazzy)
+    [[[hbox]]]
+      type = HPaned
+      parent = window0
+      order = 0
+      ratio = 0.5
+    [[[lcol]]]
+      type = VPaned
+      parent = hbox
+      order = 0
+      ratio = 0.2
+    [[[t_sim]]]
+      type = Terminal
+      parent = lcol
+      order = 0
+      profile = default
+      command = @SIMDIR@/run.sh f1sim
+      title = 1 · f1sim (gym bridge + RViz, num_agent:2)
+    [[[lcolb]]]
+      type = VPaned
+      parent = lcol
+      order = 1
+      ratio = 0.25
+    [[[t_mcl]]]
+      type = Terminal
+      parent = lcolb
+      order = 0
+      profile = default
+      command = @SIMDIR@/run.sh mcl
+      title = 2 · mcl · particle_filter_cpp
+    [[[lcolc]]]
+      type = VPaned
+      parent = lcolb
+      order = 1
+      ratio = 0.34
+    [[[t_glob]]]
+      type = Terminal
+      parent = lcolc
+      order = 0
+      profile = default
+      command = @SIMDIR@/run.sh global
+      title = 3 · global_planning · wpnts + frenet_odom
+    [[[lcold]]]
+      type = VPaned
+      parent = lcolc
+      order = 1
+      ratio = 0.5
+    [[[t_local]]]
+      type = Terminal
+      parent = lcold
+      order = 0
+      profile = default
+      command = @SIMDIR@/run.sh local
+      title = 4 · local_planning · obstacle avoidance
+    [[[t_state]]]
+      type = Terminal
+      parent = lcold
+      order = 1
+      profile = default
+      command = @SIMDIR@/run.sh state
+      title = 5 · state_machine · /state
+    [[[rcol]]]
+      type = VPaned
+      parent = hbox
+      order = 1
+      ratio = 0.25
+    [[[t_wpnt]]]
+      type = Terminal
+      parent = rcol
+      order = 0
+      profile = default
+      command = @SIMDIR@/run.sh wpnt
+      title = 6 · wpnt_publisher · /local_waypoints
+    [[[rcolb]]]
+      type = VPaned
+      parent = rcol
+      order = 1
+      ratio = 0.34
+    [[[t_ctrl]]]
+      type = Terminal
+      parent = rcolb
+      order = 0
+      profile = default
+      command = @SIMDIR@/run.sh control
+      title = 7 · f1tenth_control · /drive (KEEP RUNNING)
+    [[[rcolc]]]
+      type = VPaned
+      parent = rcolb
+      order = 1
+      ratio = 0.5
+    [[[t_opp]]]
+      type = Terminal
+      parent = rcolc
+      order = 0
+      profile = default
+      command = @SIMDIR@/run.sh opp
+      title = 8 · opponent simulator · /opp_drive
+    [[[t_oppdet]]]
+      type = Terminal
+      parent = rcolc
+      order = 1
+      profile = default
+      command = @SIMDIR@/run.sh oppdet
+      title = 9 · opponent detector · /perception/obstacles
+[plugins]
