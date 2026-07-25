@@ -10,8 +10,8 @@ state_machine_node:
     publish_rate_hz: 10.0
     default_state: "global"
 
-    avoid_stale_timeout_sec: 0.5
-    overtake_stale_timeout_sec: 0.5
+    avoid_stale_timeout_sec: 100.0
+    overtake_stale_timeout_sec: 100.0
     global_stale_timeout_sec: 2.0
     frenet_stale_timeout_sec: 0.5
 

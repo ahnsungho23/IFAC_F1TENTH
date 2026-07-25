@@ -29,7 +29,7 @@ def generate_launch_description():
     default_reference_map = os.path.join(
         get_package_share_directory('particle_filter_cpp'),
         'maps',
-        'fuck_f1.yaml',
+        os.environ.get('F1_MAP', 'map') + '.yaml',
     )
     opponent_detector_launch = os.path.join(
         get_package_share_directory('opponent_detector'),

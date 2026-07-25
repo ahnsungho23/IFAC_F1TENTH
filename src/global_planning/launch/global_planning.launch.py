@@ -18,6 +18,13 @@ def generate_launch_description():
         default_value=default_param_file,
         description="Path to global planning parameter yaml",
     )
+    # 맵 이름 단일화: F1_MAP 환경변수로 MCL/global/local 이 같은 맵을 보게 한다.
+    # yaml 의 map_name 을 이 인자로 덮어쓴다(미설정 시 'map').
+    map_name_arg = DeclareLaunchArgument(
+        "map_name",
+        default_value=os.environ.get("F1_MAP", "map"),
+        description="Map name (overrides map_name in yaml). Shared via F1_MAP env var.",
+    )
 
     params = LaunchConfiguration("params_file")
 
@@ -26,7 +33,7 @@ def generate_launch_description():
         executable="global_trajectory_publisher_node",
         name="global_trajectory_publisher_node",
         output="screen",
-        parameters=[params],
+        parameters=[params, {"map_name": LaunchConfiguration("map_name")}],
     )
 
     frenet_odom = Node(
@@ -39,6 +46,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         params_arg,
+        map_name_arg,
         global_republisher,
         frenet_odom,
     ])
