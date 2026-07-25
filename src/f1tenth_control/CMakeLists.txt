@@ -43,12 +43,12 @@ target_include_directories(joy_teleop_monitor PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
-ament_target_dependencies(joy_teleop_monitor
-  rclcpp
-  sensor_msgs
-  nav_msgs
-  ackermann_msgs
-  std_msgs
+target_link_libraries(joy_teleop_monitor
+  rclcpp::rclcpp
+  ${sensor_msgs_TARGETS}
+  ${nav_msgs_TARGETS}
+  ${ackermann_msgs_TARGETS}
+  ${std_msgs_TARGETS}
 )
 
 # ==============================================================================
@@ -63,24 +63,24 @@ target_include_directories(control_map_node PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
-ament_target_dependencies(control_map_node
-  rclcpp
-  sensor_msgs
-  nav_msgs
-  ackermann_msgs
-  std_msgs
-  f110_msgs
-  visualization_msgs
-  ament_index_cpp
+target_link_libraries(control_map_node
+  rclcpp::rclcpp
+  ${sensor_msgs_TARGETS}
+  ${nav_msgs_TARGETS}
+  ${ackermann_msgs_TARGETS}
+  ${std_msgs_TARGETS}
+  ${f110_msgs_TARGETS}
+  ${visualization_msgs_TARGETS}
+  ament_index_cpp::ament_index_cpp
 )
 
 # ==============================================================================
 # 3. Teleop Dashboard 뷰어 노드 빌드 (대시보드를 별도 터미널에서 렌더링)
 # ==============================================================================
 add_executable(teleop_dashboard_node control_code/teleop_dashboard_node.cpp)
-ament_target_dependencies(teleop_dashboard_node
-  rclcpp
-  std_msgs
+target_link_libraries(teleop_dashboard_node
+  rclcpp::rclcpp
+  ${std_msgs_TARGETS}
 )
 
 # ==============================================================================
@@ -91,23 +91,23 @@ target_include_directories(lut_calibrator_node PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
-ament_target_dependencies(lut_calibrator_node
-  rclcpp
-  sensor_msgs
-  nav_msgs
-  ackermann_msgs
-  std_msgs
-  ament_index_cpp
+target_link_libraries(lut_calibrator_node
+  rclcpp::rclcpp
+  ${sensor_msgs_TARGETS}
+  ${nav_msgs_TARGETS}
+  ${ackermann_msgs_TARGETS}
+  ${std_msgs_TARGETS}
+  ament_index_cpp::ament_index_cpp
 )
 
 # ==============================================================================
 # 5. Sim IMU Bridge 노드 빌드 (시뮬 전용 — odom 요레이트 → /imu/data 중계)
 # ==============================================================================
 add_executable(sim_imu_bridge_node control_code/sim_imu_bridge_node.cpp)
-ament_target_dependencies(sim_imu_bridge_node
-  rclcpp
-  sensor_msgs
-  nav_msgs
+target_link_libraries(sim_imu_bridge_node
+  rclcpp::rclcpp
+  ${sensor_msgs_TARGETS}
+  ${nav_msgs_TARGETS}
 )
 
 # ==============================================================================
@@ -130,14 +130,14 @@ target_include_directories(control_mppi_node PUBLIC
 target_include_directories(control_mppi_node PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/control_code
 )
-ament_target_dependencies(control_mppi_node
-  rclcpp
-  sensor_msgs
-  nav_msgs
-  ackermann_msgs
-  std_msgs
-  f110_msgs
-  ament_index_cpp
+target_link_libraries(control_mppi_node
+  rclcpp::rclcpp
+  ${sensor_msgs_TARGETS}
+  ${nav_msgs_TARGETS}
+  ${ackermann_msgs_TARGETS}
+  ${std_msgs_TARGETS}
+  ${f110_msgs_TARGETS}
+  ament_index_cpp::ament_index_cpp
 )
 
 # ==============================================================================
@@ -174,8 +174,8 @@ if(CMAKE_CUDA_COMPILER)
 
   # control_mppi_node를 GPU 솔버로 전환: USE_MPPI_GPU 정의 + GPU 솔버/런타임 링크.
   # (CUDA 없으면 이 블록이 스킵돼 노드는 CPU 솔버로 그대로 빌드됨.)
-  # ⚠️ ament_target_dependencies가 이미 plain-signature target_link_libraries를 이 타겟에
-  #    썼으므로 여기서도 plain(키워드 PRIVATE 없이)으로 맞춰야 함(혼용 시 CMake 에러).
+  # ⚠️ 위의 ROS 의존 target_link_libraries가 plain-signature이므로 여기서도 plain(키워드
+  #    PRIVATE 없이)으로 맞춰야 함(같은 타겟에 keyword/plain 혼용 시 CMake 에러).
   target_compile_definitions(control_mppi_node PRIVATE USE_MPPI_GPU)
   target_link_libraries(control_mppi_node control_mppi_gpu_solver CUDA::cudart)
 
@@ -193,11 +193,11 @@ endif()
 #    RB로 /drive_autonomous(MAP)↔/drive_mppi(MPPI)를 골라 /drive(navigation 채널)로 포워딩한다.
 # ==============================================================================
 add_executable(drive_source_selector control_code/drive_source_selector.cpp)
-ament_target_dependencies(drive_source_selector
-  rclcpp
-  sensor_msgs
-  ackermann_msgs
-  std_msgs
+target_link_libraries(drive_source_selector
+  rclcpp::rclcpp
+  ${sensor_msgs_TARGETS}
+  ${ackermann_msgs_TARGETS}
+  ${std_msgs_TARGETS}
 )
 
 # ==============================================================================
@@ -206,11 +206,11 @@ ament_target_dependencies(drive_source_selector
 #    렌더링(젯슨 렌더 연산 0). 시뮬용 teleop_dashboard_node(문자열 뷰어)와 별개 노드.
 # ==============================================================================
 add_executable(realcar_dashboard_node control_code/realcar_dashboard_node.cpp)
-ament_target_dependencies(realcar_dashboard_node
-  rclcpp
-  std_msgs
-  sensor_msgs
-  nav_msgs
+target_link_libraries(realcar_dashboard_node
+  rclcpp::rclcpp
+  ${std_msgs_TARGETS}
+  ${sensor_msgs_TARGETS}
+  ${nav_msgs_TARGETS}
 )
 
 # ==============================================================================
@@ -220,11 +220,11 @@ ament_target_dependencies(realcar_dashboard_node
 #    틀렸는지 분리해준다. /drive 미발행(순수 관찰자).
 # ==============================================================================
 add_executable(odom_calib_node control_code/odom_calib_node.cpp)
-ament_target_dependencies(odom_calib_node
-  rclcpp
-  std_msgs
-  nav_msgs
-  ackermann_msgs
+target_link_libraries(odom_calib_node
+  rclcpp::rclcpp
+  ${std_msgs_TARGETS}
+  ${nav_msgs_TARGETS}
+  ${ackermann_msgs_TARGETS}
 )
 
 # ==============================================================================

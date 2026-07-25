@@ -25,18 +25,17 @@ add_library(local_planner_core STATIC
   src/local_planner_node.cpp
   src/safe_corridor.cpp
 )
-ament_target_dependencies(local_planner_core
-  rclcpp
-  std_msgs
-  nav_msgs
-  geometry_msgs
-  visualization_msgs
-  f110_msgs
+target_link_libraries(local_planner_core PUBLIC
+  rclcpp::rclcpp
+  ${std_msgs_TARGETS}
+  ${nav_msgs_TARGETS}
+  ${geometry_msgs_TARGETS}
+  ${visualization_msgs_TARGETS}
+  ${f110_msgs_TARGETS}
 )
 
 add_executable(local_planner_node src/local_planner_main.cpp)
-ament_target_dependencies(local_planner_node rclcpp)
-target_link_libraries(local_planner_node local_planner_core)
+target_link_libraries(local_planner_node PUBLIC local_planner_core rclcpp::rclcpp)
 
 install(TARGETS
   local_planner_node
@@ -58,18 +57,17 @@ if(BUILD_TESTING)
 
   ament_add_gtest(test_frenet_lattice test/test_frenet_lattice.cpp)
   if(TARGET test_frenet_lattice)
-    ament_target_dependencies(test_frenet_lattice
-      rclcpp
-      nav_msgs
-      f110_msgs
+    target_link_libraries(test_frenet_lattice
+      local_planner_core
+      rclcpp::rclcpp
+      ${nav_msgs_TARGETS}
+      ${f110_msgs_TARGETS}
     )
-    target_link_libraries(test_frenet_lattice local_planner_core)
   endif()
 
   ament_add_gtest(test_safe_corridor test/test_safe_corridor.cpp)
   if(TARGET test_safe_corridor)
-    ament_target_dependencies(test_safe_corridor nav_msgs)
-    target_link_libraries(test_safe_corridor local_planner_core)
+    target_link_libraries(test_safe_corridor local_planner_core ${nav_msgs_TARGETS})
   endif()
 endif()
 

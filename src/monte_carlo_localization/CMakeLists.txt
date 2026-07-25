@@ -34,7 +34,7 @@ find_package(nav2_map_server QUIET)
 # Include directories
 include_directories(include)
 
-# Set dependencies list
+# Dependency package list (used for ament_export_dependencies below)
 set(dependencies
   rclcpp
   rclcpp_components
@@ -51,26 +51,41 @@ set(dependencies
   # rclcpp_parameters
 )
 
-# Create particle filter library 
+# Modern CMake targets of the dependencies above (message pkgs export ${pkg}_TARGETS)
+set(dependency_targets
+  rclcpp::rclcpp
+  rclcpp_components::component
+  ${std_msgs_TARGETS}
+  ${sensor_msgs_TARGETS}
+  ${geometry_msgs_TARGETS}
+  ${nav_msgs_TARGETS}
+  ${visualization_msgs_TARGETS}
+  tf2::tf2
+  tf2_ros::tf2_ros
+  tf2_geometry_msgs::tf2_geometry_msgs
+  tf2_eigen::tf2_eigen
+  Eigen3::Eigen
+)
+
+# Create particle filter library
 add_library(${PROJECT_NAME}_lib SHARED
   src/particle_filter.cpp
   src/utils.cpp
 )
 
-ament_target_dependencies(${PROJECT_NAME}_lib ${dependencies})
+target_link_libraries(${PROJECT_NAME}_lib PUBLIC ${dependency_targets})
 
 # Create executable for particle filter
-add_executable(particle_filter_node 
+add_executable(particle_filter_node
   src/particle_filter.cpp
 )
 
-target_link_libraries(particle_filter_node ${PROJECT_NAME}_lib)
-ament_target_dependencies(particle_filter_node ${dependencies})
+# Dependency usage requirements propagate transitively via the lib's PUBLIC links
+target_link_libraries(particle_filter_node PUBLIC ${PROJECT_NAME}_lib)
 
 # Link OpenMP
 if(OpenMP_CXX_FOUND)
-    target_link_libraries(${PROJECT_NAME}_lib OpenMP::OpenMP_CXX)
-    target_link_libraries(particle_filter_node OpenMP::OpenMP_CXX)
+    target_link_libraries(${PROJECT_NAME}_lib PUBLIC OpenMP::OpenMP_CXX)
 endif()
 
 # No external ray casting library - using built-in implementation

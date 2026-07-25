@@ -21,11 +21,11 @@ target_include_directories(state_machine_node
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
 )
-ament_target_dependencies(state_machine_node
-  rclcpp
-  nav_msgs
-  std_msgs
-  f110_msgs
+target_link_libraries(state_machine_node
+  rclcpp::rclcpp
+  ${nav_msgs_TARGETS}
+  ${std_msgs_TARGETS}
+  ${f110_msgs_TARGETS}
 )
 
 install(TARGETS
