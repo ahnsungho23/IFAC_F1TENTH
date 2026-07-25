@@ -393,7 +393,7 @@ void ParticleFilter::lidarCB(const sensor_msgs::msg::LaserScan::SharedPtr msg)
         has_new_lidar_data_ = true;
 
         RCLCPP_DEBUG_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
-            "LiDAR callback: new data received, timestamp: %ld.%09ld",
+            "LiDAR callback: new data received, timestamp: %d.%09u",
             msg->header.stamp.sec, msg->header.stamp.nanosec);
     }
     lidar_initialized_ = true;
