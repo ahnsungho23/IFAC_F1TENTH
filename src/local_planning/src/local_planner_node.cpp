@@ -328,7 +328,7 @@ void LocalPlannerNode::initParameters()
     declare_parameter<std::string>("global_waypoints_topic", "/global_waypoints");
   map_topic_ = declare_parameter<std::string>("map_topic", "/map");
   obstacles_topic_ = declare_parameter<std::string>(
-    "obstacles_topic", "/perception/static_obstacles/cartesian");
+    "obstacles_topic", "/perception/static_obstacles");
   frenet_odom_topic_ =
     declare_parameter<std::string>("frenet_odom_topic", "/car_state/frenet/odom");
   ot_waypoints_topic_ =
@@ -3611,34 +3611,6 @@ void LocalPlannerNode::publishDebugVisualization(
   markers.markers.push_back(std::move(blocked_intervals));
   markers.markers.push_back(std::move(left_space));
   markers.markers.push_back(std::move(right_space));
-
-  visualization_msgs::msg::Marker inflated_obstacles;
-  inflated_obstacles.header = marker_header;
-  inflated_obstacles.ns = "inflated_obstacles";
-  inflated_obstacles.id = 6;
-  inflated_obstacles.type = visualization_msgs::msg::Marker::SPHERE_LIST;
-  inflated_obstacles.action = visualization_msgs::msg::Marker::ADD;
-  inflated_obstacles.pose.orientation.w = 1.0;
-  const double inflation_diameter = 2.0 * std::max(
-    vehicle_radius_ + path_clearance_margin_,
-    0.5 * vehicle_width_m_ + localization_margin_m_ + corridor_safety_margin_m_);
-  inflated_obstacles.scale.x = inflation_diameter;
-  inflated_obstacles.scale.y = inflation_diameter;
-  inflated_obstacles.scale.z = 0.03;
-  inflated_obstacles.color.r = 1.0F;
-  inflated_obstacles.color.g = 0.45F;
-  inflated_obstacles.color.b = 0.0F;
-  inflated_obstacles.color.a = 0.18F;
-  const int width = static_cast<int>(grid_map_.info.width);
-  for (const int map_index : safe_corridor_.inflated_cell_indices) {
-    if (map_index >= 0 && width > 0 &&
-      map_index < static_cast<int>(grid_map_.data.size()))
-    {
-      inflated_obstacles.points.push_back(
-        mapCellCenter(map_index % width, map_index / width));
-    }
-  }
-  markers.markers.push_back(std::move(inflated_obstacles));
 
   visualization_msgs::msg::Marker rejection_text;
   rejection_text.header = marker_header;

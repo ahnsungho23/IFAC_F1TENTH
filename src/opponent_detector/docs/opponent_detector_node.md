@@ -22,7 +22,7 @@
       ──Mahalanobis 연관 + 적응형 등속 칼만──▶ 트랙 [s, vs, d, vd]
       ──속도 기반 정적/동적 분류──▶ is_static
       ──▶ /perception/obstacles (ObstacleArray)
-      ──▶ /perception/static_obstacles/cartesian (정적 전용 x, y, s, d, radius)
+      ──▶ /perception/static_obstacles (정적 전용 x, y, s, d, radius)
       ──▶ /proj_opponent_trajectory (ProjOppTraj, 동적 상대차)
       ──추월 상태머신(Idle→Committed→Cooldown)──▶ /overtake_waypoints (OTWpntArray)
       ──▶ /perception/obstacles/markers (RViz: 상대차 + 추월 라인 초록)
@@ -70,7 +70,7 @@
    - `both`: 두 방식이 모두 동적일 때만 동적(보수적).
 10. **발행·계측**: 확정 트랙(`hits≥min_hits_confirm`)을 `ObstacleArray`로 발행하고, 정적 트랙은
    `has_cartesian=true`인 `(x_center,y_center,s_center,d_center,radius)`로
-   `/perception/static_obstacles/cartesian`에도 분리 발행한다. `radius`는 검출 AABB 전체를 감싸는
+   `/perception/static_obstacles`에도 분리 발행한다. `radius`는 검출 AABB 전체를 감싸는
    원의 반지름으로, `0.5×0.5 m` 정사각형이면 `0.25√2 m`다.
    동적 상대차 1대를 골라
    `ProjOppPoint`로 누적해 `ProjOppTraj` 발행. 마커는 정적=파랑, 동적=빨강이며 raw/tracked 토픽을
@@ -302,7 +302,7 @@ ros2 launch opponent_detector opponent_detector.launch.py simulator:=true rviz:=
 
 ```bash
 ros2 topic echo /perception/obstacles          # is_static/vs/vd 확인
-ros2 topic echo /perception/static_obstacles/cartesian  # x/y/s/d/radius 확인
+ros2 topic echo /perception/static_obstacles  # x/y/s/d/radius 확인
 ros2 topic echo /proj_opponent_trajectory       # 동적 상대차 Frenet 포인트
 # RViz를 따로 띄우려면:
 rviz2 -d install/opponent_detector/share/opponent_detector/rviz/opponent_detector.rviz

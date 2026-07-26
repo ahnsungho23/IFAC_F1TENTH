@@ -3,7 +3,7 @@
 ## 1. 목적
 
 `local_planner_node`는 `/map`의 트랙 경계와
-`/perception/static_obstacles/cartesian`의 정적 장애물을 글로벌 기준 경로와 함께 검사하고,
+`/perception/static_obstacles`의 정적 장애물을 글로벌 기준 경로와 함께 검사하고,
 차량 앞에서 글로벌 경로로 다시 합류하는 Frenet lattice 회피 구간을 생성합니다. 양쪽 방향의
 여러 횡오프셋과 전환 길이를 평가해 최저 비용 경로를 선택하며, 기본 탐색이 실패하면 더 촘촘한
 복구 lattice를 실행합니다. 복구도 실패할 때만 장애물 전의 충돌 없는 점진 감속 구간을 발행합니다.
@@ -11,7 +11,7 @@
 ## 2. 동작 원리
 
 1. `/map`을 받으면 내용 서명을 비교하고, 실제로 지도가 바뀐 경우에만 전체 점유 셀 mask와 8방향 연결요소를 다시 만듭니다.
-   정적 장애물 입력은 `/perception/static_obstacles/cartesian`에서 `has_cartesian=true`이고 map-frame
+   정적 장애물 입력은 `/perception/static_obstacles`에서 `has_cartesian=true`이고 map-frame
    `(x_center,y_center)`, Frenet `(s_center,d_center)`, 양의 `radius`가 유효한 정적 장애물만
    받습니다. 전체 Cartesian AABB를 감싸는 반지름을 Frenet 종·횡 반경으로 적용한 뒤 기존
    다중 lateral 필터와 planning grid에 전달합니다.
@@ -41,7 +41,7 @@
 |---|---|---|---|
 | 구독 | `/global_waypoints` | `f110_msgs/msg/WpntArray` | 글로벌 기준 경로 |
 | 구독 | `/map` | `nav_msgs/msg/OccupancyGrid` | 트랙 벽과 정적 장애물이 포함된 지도 |
-| 구독 | `/perception/static_obstacles/cartesian` | `f110_msgs/msg/ObstacleArray` | 정적 장애물의 map-frame `(x,y)`, Frenet `(s,d)`, enclosing-circle `radius` |
+| 구독 | `/perception/static_obstacles` | `f110_msgs/msg/ObstacleArray` | 정적 장애물의 map-frame `(x,y)`, Frenet `(s,d)`, enclosing-circle `radius` |
 | 구독 | `/car_state/frenet/odom` | `nav_msgs/msg/Odometry` | 차량 Frenet `s`, `d` |
 | 발행 | `/avoid_waypoints` | `f110_msgs/msg/OTWpntArray` | 차량→합류점 회피 구간과 충돌 없는 글로벌 후속 구간. 장애물이 없으면 빈 배열 |
 | 발행 | `/local_waypoints` | `f110_msgs/msg/WpntArray` | 단독 실행 옵션이 켜졌을 때의 전방 구간 |
@@ -167,6 +167,6 @@ snapshot 좌표를 사용하며, 매칭되지 않는 새 장애물만 현재 gri
 
 ```zsh
 ros2 topic echo /avoid_waypoints --once
-ros2 topic echo /perception/static_obstacles/cartesian --once
+ros2 topic echo /perception/static_obstacles --once
 ros2 topic hz /local_planning/markers
 ```

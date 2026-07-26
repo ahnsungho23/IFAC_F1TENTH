@@ -1,7 +1,7 @@
 # local_planning
 
 `local_planning`은 벽만 포함한 `fuck_f1`의 `/map`과 opponent detector가 발행하는
-`/perception/static_obstacles/cartesian`을 함께 사용합니다. 이 중 `is_static=true`인 정적 장애물만 planning
+`/perception/static_obstacles`을 함께 사용합니다. 이 중 `is_static=true`인 정적 장애물만 planning
 grid에 합성하고, 글로벌 기준 경로에서 장애물의 왼쪽 또는 오른쪽으로 우회한 뒤 다시 합류하는
 회피 구간을 생성하는 ROS 2 Humble 패키지입니다. 동적 장애물은 이 패키지에서 경로 생성에
 사용하지 않으며 opponent detector의 추월·추종 로직이 담당합니다.
@@ -9,7 +9,7 @@ grid에 합성하고, 글로벌 기준 경로에서 장애물의 왼쪽 또는 �
 이 패키지의 핵심 역할은 다음과 같습니다.
 
 - `/map`에서 트랙 벽과 주행 경계를 가져옵니다.
-- `/perception/static_obstacles/cartesian`에서 `is_static=true`, `is_visible=true`이고
+- `/perception/static_obstacles`에서 `is_static=true`, `is_visible=true`이고
   유효한 Cartesian `(x,y)`, Frenet `(s,d)`, 양의 enclosing-circle `radius`를 가진 장애물을 선택합니다.
 - 현재 차량 위치부터 일정 거리 앞의 글로벌 경로를 검사합니다.
 - 장애물 좌우의 사용 가능한 공간을 비교합니다.
@@ -26,7 +26,7 @@ grid에 합성하고, 글로벌 기준 경로에서 장애물의 왼쪽 또는 �
                          ┌──────────────────────────────┐
 /map (fuck_f1 벽) ──────>│                              │
                          │                              │
-/perception/static_obstacles/cartesian ──>│     local_planner_node       │
+/perception/static_obstacles ──>│     local_planner_node       │
   (is_static=true만 사용)│                              │
                          │                              ├──> /avoid_waypoints
 /global_waypoints ──────>│                              ├──> /local_planning/path
@@ -53,13 +53,13 @@ grid에 합성하고, 글로벌 기준 경로에서 장애물의 왼쪽 또는 �
 | 토픽 | 메시지 타입 | 사용하는 정보 |
 |---|---|---|
 | `/map` | `nav_msgs/msg/OccupancyGrid` | 장애물이 없는 `fuck_f1`의 트랙 벽, map 경계 및 unknown 영역 |
-| `/perception/static_obstacles/cartesian` | `f110_msgs/msg/ObstacleArray` | 정적 장애물의 map-frame `(x,y)`, Frenet `(s,d)`, enclosing-circle `radius` |
+| `/perception/static_obstacles` | `f110_msgs/msg/ObstacleArray` | 정적 장애물의 map-frame `(x,y)`, Frenet `(s,d)`, enclosing-circle `radius` |
 | `/global_waypoints` | `f110_msgs/msg/WpntArray` | `x_m`, `y_m`, `s_m`, `psi_rad`, `kappa_radpm`, 좌우 트랙 폭, 기준 속도 |
 | `/car_state/frenet/odom` | `nav_msgs/msg/Odometry` | `pose.pose.position.x/y`에 저장된 현재 Frenet `s`, `d` |
 
 운영 시 MCL map server는 반드시 장애물이 구워진 `*_obs` 맵이 아니라 원본 `fuck_f1`을
 발행해야 합니다. `/scan`에서 검출한 벽은 opponent detector가 이 `/map`과 비교해 제거하고,
-지도에 없는 물체를 추적·분류한 결과를 `/perception/static_obstacles/cartesian`으로 보냅니다. local planner는
+지도에 없는 물체를 추적·분류한 결과를 `/perception/static_obstacles`으로 보냅니다. local planner는
 그 배열에서 정적 물체만 사용합니다.
 
 ### 출력 데이터
@@ -126,13 +126,13 @@ OccupancyGrid 셀 값이 `occupied_threshold`보다 크면 점유 셀로 간주�
 장애물을 점유값 100인 셀로 합성한 **planning grid**를 경로 검출과 최종 충돌 판정에 사용합니다.
 따라서 합성된 정적 장애물이 벽에 붙거나 큰 컴포넌트가 되어도 계획 입력에서 빠지지 않습니다.
 
-### 3.3 `/perception/static_obstacles/cartesian` 정적 장애물 합성
+### 3.3 `/perception/static_obstacles` 정적 장애물 합성
 
 기본 설정은 다음과 같습니다.
 
 ```yaml
 use_perception_obstacles: true
-obstacles_topic: "/perception/static_obstacles/cartesian"
+obstacles_topic: "/perception/static_obstacles"
 perception_static_only: true
 perception_obstacle_padding_m: 0.06
 freeze_committed_static_obstacles: true

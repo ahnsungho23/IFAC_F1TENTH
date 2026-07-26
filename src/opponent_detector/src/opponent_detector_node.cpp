@@ -111,7 +111,7 @@ void OpponentDetectorNode::declareParameters()
     this->declare_parameter<std::string>("imu_topic", "/sensors/imu/raw");
     this->declare_parameter<std::string>("obstacles_topic", "/perception/obstacles");
     this->declare_parameter<std::string>(
-        "static_obstacles_topic", "/perception/static_obstacles/cartesian");
+        "static_obstacles_topic", "/perception/static_obstacles");
     this->declare_parameter<std::string>("raw_obstacles_topic", "/perception/detection/raw_obstacles");
     this->declare_parameter<std::string>("proj_opp_traj_topic", "/proj_opponent_trajectory");
     this->declare_parameter<std::string>("markers_topic", "/perception/obstacles/markers");

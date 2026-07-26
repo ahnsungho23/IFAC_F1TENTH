@@ -48,7 +48,7 @@
   relationship `lookahead_wpnt_num >= detection_lookahead_wpnt_num` when tuning it.
 
 ## 3. Interfaces
-- Subscribes: `/global_waypoints`, `/map`, `/perception/static_obstacles/cartesian`,
+- Subscribes: `/global_waypoints`, `/map`, `/perception/static_obstacles`,
   `/car_state/frenet/odom`.
 - Static obstacle input must set `has_cartesian=true` and provide finite map-frame `x_center`,
   `y_center`, Frenet `s_center`, `d_center`, and a positive enclosing-circle `radius`. Preserve

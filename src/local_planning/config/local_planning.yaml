@@ -156,7 +156,7 @@ local_planner_node:
     # grid에 겹쳐 기존 safe-corridor/lattice 로직으로 회피합니다.
     use_perception_obstacles: true
     require_perception_obstacles: true
-    obstacles_topic: "/perception/static_obstacles/cartesian"
+    obstacles_topic: "/perception/static_obstacles"
     # local planner는 정적 장애물만 담당하고, 동적 상대차는 opponent_detector의 추월/추종에 맡깁니다.
     perception_static_only: true
     # opponent_detector가 is_static을 확정하기 전에도 Frenet 추정속도가 거의 0이면

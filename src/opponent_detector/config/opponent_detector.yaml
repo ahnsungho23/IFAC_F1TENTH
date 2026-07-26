@@ -9,12 +9,12 @@ opponent_detector:
   ros__parameters:
     # === ROS INTERFACE ===
     scan_topic: "/scan"                       # LaserScan input (ego)
-    global_waypoints_topic: "/global_waypoints"   # f110_msgs/WpntArray (latched) from new_map_con
+    global_waypoints_topic: "/global_waypoints"   # f110_msgs/WpntArray (latched) from global_planning
     map_topic: "/map"                          # nav_msgs/OccupancyGrid (latched) from MCL
     ego_odom_topic: "/pf/pose/odom"            # ego pose in map frame (MCL). Sim: /ego_racecar/odom
     imu_topic: "/sensors/imu/raw"               # real VESC IMU; auto deskew falls back to odom in sim
     obstacles_topic: "/perception/obstacles"   # tracked obstacles (ObstacleArray)
-    static_obstacles_topic: "/perception/static_obstacles/cartesian"  # map-frame static AABBs
+    static_obstacles_topic: "/perception/static_obstacles"  # static x/y/s/d/r ObstacleArray
     raw_obstacles_topic: "/perception/detection/raw_obstacles"
     proj_opp_traj_topic: "/proj_opponent_trajectory"   # ProjOppTraj (Frenet opponent output)
     markers_topic: "/perception/obstacles/markers"

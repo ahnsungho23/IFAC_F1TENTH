@@ -141,7 +141,7 @@ LiDAR 하드웨어의 `/scan`, 선택적 deskew용 IMU `/sensors/imu/raw`를 구
 | 구독 | `imu_topic` | `sensor_msgs/Imu` | `/sensors/imu/raw` (선택, 없으면 odom fallback) |
 | 구독 | TF | `map → <scan frame>` | MCL/시뮬레이터가 제공 |
 | 발행 | `obstacles_topic` | `f110_msgs/ObstacleArray` | `/perception/obstacles` |
-| 발행 | `static_obstacles_topic` | `f110_msgs/ObstacleArray` | `/perception/static_obstacles/cartesian` |
+| 발행 | `static_obstacles_topic` | `f110_msgs/ObstacleArray` | `/perception/static_obstacles` |
 | 발행 | `raw_obstacles_topic` | `f110_msgs/ObstacleArray` | `/perception/detection/raw_obstacles` |
 | 발행 | `proj_opp_traj_topic` | `f110_msgs/ProjOppTraj` | `/proj_opponent_trajectory` |
 | 발행 | `avoidance_ot_topic` | `f110_msgs/OTWpntArray` | `/overtake_waypoints` (→ `wpnt_publisher`; Committed 동안만, 종료 시 빈 OT 1회 후 침묵) |

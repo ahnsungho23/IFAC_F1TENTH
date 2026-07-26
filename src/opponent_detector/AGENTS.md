@@ -25,7 +25,7 @@ static structure sits still in that frame, the opponent moves. Output is ForzaET
   does not provide; don't use it for projection. If `global_planning`'s exported lib changes, keep the
   `find_package(global_planning)` + link in `CMakeLists.txt` working.
 - Prefer existing `f110_msgs`: publish `ObstacleArray` (`/perception/obstacles`), a static-only
-  Cartesian `ObstacleArray` (`/perception/static_obstacles/cartesian`), and `ProjOppTraj`
+  Cartesian `ObstacleArray` (`/perception/static_obstacles`), and `ProjOppTraj`
   (`/proj_opponent_trajectory`). Populate each `Obstacle` with Cartesian `x_center/y_center`,
   Frenet `s_center/d_center`, and a conservative enclosing-circle `radius` equal to half the
   Cartesian AABB diagonal. Set `has_cartesian=true`; do NOT invent a new message type.
@@ -48,7 +48,7 @@ static structure sits still in that frame, the opponent moves. Output is ForzaET
   brief measurement dropouts; long-term static-obstacle memory and avoidance decisions belong to
   the downstream local planner. Static detections are published as map-frame Cartesian centers
   plus an enclosing-circle radius on
-  `/perception/static_obstacles/cartesian`. Do not add a persistent static map to this node.
+  `/perception/static_obstacles`. Do not add a persistent static map to this node.
 - Keep the front end ordered as: optional per-beam IMU/odom deskew → optional raw-noise filtering
   → adaptive-breakpoint clustering → size-safe fragment merge → CLCS projection. Keep raw filtering
   off by default until f1sim_C and rosbag sweeps show that it does not erase small/far obstacles.

@@ -1,10 +1,11 @@
 # new_map_con
 
+> Archived package. `COLCON_IGNORE` disconnects it from the active workspace build and runtime path.
+
 > 🌐 [한국어](README.md) · **English**
 
 A waypoint-following controller package. The `map_controller` (C++) node follows global/local waypoints with
-pure-pursuit and publishes `/drive`. The **`opponent_simulator`** node simulates a virtual opponent vehicle for
-`opponent_detector` testing by publishing `/opponent_racecar/odom`. It supports both the vehicle and simulator topic profiles.
+pure-pursuit and publishes `/drive`. It supports both the vehicle and simulator topic profiles.
 
 For a detailed explanation of the node operation, see [`docs/map_controller_node.md`](docs/map_controller_node.md).
 
@@ -93,53 +94,7 @@ ros2 run new_map_con map_controller --ros-args \
   -p package_resource_root:=src/new_map_con
 ```
 
-## 5. opponent_simulator (Virtual Opponent)
-
-The `opponent_simulator` node simulates a virtual opponent vehicle that follows `/global_waypoints`.
-For `opponent_detector` testing, it drives at a slower speed (default 0.8x) than ego and publishes `/opponent_racecar/odom`.
-
-### Usage
-
-```bash
-# Default (0.8x speed, start 5m ahead)
-ros2 launch new_map_con opponent_simulator.launch.py
-
-# 0.7x speed, start 10m ahead
-ros2 launch new_map_con opponent_simulator.launch.py speed_scale:=0.7 start_offset:=10.0
-
-# Disable
-ros2 launch new_map_con opponent_simulator.launch.py enabled:=false
-```
-
-### Main Parameters
-
-| Parameter | Meaning | Default |
-|----------|------|--------|
-| `speed_scale` | Waypoint speed multiplier (0.8 = 80% speed) | `0.8` |
-| `start_offset_m` | Initial arc-length offset [m] (ahead of ego) | `5.0` |
-| `odom_topic` | Odometry topic to publish | `/opponent_racecar/odom` |
-| `publish_tf` | Publish TF (map → opponent_base_link) | `true` |
-| `enabled` | Enable the node | `true` |
-
-### Use with opponent_detector
-
-```bash
-# Terminal 1: Simulator (f1sim or real vehicle)
-f1sim
-
-# Terminal 2: new_map_con (ego control)
-ros2 launch new_map_con new_map_con.launch.py simulator:=true
-
-# Terminal 3: Virtual opponent
-ros2 launch new_map_con opponent_simulator.launch.py speed_scale:=0.8 start_offset:=5.0
-
-# Terminal 4: opponent_detector (detect and avoid opponent)
-ros2 launch opponent_detector opponent_detector.launch.py simulator:=true
-```
-
-The opponent circulates along the raceline, and `opponent_detector` detects it via LiDAR and generates overtaking paths.
-
-## 6. References
+## 5. References
 
 - node-level rules: [`AGENTS.md`](AGENTS.md)
 - Operating-principle document: [`docs/map_controller_node.md`](docs/map_controller_node.md)
