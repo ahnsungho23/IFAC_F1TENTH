@@ -50,7 +50,7 @@ def generate_launch_description():
     start_detector_arg = DeclareLaunchArgument(
         'start_opponent_detector',
         default_value='true',
-        description='Start the required /perception/obstacles publisher',
+        description='Start the required /perception/static_obstacles/cartesian publisher',
     )
     planning_map_topic_arg = DeclareLaunchArgument(
         'planning_map_topic',

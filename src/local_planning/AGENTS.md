@@ -48,7 +48,12 @@
   relationship `lookahead_wpnt_num >= detection_lookahead_wpnt_num` when tuning it.
 
 ## 3. Interfaces
-- Subscribes: `/global_waypoints`, `/map`, `/perception/obstacles`, `/car_state/frenet/odom`.
+- Subscribes: `/global_waypoints`, `/map`, `/perception/static_obstacles/cartesian`,
+  `/car_state/frenet/odom`.
+- Static obstacle input must set `has_cartesian=true` and provide finite map-frame `x_center`,
+  `y_center`, Frenet `s_center`, `d_center`, and a positive enclosing-circle `radius`. Preserve
+  the main multi-candidate lattice and lateral filtering; apply the radius as both Frenet
+  longitudinal and lateral half-extent before feeding the existing planning grid.
 - Publishes: `/avoid_waypoints`, `/local_waypoints`, `/local_planning/path`, `/local_planning/markers`.
 
 ## 4. Default Early-Avoidance Profile

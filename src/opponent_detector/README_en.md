@@ -2,9 +2,10 @@
 
 > 🌐 [한국어](README.md) · **English**
 
-A C++ node package that detects and tracks a **dynamic opponent from the 2D LiDAR scan only**
-(no camera) **and plans a committed local overtaking path around it**. It estimates the opponent's
-Frenet position/velocity from the LiDAR and publishes a **local spline overtaking line** (covering
+A C++ node package that uses **2D LiDAR as its primary measurement** to detect and track a dynamic
+opponent (no camera) **and plans a committed local overtaking path around it**. Optional IMU/odom
+motion compensation deskews the scan before the node estimates the opponent's Frenet
+position/velocity and publishes a **local spline overtaking line** (covering
 only the overtaking segment, not the whole track) as an `OTWpntArray`. Detection and the overtake
 planner are merged into one node, and every tunable — spline parameters included — lives in
 a **single YAML** (`config/opponent_detector.yaml`). The overtaking line flows
@@ -24,24 +25,32 @@ Sim/harness test command cheat-sheet: [`docs/sim_test_commands.md`](docs/sim_tes
 The static/dynamic split happens in the Frenet frame, where ego motion is already removed via the
 ego pose.
 
-1. Transform `/scan` into map-frame points via TF (using the scan's own `frame_id`).
-2. **Adaptive Breakpoint** clustering — a range-dependent threshold splits points into clusters.
-3. Fit each cluster to an AABB box (center, size); discard clusters that are too large.
+1. Deskew each `/scan` beam to the scan-start pose using IMU yaw rate, with odometry as fallback.
+   Translation compensation and raw-noise filtering are optional until validated.
+2. **Adaptive Breakpoint** clustering splits points using a range-dependent threshold, then merges
+   nearby fragments only while the combined box remains obstacle-sized.
+3. Transform deskewed points into the map frame via TF and fit AABB boxes.
 4. **Map + track-boundary filter** — drop points outside the drivable corridor (`d_left/d_right`
    from `/global_waypoints`) and clusters sitting on known static structure (**walls**) in the SLAM `/map`.
 5. Project each center to **Frenet (s,d)** using **`global_planning`'s CLCS converter**
    (`ClcsFrenetConverter`, vendored CommonRoad CLCS); drop points outside the projection domain (far
    from the track). The lightweight `FrenetProjector` is kept only for track-boundary
    (`d_left/d_right`) lookup and s-wrap, which CLCS does not provide.
-6. Nearest-neighbour association + **constant-velocity Kalman filter** (state `[s, vs, d, vd]`).
+6. Associate within a hard Euclidean safety gate using **Mahalanobis distance**, then apply a
+   **constant-velocity Kalman filter** (state `[s, vs, d, vd]`) whose measurement covariance grows
+   with range, sparsity, and yaw rate.
 7. **Static/dynamic classification relative to the static-field velocity.** Walls (removed by the
    map filter) and stationary obstacles share one *static-field velocity* (≈0 in the map frame). Each
    track is judged by its speed **relative to that reference** — "same velocity as the walls → static,
    clearly different → dynamic opponent." The reference is the mean of the slow tracks (below
    `static_ref_gate`), which cancels common ego-localization drift and excludes the opponent.
    (Hysteresis + relative-`vs<reset` backstop; a `std` positional classifier is also a toggle.)
-8. Publish tracked obstacles as `ObstacleArray` (stationary obstacles as `is_static=true`), and the
-   dynamic opponent as Frenet `ProjOppTraj`.
+8. Publish tracked obstacles as `ObstacleArray`, mirror static tracks with Cartesian `(x,y)`,
+   Frenet `(s,d)`, and an enclosing-circle radius equal to half the AABB diagonal on
+   `/perception/static_obstacles/cartesian`, and publish the
+   dynamic opponent as Frenet `ProjOppTraj`. Perception repeatedly re-detects and publishes static
+   obstacles; `ttl_static` only bridges brief sensor misses. Long-term memory and avoidance
+   decisions belong to the local planner.
 9. **Overtake planner (state machine + PCHIP spline)** — an `Idle → Committed → Cooldown` state
    machine decides whether an overtaking maneuver exists at all.
    - **Commit gates (ALL must hold):** the dynamic opponent is ahead inside
@@ -111,6 +120,8 @@ them from the opponent — only velocity does (`max_obs_size` is 0.8 so the 0.70
                         │
                         ├─────── /pf/pose/odom (Odometry)
                         │           from: MCL / sim
+                        ├─────── /sensors/imu/raw (Imu, optional)
+                        │           real-car scan deskew
                         │
                         └─────── TF: map → laser frame
                                           │
@@ -129,8 +140,8 @@ them from the opponent — only velocity does (`max_obs_size` is 0.8 so the 0.70
 
 **Inputs:** the node subscribes to `/map` (SLAM occupancy grid), `/pf/pose/odom` (ego pose), and
 `TF` (`map→laser`) provided by MCL (`monte_carlo_localization`); `/global_waypoints` (global
-raceline + track boundaries) published by `new_map_con`; and the raw `/scan` from the LiDAR
-hardware.
+raceline + track boundaries) published by `new_map_con`; the raw `/scan`; and optional
+`/sensors/imu/raw` for scan deskew.
 
 **Outputs:** the committed overtaking path `/overtake_waypoints` is consumed by
 `wpnt_publisher`, which merges it into `/local_waypoints` for the `new_map_con` pure-pursuit
@@ -146,8 +157,10 @@ RViz visualization.
 | Sub | `global_waypoints_topic` | `f110_msgs/WpntArray` (latched) | `/global_waypoints` (from `new_map_con`) |
 | Sub | `map_topic` | `nav_msgs/OccupancyGrid` (latched) | `/map` (from `monte_carlo_localization`) |
 | Sub | `ego_odom_topic` | `nav_msgs/Odometry` | `/pf/pose/odom` (sim: `/ego_racecar/odom`) |
+| Sub | `imu_topic` | `sensor_msgs/Imu` | `/sensors/imu/raw` (optional; odom fallback) |
 | Sub | TF | `map → <scan frame>` | provided by MCL / simulator |
 | Pub | `obstacles_topic` | `f110_msgs/ObstacleArray` | `/perception/obstacles` |
+| Pub | `static_obstacles_topic` | `f110_msgs/ObstacleArray` | `/perception/static_obstacles/cartesian` |
 | Pub | `raw_obstacles_topic` | `f110_msgs/ObstacleArray` | `/perception/detection/raw_obstacles` |
 | Pub | `proj_opp_traj_topic` | `f110_msgs/ProjOppTraj` | `/proj_opponent_trajectory` |
 | Pub | `avoidance_ot_topic` | `f110_msgs/OTWpntArray` | `/overtake_waypoints` (→ `wpnt_publisher`; only while committed, one empty OT on finish then silent) |
@@ -164,6 +177,12 @@ Full list: [`config/opponent_detector.yaml`](config/opponent_detector.yaml).
 | `simulator` | Sim profile (ego odom from `/ego_racecar/odom`) | `false` |
 | `lambda_deg` / `cluster_sigma` | Adaptive-breakpoint angle / noise | `10.0` / `0.03` |
 | `min_cluster_points` / `max_obs_size` | Min cluster points / max size [m] (>0.707 so 0.5×0.5 passes) | `5` / `0.8` |
+| `deskew_enable` / `deskew_source` | per-beam motion compensation / `auto`\|`imu`\|`odom` | `true` / `auto` |
+| `deskew_translation_enable` / `deskew_sensor_timeout` | translational deskew (off until validated) / freshness [s] | `false` / `0.15` |
+| `imu_angular_scale` | IMU yaw-rate unit conversion (current VESC deg/s→rad/s) | `π/180` |
+| `noise_filter_enable` / `scan_median_window` | optional raw neighbour filter / median window (1=off) | `false` / `1` |
+| `cluster_merge_enable` / `cluster_merge_distance` | merge nearby fragments / AABB gap [m] | `true` / `0.12` |
+| `meas_range_var_scale` / `meas_sparse_var_scale` / `meas_yaw_rate_var_scale` | Kalman measurement-variance growth from range/sparsity/yaw | `2.0` / `1.5` / `0.25` |
 | `max_viewing_distance` | Forward viewing distance [m] | `9.0` |
 | `boundaries_inflation` / `fallback_track_halfwidth` | Corridor shrink [m] / half-width when bounds unset [m] | `0.1` / `1.5` |
 | `use_map_filter` / `map_point_reject_ratio` | SLAM-map wall removal / cluster reject ratio | `true` / `0.6` |
@@ -172,6 +191,7 @@ Full list: [`config/opponent_detector.yaml`](config/opponent_detector.yaml).
 | `static_ref_gate` | Track speed below which it defines the static-field velocity [m/s] | `0.3` |
 | `vs_reset` | Low relative-speed backstop (force static) [m/s] | `0.1` |
 | `assoc_gate` / `ttl_dynamic` / `ttl_static` | Association gate [m] / dynamic·static TTL | `0.5` / `40` / `3` |
+| `assoc_use_mahalanobis` / `assoc_mahalanobis_gate` | covariance-aware association / 2-DoF χ² gate | `true` / `9.21` |
 | `process_var_vs` / `process_var_vd` | Kalman process noise (s/d axis) | `2.0` / `8.0` |
 | **`avoidance_enabled`** | overtake planner on/off | `true` |
 | `avoid_trigger_min_ds` / `avoid_trigger_max_ds` | forward s-window considered for overtaking [m] | `0.5` / `8.0` |

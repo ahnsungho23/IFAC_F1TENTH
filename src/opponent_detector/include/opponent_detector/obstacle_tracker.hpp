@@ -29,6 +29,13 @@ struct Detection
     double size{0.0};
     double x{0.0};  // cartesian centroid (map frame), kept for visualization
     double y{0.0};
+    double x_min{0.0};
+    double x_max{0.0};
+    double y_min{0.0};
+    double y_max{0.0};
+    // Measurement covariance multiplier derived from range, cluster density, and ego yaw rate.
+    // The base variances remain meas_var_s/meas_var_d in YAML.
+    double variance_scale{1.0};
 };
 
 enum class ClassifierMode
@@ -48,6 +55,8 @@ struct TrackerParams
     // data association
     double assoc_gate{0.5};       // [m] Frenet gate for static / unknown tracks
     double aggro_multi{2.0};      // gate multiplier once a track is dynamic
+    bool assoc_use_mahalanobis{true};
+    double assoc_mahalanobis_gate{9.21};  // chi-square gate, 2 DoF (99%)
     // track lifetime
     int ttl_dynamic{40};
     int ttl_static{3};
@@ -71,6 +80,15 @@ struct TrackerParams
     double dt_max{0.5};           // [s] clamp for prediction step
 };
 
+struct TrackerUpdateStats
+{
+    int matched{0};
+    int spawned{0};
+    int retired{0};
+    int euclidean_rejected{0};
+    int mahalanobis_rejected{0};
+};
+
 struct Track
 {
     int id{0};
@@ -86,6 +104,10 @@ struct Track
     double size{0.0};
     double x_map{0.0};
     double y_map{0.0};
+    double x_min_map{0.0};
+    double x_max_map{0.0};
+    double y_min_map{0.0};
+    double y_max_map{0.0};
     std::deque<std::pair<double, double>> hist;  // (s, d) for the std classifier
 
     double s() const { return x(0); }
@@ -106,6 +128,7 @@ class ObstacleTracker
     void update(const std::vector<Detection> &detections, double stamp);
 
     const std::vector<Track> &tracks() const { return tracks_; }
+    const TrackerUpdateStats &lastStats() const { return last_stats_; }
 
     // Index of the "opponent": the confirmed dynamic track closest ahead of ego_s.
     // Returns -1 if none. ego_s < 0 disables the ahead-preference (nearest is used).
@@ -118,7 +141,9 @@ class ObstacleTracker
 
   private:
     void predict(Track &t, double dt) const;
-    void kalmanUpdate(Track &t, double meas_s, double meas_d) const;
+    void kalmanUpdate(Track &t, const Detection &detection) const;
+    double innovationDistanceSquared(const Track &t, const Detection &detection) const;
+    Eigen::Matrix2d measurementCovariance(const Detection &detection) const;
     void updateStaticReference();
     void classify(Track &t) const;
     double frenetDist(double s1, double d1, double s2, double d2) const;
@@ -131,6 +156,7 @@ class ObstacleTracker
     bool has_last_stamp_{false};
     double static_ref_vs_{0.0};   // static-field reference velocity (Frenet s)
     double static_ref_vd_{0.0};   // static-field reference velocity (Frenet d)
+    TrackerUpdateStats last_stats_;
 };
 
 }  // namespace opponent_detector

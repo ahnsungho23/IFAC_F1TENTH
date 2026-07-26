@@ -421,7 +421,7 @@ private:
 
   std::string global_waypoints_topic_{"/global_waypoints"};
   std::string map_topic_{"/map"};
-  std::string obstacles_topic_{"/perception/obstacles"};
+  std::string obstacles_topic_{"/perception/static_obstacles/cartesian"};
   std::string frenet_odom_topic_{"/car_state/frenet/odom"};
   std::string ot_waypoints_topic_{"/avoid_waypoints"};
   std::string local_waypoints_topic_{"/local_waypoints"};

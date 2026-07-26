@@ -328,7 +328,7 @@ void LocalPlannerNode::initParameters()
     declare_parameter<std::string>("global_waypoints_topic", "/global_waypoints");
   map_topic_ = declare_parameter<std::string>("map_topic", "/map");
   obstacles_topic_ = declare_parameter<std::string>(
-    "obstacles_topic", "/perception/obstacles");
+    "obstacles_topic", "/perception/static_obstacles/cartesian");
   frenet_odom_topic_ =
     declare_parameter<std::string>("frenet_odom_topic", "/car_state/frenet/odom");
   ot_waypoints_topic_ =
@@ -648,6 +648,13 @@ void LocalPlannerNode::onObstacles(
   if (!msg) {
     return;
   }
+  if (!msg->header.frame_id.empty() && msg->header.frame_id != frame_id_) {
+    RCLCPP_WARN_THROTTLE(
+      get_logger(), *get_clock(), 2000,
+      "Ignoring static Cartesian obstacles in frame '%s'; expected '%s'.",
+      msg->header.frame_id.c_str(), frame_id_.c_str());
+    return;
+  }
   const auto update_time = now();
   const double track_length = has_global_ && !global_wpnts_.wpnts.empty() ?
     global_wpnts_.wpnts.back().s_m : 0.0;
@@ -662,7 +669,29 @@ void LocalPlannerNode::onObstacles(
   // Associate nearby static detections with one persistent track. Multiple
   // detections of the same physical object in one message therefore collapse
   // into one filtered obstacle instead of producing competing map boxes.
-  for (const auto & measurement : msg->obstacles) {
+  for (const auto & raw_measurement : msg->obstacles) {
+    if (!raw_measurement.has_cartesian ||
+      !std::isfinite(raw_measurement.x_center) ||
+      !std::isfinite(raw_measurement.y_center) ||
+      !std::isfinite(raw_measurement.radius) ||
+      raw_measurement.radius <= 0.0 ||
+      !std::isfinite(raw_measurement.s_center) ||
+      !std::isfinite(raw_measurement.d_center))
+    {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 2000,
+        "Ignoring a static obstacle without finite x/y/s/d and positive radius.");
+      continue;
+    }
+    auto measurement = raw_measurement;
+    // Preserve main's Frenet lattice and lateral filtering. The Cartesian enclosing-circle radius
+    // is invariant under the local CLCS rotation, so use it as both longitudinal and lateral
+    // half-extent before passing the obstacle into the existing filtered planning grid.
+    measurement.size = 2.0 * measurement.radius;
+    measurement.s_start = measurement.s_center - measurement.radius;
+    measurement.s_end = measurement.s_center + measurement.radius;
+    measurement.d_right = measurement.d_center - measurement.radius;
+    measurement.d_left = measurement.d_center + measurement.radius;
     if (measurement.is_actually_a_gap ||
       (perception_static_only_ && !isPlanningStaticObstacle(measurement)))
     {
@@ -1063,12 +1092,12 @@ void LocalPlannerNode::rebuildPlanningGrid()
               committed_obstacle_match_distance_m_,
               2.5 * perception_grid_rebuild_motion_m_);
             return center_distance <= perception_static_grid_match_gate_m_ &&
-                   interval_gap(
-                     current.s_start, current.s_end,
-                     frozen.s_start, frozen.s_end) <= interval_match_gate &&
-                   interval_gap(
-                     current.d_right, current.d_left,
-                     frozen.d_right, frozen.d_left) <= interval_match_gate;
+            interval_gap(
+              current.s_start, current.s_end,
+              frozen.s_start, frozen.s_end) <= interval_match_gate &&
+            interval_gap(
+              current.d_right, current.d_left,
+              frozen.d_right, frozen.d_left) <= interval_match_gate;
           });
         if (!matches_snapshot) {
           planning_obstacles.push_back(current);
