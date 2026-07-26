@@ -179,7 +179,10 @@ ros2 launch new_map_con opponent_simulator.launch.py
 
 ### 터미널 9 — 상대차 검출기 (opponent detector)
 
-에고 `/scan`으로 상대차를 검출해 `/perception/obstacles`·`/proj_opponent_trajectory`를 발행합니다.
+에고 `/scan`으로 상대차와 정적 장애물을 검출해 `/perception/obstacles`,
+`/perception/static_obstacles/cartesian`, `/proj_opponent_trajectory`를 발행합니다. 로컬
+플래너는 정적 장애물의 Cartesian `(x,y)`와 최대 반지름을 받아 CLCS로 트랙 위상을 보존해 투영한 뒤
+Cartesian `x_m/y_m` 회피 경로를 생성합니다.
 
 ```bash
 cd ~/2026_IFAC

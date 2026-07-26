@@ -21,6 +21,18 @@ double circular_s_distance(double a, double b, double track_length)
   return std::min(diff, track_length - diff);
 }
 
+double forward_s_distance(double from, double to, double track_length)
+{
+  if (!(track_length > 0.0) || !std::isfinite(from) || !std::isfinite(to)) {
+    return std::numeric_limits<double>::infinity();
+  }
+  double distance = std::fmod(to - from, track_length);
+  if (distance < 0.0) {
+    distance += track_length;
+  }
+  return distance;
+}
+
 //global waypoint 배열로부터 트랙 총 길이 추정(마지막 s_m + 마지막 구간 간격).
 double track_length_from(const f110_msgs::msg::WpntArray & global_wpnts)
 {
@@ -47,6 +59,7 @@ StateMachineNode::StateMachineNode()
   //정적 장애물 회피용 local path 토픽. STATE_AVOID 전이에 사용함.
   declare_parameter<std::string>("overtake_waypoints_topic", "/overtake_waypoints");
   //동적 장애물/상대 차량 추월용 local path 토픽. STATE_OVERTAKE 전이에 사용함.
+  declare_parameter<std::string>("obstacles_topic", "/perception/obstacles");
   declare_parameter<std::string>("frame_id", "map");
   //발행하는 /state 메시지의 header.frame_id에 들어가는 값
   declare_parameter<std::string>("default_state", "global");
@@ -56,12 +69,30 @@ StateMachineNode::StateMachineNode()
   //state를 몇 Hz로 publish할지 정함.
   declare_parameter<double>("avoid_stale_timeout_sec", 0.5);
   //avoid_waypoints가 얼마나 오래되면 stale로 볼지 정함.
+  declare_parameter<int>("avoid_path_confirm_count", 5);
+  //STATE_AVOID 진입 전에 연속 수신되어야 하는 유효 avoid_waypoints 메시지 수.
   declare_parameter<double>("overtake_stale_timeout_sec", 0.5);
   //overtake_waypoints가 얼마나 오래되면 stale로 볼지 정함.
   declare_parameter<double>("global_stale_timeout_sec", 0.5);
   //global_waypoints가 얼마나 오래되면 stale로 볼지 정함.
   declare_parameter<double>("frenet_stale_timeout_sec", 0.5);
   ///car_state/frenet/odom이 얼마나 오래되면 stale로 볼지 정함.
+  declare_parameter<bool>("require_obstacles_message", true);
+  declare_parameter<double>("obstacles_stale_timeout_sec", 0.5);
+  declare_parameter<double>("avoid_path_ttl_sec", 0.75);
+  declare_parameter<double>("obstacle_confirm_sec", 0.15);
+  declare_parameter<double>("obstacle_clear_confirm_sec", 0.30);
+  declare_parameter<double>("global_corridor_horizon_m", 12.0);
+  declare_parameter<double>("vehicle_half_width_m", 0.121);
+  declare_parameter<double>("global_corridor_margin_m", 0.10);
+  declare_parameter<double>("avoid_corridor_margin_m", 0.05);
+  declare_parameter<double>("obstacle_longitudinal_margin_m", 0.35);
+  declare_parameter<double>("obstacle_uncertainty_sigma_scale", 1.0);
+  declare_parameter<double>("static_speed_threshold_mps", 0.25);
+  declare_parameter<double>("safe_stop_trigger_distance_m", 1.5);
+  declare_parameter<double>("path_min_length_m", 1.5);
+  declare_parameter<double>("path_start_max_gap_m", 1.0);
+  declare_parameter<double>("path_max_kappa_radpm", 3.0);
 
   // --- Global re-entry parameters ---
   declare_parameter<double>("enter_global_sec", 0.5);
@@ -76,9 +107,37 @@ StateMachineNode::StateMachineNode()
   frame_id_ = get_parameter("frame_id").as_string();
   default_state_name_ = get_parameter("default_state").as_string();
   avoid_stale_timeout_sec_ = get_parameter("avoid_stale_timeout_sec").as_double();
+  const auto configured_avoid_confirm_count =
+    get_parameter("avoid_path_confirm_count").as_int();
+  avoid_path_confirm_count_ = static_cast<std::uint32_t>(
+    std::max<int64_t>(1, configured_avoid_confirm_count));
+  if (configured_avoid_confirm_count < 1) {
+    RCLCPP_WARN(
+      get_logger(),
+      "avoid_path_confirm_count must be at least 1. Clamping configured value %ld to 1.",
+      static_cast<long>(configured_avoid_confirm_count));
+  }
   overtake_stale_timeout_sec_ = get_parameter("overtake_stale_timeout_sec").as_double();
   global_stale_timeout_sec_ = get_parameter("global_stale_timeout_sec").as_double();
   frenet_stale_timeout_sec_ = get_parameter("frenet_stale_timeout_sec").as_double();
+  require_obstacles_message_ = get_parameter("require_obstacles_message").as_bool();
+  obstacles_stale_timeout_sec_ = get_parameter("obstacles_stale_timeout_sec").as_double();
+  avoid_path_ttl_sec_ = get_parameter("avoid_path_ttl_sec").as_double();
+  obstacle_confirm_sec_ = get_parameter("obstacle_confirm_sec").as_double();
+  obstacle_clear_confirm_sec_ = get_parameter("obstacle_clear_confirm_sec").as_double();
+  global_corridor_horizon_m_ = get_parameter("global_corridor_horizon_m").as_double();
+  vehicle_half_width_m_ = get_parameter("vehicle_half_width_m").as_double();
+  global_corridor_margin_m_ = get_parameter("global_corridor_margin_m").as_double();
+  avoid_corridor_margin_m_ = get_parameter("avoid_corridor_margin_m").as_double();
+  obstacle_longitudinal_margin_m_ =
+    get_parameter("obstacle_longitudinal_margin_m").as_double();
+  obstacle_uncertainty_sigma_scale_ =
+    get_parameter("obstacle_uncertainty_sigma_scale").as_double();
+  static_speed_threshold_mps_ = get_parameter("static_speed_threshold_mps").as_double();
+  safe_stop_trigger_distance_m_ = get_parameter("safe_stop_trigger_distance_m").as_double();
+  path_min_length_m_ = get_parameter("path_min_length_m").as_double();
+  path_start_max_gap_m_ = get_parameter("path_start_max_gap_m").as_double();
+  path_max_kappa_radpm_ = get_parameter("path_max_kappa_radpm").as_double();
   enter_global_sec_ = get_parameter("enter_global_sec").as_double();
   enter_global_threshold_ = get_parameter("enter_global_threshold").as_double();
   enter_global_tail_ratio_ = get_parameter("enter_global_tail_ratio").as_double();
@@ -112,6 +171,11 @@ StateMachineNode::StateMachineNode()
     volatile_qos,
     std::bind(&StateMachineNode::on_overtake_wpnts, this, std::placeholders::_1));
 
+  obstacles_sub_ = create_subscription<f110_msgs::msg::ObstacleArray>(
+    get_parameter("obstacles_topic").as_string(),
+    volatile_qos,
+    std::bind(&StateMachineNode::on_obstacles, this, std::placeholders::_1));
+
   const auto period = std::chrono::duration_cast<std::chrono::nanoseconds>(
     std::chrono::duration<double>(1.0 / publish_rate_hz));
   timer_ = create_wall_timer(period, std::bind(&StateMachineNode::publish_state, this));
@@ -143,6 +207,12 @@ std::optional<uint8_t> StateMachineNode::parse_state(const std::string & state_n
   }
   if (state_name == "overtake") {
     return f110_msgs::msg::StateMachine::STATE_OVERTAKE;
+  }
+  if (state_name == "blocked") {
+    return f110_msgs::msg::StateMachine::STATE_BLOCKED;
+  }
+  if (state_name == "safe_stop") {
+    return f110_msgs::msg::StateMachine::STATE_SAFE_STOP;
   }
   return std::nullopt;
 }
@@ -185,13 +255,189 @@ bool StateMachineNode::has_fresh_overtake_wpnts() const
   return has_overtake_wpnts_ && is_fresh(last_overtake_time_, overtake_stale_timeout_sec_);
 }
 
-//STATE_AVOID 전이 게이트: fresh한 avoid path가 있어야 함.
+bool StateMachineNode::has_fresh_obstacles() const
+{
+  return obstacles_msg_ != nullptr &&
+         is_fresh(last_obstacles_time_, obstacles_stale_timeout_sec_);
+}
+
+bool StateMachineNode::is_static_obstacle(
+  const f110_msgs::msg::Obstacle & obstacle) const
+{
+  return obstacle.is_static ||
+         (std::isfinite(obstacle.vs) && std::isfinite(obstacle.vd) &&
+         std::hypot(obstacle.vs, obstacle.vd) <= static_speed_threshold_mps_);
+}
+
+bool StateMachineNode::global_corridor_blocked(double * nearest_distance) const
+{
+  if (nearest_distance != nullptr) {
+    *nearest_distance = std::numeric_limits<double>::infinity();
+  }
+  if (!has_fresh_obstacles() || !has_fresh_frenet() || global_wpnts_msg_ == nullptr) {
+    return false;
+  }
+  const double track_length = track_length_from(*global_wpnts_msg_);
+  if (!(track_length > 0.0)) {
+    return false;
+  }
+  const double ego_s = frenet_odom_msg_->pose.pose.position.x;
+  const double base_envelope = vehicle_half_width_m_ + global_corridor_margin_m_;
+  bool blocked = false;
+  for (const auto & obstacle : obstacles_msg_->obstacles) {
+    if (!is_static_obstacle(obstacle) || !std::isfinite(obstacle.s_center) ||
+      !std::isfinite(obstacle.d_left) || !std::isfinite(obstacle.d_right))
+    {
+      continue;
+    }
+    const double forward = forward_s_distance(ego_s, obstacle.s_center, track_length);
+    if (forward > global_corridor_horizon_m_) {
+      continue;
+    }
+    const double uncertainty = std::isfinite(obstacle.d_var) && obstacle.d_var > 0.0 ?
+      obstacle_uncertainty_sigma_scale_ * std::sqrt(obstacle.d_var) : 0.0;
+    const double d_right = std::min(obstacle.d_right, obstacle.d_left) - uncertainty;
+    const double d_left = std::max(obstacle.d_right, obstacle.d_left) + uncertainty;
+    if (d_right <= base_envelope && d_left >= -base_envelope) {
+      blocked = true;
+      if (nearest_distance != nullptr) {
+        *nearest_distance = std::min(*nearest_distance, forward);
+      }
+    }
+  }
+  return blocked;
+}
+
+bool StateMachineNode::avoid_corridor_free(
+  const f110_msgs::msg::OTWpntArray & path) const
+{
+  if (!has_fresh_obstacles() || global_wpnts_msg_ == nullptr || path.wpnts.empty()) {
+    return false;
+  }
+  const double track_length = track_length_from(*global_wpnts_msg_);
+  if (!(track_length > 0.0)) {
+    return false;
+  }
+  for (const auto & obstacle : obstacles_msg_->obstacles) {
+    if (!is_static_obstacle(obstacle) || !std::isfinite(obstacle.s_center) ||
+      !std::isfinite(obstacle.d_left) || !std::isfinite(obstacle.d_right))
+    {
+      continue;
+    }
+    double longitudinal_half_span = 0.5 * std::abs(obstacle.size);
+    if (std::isfinite(obstacle.s_start) && std::isfinite(obstacle.s_end)) {
+      longitudinal_half_span = 0.5 * std::min(
+        forward_s_distance(obstacle.s_start, obstacle.s_end, track_length),
+        forward_s_distance(obstacle.s_end, obstacle.s_start, track_length));
+    }
+    longitudinal_half_span = std::max(0.025, longitudinal_half_span) +
+      obstacle_longitudinal_margin_m_;
+    const double uncertainty = std::isfinite(obstacle.d_var) && obstacle.d_var > 0.0 ?
+      obstacle_uncertainty_sigma_scale_ * std::sqrt(obstacle.d_var) : 0.0;
+    const double obstacle_right = std::min(obstacle.d_right, obstacle.d_left) - uncertainty;
+    const double obstacle_left = std::max(obstacle.d_right, obstacle.d_left) + uncertainty;
+    const double path_envelope = vehicle_half_width_m_ + avoid_corridor_margin_m_;
+    for (const auto & waypoint : path.wpnts) {
+      if (!std::isfinite(waypoint.s_m) || !std::isfinite(waypoint.d_m)) {
+        return false;
+      }
+      if (circular_s_distance(waypoint.s_m, obstacle.s_center, track_length) >
+        longitudinal_half_span)
+      {
+        continue;
+      }
+      const double path_right = waypoint.d_m - path_envelope;
+      const double path_left = waypoint.d_m + path_envelope;
+      if (path_right <= obstacle_left && path_left >= obstacle_right) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+bool StateMachineNode::avoid_path_valid(
+  const f110_msgs::msg::OTWpntArray & path) const
+{
+  if (!has_fresh_frenet() || global_wpnts_msg_ == nullptr || path.wpnts.size() < 2U) {
+    return false;
+  }
+  const double track_length = track_length_from(*global_wpnts_msg_);
+  if (!(track_length > 0.0)) {
+    return false;
+  }
+  double length = 0.0;
+  for (std::size_t i = 0; i < path.wpnts.size(); ++i) {
+    const auto & waypoint = path.wpnts[i];
+    if (!std::isfinite(waypoint.s_m) || !std::isfinite(waypoint.d_m) ||
+      !std::isfinite(waypoint.x_m) || !std::isfinite(waypoint.y_m) ||
+      !std::isfinite(waypoint.kappa_radpm) ||
+      std::abs(waypoint.kappa_radpm) > path_max_kappa_radpm_)
+    {
+      return false;
+    }
+    if (i > 0U) {
+      length += std::hypot(
+        waypoint.x_m - path.wpnts[i - 1U].x_m,
+        waypoint.y_m - path.wpnts[i - 1U].y_m);
+    }
+  }
+  const double ego_s = frenet_odom_msg_->pose.pose.position.x;
+  const double start_gap = circular_s_distance(ego_s, path.wpnts.front().s_m, track_length);
+  return length >= path_min_length_m_ && start_gap <= path_start_max_gap_m_ &&
+         std::abs(path.wpnts.back().d_m) <= enter_global_threshold_;
+}
+
+bool StateMachineNode::avoid_path_is_safe_stop(
+  const f110_msgs::msg::OTWpntArray & path) const
+{
+  return path.ot_side == "stop";
+}
+
+bool StateMachineNode::ego_near_global() const
+{
+  return has_fresh_frenet() && frenet_odom_msg_ != nullptr &&
+         std::isfinite(frenet_odom_msg_->pose.pose.position.y) &&
+         std::abs(frenet_odom_msg_->pose.pose.position.y) <= enter_global_threshold_;
+}
+
+void StateMachineNode::update_corridor_confirmation(bool blocked)
+{
+  const auto stamp = now();
+  if (blocked) {
+    if (!global_blocked_since_.has_value()) {
+      global_blocked_since_ = stamp;
+    }
+    global_clear_since_.reset();
+  } else {
+    if (!global_clear_since_.has_value()) {
+      global_clear_since_ = stamp;
+    }
+    global_blocked_since_.reset();
+  }
+}
+
+bool StateMachineNode::blocked_confirmed() const
+{
+  return global_blocked_since_.has_value() &&
+         (now() - global_blocked_since_.value()).seconds() >= obstacle_confirm_sec_;
+}
+
+bool StateMachineNode::clear_confirmed() const
+{
+  return global_clear_since_.has_value() &&
+         (now() - global_clear_since_.value()).seconds() >= obstacle_clear_confirm_sec_;
+}
+
+//STATE_AVOID 전이 게이트: 설정 횟수만큼 연속 수신된 fresh한 유효 avoid path가 있어야 함.
 bool StateMachineNode::can_enter_avoid(
-  const rclcpp::Time & stamp,
-  double timeout_sec,
   const f110_msgs::msg::OTWpntArray::SharedPtr msg) const
 {
-  return is_not_null_ptr(stamp,timeout_sec,msg);
+  return has_fresh_avoid_wpnts() &&
+         consecutive_valid_avoid_paths_ >= avoid_path_confirm_count_ &&
+         msg != nullptr && !msg->wpnts.empty() &&
+         avoid_path_valid(*msg) && !avoid_path_is_safe_stop(*msg) &&
+         avoid_corridor_free(*msg);
 }
 
 //STATE_OVERTAKE 전이 게이트: fresh한 overtake path가 있어야 함. 지금당장은 can_enter_avoid와 can_enter_overtake 구조가 같지만 추후 달라질걸 염두해 따로 둠.
@@ -228,20 +474,36 @@ void StateMachineNode::on_global_waypoints(const f110_msgs::msg::WpntArray::Shar
 void StateMachineNode::on_avoid_wpnts(const f110_msgs::msg::OTWpntArray::SharedPtr msg)
 {
   const bool non_empty = (msg != nullptr) && !msg->wpnts.empty();
-  //직전 msg가 fresh하게 채워져 있었을 때만 streak를 이어가고, 비어있었거나 오래 끊겼으면 streak를 새로 시작.
-  const bool streak_continues = has_avoid_wpnts_ && is_fresh(last_avoid_time_, avoid_stale_timeout_sec_);
-  if (non_empty && !streak_continues) {
-    avoid_nonempty_since_ = now();
-  }
+  //직전 유효 경로가 freshness 안에 수신되었을 때만 연속 카운트를 이어간다.
+  const bool streak_continues =
+    consecutive_valid_avoid_paths_ > 0 &&
+    has_avoid_wpnts_ &&
+    is_fresh(last_avoid_time_, avoid_stale_timeout_sec_);
   has_avoid_wpnts_ = non_empty;
   avoid_wpnts_msg_ = msg;
   last_avoid_time_ = now();
+  const bool valid_avoid_path =
+    non_empty &&
+    avoid_path_valid(*msg) &&
+    !avoid_path_is_safe_stop(*msg) &&
+    avoid_corridor_free(*msg);
+  if (valid_avoid_path) {
+    if (!streak_continues) {
+      consecutive_valid_avoid_paths_ = 1;
+    } else if (consecutive_valid_avoid_paths_ < avoid_path_confirm_count_) {
+      ++consecutive_valid_avoid_paths_;
+    }
+    last_valid_avoid_wpnts_msg_ = msg;
+    last_valid_avoid_time_ = last_avoid_time_;
+  } else {
+    consecutive_valid_avoid_paths_ = 0;
+  }
   if (!non_empty) {
     RCLCPP_WARN_THROTTLE(
       get_logger(),
       *get_clock(),
       2000,
-      "Received empty avoid waypoints. STATE_AVOID transition is not allowed.");
+      "Received empty avoid waypoints. STATE_AVOID transition will be blocked.");
   }
 }
 
@@ -261,8 +523,15 @@ void StateMachineNode::on_overtake_wpnts(const f110_msgs::msg::OTWpntArray::Shar
       get_logger(),
       *get_clock(),
       2000,
-      "Received empty overtake waypoints. STATE_OVERTAKE transition is not allowed.");
+      "Received empty overtake waypoints. STATE_OVERTAKE transition will be blocked.");
   }
+}
+
+void StateMachineNode::on_obstacles(
+  const f110_msgs::msg::ObstacleArray::SharedPtr msg)
+{
+  obstacles_msg_ = msg;
+  last_obstacles_time_ = now();
 }
 
 //local path(avoid/overtake)에서 global path로 합류(복귀)해도 되는지 판단한다.
@@ -352,37 +621,90 @@ bool StateMachineNode::evaluate_enter_to_global(
   return enter_to_global(frenet_odom_msg_, local_wpnts, global_wpnts_msg_);
 }
 
-//committed_state_ 기반 FSM 1-step. dwell/안전 fallback 없이 조건 만족 즉시 전이한다.
-//- GLOBAL: 지속된 avoid path면 AVOID(우선), 아니면 지속된 overtake path면 OVERTAKE로 진입.
-//- AVOID/OVERTAKE: enter_to_global 합류 조건을 만족하면 GLOBAL로 복귀.
+//정적 장애물은 GLOBAL -> BLOCKED -> AVOID/SAFE_STOP 순서로 처리한다.
+//동적 상대차용 OVERTAKE 진입/복귀 조건은 기존 동작을 유지한다.
 uint8_t StateMachineNode::resolve_requested_state()
 {
+  const bool obstacles_fresh = has_fresh_obstacles();
+  double nearest_blocker = std::numeric_limits<double>::infinity();
+  const bool global_blocked = obstacles_fresh && global_corridor_blocked(&nearest_blocker);
+  const bool cached_avoid_fresh = last_valid_avoid_wpnts_msg_ != nullptr &&
+    is_fresh(last_valid_avoid_time_, avoid_path_ttl_sec_);
+
   switch (committed_state_) {
     case f110_msgs::msg::StateMachine::STATE_GLOBAL:
-      //진입 우선순위: AVOID > OVERTAKE.
-      if (can_enter_avoid(avoid_nonempty_since_, avoid_stale_timeout_sec_, avoid_wpnts_msg_)) {
-        committed_state_ = f110_msgs::msg::StateMachine::STATE_AVOID;
-        enter_global_ok_since_.reset();  //새 기동 진입: 이전 합류 타이머 잔재 제거.
-        RCLCPP_INFO(get_logger(), "STATE_GLOBAL -> STATE_AVOID (avoid path sustained).");
+      if (global_blocked && blocked_confirmed()) {
+        committed_state_ = f110_msgs::msg::StateMachine::STATE_BLOCKED;
+        enter_global_ok_since_.reset();
+        RCLCPP_INFO(
+          get_logger(), "STATE_GLOBAL -> STATE_BLOCKED (static corridor blocked at %.2f m).",
+          nearest_blocker);
       } else if (can_enter_overtake(
           overtake_nonempty_since_, overtake_stale_timeout_sec_, overtake_wpnts_msg_)) {
         committed_state_ = f110_msgs::msg::StateMachine::STATE_OVERTAKE;
         enter_global_ok_since_.reset();
         RCLCPP_INFO(get_logger(), "STATE_GLOBAL -> STATE_OVERTAKE (overtake path sustained).");
+      } else if (require_obstacles_message_ && !obstacles_fresh) {
+        committed_state_ = f110_msgs::msg::StateMachine::STATE_SAFE_STOP;
+        RCLCPP_WARN(get_logger(), "STATE_GLOBAL -> STATE_SAFE_STOP (static perception stale).");
+      }
+      break;
+
+    case f110_msgs::msg::StateMachine::STATE_BLOCKED:
+      if (!obstacles_fresh) {
+        committed_state_ = f110_msgs::msg::StateMachine::STATE_SAFE_STOP;
+        RCLCPP_WARN(get_logger(), "STATE_BLOCKED -> STATE_SAFE_STOP (static perception stale).");
+      } else if (!global_blocked && clear_confirmed() && ego_near_global()) {
+        committed_state_ = f110_msgs::msg::StateMachine::STATE_GLOBAL;
+        RCLCPP_INFO(get_logger(), "STATE_BLOCKED -> STATE_GLOBAL (false/transient blocker cleared).");
+      } else if (avoid_wpnts_msg_ != nullptr && !avoid_wpnts_msg_->wpnts.empty() &&
+        avoid_path_is_safe_stop(*avoid_wpnts_msg_))
+      {
+        committed_state_ = f110_msgs::msg::StateMachine::STATE_SAFE_STOP;
+        RCLCPP_WARN(get_logger(), "STATE_BLOCKED -> STATE_SAFE_STOP (planner requested safe stop).");
+      } else if (can_enter_avoid(avoid_wpnts_msg_))
+      {
+        committed_state_ = f110_msgs::msg::StateMachine::STATE_AVOID;
+        enter_global_ok_since_.reset();
+        RCLCPP_INFO(get_logger(), "STATE_BLOCKED -> STATE_AVOID (validated static avoidance path).");
+      } else if (nearest_blocker <= safe_stop_trigger_distance_m_) {
+        committed_state_ = f110_msgs::msg::StateMachine::STATE_SAFE_STOP;
+        RCLCPP_WARN(
+          get_logger(), "STATE_BLOCKED -> STATE_SAFE_STOP (blocker %.2f m ahead, no safe path).",
+          nearest_blocker);
       }
       break;
 
     case f110_msgs::msg::StateMachine::STATE_AVOID:
-      //avoid 단계: ego(frenet) + 정적 회피경로(세그먼트) + global 경로로 global 합류 여부 판단.
-      if (evaluate_enter_to_global(
+    {
+      if (!obstacles_fresh && !cached_avoid_fresh) {
+        committed_state_ = f110_msgs::msg::StateMachine::STATE_SAFE_STOP;
+        RCLCPP_WARN(get_logger(), "STATE_AVOID -> STATE_SAFE_STOP (perception/path TTL expired).");
+      } else if (obstacles_fresh && cached_avoid_fresh &&
+        !avoid_corridor_free(*last_valid_avoid_wpnts_msg_))
+      {
+        committed_state_ = f110_msgs::msg::StateMachine::STATE_SAFE_STOP;
+        RCLCPP_WARN(get_logger(), "STATE_AVOID -> STATE_SAFE_STOP (avoid corridor obstructed).");
+      } else if (avoid_wpnts_msg_ != nullptr && !avoid_wpnts_msg_->wpnts.empty() &&
+        avoid_path_is_safe_stop(*avoid_wpnts_msg_))
+      {
+        committed_state_ = f110_msgs::msg::StateMachine::STATE_SAFE_STOP;
+        RCLCPP_WARN(get_logger(), "STATE_AVOID -> STATE_SAFE_STOP (planner requested safe stop).");
+      } else if (clear_confirmed() && ego_near_global() &&
+        evaluate_enter_to_global(
           f110_msgs::msg::StateMachine::STATE_AVOID,
-          has_fresh_avoid_wpnts(),
-          avoid_wpnts_msg_))
+          cached_avoid_fresh,
+          last_valid_avoid_wpnts_msg_))
       {
         committed_state_ = f110_msgs::msg::StateMachine::STATE_GLOBAL;
-        RCLCPP_INFO(get_logger(), "STATE_AVOID -> STATE_GLOBAL (merged back to global line).");
+        RCLCPP_INFO(
+          get_logger(), "STATE_AVOID -> STATE_GLOBAL (merged and global corridor clear).");
+      } else if (!cached_avoid_fresh) {
+        committed_state_ = f110_msgs::msg::StateMachine::STATE_SAFE_STOP;
+        RCLCPP_WARN(get_logger(), "STATE_AVOID -> STATE_SAFE_STOP (avoid path TTL expired).");
       }
       break;
+    }
 
     case f110_msgs::msg::StateMachine::STATE_OVERTAKE:
       //overtake 단계: ego(frenet) + 동적 회피경로(세그먼트) + global 경로로 global 합류 여부 판단.
@@ -393,6 +715,21 @@ uint8_t StateMachineNode::resolve_requested_state()
       {
         committed_state_ = f110_msgs::msg::StateMachine::STATE_GLOBAL;
         RCLCPP_INFO(get_logger(), "STATE_OVERTAKE -> STATE_GLOBAL (merged back to global line).");
+      }
+      break;
+
+    case f110_msgs::msg::StateMachine::STATE_SAFE_STOP:
+      if (obstacles_fresh && !global_blocked && clear_confirmed() && ego_near_global()) {
+        committed_state_ = f110_msgs::msg::StateMachine::STATE_GLOBAL;
+        RCLCPP_INFO(get_logger(), "STATE_SAFE_STOP -> STATE_GLOBAL (corridor clear and ego aligned).");
+      } else if (global_blocked && can_enter_avoid(avoid_wpnts_msg_))
+      {
+        committed_state_ = f110_msgs::msg::StateMachine::STATE_AVOID;
+        enter_global_ok_since_.reset();
+        RCLCPP_INFO(get_logger(), "STATE_SAFE_STOP -> STATE_AVOID (new validated avoidance path).");
+      } else if (global_blocked && blocked_confirmed()) {
+        committed_state_ = f110_msgs::msg::StateMachine::STATE_BLOCKED;
+        RCLCPP_INFO(get_logger(), "STATE_SAFE_STOP -> STATE_BLOCKED (static perception recovered).");
       }
       break;
 
@@ -411,16 +748,24 @@ void StateMachineNode::publish_state()
   const bool frenet_ready = has_fresh_frenet();
   const bool avoid_ready = has_fresh_avoid_wpnts();
   const bool overtake_ready = has_fresh_overtake_wpnts();
-  if (!global_ready || !frenet_ready || !avoid_ready || !overtake_ready) {
+  const bool obstacles_ready = has_fresh_obstacles();
+  if (obstacles_ready) {
+    update_corridor_confirmation(global_corridor_blocked());
+  } else {
+    global_blocked_since_.reset();
+    global_clear_since_.reset();
+  }
+  if (!global_ready || !frenet_ready || !avoid_ready || !overtake_ready || !obstacles_ready) {
     RCLCPP_WARN_THROTTLE(
       get_logger(),
       *get_clock(),
       3000,
-      "State publisher inputs: global=%s frenet=%s avoid_wpnts=%s overtake_wpnts=%s. Publishing conservative state.",
+      "State inputs: global=%s frenet=%s avoid=%s overtake=%s obstacles=%s.",
       global_ready ? "true" : "false",
       frenet_ready ? "true" : "false",
       avoid_ready ? "true" : "false",
-      overtake_ready ? "true" : "false");
+      overtake_ready ? "true" : "false",
+      obstacles_ready ? "true" : "false");
   }
 
   //committed_state_ 기반 FSM 1-step으로 다음 상태 결정 후 발행.

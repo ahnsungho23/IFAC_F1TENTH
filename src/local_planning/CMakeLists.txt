@@ -16,6 +16,7 @@ find_package(nav_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(f110_msgs REQUIRED)
+find_package(global_planning REQUIRED)
 
 include_directories(
   include
@@ -32,6 +33,7 @@ ament_target_dependencies(local_planner_core
   geometry_msgs
   visualization_msgs
   f110_msgs
+  global_planning
 )
 
 add_executable(local_planner_node src/local_planner_main.cpp)

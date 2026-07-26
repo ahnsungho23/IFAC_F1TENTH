@@ -22,6 +22,7 @@
       ──Mahalanobis 연관 + 적응형 등속 칼만──▶ 트랙 [s, vs, d, vd]
       ──속도 기반 정적/동적 분류──▶ is_static
       ──▶ /perception/obstacles (ObstacleArray)
+      ──▶ /perception/static_obstacles/cartesian (정적 전용 x, y, s, d, radius)
       ──▶ /proj_opponent_trajectory (ProjOppTraj, 동적 상대차)
       ──추월 상태머신(Idle→Committed→Cooldown)──▶ /overtake_waypoints (OTWpntArray)
       ──▶ /perception/obstacles/markers (RViz: 상대차 + 추월 라인 초록)
@@ -67,12 +68,17 @@
      정적 강제(백스톱). → "벽과 같은 상대속도면 정적, 다르면 동적."
    - `std`: 최근 창의 `(s,d)` 표준편차로 판정(ForzaETH식, `min_std/max_std`).
    - `both`: 두 방식이 모두 동적일 때만 동적(보수적).
-10. **발행·계측**: 확정 트랙(`hits≥min_hits_confirm`)을 `ObstacleArray`로. 동적 상대차 1대를 골라
+10. **발행·계측**: 확정 트랙(`hits≥min_hits_confirm`)을 `ObstacleArray`로 발행하고, 정적 트랙은
+   `has_cartesian=true`인 `(x_center,y_center,s_center,d_center,radius)`로
+   `/perception/static_obstacles/cartesian`에도 분리 발행한다. `radius`는 검출 AABB 전체를 감싸는
+   원의 반지름으로, `0.5×0.5 m` 정사각형이면 `0.25√2 m`다.
+   동적 상대차 1대를 골라
    `ProjOppPoint`로 누적해 `ProjOppTraj` 발행. 마커는 정적=파랑, 동적=빨강이며 raw/tracked 토픽을
    함께 보면 필터 효과를 비교할 수 있다. 초당 한 번 `DIAG perception` 로그에 빔 수, 노이즈 제거,
    클러스터 수, 단계별 기각, deskew 소스/yaw rate, 연관·생성·삭제 통계를 출력한다.
 
-   Perception은 정적 장애물을 매 스캔 재검출해 `is_static=true`로 반복 발행한다.
+   Perception은 정적 장애물을 매 스캔 재검출해 `is_static=true`, Cartesian `(x,y)`, Frenet
+   `(s,d)`, 최대 반지름 `radius`를 반복 발행한다.
    `ttl_static`은 순간적인 센서 누락만 연결하며, 정적 장애물의 장기 기억과 최종 회피 판단은 로컬
    플래너가 담당한다.
 11. **추월 플래너(상태머신 + PCHIP spline)** — `OvertakePlanner`가 `Idle → Committed → Cooldown`
@@ -296,6 +302,7 @@ ros2 launch opponent_detector opponent_detector.launch.py simulator:=true rviz:=
 
 ```bash
 ros2 topic echo /perception/obstacles          # is_static/vs/vd 확인
+ros2 topic echo /perception/static_obstacles/cartesian  # x/y/s/d/radius 확인
 ros2 topic echo /proj_opponent_trajectory       # 동적 상대차 Frenet 포인트
 # RViz를 따로 띄우려면:
 rviz2 -d install/opponent_detector/share/opponent_detector/rviz/opponent_detector.rviz

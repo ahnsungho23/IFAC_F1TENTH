@@ -29,6 +29,10 @@ struct Detection
     double size{0.0};
     double x{0.0};  // cartesian centroid (map frame), kept for visualization
     double y{0.0};
+    double x_min{0.0};
+    double x_max{0.0};
+    double y_min{0.0};
+    double y_max{0.0};
     // Measurement covariance multiplier derived from range, cluster density, and ego yaw rate.
     // The base variances remain meas_var_s/meas_var_d in YAML.
     double variance_scale{1.0};
@@ -100,6 +104,10 @@ struct Track
     double size{0.0};
     double x_map{0.0};
     double y_map{0.0};
+    double x_min_map{0.0};
+    double x_max_map{0.0};
+    double y_min_map{0.0};
+    double y_max_map{0.0};
     std::deque<std::pair<double, double>> hist;  // (s, d) for the std classifier
 
     double s() const { return x(0); }
