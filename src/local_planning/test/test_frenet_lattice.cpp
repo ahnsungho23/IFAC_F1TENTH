@@ -413,103 +413,6 @@ TEST_F(FrenetLatticeIntegrationTest, PublishesCollisionFreeLatticeAvoidance)
   executor.remove_node(planner);
 }
 
-TEST_F(FrenetLatticeIntegrationTest, PublishesSafeStopWhenEveryLatticeCandidateFails)
-{
-  rclcpp::NodeOptions options;
-  options.parameter_overrides(
-    {
-      rclcpp::Parameter("lookahead_wpnt_num", 80),
-      rclcpp::Parameter("detection_lookahead_wpnt_num", 70),
-      rclcpp::Parameter("obstacle_component_max_area_m2", 0.50),
-      rclcpp::Parameter("lattice_lateral_samples", 1),
-      rclcpp::Parameter("lattice_transition_scales", std::vector<double>{0.55}),
-      rclcpp::Parameter("lattice_recovery_lateral_samples", 1),
-      rclcpp::Parameter(
-        "lattice_recovery_transition_scales", std::vector<double>{0.55}),
-      rclcpp::Parameter("lattice_recovery_min_transition_wpnts", 10),
-      rclcpp::Parameter("lattice_recovery_max_curvature_scale", 1.0),
-      rclcpp::Parameter("lattice_max_curvature_radpm", 0.10),
-      rclcpp::Parameter("lattice_safe_stop_buffer_wpnts", 8),
-      rclcpp::Parameter("timer_period_ms", 20),
-      rclcpp::Parameter("global_waypoints_topic", "/safe_stop/global_waypoints"),
-      rclcpp::Parameter("map_topic", "/safe_stop/map"),
-      rclcpp::Parameter("frenet_odom_topic", "/safe_stop/frenet_odom"),
-      rclcpp::Parameter("ot_waypoints_topic", "/safe_stop/avoid_waypoints"),
-      rclcpp::Parameter("local_path_topic", "/safe_stop/local_path"),
-      rclcpp::Parameter("exact_local_path_topic", "/safe_stop/exact_local_path"),
-      rclcpp::Parameter("marker_topic", "/safe_stop/markers")
-    });
-
-  auto planner = std::make_shared<local_planning::LocalPlannerNode>(options);
-  auto io = std::make_shared<rclcpp::Node>("frenet_lattice_safe_stop_test_io");
-  const auto latched_qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local();
-  const auto volatile_qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable();
-  auto global_publisher = io->create_publisher<f110_msgs::msg::WpntArray>(
-    "/safe_stop/global_waypoints", latched_qos);
-  auto map_publisher = io->create_publisher<nav_msgs::msg::OccupancyGrid>(
-    "/safe_stop/map", latched_qos);
-  auto odom_publisher = io->create_publisher<nav_msgs::msg::Odometry>(
-    "/safe_stop/frenet_odom", volatile_qos);
-
-  f110_msgs::msg::OTWpntArray::SharedPtr latest_avoidance;
-  auto avoidance_subscription =
-    io->create_subscription<f110_msgs::msg::OTWpntArray>(
-    "/safe_stop/avoid_waypoints", volatile_qos,
-    [&latest_avoidance](const f110_msgs::msg::OTWpntArray::SharedPtr message)
-    {
-      latest_avoidance = message;
-    });
-  (void)avoidance_subscription;
-
-  rclcpp::executors::SingleThreadedExecutor executor;
-  executor.add_node(planner);
-  executor.add_node(io);
-  for (int i = 0; i < 10; ++i) {
-    executor.spin_some();
-    std::this_thread::sleep_for(10ms);
-  }
-
-  const auto stamp = io->now();
-  global_publisher->publish(makeStraightGlobalPath(stamp));
-  map_publisher->publish(makeTestMap(stamp));
-
-  nav_msgs::msg::Odometry odometry;
-  odometry.header.frame_id = "map";
-  odometry.pose.pose.position.x = 0.0;
-  odometry.pose.pose.position.y = 0.0;
-  odometry.pose.pose.orientation.w = 1.0;
-
-  const auto deadline = std::chrono::steady_clock::now() + 4s;
-  while (std::chrono::steady_clock::now() < deadline &&
-    (!latest_avoidance || latest_avoidance->ot_line != "frenet_lattice_safe_stop"))
-  {
-    odometry.header.stamp = io->now();
-    odom_publisher->publish(odometry);
-    executor.spin_some();
-    std::this_thread::sleep_for(20ms);
-  }
-
-  ASSERT_NE(latest_avoidance, nullptr);
-  EXPECT_EQ(latest_avoidance->ot_line, "frenet_lattice_safe_stop");
-  EXPECT_TRUE(latest_avoidance->side_switch);
-  ASSERT_GE(latest_avoidance->wpnts.size(), 2U);
-  EXPECT_GT(latest_avoidance->wpnts.front().vx_mps, 0.0);
-  EXPECT_DOUBLE_EQ(latest_avoidance->wpnts.back().vx_mps, 0.0);
-  for (std::size_t i = 0; i < latest_avoidance->wpnts.size(); ++i) {
-    EXPECT_LE(latest_avoidance->wpnts[i].vx_mps, 3.0);
-    EXPECT_LE(latest_avoidance->wpnts[i].ax_mps2, 0.0);
-    if (i > 0U) {
-      EXPECT_LE(
-        latest_avoidance->wpnts[i].vx_mps,
-        latest_avoidance->wpnts[i - 1U].vx_mps + 1e-9);
-    }
-  }
-  EXPECT_LT(latest_avoidance->wpnts.back().x_m, 3.5);
-
-  executor.remove_node(io);
-  executor.remove_node(planner);
-}
-
 TEST_F(FrenetLatticeIntegrationTest, BrakesOnLastValidatedPathDuringReplanGap)
 {
   rclcpp::NodeOptions options;
@@ -626,7 +529,7 @@ TEST_F(FrenetLatticeIntegrationTest, BrakesOnLastValidatedPathDuringReplanGap)
   executor.remove_node(planner);
 }
 
-TEST_F(FrenetLatticeIntegrationTest, UsesRecoveryLatticeBeforeSafeStop)
+TEST_F(FrenetLatticeIntegrationTest, UsesRecoveryLatticeAfterPrimaryFailure)
 {
   rclcpp::NodeOptions options;
   options.parameter_overrides(

@@ -166,10 +166,6 @@ private:
     LatticeCandidate & candidate,
     int start_idx, int window_begin, int window_end,
     bool preferred_left, bool recovery_mode) const;
-  bool buildSafeStopSegment(
-    int start_idx, int count,
-    const std::vector<int> & collision_indices,
-    f110_msgs::msg::WpntArray & segment) const;
   bool buildReplanBrakingSegment(
     const f110_msgs::msg::WpntArray & source,
     int start_idx, int count,
@@ -397,8 +393,8 @@ private:
   int lattice_post_merge_lookahead_wpnts_{40};
   double lattice_merge_lateral_tolerance_m_{0.15};
   int lattice_merge_settle_max_wpnts_{30};
-  int lattice_safe_stop_buffer_wpnts_{8};
-  double lattice_safe_stop_deceleration_mps2_{2.50};
+  int lattice_braking_buffer_wpnts_{8};
+  double lattice_braking_deceleration_mps2_{2.50};
   double lattice_replan_brake_timeout_sec_{1.50};
   double stationary_hold_point_spacing_m_{0.03};
   bool publish_standalone_local_{false};

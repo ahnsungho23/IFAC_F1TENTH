@@ -100,7 +100,7 @@
 - `lattice_post_merge_lookahead_wpnts`: 실제 합류점 뒤에 추가할 충돌 검증 완료 글로벌 waypoint 수
 - `lattice_merge_lateral_tolerance_m`: 실제 차량이 글로벌 라인에 복귀했다고 판단하는 Frenet `d` 허용값
 - `lattice_merge_settle_max_wpnts`: 설계 합류점 이후 동일한 경로 소스를 유지할 수 있는 최대 waypoint 수
-- `lattice_safe_stop_buffer_wpnts`, `lattice_safe_stop_deceleration_mps2`: lattice 전체 실패 시 감속 구간의 정지 여유와 제동 감속도
+- `lattice_braking_buffer_wpnts`, `lattice_braking_deceleration_mps2`: 재계획 제동 prefix의 정지 여유와 제동 감속도
 - `lattice_replan_brake_timeout_sec`: 연속 장애물 재계획 공백에서 직전 전체 회피 경로를 재검사해 사용할 수 있는 최대 시간
 - `frenet_odom_confirm_cycles`: 시작 또는 좌표 점프 후 필요한 연속 정상 입력 수
 - `frenet_odom_invalid_grace_cycles`: 주행 중 무시할 연속 이상 입력 수
@@ -157,9 +157,9 @@ ros2 launch local_planning local_planning.launch.py
 2. Topic을 `/local_planning/markers`로 설정합니다.
 3. 빨간 구체는 그룹화된 장애물 중심, 초록 선은 안전 검사를 통과한 전방 경로입니다. 연두 경계는 안전 회랑, 빨간 횡선은 막힌 구간, 청록/파란 횡선은 좌우 통과 공간, 반투명 주황 구체는 팽창 장애물입니다.
 4. `/local_planning/path`에는 안전 검사를 통과한 경로만 표시됩니다.
-5. 흰색 텍스트 마커에는 safe corridor·트랙·점유·unknown·곡률·횡가속도별 후보 거절 횟수와 직전 계획 latency가 표시됩니다. 기본 후보가 실패하면 복구 lattice를 탐색하고, 복구도 실패하면 점진 감속 구간을 발행합니다.
+5. 흰색 텍스트 마커에는 safe corridor·트랙·점유·unknown·곡률·횡가속도별 후보 거절 횟수와 직전 계획 latency가 표시됩니다. 기본 후보가 실패하면 복구 lattice를 탐색합니다.
 
-`/avoid_waypoints.ot_line`은 상태를 알려줍니다. 정상 lattice 경로는 `frenet_lattice_segment`, 복구 탐색 경로는 `frenet_lattice_recovery`, 연속 장애물 재계획 공백의 재검증 제동 경로는 `frenet_lattice_replan_brake`, 짧은 입력 이상 중 유지되는 경로는 기존 이름 뒤에 `_held`, lattice 전체 실패 후 글로벌 기준 감속 구간은 `frenet_lattice_safe_stop`, 감속 경로가 소진된 뒤 현재 위치에서 정지하며 재계획하는 경로는 `frenet_lattice_stationary_hold`, 정지 위치조차 충돌 검사를 통과하지 못하면 `no_safe_path`, 유지 제한시간이 끝난 Frenet 입력 이상은 `invalid_frenet_odom`입니다.
+`/avoid_waypoints.ot_line`은 상태를 알려줍니다. 정상 lattice 경로는 `frenet_lattice_segment`, 복구 탐색 경로는 `frenet_lattice_recovery`, 연속 장애물 재계획 공백의 재검증 제동 경로는 `frenet_lattice_replan_brake`, 짧은 입력 이상 중 유지되는 경로는 기존 이름 뒤에 `_held`, 감속 경로가 소진된 뒤 현재 위치에서 정지하며 재계획하는 경로는 `frenet_lattice_stationary_hold`, 정지 위치조차 충돌 검사를 통과하지 못하면 `no_safe_path`, 유지 제한시간이 끝난 Frenet 입력 이상은 `invalid_frenet_odom`입니다.
 
 `freeze_committed_static_obstacles=true`이면 경로 확정 시점의 정적 장애물 박스를 merge 완료까지
 고정합니다. `committed_obstacle_match_distance_m` 안의 후속 검출은 같은 장애물의 jitter로 보고
