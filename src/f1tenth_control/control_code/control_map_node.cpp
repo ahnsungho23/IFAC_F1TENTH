@@ -29,6 +29,10 @@ using namespace f1tenth_control;
 
 namespace {
 
+// 조향각 물리 한계 [rad] — 하드웨어 기준값(±23.5°). rate limit/클리핑과 조향 권한 속도 캡이
+// 같은 값을 봐야 하므로 상수 한 곳에서 정의한다.
+constexpr double MAX_STEERING_ANGLE = 0.41;
+
 // 전 구간 최근접 웨이포인트 스캔. 반환 {최단거리, 인덱스}.
 // (경로 최초 수신 초기화 / 윈도우 이탈 fail-safe 재탐색 / 로컬 짧은 경로 — 3곳 공용)
 std::pair<double, size_t> scan_closest(const std::vector<Waypoint>& wps, double x, double y) {
@@ -157,7 +161,17 @@ public:
         this->declare_parameter<double>("max_roll_limit", 0.15);
         this->declare_parameter<double>("decel_attenuation", 0.6);
         this->declare_parameter<double>("base_max_accel", 4.0);
+        // base_max_decel: **명령 속도의 하강 rate limit 전용** [m/s²] (control_loop 8의 램프).
+        //   차가 실제로 낼 수 있는 감속도가 아니라 "명령을 얼마나 빨리 떨어뜨릴 수 있나"이므로
+        //   낮추면 오히려 감속 명령이 늦게 도달한다 → 높게 유지할 것.
         this->declare_parameter<double>("base_max_decel", 8.0);
+        // prebrake_decel: **곡률 사전감속 계산 전용** [m/s²] (control_loop 1.5의 룩어헤드 거리
+        //   v²/2a 와 backward-pass v_reach). 2026-07-25 실차 bag에서 base_max_decel과 분리.
+        //   ⚠️ 여기엔 차의 **실측 감속 권한**을 넣어야 한다. 07-25 bag 기준 주행 중 실측은
+        //   약 -0.4 m/s²(명령 4.00→3.11로 내렸는데 실속 4.03→3.80). VESC 속도모드는 회생제동이
+        //   거의 없어 사실상 coast다. 8.0을 쓰면 4 m/s에서 제동거리를 1.0m로 착각해 사전감속
+        //   개시가 ~16배 늦어진다(→ 시케인 언더스티어 크래시). 실측 스텝 테스트 전 잠정 1.5.
+        this->declare_parameter<double>("prebrake_decel", 1.5);
 
         // 기동 실패(VESC 센서리스 탈조) 가드 — 아래 control_loop 8-b 참고.
         // ⚠️ "명령이 실측보다 앞서지 못하게" 일반 clamp를 거는 방식은 쓰면 안 된다. VESC 속도
@@ -186,8 +200,21 @@ public:
         this->declare_parameter<double>("min_speed", 2.0);
 
         // 곡률 룩어헤드 감속 파라미터
-        this->declare_parameter<int>("curvature_lookahead_count", 20);
+        this->declare_parameter<int>("curvature_lookahead_count", 60);
         this->declare_parameter<double>("max_lateral_accel", 6.0);
+        // 조향 권한 캡 (2026-07-26 추가) — 곡률 캡이 **그립만** 보던 구멍을 메운다.
+        //   정상상태 자전거 모델: δ = L·κ + K_us·a_lat = L·κ + K_us·κ·v²
+        //   δ ≤ δ_avail 로 풀면  v ≤ √( (δ_avail − L·κ) / (K_us·κ) )
+        //   ⚠️ 이건 그립 캡과 **다른 물리**다. 그립은 "타이어가 그 횡가속을 낼 수 있나",
+        //      조향은 "바퀴가 그만큼 꺾일 수 있나"다. 07-26 실차 bag의 κ=1.190(R=0.84m)
+        //      헤어핀에서 그립 한계는 2.11 m/s인데 조향 한계는 0.87 m/s — 조향이 먼저 걸린다.
+        //      그립만 보면 컨트롤러가 2배 빠르게 진입해 풀락(0.410)에도 안 돌아가고
+        //      크로스트랙이 0.11 → 2.07m로 발산했다(실제 이탈).
+        //   understeer_gradient=0 이면 이 항 전체 비활성(구 거동).
+        this->declare_parameter<double>("understeer_gradient", 0.019); // K_us [rad/(m/s²)] — 07-25 bag 회귀 실측
+        // δ_max 중 곡률 추종에 배정할 비율. 나머지는 횡오차 보정·요레이트 피드백·노면 외란용
+        // 여유로 남긴다. 1.0으로 두면 정상 곡률에서 이미 풀락이라 보정 여력이 0이 된다.
+        this->declare_parameter<double>("steer_authority_ratio", 0.85);
         this->declare_parameter<double>("curvature_ff_blend", 0.0); // 곡률 FF 비활성: 검증된 순수 L1 격리 (원본 MAP 컨트롤러 미보유 항목)
         this->declare_parameter<std::string>("odom_topic", "/ego_racecar/odom");
 
@@ -235,6 +262,7 @@ public:
         this->get_parameter("launch_exit_speed", launch_exit_speed_);
         this->get_parameter("launch_standstill_speed", launch_standstill_speed_);
         this->get_parameter("base_max_decel", base_max_decel_);
+        this->get_parameter("prebrake_decel", prebrake_decel_);
         this->get_parameter("use_imu", use_imu_);
         this->get_parameter("imu_angular_scale", imu_angular_scale_);
         this->get_parameter("imu_linear_scale", imu_linear_scale_);
@@ -250,6 +278,8 @@ public:
         this->get_parameter("curvature_lookahead_count", cl_count);
         curvature_lookahead_count_ = static_cast<size_t>(cl_count);
         this->get_parameter("max_lateral_accel", max_lateral_accel_);
+        this->get_parameter("understeer_gradient", understeer_gradient_);
+        this->get_parameter("steer_authority_ratio", steer_authority_ratio_);
         this->get_parameter("curvature_ff_blend", curvature_ff_blend_);
 
         acc_now_ = std::vector<double>(10, 0.0);
@@ -319,8 +349,12 @@ public:
         obstacle_brake_enable_ = this->declare_parameter<bool>("obstacle_brake_enable", true);
         obstacle_raw_topic_ = this->declare_parameter<std::string>(
             "obstacle_raw_topic", "/perception/detection/raw_obstacles");
-        // v_cap 산출용 감속도. base_max_decel(8.0)보다 낮게 잡아 사전감속 커브를 보수적으로 —
-        // 실제 감속은 램프의 max_decel이 담당하므로 이 값이 낮으면 더 일찍/완만히 제동한다.
+        // v_cap 산출용 감속도. 실제 감속은 램프의 max_decel이 담당하므로 이 값이 낮으면 더
+        // 일찍/완만히 제동한다.
+        // ⚠️ 2026-07-25 미해결: 이 값도 prebrake_decel과 같은 성격(실측 감속 권한)인데 6.0은
+        //    실측(~0.4 m/s²)보다 훨씬 낙관적이다. 즉 장애물 앞 정지거리를 실제의 1/15로 보고
+        //    있어 늦게 제동한다. 장애물 회피/추월 거동에 직접 영향이 있어 곡률 사전감속과
+        //    분리해 별도 실차 검증 후 조정할 것(무턱대고 낮추면 상대차만 봐도 기어간다).
         obstacle_brake_decel_ = this->declare_parameter<double>("obstacle_brake_decel", 6.0);
         obstacle_stop_gap_ = this->declare_parameter<double>("obstacle_stop_gap", 1.0);       // 장애물 앞 정지 여유[m]
         obstacle_corridor_halfwidth_ = this->declare_parameter<double>("obstacle_corridor_halfwidth", 0.35); // 통로 반폭(차폭/2+여유)[m]
@@ -711,7 +745,7 @@ private:
         speed_ratio = std::max(0.0, std::min(1.0, speed_ratio));
         double final_speed = target_min_speed + speed_ratio * (max_speed - target_min_speed);
 
-        double steer_ratio = std::abs(final_steering_angle) / 0.41;
+        double steer_ratio = std::abs(final_steering_angle) / MAX_STEERING_ANGLE;
         final_speed *= (1.0 - 0.50 * steer_ratio);
 
         double speed_error = final_speed - current_speed_;
@@ -852,38 +886,89 @@ private:
         double lateral_error = min_dist;
 
         // 1.5 곡률 룩어헤드 사전 감속 (Curvature Lookahead Pre-deceleration)
+        // 1.5 곡률 룩어헤드 사전 감속 (Curvature Lookahead Pre-deceleration)
         // 속도비례 룩어헤드: 현재속도 제동거리(v^2/2a)만큼 전방 곡률을 미리 스캔.
-        // 고정 2m는 고속 진입 시 감속 개시가 늦어 헤어핀 오버스피드 → 제동거리만큼 확장.
-        double brake_dist = (current_speed_ * current_speed_) / (2.0 * std::max(0.1, base_max_decel_));
+        // 추가: 글로벌 경로 형상 Adaptive 룩어헤드 (전방 12m 스캔하여 시케인/헤어핀 등 고곡률 코너 감지 시 룩어헤드 확장)
+        double brake_dist = (current_speed_ * current_speed_) / (2.0 * std::max(0.1, prebrake_decel_));
         double min_lookahead_dist = static_cast<double>(curvature_lookahead_count_) * 0.1; // 기존 고정값을 하한으로 유지
-        double curv_lookahead_dist = std::max(min_lookahead_dist, brake_dist);
+
+        // 경로 형상 Adaptive 룩어헤드: 전방 12m 내 고곡률 피크 지점 감지
+        double adaptive_lookahead_dist = min_lookahead_dist;
+        const double path_scan_horizon = 12.0;
+        walk_forward(wps, closest_idx, path_scan_horizon, path_closed,
+                     [&](size_t i, double accum) {
+            double k_i = std::abs(wps[i].smoothed_curvature);
+            if (k_i > 0.4) { // 고곡률 코너 감지 시 코너 피크 지점까지 룩어헤드 확장
+                adaptive_lookahead_dist = std::max(adaptive_lookahead_dist, accum + 1.0);
+            }
+            return true;
+        });
+
+        double curv_lookahead_dist = std::max({min_lookahead_dist, brake_dist, adaptive_lookahead_dist});
 
         // 프로파일 신뢰형 사전감속 (backward-pass): 오프라인 최적화된 프로파일 vx_mps는 이미
         // 각 지점의 최적 속도(코너 감속 램프 포함)를 담고 있다는 전제로, 전방 각 지점의 그립
         // 제한 목표속도 v_cap[i] = min(vx_profile[i], √(a_lat/κ_smoothed[i]))까지
-        // base_max_decel로 감속 가능한 현재 최대 속도 v_reach = √(v_cap[i]² + 2·a_decel·d_i)의
+        // prebrake_decel로 감속 가능한 현재 최대 속도 v_reach = √(v_cap[i]² + 2·a_decel·d_i)의
         // 최소값을 사전감속 캡으로 쓴다(accum=0인 현재 위치 항이 순간 그립 클램프 역할도 겸함).
         // 직선·완만구간은 κ≈0 → v_cap=프로파일이라 안 눌리고, 코너는 제동거리만큼 앞에서부터
         // 정확히 그립속도로 선제동된다. (구 방식인 "창 내 최대 κ로 √(a_lat/κ) 블랭킷 재캡"은
         // 프로파일보다 낮은 속도로 전 구간을 과잉감속시켜 폐기 — 상세 비교는 CLAUDE.md 참고.)
         double curvature_speed_limit = std::numeric_limits<double>::max();
+        // 진단용: 조향 권한이 그립보다 먼저 걸린 최악 지점(튜닝 로그에만 쓰임)
+        double steer_bound_k = 0.0, steer_bound_v = 0.0;
         walk_forward(wps, closest_idx, curv_lookahead_dist, path_closed,
                      [&](size_t i, double accum) {
             double v_cap_i = wps[i].speed;
             double k_i = std::abs(wps[i].smoothed_curvature);
             if (k_i > 0.01) {
-                v_cap_i = std::min(v_cap_i, std::sqrt(max_lateral_accel_ / k_i));
+                // (a) 그립 한계: a_lat = κ·v² ≤ a_lat_max
+                double v_grip = std::sqrt(max_lateral_accel_ / k_i);
+                v_cap_i = std::min(v_cap_i, v_grip);
+
+                // (b) 조향 권한 한계 (2026-07-26) — δ = L·κ + K_us·κ·v² ≤ δ_avail
+                if (understeer_gradient_ > 1e-6) {
+                    double steer_budget = steer_authority_ratio_ * MAX_STEERING_ANGLE
+                                          - wheelbase_ * k_i;
+                    // budget ≤ 0 → 기구학적으로도 못 도는 곡률(R < L/tanδ_avail).
+                    // 여기서 0으로 두면 아래 backward-pass가 "가능한 한 늦게까지 감속"으로
+                    // 자연히 처리하고, 최종 min_speed_ 하한이 정지는 막는다.
+                    double v_steer = (steer_budget > 0.0)
+                        ? std::sqrt(steer_budget / (understeer_gradient_ * k_i))
+                        : 0.0;
+                    if (v_steer < v_cap_i) {
+                        v_cap_i = v_steer;
+                        if (k_i > steer_bound_k) {   // 창 안에서 가장 조인 곡률만 기록
+                            steer_bound_k = k_i;
+                            steer_bound_v = v_steer;
+                        }
+                    }
+                }
             }
-            double v_reach = std::sqrt(v_cap_i * v_cap_i + 2.0 * base_max_decel_ * accum);
+            double v_reach = std::sqrt(v_cap_i * v_cap_i + 2.0 * prebrake_decel_ * accum);
             if (v_reach < curvature_speed_limit) {
                 curvature_speed_limit = v_reach;
             }
             return true;
         });
+        // ⚠️ min_speed_ 하한이 조향 캡보다 높으면 캡이 무력화된다. 07-26 실차의 κ=1.190은
+        //    조향 한계가 0.87 m/s라 min_speed_=2.5로는 여전히 못 돈다 — 고곡률 트랙에선
+        //    min_speed를 함께 낮춰야 이 캡이 실제로 일을 한다(런치 인자).
+        if (steer_bound_k > 0.0 && steer_bound_v < min_speed_) {
+            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                "조향 권한 한계 %.2f m/s (κ=%.3f, R=%.2fm) < min_speed %.2f — 하한이 캡을 무력화 중",
+                steer_bound_v, steer_bound_k, 1.0 / steer_bound_k, min_speed_);
+        }
         curvature_speed_limit = std::max(min_speed_, curvature_speed_limit);
 
         // 2. L1 Guidance Distance 계산 및 L1 Point 스캔
+        // 코너(시케인/헤어핀) 구간에서는 L1 룩어헤드를 적절히 축소하여 조향 반응성을 높이고 외벽 침범 억제
+        double curv_closest = std::abs(wps[closest_idx].smoothed_curvature);
         double L1_distance = l1_gain_ + current_speed_ * l1_distance_;
+        if (curv_closest > 0.3) {
+            double curv_factor = std::min(1.0, (curv_closest - 0.3) / 1.0);
+            L1_distance *= (1.0 - 0.25 * curv_factor); // 고곡률 진입 시 L1 최대 25% 축소
+        }
         double lower_bound = std::max(t_clip_min_, std::sqrt(2.0) * lateral_error);
         L1_distance = std::max(lower_bound, std::min(L1_distance, t_clip_max_));
 
@@ -1030,7 +1115,7 @@ private:
         steering_angle = std::max(last_steering_angle_ - threshold, std::min(steering_angle, last_steering_angle_ + threshold));
 
         // 5) 물리 한계 적용
-        steering_angle = std::max(-0.41, std::min(steering_angle, 0.41));
+        steering_angle = std::max(-MAX_STEERING_ANGLE, std::min(steering_angle, MAX_STEERING_ANGLE));
         last_steering_angle_ = steering_angle;
 
         // 7. 종방향 제어 명령 (Target Speed) 산출
@@ -1298,7 +1383,8 @@ private:
     bool launch_active_ = false;       // 현재 펀치 중
     double launch_time_ = 0.0;         // 현재 펀치 누적 시간 [s]
     bool launch_latched_off_ = false;  // 관통 실패로 포기 상태(차가 실제로 움직일 때까지 재시도 안 함)
-    double base_max_decel_;
+    double base_max_decel_;                    // 명령 속도 하강 rate limit [m/s²]
+    double prebrake_decel_ = 1.5;              // 곡률 사전감속 계산용 실측 감속 권한 [m/s²]
     bool use_imu_;
     double imu_angular_scale_;
     double imu_linear_scale_ = 1.0;
@@ -1312,6 +1398,8 @@ private:
     // 곡률 룩어헤드 감속
     size_t curvature_lookahead_count_;
     double max_lateral_accel_;
+    double understeer_gradient_ = 0.019;    // K_us [rad/(m/s²)] — 조향 권한 캡용, 0이면 비활성
+    double steer_authority_ratio_ = 0.85;   // δ_max 중 곡률 추종 배정 비율
     double curvature_ff_blend_;
 
     // IMU Rolling Buffer

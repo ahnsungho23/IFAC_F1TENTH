@@ -4,6 +4,134 @@
 
 ---
 
+## 2026-07-25 — 🛠 rosbag → LUT 캘리브레이션 오프라인 도구 (`tools/lut_calibrator/`)
+
+"지나간 rosbag으로도 LUT 보정이 되나?"에서 출발. 된다는 걸 07-25 5랩 bag으로 확인한 뒤
+(노드 띄우고 bag 실시간 재생), 그 절차를 도구로 자동화했다.
+
+### 1. 먼저 수동으로 확인 — 됨
+`lut_calibration.launch.py` + `ros2 bag play`로 07-25 5랩 bag 처리 → 샘플 3364개.
+⚠️ 그 bag엔 `/imu/data`가 없고 `/sensors/imu/raw`만 있어(Madgwick 미기동) **리매핑 필수**:
+`ros2 bag play <bag> --remap /sensors/imu/raw:=/imu/data`. 노드는 `angular_velocity.z`만
+쓰고 orientation은 안 써서 raw로도 결과가 동일하다.
+
+### 2. 오프라인 도구 (`calibrate_lut_from_bag.py`)
+`lut_calibrator_node.cpp`와 **같은 수식·같은 파일 포맷**. `calibration_state.csv` 양방향
+호환이라 온라인/오프라인을 섞어 누적해도 된다(C++ 노드가 파이썬이 쓴 상태를 로드하는 것까지 검증).
+- 95초 bag: 95초(실시간 재생) → **1초 미만**. bag 12개: ~10분 → 수 초
+- bag 타임스탬프 순 **전량 결정론적** 처리(온라인은 DDS 큐 depth 10 드롭 가능)
+- IMU 토픽 자동 판별(`/imu/data` ↔ `/sensors/imu/raw`), 여러 bag 한 번에 누적
+
+### 3. 자동 안전장치 2가지 (이 도구의 핵심)
+- **IMU 단위 검증** — deg/s 미보정은 `a_lat`을 57배로 부풀려 LUT를 오염시키는데, 이 노드는
+  `/drive`를 발행하지 않아 **주행 중 증상이 전혀 없다.** 실측 IMU 요레이트를 조향 기구학
+  기대치(`v·tanδ/L`, 정의상 rad/s)와 RMS 대조해 어긋나면 올바른 스케일을 제시하고 폐기 권고.
+  (odom의 `angular.z`를 안 쓰는 이유: `/pf/pose/odom`엔 그 필드가 0으로 비어 있음)
+- **시뮬 데이터 차단** — `/ego_racecar/odom` 보이면 스킵. LUT는 실차 sysid 자산.
+  [[steering-lut-provenance]]
+
+### 4. 부수 확인 — 슬립 진단이 독립적으로 재현됨
+단위 검증 비율이 실측 **0.72배**(IMU가 기구학 기대치보다 덜 돎). 07-24 세션의 "조향 지시보다
+덜 돎(언더스티어/슬립)" 진단과 **독립 경로로 일치.** [[imu-noise-yaw-lag-tools]]
+
+### 5. 진짜 병목은 도구가 아니라 데이터 커버리지
+07-24·07-25 실차 bag **12개 전부**를 넣어도 그리드 커버리지 **9.1%**(356/3900셀),
+속도 범위 **1.0~2.4 m/s**. 조향은 0.40 rad(물리한계 0.41)까지 닿았으니 **부족한 건 속도축** —
+저속 셰이크다운만 있었기 때문. 샘플 0인 셀은 원본 LUT 그대로 남으므로(prior), **실그립 피크
+보정은 더 빠른 주행 bag이 나오기 전엔 불가능.** 터미널 ASCII 커버리지 맵으로 바로 보인다.
+
+### 검증
+같은 bag에서 C++ 온라인 노드와 대조: 샘플 3363 vs 3364, 커버리지 136/3900 **동일**,
+블렌딩 LUT는 3900셀 중 66셀만 미세차(최대 상대차 19%). 원인은 콜백 도착 순서 —
+온라인은 DDS 전달 순서에 따라 IMU 시점의 캐시 speed/steering이 달라져 샘플이 인접 셀로
+흩어진다. 오프라인이 결정론적·재현 가능.
+
+### 6. 무터미널 웹앱 (`tools/lut_calibrator/webapp/`)
+bag_analyzer 웹앱과 같은 방식(sql.js WASM 인라인 + 직접 짠 JS CDR 파서)으로, 브라우저에
+rosbag 폴더를 드래그하면 보정 LUT CSV를 내려받는 버전. sql.js는 bag_analyzer의 vendor를
+심볼릭 링크로 재사용하고, 베이스 LUT는 빌드 시 페이지에 인라인.
+- 배포 URL: https://claude.ai/code/artifact/0bd7693f-3c83-4f0b-bcad-630fbce98c49
+- 여러 bag 동시 드래그(폴더별 그룹핑), 커버리지 히트맵(셀 hover), 누적 브라우저 저장,
+  이전 `calibration_state.csv` 드래그로 이어쌓기
+- **CLI와 바이트 단위 동일** — 헤드리스 Chrome 엔드투엔드로 실차 bag 처리 후 SHA-256 대조:
+  보정 LUT `8f2d9ac5…`, 상태 CSV `7ef028ae…` 양쪽 일치(샘플 3363·커버리지 136/3900도 동일)
+- 그 과정에서 축 반올림 규약 차이를 발견 — C/Python은 half-to-even, JS는 half-up이라
+  `0.6015625` 같은 정확한 half 값에서 축이 1e-6 어긋났다. **축(첫 행·첫 열)은 재포맷하지 않고
+  원본 문자열을 보존**하도록 CLI·웹앱 양쪽 수정(값이 바뀔 이유가 없는 자리). C++ 노드는
+  여전히 축까지 `%g`로 쓰므로 축 표기만 다르고 파싱 결과는 동일.
+- ⚠️ sqlite3(.db3) bag만 지원 — Jazzy 기본은 mcap이라 `-s sqlite3` 필요
+  [[jetson-reinit-todo-2026-07-26]]
+
+관련 메모: [[steering-lut-provenance]] [[imu-noise-yaw-lag-tools]]
+[[jetson-reinit-todo-2026-07-26]]
+
+---
+
+## 2026-07-25 — ✅ "경로 ≠ MCL / 출발 조향 랜덤" 근본원인 = 맵 불일치 규명 + F1_MAP 통일 origin/main 반영 + 5랩 라이브 검증 (데드존은 푸시스타트 회피)
+
+07-24 실차 rosbag(`~/rosbag_log/run_0724_*` 8개)을 웹앱/직접 CDR 파싱으로 분석해, 오래 끌던
+두 증상 — **① 글로벌 경로와 MCL이 한 번도 안 맞음 ② 출발하자마자 매번 왼/오 제멋대로 조향** —
+의 근본원인이 **동일하게 "맵 불일치"** 임을 확정하고, F1_MAP 통일을 origin/main에 반영해
+학교 팀이 **5랩 완주**로 라이브 검증했다.
+
+### 1. 근본원인 = 차와 경로가 서로 다른 지도를 봄 (맵 불일치)
+bag의 `/pf/pose/odom`(MCL 추정)과 `/global_waypoints`(경로)를 같은 map 프레임에서 좌표 대조:
+- **pf(차 위치) x[3.8, 8.8]** (전부 양수) vs **global(경로) x[-18.5, 0.0]** (전부 음수~0) → **겹침 0.**
+- global origin `[-20.3, -1.4]` = **ifac_track**. pf가 놓인 x[3.8,8.8] = 젯슨 SLAM **`map`**.
+- ⇒ **MCL은 `map`에 localize, global_planning은 `ifac_track` 라인을 발행.** 로컬라이제이션
+  자체가 틀린 게 아니라, 차와 경로가 **다른 지도**에 있어 영원히 안 맞은 것.
+
+### 2. "출발 조향 매번 왼/오 랜덤" = 같은 원인 (8개 bag 교차확인)
+각 bag의 pf 시작 pose·경로 최근접점·출발 15프레임 평균 조향을 뽑음:
+- **pf 시작 위치가 런마다 -7.2 ~ +11.3m로 제각각** — 초기포즈(`/initialpose`) 미설정 → MCL이
+  매번 다른 데로 수렴. (사용자가 봤던 "이니셜포즈 안 맞음"의 정체)
+- 컨트롤러는 그 (틀린) pose로 경로 최근접점을 찾아 L1 타깃을 잡음 → 차가 맵 밖에 떨어져 있으면
+  타깃 방향이 arbitrary → **출발 조향 +21.8°(왼끝) ~ −20.4°(오른끝)로 매번 뒤집힘.**
+- 즉 조향 로직 버그가 아니라 **localization·맵 입력이 흔들려서** 컨트롤러 입력이 매번 달라진 것.
+
+### 3. 부수 발견 — sim/real 프레임 오염
+bag의 /tf에 **`map→odom`(실차 MCL)과 `map→ego_racecar/base_link`(시뮬 gym, last=(26.7,40.1))가
+공존.** 팀원이 "다 실차 모드"라 했지만 **gym_bridge(시뮬)가 같이 떠 있었다** → map→odom 오염.
+⇒ 실차는 f110 브링업만, ego_racecar 프레임 보이면 시뮬 혼입.
+
+### 4. 해결 — F1_MAP 환경변수로 세 스택 맵 통일 (origin/main 반영)
+- `mcl_launch.py`/`global_planning.launch.py`/`local_planning.launch.py`가 `F1_MAP` env(기본
+  ifac_track)로 같은 맵을 보게 통일. **origin/main 커밋 35ff8af** (랩탑 clean worktree로 push).
+- **맵 파일 저장 위치 확정**: MCL·local 둘 다 **`particle_filter_cpp/maps/<F1_MAP>.{png,yaml}`** 에서
+  읽음 = `src/monte_carlo_localization/maps/` + `install/particle_filter_cpp/share/particle_filter_cpp/maps/`
+  (젯슨 install은 심링크 아님 → 둘 다, 또는 `colcon build --packages-select monte_carlo_localization`).
+- ⚠️ **global은 png 대신 raceline을 씀** — 새 맵은 `offline_trajectory_generator/output/<map>/`
+  raceline **수동 재생성** 필수(안 하면 ifac_track로 폴백 = 또 불일치). [[f1map-name-unification]]
+
+### 5. 라이브 검증 ✅ — 5랩 완주
+학교 팀이 F1_MAP 통일 스택으로 **max_speed 2.5 / min_speed 0.5로 5랩 완주.** 맵 정합 후
+pose·경로가 같은 지도를 봐서 컨트롤러 타깃 정상화 = **1·2번 진단 확정.**
+
+### 6. 웹앱(bag analyzer) 수정
+옛 웹앱은 차 위치를 `map→odom→base_link` TF 합성으로 그렸는데, 이 bag들의 **map→odom이 거의
+identity(0)** 라 사실상 생 odom(원점 근처)을 찍어 경로와 어긋나 **보였다**(착시). **`/pf/pose/odom`
+(진짜 map프레임 추정)을 직접 쓰도록 수정** + "위치소스" 라벨 표시. 같은 아티팩트 URL 유지.
+※ 수정 후엔 웹앱이 **진실(차≠경로, 맵 불일치)** 을 정직하게 보여줌 — 표시 버그가 아니라 데이터가 그랬던 것.
+
+### 7. VESC 데드존 — 미해결, 푸시스타트로 회피 중
+5랩 완주의 **출발은 푸시스타트**(사용자 지시). 즉 데드존 자체는 미해결이고 회피만 지속.
+- min_speed 0.5가 센서리스 데드존 상단(0.49) **바로 위**라 랩 중 재스톨은 안 남(부수효과, 아슬아슬).
+- 근본책 미착수 — 다음 세션: **오픈루프 전류 ~20A 상향**(친구 제안, HFI보다 우선 시도) → 안 되면 HFI.
+  [[vesc-deadzone-confirmed-pushstart]]
+
+### 후속 과제 (다음 실차 세션)
+1. **데드존 근본해결**: VESC Tool로 오픈루프 전류 ~20A 상향(먼저) → 미해결 시 HFI(돌극성 marginal).
+2. **초기포즈**: 매 시작 전 RViz 2D Pose Estimate로 실제 출발점 정확히 찍기(통일해도 이게 없으면 pose 튐).
+3. **맵 통일 실사용**: `export F1_MAP=<맵>` 후 7터미널 기동, `--show-args`로 셋 다 같은 맵인지 확인.
+   젯슨은 통일 안 된 로컬 버전 남아있을 수 있음 → `git checkout` 후 pull.
+4. **raceline 재생성**: 새 맵마다 `offline_trajectory_generator/output/<map>/` (global 정합).
+5. **gym_bridge 시뮬 혼입 방지**: 실차는 f110 브링업만.
+
+관련 메모: [[f1map-name-unification]] [[vesc-deadzone-confirmed-pushstart]]
+[[obstacle-avoidance-chain-unwired]] [[ifac-track-map-v1-v2-mismatch]]
+
+---
+
 ## 2026-07-24 — 🔍 시케인 크래시 근본원인(감속권한 0) 규명 + bag 분석도구 제작 + 조향↔요레이트/IMU 노이즈 진단
 
 07-23 실차 rosbag(`~/Downloads/rosbag2_2026_07_23-*` 5개)을 분석. 시케인 벽 충돌의 근본원인을
@@ -42,6 +170,27 @@ a_lat 초과·조향 포화 시 속도 하드컷 = limit-cycle 차단, `recovery
   실버그 1건(`display:none` CSS로 결과 미표시) 발견·수정.
 - claude.ai 아티팩트 URL로 게시(팀 공유용). ⚠️ 아티팩트 CSP가 WASM 막으면 로컬 `webapp.html`
   더블클릭이 확실한 대안(file://은 제약 없음). ※ 도구는 미커밋(원하면 커밋).
+
+### 2-B. 웹앱 대폭 확장 — f1rec 풀 bag 완전 분석 + 통합 로깅 alias
+자율주행 분석에 필요한 토픽을 전부 담는 통합 로깅 alias와, 그걸 하나도 안 빠지고 읽는 웹앱 확장.
+- **`f1rec` alias** (`~/.zshrc` 랩탑 + 젯슨용 heredoc 제공): ROS/워크스페이스 소싱 포함, 매 실행
+  `~/rosbags/run_MMDD_HHMMSS/`로 타임스탬프 저장(덮어쓰기 X). 토픽: drive_autonomous/mppi/drive·
+  joy·drive_mode·mppi_active·estop_lock·pf/pose/odom·odom·tf·tf_static·scan·imu(raw/data)·
+  global_waypoints·local_waypoints·commands(motor speed/brake, servo)·sensors/core. ⚠️ **젯슨에서**
+  녹화할 것(랩탑 wifi는 /scan 드롭). 젯슨 셸=zsh 확인.
+- **웹앱 파서 = 토픽명 기준으로 재작성** — 겹치는 토픽 자동 분류: `/odom`+`/pf/pose/odom`(전자 우선),
+  Bool 2개(`/estop_lock`↔`/mppi_active` 분리), IMU 2개, drive 3개. 임의 네임스페이스(sim
+  `/ego_racecar/odom`)는 타입 폴백. (이전엔 타입으로만 분류해 중복 타입을 섞던 **잠재 버그** 수정.)
+- **신규 CDR 파서**(JS): AckermannDriveStamped·f110_msgs/WpntArray·std_msgs/String·Float64 —
+  rclpy **합성 라운드트립**(serialize→parse)으로 검증. vesc_msgs/VescStateStamped는 이 랩탑에
+  패키지 부재라 표준 f1tenth 레이아웃 best-effort(손수 CDR 바이트로 헤드리스 검증: 전류·전압 정확).
+- **신규 시각화**: 속도차트에 실측+**명령**+**계획 vx** 오버레이(명령 vs 실측 vs 계획), 명령 조향각
+  차트(±0.41), **크로스트랙 오차**(글로벌 경로 최근접), **VESC 전류·전압**, 브레이크 명령(0이면
+  채널 미사용 즉시 보임), **모드 타임라인 스트립**(E-STOP/MANUAL/AUTO + MPPI 색띠), 3D에 글로벌
+  경로. 각 차트는 해당 토픽 없으면 자동 숨김.
+- **검증**: 신규 토픽 전부 든 합성 bag을 헤드리스 Chrome에서 → odomLabel `/odom`(겹침 분류),
+  cross-track 0.117(합성 오프셋 일치), 명령/계획/VESC 값·모든 차트 렌더 정확, JS 에러 0. 기존
+  크래시 bag 회귀 완전 동일(peakAl 22.2, 진단 3건). 같은 아티팩트 URL 유지.
 
 ### 3. 조향각 ↔ 요레이트 불일치 (실측 진단)
 `vesc_to_odom`이 `/odom` 요레이트를 **조향각 기구학**(`v·tanδ/L`, use_servo_cmd)으로 만들므로

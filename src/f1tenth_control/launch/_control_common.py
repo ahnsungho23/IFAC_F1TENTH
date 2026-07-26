@@ -43,7 +43,7 @@ def declare_common_args():
         # 랩타임/속도는 게인 무관, 0.15부터 조향 채터링이 뚜렷(부호전환 0→3.32/s) → 보수값 0.08.
         DeclareLaunchArgument(
             'yaw_rate_gain',
-            default_value='0.05',
+            default_value='0.00',
             description='요레이트 카운터스티어 게인 (낮게 시작해 채터링 보며 상향)'
         ),
 
@@ -185,11 +185,11 @@ def declare_common_args():
             description='L1 룩어헤드 거리 베이스 오프셋 [m] (공식: l1_gain + v*l1_distance)'
         ),
         DeclareLaunchArgument(
-            'l1_distance', default_value='0.3',
+            'l1_distance', default_value='0.22',
             description='L1 룩어헤드 거리 속도 게인 [s] (공식: l1_gain + v*l1_distance)'
         ),
         DeclareLaunchArgument(
-            't_clip_min', default_value='0.8',
+            't_clip_min', default_value='0.6',
             description='L1 룩어헤드 거리 하한 [m] (낮을수록 저속/시케인 구간에서 국소 지그재그를 '
                         '쫓아 고주파 조향 유발 가능)'
         ),
@@ -198,19 +198,56 @@ def declare_common_args():
             description='L1 룩어헤드 거리 상한 [m]'
         ),
 
-        # ── 종방향 감속 한계 (곡률 사전감속 제동거리 계산에도 직접 쓰임) ──
-        # sim/real 둘 다 동일값이라 base_max_accel과 달리 여기서 공용 선언. 8.0은 실측 검증
-        # 전 추정값 — max_lateral_accel 마찰피크(~6.7) 대비 낙관적일 수 있어 실차에서 급제동
-        # IMU 실측(acc_mean) 후 재조정 권장.
+        # ── 종방향 감속: 두 개의 서로 다른 감속도 ──
+        # 2026-07-25 분리(그 전엔 base_max_decel 하나가 두 역할을 겸했다). 두 값은 튜닝 방향이
+        # 정반대라 한 노브로 묶으면 반드시 한쪽이 손해를 본다:
+        #   base_max_decel = "명령 속도를 초당 얼마나 빨리 떨어뜨릴 수 있나"(램프 rate limit).
+        #                    높을수록 감속 명령이 빨리 도달 → 높게 유지.
+        #   prebrake_decel = "차가 실제로 낼 수 있는 감속도"(곡률 사전감속 제동거리 v²/2a).
+        #                    낮을수록 코너를 더 멀리서 보고 일찍 감속 → 실측값에 맞춰야 함.
         DeclareLaunchArgument(
             'base_max_decel', default_value='8.0',
-            description='종방향 최대 감속도 한계 [m/s^2] (곡률 사전감속 제동거리 계산에 사용, 실측 전 추정값)'
+            description='명령 속도 하강 rate limit [m/s^2]. 낮추면 감속 명령이 늦게 도달하므로 높게 유지'
+        ),
+        # ⚠️ prebrake_decel은 반드시 **실측 감속 권한**이어야 한다. 2026-07-25 실차 bag
+        # (rosbag2_2026_07_25-22_08_50): 명령을 4.00→3.11로 내렸는데 실속은 4.03→3.80(-0.4 m/s²).
+        # VESC 속도모드는 회생제동이 거의 없어 사실상 coast고, 주행 중 /commands/motor/brake는
+        # 0건이었다. 예전처럼 8.0을 쓰면 4 m/s에서 제동거리를 1.0m로 착각(실제 필요 ~8m)해
+        # 사전감속이 0.5초 앞만 보고 시작 → 시케인 언더스티어 크래시. 0.6은 실측 타력감속 반영.
+        DeclareLaunchArgument(
+            'prebrake_decel', default_value='1.0',
+            description='곡률 사전감속 제동거리 산출용 실측 감속 권한 [m/s^2]. 낮을수록 코너를 일찍 봄'
+        ),
+        # ── 조향 권한 속도 캡 (2026-07-26 신설) ──
+        # 곡률 캡이 그동안 **그립만** 봤다(√(a_lat/κ)). 그립과 조향은 다른 물리다:
+        #   그립 = 타이어가 그 횡가속을 낼 수 있나 / 조향 = 바퀴가 그만큼 꺾일 수 있나.
+        # 정상상태 자전거 모델 δ = L·κ + K_us·κ·v² 을 δ_avail로 풀면
+        #   v ≤ √( (ratio·0.41 − L·κ) / (K_us·κ) )
+        # 2026-07-26 실차 bag(run_0726_181747)의 κ=1.190(R=0.84m) 헤어핀에서
+        #   그립 한계 2.11 m/s  vs  조향 한계 0.87 m/s  ← 조향이 먼저 걸린다.
+        # 그립만 보고 2배 빠르게 진입한 결과 풀락(0.410)에도 안 돌아가고 크로스트랙이
+        # 0.11 → 2.07m로 발산했다. understeer_gradient=0 이면 이 항 전체 비활성(구 거동).
+        DeclareLaunchArgument(
+            'understeer_gradient', default_value='0.019',
+            description='언더스티어 그래디언트 K_us [rad/(m/s^2)]. 0이면 조향 권한 캡 비활성'
+        ),
+        # ⚠️ 1.0으로 두면 곡률 추종에 δ_max를 다 써버려 횡오차 보정·요레이트 피드백 여력이 0이 된다.
+        DeclareLaunchArgument(
+            'steer_authority_ratio', default_value='0.85',
+            description='조향 한계(0.41rad) 중 곡률 추종에 배정할 비율. 나머지는 보정 여유'
+        ),
+        # ── 곡률 사전감속 스캔 거리 하한 ──
+        # 전방 곡률 스캔 거리 = max(count*0.1, v²/(2·prebrake_decel)). count는 저속에서 제동거리가
+        # 짧아질 때의 하한. 80 = 8m 스캔.
+        DeclareLaunchArgument(
+            'curvature_lookahead_count', default_value='80',
+            description='곡률 룩어헤드 스캔 거리 하한 (×0.1m). 80 = 8m'
         ),
         # ── 최저 순항 속도 하한 ──
         # 곡률 사전감속·헤어핀에서 목표속도가 이 값 밑으로 안 내려가게 하는 하한(sim/real 공용).
         # ⚠️ 장애물 정지 경로는 이 하한을 무시하고 0까지 내려간다(안전 우선) — 순수 순항 프로파일에만 적용.
         DeclareLaunchArgument(
-            'min_speed', default_value='2.5',
+            'min_speed', default_value='1.0',
             description='최저 순항 속도 [m/s] (곡률 감속 하한). 장애물 정지엔 미적용(0까지 허용)'
         ),
 
@@ -407,9 +444,13 @@ def build_control_map_node(*, odom_topic, max_speed, max_lateral_accel, base_max
             'max_speed': max_speed,
             'min_speed': LaunchConfiguration('min_speed'),
             'max_lateral_accel': max_lateral_accel,
-            'curvature_lookahead_count': 20,
+            'understeer_gradient': LaunchConfiguration('understeer_gradient'),
+            'steer_authority_ratio': LaunchConfiguration('steer_authority_ratio'),
+            'curvature_lookahead_count': ParameterValue(
+                LaunchConfiguration('curvature_lookahead_count'), value_type=int),
             'base_max_accel': base_max_accel,
             'base_max_decel': LaunchConfiguration('base_max_decel'),
+            'prebrake_decel': LaunchConfiguration('prebrake_decel'),
             'stall_guard_enable': LaunchConfiguration('stall_guard_enable'),
             'stall_speed_threshold': LaunchConfiguration('stall_speed_threshold'),
             'stall_hold_speed': LaunchConfiguration('stall_hold_speed'),

@@ -40,7 +40,7 @@ def generate_launch_description():
     # ⚠️ 하드웨어 ERPM(40000) 상한 = 바퀴 ~9 m/s. 7.0은 그 약 78% 수준.
     max_speed_arg = DeclareLaunchArgument(
         'max_speed',
-        default_value='7.0',
+        default_value='5.0',
         description='control_map_node 직선 최대 속도 [m/s] (실차 보수 캡)'
     )
 
@@ -50,8 +50,8 @@ def generate_launch_description():
     # 넘으면 backward-pass가 여기서 클램프한다. 실그립 매칭 프로파일+저속 셰이크다운 후, 여유가
     # 확인되면 상향 가능(sim 런치는 여전히 낙관치 10.0 — 랩타임 튜닝 기준 유지).
     max_lateral_accel_arg = DeclareLaunchArgument(
-        'max_lateral_accel', default_value='6.5',
-        description='코너 그립 클램프 a_lat [m/s^2] (실차 보수 기본, 실그립 피크 ~6.7 이내)'
+        'max_lateral_accel', default_value='5.1',
+        description='코너 그립 클램프 a_lat [m/s^2] (실차 실측 마찰한계 ~3.1 m/s² 반영)'
     )
 
     # 비워두면 기존 폴백 순서(steering_lookup share → f1tenth_control share)로 로드.

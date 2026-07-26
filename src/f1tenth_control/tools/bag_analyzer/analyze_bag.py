@@ -53,6 +53,8 @@ MAX_STEER = 0.41
 CAR_W, CAR_L = 0.31, 0.58
 R_MIN = WHEELBASE / math.tan(MAX_STEER)          # 최소 선회반경 ≈ 0.76 m
 DEG2RAD = math.pi / 180.0                          # VESC 자이로 deg/s → rad/s
+# 실측 요레이트 출처 라벨 (derive_measured_yaw_rate 참고)
+SRC_LABEL = {"imu": "IMU", "mcl": "MCL pose", "odom_kinematic": "⚠️명령값", "none": "없음"}
 
 
 # ══ 1. bag 로딩 ══════════════════════════════════════════════════════════════
@@ -138,7 +140,12 @@ def build_series(data, odom_topic):
     od = data.get(odom_topic) or data.get("/odom") or data.get("/pf/pose/odom") or []
     S["odom_t"] = np.array([t for t, _ in od])
     S["vx"] = np.array([m.twist.twist.linear.x for _, m in od])
-    S["wz"] = np.array([m.twist.twist.angular.z for _, m in od])
+    # ⚠️ 실차 /odom(vesc_to_odom)의 angular.z는 **측정값이 아니라** 조향 명령으로 만든
+    #    기구학 합성값 v·tan(δ)/L 이다(2026-07-25 확정: 22_08_50 bag t=9.5에서 합성 5.30 vs
+    #    odom 5.29 완전 일치). 따라서 vx·wz는 "명령 횡가속도"이고, 이걸 실측 a_lat으로 쓰면
+    #    언더스티어 상황에서 3배까지 과장된다(실측 7 → 표시 21.5). 아래에서 IMU/MCL 기준의
+    #    실측 요레이트를 따로 만들고, 이 값은 "명령"으로만 쓴다.
+    S["wz_cmd"] = np.array([m.twist.twist.angular.z for _, m in od])
     S["odom_xy"] = np.array([[m.pose.pose.position.x, m.pose.pose.position.y] for _, m in od]) if od else np.zeros((0, 2))
 
     # map 프레임 pose (TF 합성). 없으면 odom pose 사용.
@@ -156,17 +163,21 @@ def build_series(data, odom_topic):
     S["tf"] = tf
     S["has_map"] = tf.has("map", "odom")
 
-    # 파생: a_lat = vx*wz, dvx/dt (평활)
+    # 파생: dvx/dt (평활)
+    # ⚠️ bag에는 같은 타임스탬프의 odom이 종종 두 번 들어온다(dt=0). 예전엔 dt=0을 1e-3으로
+    #    치환했는데, 50Hz(dt=0.02) 데이터에서 이건 20배 뻥튀기라 dvx가 ±900 m/s²까지 튀었다.
+    #    그 스파이크가 아래 diagnose()의 사고 onset 판정(|dvx|>15)을 0초에 걸리게 만들어
+    #    "감속 권한" 분석 구간이 통째로 비었다. → 중앙값 dt의 절반을 하한으로 클램프한다.
     if len(S["vx"]):
-        S["alat"] = S["vx"] * S["wz"]
         dt = np.gradient(S["odom_t"]) if len(S["odom_t"]) > 1 else np.array([1.0])
-        dvx = np.gradient(S["vx"]) / np.where(dt == 0, 1e-3, dt)
+        dt_floor = max(1e-3, 0.5 * float(np.median(dt[dt > 0]))) if np.any(dt > 0) else 1e-3
+        dvx = np.gradient(S["vx"]) / np.maximum(dt, dt_floor)
         # 3-tap 평활
         if len(dvx) >= 3:
             dvx = np.convolve(dvx, np.ones(3) / 3, mode="same")
         S["dvx"] = dvx
     else:
-        S["alat"] = S["dvx"] = np.zeros(0)
+        S["dvx"] = np.zeros(0)
 
     # IMU
     imu = data.get("/imu/data") or data.get("/sensors/imu/raw") or []
@@ -175,6 +186,20 @@ def build_series(data, odom_topic):
     S["gyro_z_rad"] = S["gyro_z_raw"] * DEG2RAD                              # rad/s 환산
     S["acc_x"] = np.array([m.linear_acceleration.x for _, m in imu])
     S["acc_y"] = np.array([m.linear_acceleration.y for _, m in imu])
+
+    # ── 실측 요레이트 & 진짜 a_lat (2026-07-25) ──────────────────────────────
+    # 우선순위: ① IMU 자이로(rad/s 환산) ② MCL/TF pose yaw 미분 ③ (최후) odom 기구학값.
+    # ①과 ②는 서로 독립인데 07-25 bag에서 1.4~1.9 rad/s로 일치했다 — 교차검증 통과.
+    # ③으로 폴백하면 a_lat이 "명령"이므로 리포트에 그대로 경고를 띄운다.
+    S["wz_meas"], S["alat_source"] = derive_measured_yaw_rate(S)
+    S["alat"] = S["vx"] * S["wz_meas"] if len(S["vx"]) else np.zeros(0)
+    S["alat_cmd"] = S["vx"] * S["wz_cmd"] if len(S["vx"]) else np.zeros(0)
+    # 요레이트 추종률 = |실측| / |명령|. 1.0이면 차가 명령대로 돎, <1이면 덜 돎(언더스티어).
+    # 그립 한참 아래(저a_lat)에서도 1보다 낮으면 슬립이 아니라 **조향 게인 캘리브레이션 오차**다.
+    with np.errstate(divide="ignore", invalid="ignore"):
+        S["yaw_track"] = np.where(np.abs(S["wz_cmd"]) > 0.3,
+                                  np.abs(S["wz_meas"]) / np.maximum(np.abs(S["wz_cmd"]), 1e-6),
+                                  np.nan)
 
     # estop / brake / joy
     S["estop"] = [(t, bool(m.data)) for t, m in data.get("/estop_lock", [])]
@@ -204,6 +229,35 @@ def build_series(data, odom_topic):
     scans = data.get("/scan", [])
     S["scan_frames"] = build_scan_frames(scans, tf, max_frames=140, stride_pts=6)
     return S
+
+
+def derive_measured_yaw_rate(S):
+    """odom 시간축 위의 **실측** 요레이트 [rad/s]와 그 출처 문자열을 돌려준다.
+
+    실차 /odom의 angular.z는 조향 명령의 기구학 합성값이라 실측이 아니다(build_series 주석 참고).
+    ① IMU 자이로 z → ② map 프레임 pose yaw 미분(MCL) → ③ odom 기구학값 순으로 폴백한다.
+    """
+    t = S["odom_t"]
+    if not len(t):
+        return np.zeros(0), "none"
+
+    # ① IMU 자이로 (가장 직접적인 측정)
+    if len(S["imu_t"]) >= 5:
+        return np.interp(t, S["imu_t"], S["gyro_z_rad"]), "imu"
+
+    # ② map pose yaw 미분 (MCL 스캔매칭 — 휠/조향과 완전히 독립)
+    pose = S.get("pose")
+    if pose is not None and len(pose) == len(t) and len(t) >= 5 and S.get("has_map"):
+        yaw_unwrapped = np.unwrap(pose[:, 2])
+        dt = np.gradient(t)
+        wz = np.gradient(yaw_unwrapped) / np.where(dt == 0, 1e-3, dt)
+        # MCL 보정 점프가 스파이크로 들어오므로 5-tap 평활
+        if len(wz) >= 5:
+            wz = np.convolve(wz, np.ones(5) / 5, mode="same")
+        return wz, "mcl"
+
+    # ③ 폴백: 명령 기구학값. 실측이 아니므로 호출부가 경고를 띄운다.
+    return S["wz_cmd"].copy(), "odom_kinematic"
 
 
 def build_scan_frames(scans, tf, max_frames=140, stride_pts=6):
@@ -238,7 +292,9 @@ def build_scan_frames(scans, tf, max_frames=140, stride_pts=6):
 # ══ 4. 자동 튜닝 휴리스틱 ════════════════════════════════════════════════════
 def diagnose(S, grip_target):
     t = S["odom_t"]
-    vx, wz, alat, dvx = S["vx"], S["wz"], S["alat"], S["dvx"]
+    # wz는 **실측**(IMU/MCL). 명령 기구학값은 wz_cmd — 둘을 섞지 말 것(2026-07-25).
+    vx, wz, alat, dvx = S["vx"], S["wz_meas"], S["alat"], S["dvx"]
+    wz_cmd = S["wz_cmd"]
     findings = []
     rec = {}
     if len(vx) < 5:
@@ -260,8 +316,23 @@ def diagnose(S, grip_target):
 
     # ── 1) 감속 권한 : 사고(첫 그립붕괴/충돌) '이전' 구간에서만 판정 ──
     # 벽 충돌·E-stop 후의 급감속은 '진짜 브레이크'가 아니므로 제외해야 오판을 막는다.
+    # 제어상실 onset: ① 비물리 a_lat/급감속 ② **언더스티어 워시아웃 지속**. ②가 없으면 언더스티어
+    # 사고에선 벽에 긁히며 죽는 속도까지 창 안에 들어와 "감속 잘 됨"으로 뒤집힌다(2026-07-25).
+    # 위상지연 때문에 코너 진입마다 순간적으로 비율이 무너지므로 0.25초 지속을 요구한다.
     idx = np.arange(len(t))
     incident = (np.abs(alat) > 1.6 * grip_target) | (np.abs(dvx) > 15.0)
+    wash = (np.abs(wz_cmd) > 1.5) & (np.abs(alat) > 4.0) & (vx > 1.5) & \
+           (np.abs(wz) / np.maximum(np.abs(wz_cmd), 1e-6) < 0.5)
+    run_start = -1
+    for i in range(len(t)):
+        if wash[i]:
+            if run_start < 0:
+                run_start = i
+            elif t[i] - t[run_start] >= 0.25:
+                incident[run_start] = True
+                break
+        else:
+            run_start = -1
     onset = int(np.argmax(incident)) if np.any(incident) else len(t)
     pre = idx < onset
     win = pre & drive_mask & (vx > 1.5)          # 사고 이전 · 주행 · 유효속도
@@ -280,16 +351,38 @@ def diagnose(S, grip_target):
             findings.append(dict(level="warn", title="감속 권한 약함",
                 body=f"그립 붕괴 이전 최저 종가속도 {min_decel:.2f} m/s². 감속이 약해 코너 사전감속이 부족할 수 있음."))
 
-    # ── 2) 그립 초과 / 스핀 ──
+    # ── 1-b) a_lat 출처 경고 ──
+    if S.get("alat_source") == "odom_kinematic":
+        findings.append(dict(level="warn", title="a_lat이 실측이 아님 (IMU/TF 없음)",
+            body=("bag에 IMU도 map TF도 없어 a_lat을 /odom의 angular.z로 계산했다. 실차 "
+                  "vesc_to_odom의 angular.z는 조향 명령의 기구학 합성값(v·tanδ/L)이라 "
+                  "언더스티어 구간에서 최대 3배까지 과장된다. 아래 그립 판정은 상한으로만 볼 것 — "
+                  "다음 녹화 땐 /sensors/imu/raw 또는 /tf를 반드시 포함할 것.")))
+
+    # ── 2) 그립 초과 → 스핀인가 언더스티어인가 ──
+    # 실측 요레이트로 판정한다. 명령(wz_cmd)으로 하면 조향 포화가 전부 '스핀'으로 오분류된다
+    # (2026-07-25: 07-23 '풀락 스핀' 진단이 실제로는 언더스티어였음).
     R = np.where(np.abs(wz) > 1e-3, vx / np.abs(wz), 1e9)
     spin = (R < 1.15 * R_MIN) & (vx > 2.0)
     n_spin = int(np.sum(spin))
+    # 언더스티어: 조향은 꺾여 있는데(명령 요레이트 큼) 차가 그만큼 안 돌아감
+    us_mask = (np.abs(wz_cmd) > 1.0) & (vx > 1.5)
+    us_ratio = float(np.median(np.abs(wz[us_mask]) / np.abs(wz_cmd[us_mask]))) if np.sum(us_mask) >= 8 else None
+    # 스핀 판정에는 최소 지속시간을 요구한다. 벽 충돌 순간의 1~2 샘플(요레이트 임펄스)만으로
+    # "풀락 스핀"이라 부르면 언더스티어 사고를 매번 스핀으로 오분류한다(2026-07-25).
+    real_spin = n_spin >= 5
     if peak_alat > 1.6 * grip_target:
-        findings.append(dict(level="critical", title="그립 초과 → 스핀/조향 포화",
+        if us_ratio is not None and us_ratio < 0.6 and not real_spin:
+            mode = (f"실측 요레이트가 명령의 {us_ratio*100:.0f}%뿐 → **스핀이 아니라 언더스티어**"
+                    f"(차가 안 돌고 밀림). 조향을 더 꺾어도 안 돌므로 진입속도를 낮추는 것 외엔 답이 없다. "
+                    f"yaw_rate_gain 카운터스티어는 이 상황에서 조향을 더 밀어 악화시키니 0으로 A/B할 것.")
+        elif real_spin:
+            mode = (f"선회반경이 최소반경({R_MIN:.2f}m)에 닿는 샘플 {n_spin}개 = 실제 풀락 스핀.")
+        else:
+            mode = "조향 포화까지는 안 갔으나 그립 한계 초과."
+        findings.append(dict(level="critical", title="그립 초과 (코너 진입 과속)",
             body=(f"최대 |a_lat| = {peak_alat:.1f} m/s² (목표 그립 {grip_target:.1f}의 "
-                  f"{peak_alat/grip_target:.1f}배). 전체의 {over_frac*100:.0f}%가 그립 초과. "
-                  f"선회반경이 최소반경({R_MIN:.2f}m)에 닿는 조향 포화 샘플 {n_spin}개 = 풀락 스핀. "
-                  f"코너 진입속도가 그립 대비 과속.")))
+                  f"{peak_alat/grip_target:.1f}배). 전체의 {over_frac*100:.0f}%가 그립 초과. " + mode)))
     elif over_frac > 0.05:
         findings.append(dict(level="warn", title="간헐적 그립 초과",
             body=f"최대 |a_lat| = {peak_alat:.1f}, 그립 초과 {over_frac*100:.0f}%. 마진 부족."))
@@ -314,6 +407,54 @@ def diagnose(S, grip_target):
         rec["min_speed"] = 1.5
         rec["note_recovery"] = True
 
+    # ── 4-b) 조향 결손의 원인 분리: 서보 게인 오차 vs 언더스티어 그래디언트 ──
+    # ⚠️ "요레이트 추종률이 낮다 → 서보 게인이 틀렸다"로 바로 결론내면 안 된다(2026-07-25에
+    #    실제로 그렇게 오진했다). 정상상태 자전거 모델로 두 원인은 분리된다:
+    #        delta = A·(L·κ) + K_us·a_lat + offset
+    #      A ≈ 1  → 기하 게인 정상. 결손은 전부 타이어 언더스티어 그래디언트(K_us) = **물성**.
+    #               서보를 건드리면 안 되고, 그 노면에서 LUT를 재보정하는 게 정답.
+    #      A > 1  → 명령 대비 실제 조향각이 작다 = 진짜 서보 게인/링키지 문제.
+    #    포화 샘플은 δ-κ 관계가 성립하지 않으므로 회귀에서 제외한다.
+    gain_A = k_us = steer_offset = None
+    if len(S["cmd_t"]) and S.get("alat_source") != "odom_kinematic" and len(t) > 30:
+        st_i = np.interp(t, S["cmd_t"], S["cmd_steer"])
+        dst = np.abs(np.gradient(st_i) / np.maximum(np.gradient(t), 1e-3))
+        k_act = wz / np.maximum(vx, 0.1)
+        m = (vx > 1.2) & (dst < 1.5) & (np.abs(st_i) < 0.40) & (np.abs(k_act) > 0.08)
+        if m.sum() >= 50:
+            X = np.column_stack([WHEELBASE * k_act[m], alat[m], np.ones(int(m.sum()))])
+            coef, *_ = np.linalg.lstsq(X, st_i[m], rcond=None)
+            gain_A, k_us, steer_offset = (float(c) for c in coef)
+    # ⚠️ 회귀가 물리적으로 말이 되는 범위 안에 있을 때만 해석한다. 짧은 런·단일 코너·조향
+    #    포화가 많은 런에서는 L·κ와 a_lat이 공선성을 띠어 A가 음수까지 나온다(2026-07-26
+    #    run_0726_181747에서 A=-1.10, K_us=0.103). 그걸 "게인 정상"으로 보고하면 오진이다.
+    if gain_A is not None and not (0.5 <= gain_A <= 2.0 and 0.0 <= k_us <= 0.08):
+        findings.append(dict(level="info", title="조향 게인/언더스티어 회귀 신뢰 불가",
+            body=(f"자전거모델 회귀가 비물리적 해로 수렴했다(A={gain_A:.2f}, K_us={k_us:+.4f}). "
+                  f"코너가 하나뿐이거나 조향 포화 구간이 많아 L·κ와 a_lat이 공선성을 띤 경우다. "
+                  f"게인/언더스티어 판정은 이 bag으로 할 수 없다 — 여러 코너를 포화 없이 도는 "
+                  f"주행으로 재측정할 것.")))
+        gain_A = k_us = None
+    if gain_A is not None and gain_A > 1.25:
+        findings.append(dict(level="critical", title="서보 조향 게인 부족",
+            body=(f"자전거모델 회귀: 기하학이 요구하는 조향의 {gain_A:.2f}배를 명령해야 그 곡률이 나온다"
+                  f"(정상 1.0). 실제 조향각이 명령의 {1/gain_A*100:.0f}%뿐이라는 뜻 — 젯슨 f1tenth_stack "
+                  f"vesc.yaml의 steering_angle_to_servo_gain/offset과 조향 링키지 가동범위 확인.")))
+    elif gain_A is not None:
+        findings.append(dict(level="info", title=f"조향 기하 게인 정상 (A={gain_A:.2f})",
+            body=(f"자전거모델 회귀 A={gain_A:.2f}(정상 1.0), 중립 오프셋 {steer_offset:+.4f} rad. "
+                  f"**서보 게인은 원인이 아니다.** 요레이트 추종률이 낮은 건 언더스티어 그래디언트 "
+                  f"K_us={k_us:+.4f} rad/(m/s²) 때문 — 타이어·노면 물성이라 서보로 못 고친다. "
+                  f"a_lat {grip_target:.1f}에서 추가로 먹는 조향 {k_us*grip_target:+.3f} rad"
+                  f"(한계 0.41의 {abs(k_us*grip_target)/0.41*100:.0f}%). 대응은 ① 이 노면에서 LUT 재보정"
+                  f"(lut_calibration.launch.py) ② max_lateral_accel을 실측 그립 이내로.")))
+    if k_us is not None and k_us > 0.008:
+        v_st = math.sqrt(max(0.0, (0.41 - WHEELBASE * 0.7) / (k_us * 0.7)))
+        findings.append(dict(level="info", title="조향 포화 한계 속도",
+            body=(f"K_us={k_us:.4f}이면 κ=0.7(R=1.43m) 코너에서 필요 조향이 ±0.41에 닿는 속도가 "
+                  f"**{v_st:.2f} m/s**. 그립 한계 √(그립/κ)={math.sqrt(grip_target/0.7):.2f} m/s와 비교해 "
+                  f"낮은 쪽이 실제 구속조건이다.")))
+
     # ── 5) IMU 카운터스티어 유의 ──
     if len(S["gyro_z_raw"]) and np.max(np.abs(S["gyro_z_raw"])) > 30:
         findings.append(dict(level="info", title="IMU 자이로 = deg/s 확인",
@@ -323,6 +464,9 @@ def diagnose(S, grip_target):
 
     stats = dict(peak_v=peak_v, peak_alat=peak_alat, over_frac=over_frac,
                  min_decel=min_decel, accel_frac=accel_frac, n_spin=n_spin,
+                 peak_alat_cmd=float(np.max(np.abs(S["alat_cmd"]))) if len(S["alat_cmd"]) else 0.0,
+                 alat_source=S.get("alat_source", "none"),
+                 us_ratio=us_ratio, gain_A=gain_A, k_us=k_us,
                  duration=float(t[-1]) if len(t) else 0.0, grip_target=grip_target)
     return findings, {"rec": rec, "stats": stats}
 
@@ -352,16 +496,17 @@ def make_figure(S, grip_target):
         a.plot(S["cmd_t"], S["cmd_speed"], "--k", label="명령 speed", lw=1)
     a.set_title("속도"); a.set_xlabel("t [s]"); a.set_ylabel("m/s"); a.legend(fontsize=8); a.grid(alpha=.3)
 
-    # (0,2) 요레이트
+    # (0,2) 요레이트 — 명령(기구학) vs 실측. 둘의 간격이 곧 언더스티어량이다.
     a = ax[0, 2]
-    a.plot(t, S["wz"], label="/odom wz", lw=1.2)
-    if len(S["imu_t"]):
-        a.plot(S["imu_t"], S["gyro_z_rad"], label="IMU gyro z (rad/s)", lw=.8, alpha=.7)
-    a.set_title("요레이트"); a.set_xlabel("t [s]"); a.set_ylabel("rad/s"); a.legend(fontsize=8); a.grid(alpha=.3)
+    a.plot(t, S["wz_cmd"], label="명령 wz (/odom = v·tanδ/L)", lw=1.0, ls="--", color="gray")
+    a.plot(t, S["wz_meas"], label=f"실측 wz ({SRC_LABEL.get(S['alat_source'], '?')})", lw=1.3, color="tab:blue")
+    a.set_title("요레이트: 명령 vs 실측"); a.set_xlabel("t [s]"); a.set_ylabel("rad/s")
+    a.legend(fontsize=8); a.grid(alpha=.3)
 
-    # (1,0) 횡가속도
+    # (1,0) 횡가속도 — 실측이 기본. 명령값은 참고선으로만.
     a = ax[1, 0]
-    a.plot(t, S["alat"], label="a_lat = vx·wz", lw=1.2, color="crimson")
+    a.plot(t, S["alat_cmd"], label="명령 a_lat (기구학, 참고)", lw=.9, ls="--", color="gray")
+    a.plot(t, S["alat"], label=f"실측 a_lat = vx·wz({SRC_LABEL.get(S['alat_source'], '?')})", lw=1.3, color="crimson")
     a.axhline(grip_target, ls=":", c="orange"); a.axhline(-grip_target, ls=":", c="orange", label=f"±grip {grip_target}")
     a.set_title("횡가속도 (그립 한계)"); a.set_xlabel("t [s]"); a.set_ylabel("m/s²"); a.legend(fontsize=8); a.grid(alpha=.3)
 
@@ -396,7 +541,7 @@ def build_replay_json(S):
         x, y, yaw = (S["pose"][i] if len(S["pose"]) else (0, 0, 0))
         track.append([round(float(t[i]), 3), round(float(x), 3), round(float(y), 3),
                       round(float(yaw), 4), round(float(S["vx"][i]), 3), round(float(S["alat"][i]), 2),
-                      round(float(S["dvx"][i]), 2), round(float(S["wz"][i]), 3)])
+                      round(float(S["dvx"][i]), 2), round(float(S["wz_meas"][i]), 3)])
     wp = [[round(float(x), 3), round(float(y), 3)] for x, y, _, _ in S["wp"]] if len(S["wp"]) else []
     return {"track": track, "scans": S["scan_frames"], "wp": wp,
             "R_min": R_MIN, "car_w": CAR_W, "car_l": CAR_L}
@@ -446,9 +591,13 @@ def write_html(path, data_json, png_b64, guide_cards, rec_html, stats, meta, fra
     tiles = [
         ("주행 시간", f'{st.get("duration",0):.1f} s'),
         ("최고 속도", f'{st.get("peak_v",0):.2f} m/s'),
-        ("최대 |a_lat|", f'{st.get("peak_alat",0):.1f} m/s²'),
+        (f'최대 |a_lat| ({SRC_LABEL.get(st.get("alat_source"), "?")})', f'{st.get("peak_alat",0):.1f} m/s²'),
         ("그립 초과", f'{st.get("over_frac",0)*100:.0f} %'),
         ("최저 종가속도", f'{st.get("min_decel",0):+.2f} m/s²'),
+        ("요레이트 추종률",
+         "—" if st.get("us_ratio") is None else f'{st["us_ratio"]*100:.0f} %'),
+        ("언더스티어 K_us",
+         "—" if st.get("k_us") is None else f'{st["k_us"]:+.3f}'),
         ("스핀 샘플", f'{st.get("n_spin",0)}'),
     ]
     tiles_html = "".join(f'<div class="tile"><div class="tv">{v}</div><div class="tl">{k}</div></div>' for k, v in tiles)
@@ -526,7 +675,7 @@ img.fig{width:100%;border:1px solid var(--line);border-radius:8px;background:#ff
 
   <div class="charts">
     <div class="chart"><div class="clab">속도 vx [m/s]</div><canvas id="c_v"></canvas></div>
-    <div class="chart"><div class="clab">횡가속도 a_lat = vx·wz [m/s²] (주황선 = 그립 ±__GRIP__)</div><canvas id="c_a"></canvas></div>
+    <div class="chart"><div class="clab">횡가속도 a_lat = vx·wz(실측 요레이트) [m/s²] (주황선 = 그립 ±__GRIP__)</div><canvas id="c_a"></canvas></div>
     <div class="chart"><div class="clab">종가속도 dvx/dt [m/s²] (0 아래 = 감속)</div><canvas id="c_d"></canvas></div>
   </div>
 
