@@ -1230,7 +1230,9 @@ void ParticleFilter::publish_tf(const Eigen::Vector3d &pose, const rclcpp::Time 
 
         if (odom_initialized_ && last_pose_.norm() > 0) {
             // Calculate map->odom transform: T_map_odom = T_map_base * T_base_odom^(-1)
-            double mcl_x = pose[0], mcl_y = pose[1], mcl_yaw = pose[2];
+            double mcl_x = base_link_pose[0];
+            double mcl_y = base_link_pose[1];
+            double mcl_yaw = base_link_pose[2];
             double odom_x = last_pose_[0], odom_y = last_pose_[1], odom_yaw = last_pose_[2];
 
             // Inverse odom transform

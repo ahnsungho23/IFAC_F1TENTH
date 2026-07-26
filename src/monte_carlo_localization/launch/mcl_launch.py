@@ -36,7 +36,7 @@ def generate_launch_description():
     
     map_name_arg = DeclareLaunchArgument(
         'map_name',
-        default_value=os.environ.get('F1_MAP', 'ifac_track'),
+        default_value=os.environ.get('F1_MAP', 'map'),
         description='Map name (without .yaml extension)'
     )
     
@@ -102,9 +102,7 @@ def generate_launch_description():
         'publish_map_odom_tf': PythonExpression([
             "'false' if '", LaunchConfiguration('mod'), "' == 'sim' else 'true'"
         ]),
-        'publish_odom_base_tf': PythonExpression([
-            "'false' if '", LaunchConfiguration('mod'), "' == 'sim' else 'true'"
-        ])
+        'publish_odom_base_tf': False
     }
     
     # === COMMON PARAMETERS ===

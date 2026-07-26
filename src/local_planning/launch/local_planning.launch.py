@@ -29,7 +29,7 @@ def generate_launch_description():
     default_reference_map = os.path.join(
         get_package_share_directory('particle_filter_cpp'),
         'maps',
-        os.environ.get('F1_MAP', 'ifac_track') + '.yaml',
+        os.environ.get('F1_MAP', 'map') + '.yaml',
     )
     opponent_detector_launch = os.path.join(
         get_package_share_directory('opponent_detector'),
@@ -50,7 +50,7 @@ def generate_launch_description():
     start_detector_arg = DeclareLaunchArgument(
         'start_opponent_detector',
         default_value='true',
-        description='Start the required /perception/static_obstacles/cartesian publisher',
+        description='Start the required /perception/obstacles publisher',
     )
     planning_map_topic_arg = DeclareLaunchArgument(
         'planning_map_topic',

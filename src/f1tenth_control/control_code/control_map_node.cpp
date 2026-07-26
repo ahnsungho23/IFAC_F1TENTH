@@ -135,7 +135,7 @@ public:
 
         // L1 Guidance Control 파라미터
         this->declare_parameter<double>("l1_gain", 0.5);
-        this->declare_parameter<double>("l1_distance", 0.3); // Python's m_l1
+        this->declare_parameter<double>("l1_distance", 0.6); // Python's m_l1
         this->declare_parameter<double>("t_clip_min", 0.8);
         this->declare_parameter<double>("t_clip_max", 5.0);
         this->declare_parameter<double>("lateral_error_coeff", 1.0);
@@ -171,7 +171,7 @@ public:
         //   약 -0.4 m/s²(명령 4.00→3.11로 내렸는데 실속 4.03→3.80). VESC 속도모드는 회생제동이
         //   거의 없어 사실상 coast다. 8.0을 쓰면 4 m/s에서 제동거리를 1.0m로 착각해 사전감속
         //   개시가 ~16배 늦어진다(→ 시케인 언더스티어 크래시). 실측 스텝 테스트 전 잠정 1.5.
-        this->declare_parameter<double>("prebrake_decel", 1.5);
+        this->declare_parameter<double>("prebrake_decel", 1.8);
 
         // 기동 실패(VESC 센서리스 탈조) 가드 — 아래 control_loop 8-b 참고.
         // ⚠️ "명령이 실측보다 앞서지 못하게" 일반 clamp를 거는 방식은 쓰면 안 된다. VESC 속도
@@ -196,8 +196,8 @@ public:
         // IMU 선형가속도 단위 보정. 실제 값은 런치가 넘긴다(_control_common.py IMU_LINEAR_SCALE).
         this->declare_parameter<double>("imu_linear_scale", 1.0);
         this->declare_parameter<double>("yaw_rate_gain", 0.1);
-        this->declare_parameter<double>("max_speed", 12.0);
-        this->declare_parameter<double>("min_speed", 2.0);
+        this->declare_parameter<double>("max_speed", 6.5);
+        this->declare_parameter<double>("min_speed", 2.5);
 
         // 곡률 룩어헤드 감속 파라미터
         this->declare_parameter<int>("curvature_lookahead_count", 60);
