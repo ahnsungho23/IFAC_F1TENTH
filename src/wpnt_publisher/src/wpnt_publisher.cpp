@@ -11,7 +11,10 @@
 #include <string>
 #include <vector>
 #include <optional>
+#include <stdexcept>
 #include <cctype>
+#include <algorithm>
+#include <cmath>
 
 using std::placeholders::_1;
 
@@ -23,38 +26,54 @@ public:
     ot_hold_duration_(0, 2000000000)
   {
     waypoint_num_ = this->declare_parameter<int>("waypoint_num", 50);
+    avoid_path_ttl_sec_ = this->declare_parameter<double>("avoid_path_ttl_sec", 0.75);
+    global_waypoints_topic_ =
+      this->declare_parameter<std::string>("global_waypoints_topic", "/global_waypoints");
+    avoid_waypoints_topic_ =
+      this->declare_parameter<std::string>("avoid_waypoints_topic", "/avoid_waypoints");
+    frenet_odometry_topic_ =
+      this->declare_parameter<std::string>("frenet_odometry_topic", "/car_state/frenet/odom");
+    state_topic_ = this->declare_parameter<std::string>("state_topic", "/state");
+    local_waypoints_topic_ =
+      this->declare_parameter<std::string>("local_waypoints_topic", "/local_waypoints");
+    local_path_topic_ =
+      this->declare_parameter<std::string>("local_path_topic", "/local_waypoints/path");
     if (waypoint_num_ <= 0) {
       RCLCPP_WARN(this->get_logger(), "waypoint_num (%d) must be > 0. Forcing to 1.", waypoint_num_);
       waypoint_num_ = 1;
+    }
+    if (!(avoid_path_ttl_sec_ > 0.0))
+    {
+      throw std::invalid_argument("avoid_path_ttl_sec must be positive");
     }
 
     // 최근 값만 중요: KeepLast(1), reliable
     auto qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable();
     
 
-    local_pub_ = this->create_publisher<f110_msgs::msg::WpntArray>("/local_waypoints", qos);
-    local_path_pub_ = this->create_publisher<nav_msgs::msg::Path>("/local_waypoints/path", qos);
+    local_pub_ = this->create_publisher<f110_msgs::msg::WpntArray>(local_waypoints_topic_, qos);
+    local_path_pub_ = this->create_publisher<nav_msgs::msg::Path>(local_path_topic_, qos);
 
     // 글로벌 웨이포인트는 latched 특성 필요 시 transient_local 사용
     auto qos_gl = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local();
     global_sub_ = this->create_subscription<f110_msgs::msg::WpntArray>(
-      "/global_waypoints", qos_gl, std::bind(&WpntPublisher::onGlobalWaypoints, this, _1));
+      global_waypoints_topic_, qos_gl, std::bind(&WpntPublisher::onGlobalWaypoints, this, _1));
 
     // OT 스플라인 웨이포인트 (일반적으로 volatile)
     // 동적 추월(opponent_detector)과 정적 회피(local_planning)를 서로 다른 콜백으로 분리 수신
     ot_sub_ = this->create_subscription<f110_msgs::msg::OTWpntArray>(
       "/overtake_waypoints", qos, std::bind(&WpntPublisher::onOTWpnts, this, _1));
     avoid_sub_ = this->create_subscription<f110_msgs::msg::OTWpntArray>(
-      "/avoid_waypoints", qos, std::bind(&WpntPublisher::onAvoidWpnts, this, _1));
+      avoid_waypoints_topic_, qos, std::bind(&WpntPublisher::onAvoidWpnts, this, _1));
 
     // 프레네 오돔: 기존 로직 유지 (child_frame_id에 가까운 인덱스가 정수로 들어오는 가정)
     odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
-      "/car_state/frenet/odom", qos, std::bind(&WpntPublisher::onOdom, this, _1));
+      frenet_odometry_topic_, qos, std::bind(&WpntPublisher::onOdom, this, _1));
 
     // 주행 상태: state_machine이 결정한 STATE(GLOBAL/AVOID/OVERTAKE)에 따라 OT 소스를 선택 (latched)
     auto qos_state = rclcpp::QoS(1).reliable().transient_local();
     state_sub_ = this->create_subscription<f110_msgs::msg::StateMachine>(
-      "/state", qos_state, std::bind(&WpntPublisher::onState, this, _1));
+      state_topic_, qos_state, std::bind(&WpntPublisher::onState, this, _1));
 
     // 파라미터 동적 갱신
     param_cb_handle_ = this->add_on_set_parameters_callback(
@@ -129,22 +148,16 @@ void onOTWpnts(const f110_msgs::msg::OTWpntArray::SharedPtr msg)
   {
     auto current_time = this->now();
     if (!msg->wpnts.empty()) {
-      if (!has_avoid_ || (current_time - last_avoid_update_time_) >= ot_hold_duration_) {
-        last_avoid_ = *msg;
-        has_avoid_ = true;
-        last_avoid_update_time_ = current_time;
-        RCLCPP_INFO(this->get_logger(), "회피 OT 경로 업데이트됨");
-      } else {
-        RCLCPP_DEBUG(this->get_logger(),
-          "회피 OT 경로 유지 중 (남은 시간: %.2f초)",
-          (ot_hold_duration_ - (current_time - last_avoid_update_time_)).seconds());
-      }
-    } else {
-      if (has_avoid_ && (current_time - last_avoid_update_time_) >= ot_hold_duration_) {
-        has_avoid_ = false;
-        RCLCPP_INFO(this->get_logger(), "회피 OT 경로 만료됨");
-      }
+      last_avoid_ = *msg;
+      has_avoid_ = true;
+      last_avoid_update_time_ = current_time;
     }
+  }
+
+  bool hasFreshAvoidPath() const
+  {
+    return has_avoid_ &&
+      (this->now() - last_avoid_update_time_).seconds() <= avoid_path_ttl_sec_;
   }
 
   // state_machine이 발행한 주행 상태 저장 (onOdom의 소스 선택에 사용)
@@ -161,7 +174,7 @@ void onOTWpnts(const f110_msgs::msg::OTWpntArray::SharedPtr msg)
       publishFromOT(last_ot_);
       return;
     }
-    if (current_state_ == f110_msgs::msg::StateMachine::STATE_AVOID && has_avoid_) {
+    if (current_state_ == f110_msgs::msg::StateMachine::STATE_AVOID && hasFreshAvoidPath()) {
       publishFromOT(last_avoid_);
       return;
     }
@@ -188,6 +201,7 @@ void onOTWpnts(const f110_msgs::msg::OTWpntArray::SharedPtr msg)
                            "Index out of range: %d (0..%d)", closest_idx, total_-1);
       return;
     }
+
 
     // “바로 다음 점”부터 waypoint_num개 추출 (원형 인덱싱)
     const int start = (closest_idx + 1) % total_;
@@ -291,6 +305,13 @@ private:
   uint8_t current_state_{f110_msgs::msg::StateMachine::STATE_GLOBAL};
   int total_{0};
   int waypoint_num_{50};
+  double avoid_path_ttl_sec_{0.75};
+  std::string global_waypoints_topic_;
+  std::string avoid_waypoints_topic_;
+  std::string frenet_odometry_topic_;
+  std::string state_topic_;
+  std::string local_waypoints_topic_;
+  std::string local_path_topic_;
   f110_msgs::msg::WpntArray global_wpnts_;
   f110_msgs::msg::OTWpntArray last_ot_;
   f110_msgs::msg::OTWpntArray last_avoid_;

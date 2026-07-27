@@ -73,7 +73,7 @@ opponent_detector:
     use_map_filter: true                       # drop clusters on known static structure (/map)
     map_occupied_thresh: 50                    # occupancy value considered "occupied"
     map_inflation_cells: 1                     # neighbourhood radius (cells) for the map check
-    map_point_reject_ratio: 0.6                # drop cluster if this fraction of points are on map
+    map_point_reject_ratio: 0.85               # drop cluster if this fraction of points are on map
 
     # === OUTPUT ===
     publish_raw: true                          # also publish pre-tracking clusters

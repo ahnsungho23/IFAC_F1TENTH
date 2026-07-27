@@ -1,5 +1,5 @@
-map_yaml: /home/tenmeneat/2026_IFAC/src/monte_carlo_localization/maps/ifac_track.yaml
-output_dir: ~/2026_IFAC/offline_trajectory_generator/output/ifac_track
+map_yaml: /home/myungsub/2026_IFAC/src/monte_carlo_localization/maps/map.yaml
+output_dir: /home/myungsub/2026_IFAC/offline_trajectory_generator/output/map
 optimizer: mincurv
 width_mode: hybrid
 show_centerline: true
@@ -23,7 +23,7 @@ max_decel: 2.0
 max_curvature: 1.2000000000000002
 smooth_sigma: 3.7
 median_kernel: 5
-morph_kernel: 11
+morph_kernel: 7
 morph_open_iterations: 3
 morph_close_iterations: 1
 skeleton_prune_iterations: 110

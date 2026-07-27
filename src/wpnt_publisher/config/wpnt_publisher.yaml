@@ -1,0 +1,11 @@
+wpnt_publisher:
+  ros__parameters:
+    waypoint_num: 50
+    avoid_path_ttl_sec: 0.75
+
+    global_waypoints_topic: "/global_waypoints"
+    avoid_waypoints_topic: "/avoid_waypoints"
+    frenet_odometry_topic: "/car_state/frenet/odom"
+    state_topic: "/state"
+    local_waypoints_topic: "/local_waypoints"
+    local_path_topic: "/local_waypoints/path"

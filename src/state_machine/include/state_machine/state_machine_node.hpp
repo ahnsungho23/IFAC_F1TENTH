@@ -20,26 +20,21 @@ public:
 private:
   std::optional<uint8_t> parse_state(const std::string & state_name) const;
   bool is_fresh(const rclcpp::Time & stamp, double timeout_sec) const;
-  //msg가 비어있지 않은(null/empty가 아닌) 상태로 stamp 이후 timeout_sec보다 오래 유지되면 true.
-  bool is_not_null_ptr(
-    const rclcpp::Time & stamp,
-    double timeout_sec,
-    const f110_msgs::msg::OTWpntArray::SharedPtr msg) const;
   bool has_fresh_global() const;
   bool has_fresh_frenet() const;
   bool has_fresh_avoid_wpnts() const;
   bool has_fresh_overtake_wpnts() const;
 
   // --- Transition gates ---
-  //정적 장애물 회피(avoid) wpnt가 timeout_sec보다 오래 유지되어 있을 때만 STATE_AVOID 허용.
+  //정적 장애물 회피(avoid) wpnt가 required_count회 연속 수신되었을 때 STATE_AVOID 허용.
   bool can_enter_avoid(
-    const rclcpp::Time & stamp,
-    double timeout_sec,
+    std::size_t received_count,
+    int64_t required_count,
     const f110_msgs::msg::OTWpntArray::SharedPtr msg) const;
-  //동적 장애물 회피(overtake) wpnt가 timeout_sec보다 오래 유지되어 있을 때만 STATE_OVERTAKE 허용.
+  //동적 장애물 회피(overtake) wpnt가 required_count회 연속 수신되었을 때 STATE_OVERTAKE 허용.
   bool can_enter_overtake(
-    const rclcpp::Time & stamp,
-    double timeout_sec,
+    std::size_t received_count,
+    int64_t required_count,
     const f110_msgs::msg::OTWpntArray::SharedPtr msg) const;
 
   //local path(avoid/overtake)에서 global path로 합류(복귀)해도 되는지 판단.
@@ -70,6 +65,8 @@ private:
   std::string default_state_name_;
   double avoid_stale_timeout_sec_{0.5};
   double overtake_stale_timeout_sec_{0.5};
+  int64_t avoid_confirm_count_{2};
+  int64_t overtake_confirm_count_{2};
   double global_stale_timeout_sec_{2.0};
   double frenet_stale_timeout_sec_{0.5};
 
@@ -98,8 +95,8 @@ private:
   f110_msgs::msg::WpntArray::SharedPtr global_wpnts_msg_;      //global 경로
   f110_msgs::msg::OTWpntArray::SharedPtr avoid_wpnts_msg_;      //정적 장애물 회피 wpnt
   f110_msgs::msg::OTWpntArray::SharedPtr overtake_wpnts_msg_;   //동적 장애물 회피 wpnt
-  rclcpp::Time avoid_nonempty_since_{0, 0, RCL_ROS_TIME};       //avoid wpnt가 연속 non-empty로 유지되기 시작한 시각
-  rclcpp::Time overtake_nonempty_since_{0, 0, RCL_ROS_TIME};    //overtake wpnt가 연속 non-empty로 유지되기 시작한 시각
+  std::size_t avoid_nonempty_count_{0};                         //연속 non-empty avoid wpnt 수신 횟수
+  std::size_t overtake_nonempty_count_{0};                      //연속 non-empty overtake wpnt 수신 횟수
 
   // FSM 현재 상태 (committed)
   uint8_t committed_state_{f110_msgs::msg::StateMachine::STATE_GLOBAL};

@@ -111,9 +111,9 @@ private:
 
   std::string global_waypoints_topic_{"/global_waypoints"};
   std::string obstacles_topic_{"/perception/static_obstacles/cartesian"};
-  std::string frenet_odometry_topic_{"/car_state/frenet/odom"};
-  std::string avoid_waypoints_topic_{"/avoid_waypoints"};
-  std::string standalone_waypoints_topic_{"/local_waypoints"};
+  std::string frenet_odom_topic_{"/car_state/frenet/odom"};
+  std::string ot_waypoints_topic_{"/avoid_waypoints"};
+  std::string local_waypoints_topic_{"/local_waypoints"};
   std::string local_path_topic_{"/local_planning/path"};
   std::string compatibility_path_topic_{"/local_path"};
   std::string markers_topic_{"/local_planning/markers"};

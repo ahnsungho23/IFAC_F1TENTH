@@ -64,9 +64,9 @@ local_planner_node:
 
     global_waypoints_topic: "/global_waypoints"
     obstacles_topic: "/perception/static_obstacles/cartesian"
-    frenet_odometry_topic: "/car_state/frenet/odom"
-    avoid_waypoints_topic: "/avoid_waypoints"
-    standalone_waypoints_topic: "/local_waypoints"
+    frenet_odom_topic: "/car_state/frenet/odom"
+    ot_waypoints_topic: "/avoid_waypoints"
+    local_waypoints_topic: "/local_waypoints"
     local_path_topic: "/local_planning/path"
     compatibility_path_topic: "/local_path"
     markers_topic: "/local_planning/markers"

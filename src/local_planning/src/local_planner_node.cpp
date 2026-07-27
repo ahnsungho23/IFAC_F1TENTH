@@ -134,12 +134,12 @@ void LocalPlannerNode::initializeParameters()
   obstacles_topic_ =
     declare_parameter<std::string>(
     "obstacles_topic", "/perception/static_obstacles/cartesian");
-  frenet_odometry_topic_ =
-    declare_parameter<std::string>("frenet_odometry_topic", "/car_state/frenet/odom");
-  avoid_waypoints_topic_ =
-    declare_parameter<std::string>("avoid_waypoints_topic", "/avoid_waypoints");
-  standalone_waypoints_topic_ =
-    declare_parameter<std::string>("standalone_waypoints_topic", "/local_waypoints");
+  frenet_odom_topic_ =
+    declare_parameter<std::string>("frenet_odom_topic", "/car_state/frenet/odom");
+  ot_waypoints_topic_ =
+    declare_parameter<std::string>("ot_waypoints_topic", "/avoid_waypoints");
+  local_waypoints_topic_ =
+    declare_parameter<std::string>("local_waypoints_topic", "/local_waypoints");
   local_path_topic_ =
     declare_parameter<std::string>("local_path_topic", "/local_planning/path");
   compatibility_path_topic_ =
@@ -194,13 +194,13 @@ void LocalPlannerNode::initializeInterfaces()
     obstacles_topic_, volatile_qos,
     std::bind(&LocalPlannerNode::onObstacles, this, std::placeholders::_1), planning_options);
   frenet_odometry_sub_ = create_subscription<nav_msgs::msg::Odometry>(
-    frenet_odometry_topic_, volatile_qos,
+    frenet_odom_topic_, volatile_qos,
     std::bind(&LocalPlannerNode::onFrenetOdometry, this, std::placeholders::_1), odometry_options);
 
   avoid_waypoints_pub_ =
-    create_publisher<f110_msgs::msg::OTWpntArray>(avoid_waypoints_topic_, volatile_qos);
+    create_publisher<f110_msgs::msg::OTWpntArray>(ot_waypoints_topic_, volatile_qos);
   standalone_waypoints_pub_ =
-    create_publisher<f110_msgs::msg::WpntArray>(standalone_waypoints_topic_, volatile_qos);
+    create_publisher<f110_msgs::msg::WpntArray>(local_waypoints_topic_, volatile_qos);
   local_path_pub_ = create_publisher<nav_msgs::msg::Path>(local_path_topic_, volatile_qos);
   compatibility_path_pub_ =
     create_publisher<nav_msgs::msg::Path>(compatibility_path_topic_, volatile_qos);

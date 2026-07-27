@@ -3,14 +3,14 @@
 <package format="3">
   <name>wpnt_publisher</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
+  <description>Select global, avoidance, or overtaking waypoints.</description>
   <maintainer email="paulmsa@naver.com">simseunghwan</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
   
   <depend>rclcpp</depend>
-  <depend>nav_mags</depend>
+  <depend>nav_msgs</depend>
   <depend>f110_msgs</depend>
 
 
