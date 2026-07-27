@@ -1,12 +1,9 @@
 #pragma once
-
 #include <cstdint>
 #include <optional>
 #include <string>
 
 #include "f110_msgs/msg/ot_wpnt_array.hpp"
-#include "f110_msgs/msg/obstacle.hpp"
-#include "f110_msgs/msg/obstacle_array.hpp"
 #include "f110_msgs/msg/state_machine.hpp"
 #include "f110_msgs/msg/wpnt_array.hpp"
 #include "nav_msgs/msg/odometry.hpp"
@@ -32,20 +29,13 @@ private:
   bool has_fresh_frenet() const;
   bool has_fresh_avoid_wpnts() const;
   bool has_fresh_overtake_wpnts() const;
-  bool has_fresh_obstacles() const;
-  bool is_static_obstacle(const f110_msgs::msg::Obstacle & obstacle) const;
-  bool global_corridor_blocked(double * nearest_distance = nullptr) const;
-  bool avoid_corridor_free(const f110_msgs::msg::OTWpntArray & path) const;
-  bool avoid_path_valid(const f110_msgs::msg::OTWpntArray & path) const;
-  bool avoid_path_is_safe_stop(const f110_msgs::msg::OTWpntArray & path) const;
-  bool ego_near_global() const;
-  void update_corridor_confirmation(bool blocked);
-  bool blocked_confirmed() const;
-  bool clear_confirmed() const;
 
   // --- Transition gates ---
-  //유효한 정적 장애물 회피(avoid) wpnt가 설정 횟수 이상 연속 수신되었을 때 STATE_AVOID 허용.
-  bool can_enter_avoid(const f110_msgs::msg::OTWpntArray::SharedPtr msg) const;
+  //정적 장애물 회피(avoid) wpnt가 timeout_sec보다 오래 유지되어 있을 때만 STATE_AVOID 허용.
+  bool can_enter_avoid(
+    const rclcpp::Time & stamp,
+    double timeout_sec,
+    const f110_msgs::msg::OTWpntArray::SharedPtr msg) const;
   //동적 장애물 회피(overtake) wpnt가 timeout_sec보다 오래 유지되어 있을 때만 STATE_OVERTAKE 허용.
   bool can_enter_overtake(
     const rclcpp::Time & stamp,
@@ -71,7 +61,6 @@ private:
   void on_global_waypoints(const f110_msgs::msg::WpntArray::SharedPtr msg);
   void on_avoid_wpnts(const f110_msgs::msg::OTWpntArray::SharedPtr msg);       //STATE_AVOID 게이트용
   void on_overtake_wpnts(const f110_msgs::msg::OTWpntArray::SharedPtr msg);    //STATE_OVERTAKE 게이트용
-  void on_obstacles(const f110_msgs::msg::ObstacleArray::SharedPtr msg);
 
   uint8_t resolve_requested_state(); //committed_state_ 기반 FSM 1-step: 진입(can_enter_*)/복귀(enter_to_global) 판정 후 committed_state_ 갱신·반환
   void publish_state();              //anti-oscillation 필터 적용 후 /state 발행
@@ -80,26 +69,9 @@ private:
   std::string frame_id_;
   std::string default_state_name_;
   double avoid_stale_timeout_sec_{0.5};
-  std::uint32_t avoid_path_confirm_count_{5};
   double overtake_stale_timeout_sec_{0.5};
   double global_stale_timeout_sec_{2.0};
   double frenet_stale_timeout_sec_{0.5};
-  double obstacles_stale_timeout_sec_{0.5};
-  double avoid_path_ttl_sec_{0.75};
-  double obstacle_confirm_sec_{0.15};
-  double obstacle_clear_confirm_sec_{0.30};
-  double global_corridor_horizon_m_{12.0};
-  double vehicle_half_width_m_{0.121};
-  double global_corridor_margin_m_{0.10};
-  double avoid_corridor_margin_m_{0.05};
-  double obstacle_longitudinal_margin_m_{0.35};
-  double obstacle_uncertainty_sigma_scale_{1.0};
-  double static_speed_threshold_mps_{0.25};
-  double safe_stop_trigger_distance_m_{1.5};
-  double path_min_length_m_{1.5};
-  double path_start_max_gap_m_{1.0};
-  double path_max_kappa_radpm_{3.0};
-  bool require_obstacles_message_{true};
 
   // Global re-entry parameters (local path -> global path 합류 조건)
   double enter_global_sec_{0.5};        //global 위에 ego가 존재해야 하는 최소 유지 시간
@@ -119,20 +91,14 @@ private:
   rclcpp::Time last_global_time_{0, 0, RCL_ROS_TIME};
   rclcpp::Time last_avoid_time_{0, 0, RCL_ROS_TIME};
   rclcpp::Time last_overtake_time_{0, 0, RCL_ROS_TIME};
-  rclcpp::Time last_obstacles_time_{0, 0, RCL_ROS_TIME};
-  rclcpp::Time last_valid_avoid_time_{0, 0, RCL_ROS_TIME};
   std::optional<uint8_t> last_published_state_;
-  std::optional<rclcpp::Time> global_blocked_since_;
-  std::optional<rclcpp::Time> global_clear_since_;
 
   //게이트/합류 판단에 넘길 최신 메시지들.
   nav_msgs::msg::Odometry::SharedPtr frenet_odom_msg_;         //현재 ego 차량(frenet)
   f110_msgs::msg::WpntArray::SharedPtr global_wpnts_msg_;      //global 경로
   f110_msgs::msg::OTWpntArray::SharedPtr avoid_wpnts_msg_;      //정적 장애물 회피 wpnt
   f110_msgs::msg::OTWpntArray::SharedPtr overtake_wpnts_msg_;   //동적 장애물 회피 wpnt
-  f110_msgs::msg::OTWpntArray::SharedPtr last_valid_avoid_wpnts_msg_;
-  f110_msgs::msg::ObstacleArray::SharedPtr obstacles_msg_;
-  std::uint32_t consecutive_valid_avoid_paths_{0};              //연속 수신된 유효 avoid wpnt 개수
+  rclcpp::Time avoid_nonempty_since_{0, 0, RCL_ROS_TIME};       //avoid wpnt가 연속 non-empty로 유지되기 시작한 시각
   rclcpp::Time overtake_nonempty_since_{0, 0, RCL_ROS_TIME};    //overtake wpnt가 연속 non-empty로 유지되기 시작한 시각
 
   // FSM 현재 상태 (committed)
@@ -143,7 +109,6 @@ private:
   rclcpp::Subscription<f110_msgs::msg::WpntArray>::SharedPtr global_sub_;
   rclcpp::Subscription<f110_msgs::msg::OTWpntArray>::SharedPtr avoid_sub_;
   rclcpp::Subscription<f110_msgs::msg::OTWpntArray>::SharedPtr overtake_sub_;
-  rclcpp::Subscription<f110_msgs::msg::ObstacleArray>::SharedPtr obstacles_sub_;
   rclcpp::TimerBase::SharedPtr timer_;
 };
 

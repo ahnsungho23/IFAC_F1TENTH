@@ -5,36 +5,21 @@ state_machine_node:
     global_waypoints_topic: "/global_waypoints"
     avoid_waypoints_topic: "/avoid_waypoints"
     overtake_waypoints_topic: "/overtake_waypoints"
-    obstacles_topic: "/perception/obstacles"
-
     frame_id: "map"
-    publish_rate_hz: 20.0
+    publish_rate_hz: 10.0
     default_state: "global"
 
-    avoid_stale_timeout_sec: 0.5
-    avoid_path_confirm_count: 2
-    overtake_stale_timeout_sec: 0.5
+    avoid_stale_timeout_sec: 100.0
+    overtake_stale_timeout_sec: 100.0
     global_stale_timeout_sec: 2.0
     frenet_stale_timeout_sec: 0.5
-    obstacles_stale_timeout_sec: 0.5
-
-    # Static-obstacle behavior FSM: GLOBAL -> BLOCKED -> AVOID / SAFE_STOP
-    require_obstacles_message: true
-    obstacle_confirm_sec: 0.05
-    obstacle_clear_confirm_sec: 0.30
-    avoid_path_ttl_sec: 0.75
-    global_corridor_horizon_m: 12.0
-    vehicle_half_width_m: 0.121
-    global_corridor_margin_m: 0.10
-    avoid_corridor_margin_m: 0.05
-    obstacle_longitudinal_margin_m: 0.35
-    obstacle_uncertainty_sigma_scale: 1.0
-    static_speed_threshold_mps: 0.25
-    safe_stop_trigger_distance_m: 1.5
 
     # Local path evaluation (transition gate on published local paths)
+    path_eval_enabled: true
     path_min_length_m: 1.5
     path_start_max_gap_m: 1.0
+    path_min_bound_margin_m: 0.05
+    path_min_obstacle_gap_m: 0.3
     path_max_kappa_radpm: 3.0
 
     # Global re-entry (local path -> global path 합류 조건)
