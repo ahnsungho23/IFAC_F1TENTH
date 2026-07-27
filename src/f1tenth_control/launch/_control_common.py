@@ -274,13 +274,20 @@ def declare_common_args():
             description='이 시간[s] 이상 안 움직이면 가드 발동. 4초 탈조는 잡고 정상 기동 지연(~0.3s)은 안 잡히게'
         ),
 
-        # ── 런치 킥(자율 정지출발 시 VESC 센서리스 데드존 관통) ──
+        # ── 런치 킥(자율 정지출발 시 VESC 센서리스 데드존 관통) — 2026-07-27부터 기본 꺼짐 ──
         # 매뉴얼은 초반 스로틀 펀치로 데드존을 때려 관통하는데 자율은 살살 램프해 걸터앉아 탈조한다.
         # 정지 상태에서 짧게 높은 속도를 명령해 VESC 속도 PID가 큰 전류를 뽑게 만든다(매뉴얼 펀치 재현).
-        # 오픈루프 전류↑·HFI·Coupled HFI 모두 저돌극성 때문에 부하서 실패 확인(2026-07-25) → 유일한 자율 해법.
+        # 오픈루프 전류↑·HFI·Coupled HFI 모두 저돌극성 때문에 부하서 실패 확인(2026-07-25).
+        #
+        # ⚠️ 2026-07-27 기본값 true→false. 이유 둘:
+        #   ① 데드존을 **VESC 오픈루프 전류 상향으로 근본 해결**했다. 컨트롤 측 우회책은 이제 불필요.
+        #   ② `s_pid_ramp_erpms_s` 2000→21160 이후로는 이 킥이 훨씬 사납다. 램프 2000일 땐 3.0을
+        #      명령해도 VESC setpoint가 0.47 m/s²로 기어갔지만, 21160이면 즉시 큰 ERPM 오차 →
+        #      큰 전류 → 예측 불가능한 펀치가 된다.
+        # 출발 불능이 재발하면 `launch_boost_enable:=true`로 되살릴 것(파라미터는 그대로 보존).
         DeclareLaunchArgument(
-            'launch_boost_enable', default_value='true',
-            description='런치 킥 on/off (자율 정지출발 데드존 관통 펀치)'
+            'launch_boost_enable', default_value='false',
+            description='런치 킥 on/off (자율 정지출발 데드존 관통 펀치). 07-27부터 기본 꺼짐 — 데드존은 VESC 오픈루프 전류로 해결됨'
         ),
         DeclareLaunchArgument(
             'launch_boost_speed', default_value='3.0',
