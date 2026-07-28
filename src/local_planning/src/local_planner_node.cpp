@@ -290,10 +290,10 @@ void LocalPlannerNode::initParameters()
     declare_parameter<double>("lattice_merge_lateral_tolerance_m", 0.15);
   lattice_merge_settle_max_wpnts_ =
     declare_parameter<int>("lattice_merge_settle_max_wpnts", 30);
-  lattice_braking_buffer_wpnts_ =
-    declare_parameter<int>("lattice_braking_buffer_wpnts", 8);
-  lattice_braking_deceleration_mps2_ =
-    declare_parameter<double>("lattice_braking_deceleration_mps2", 2.50);
+  lattice_safe_stop_buffer_wpnts_ =
+    declare_parameter<int>("lattice_safe_stop_buffer_wpnts", 8);
+  lattice_safe_stop_deceleration_mps2_ =
+    declare_parameter<double>("lattice_safe_stop_deceleration_mps2", 2.50);
   lattice_replan_brake_timeout_sec_ =
     declare_parameter<double>("lattice_replan_brake_timeout_sec", 1.50);
   stationary_hold_point_spacing_m_ =
@@ -328,7 +328,7 @@ void LocalPlannerNode::initParameters()
     declare_parameter<std::string>("global_waypoints_topic", "/global_waypoints");
   map_topic_ = declare_parameter<std::string>("map_topic", "/map");
   obstacles_topic_ = declare_parameter<std::string>(
-    "obstacles_topic", "/perception/static_obstacles");
+    "obstacles_topic", "/perception/obstacles");
   frenet_odom_topic_ =
     declare_parameter<std::string>("frenet_odom_topic", "/car_state/frenet/odom");
   ot_waypoints_topic_ =
@@ -474,9 +474,9 @@ void LocalPlannerNode::initParameters()
   lattice_merge_lateral_tolerance_m_ = std::max(
     0.01, lattice_merge_lateral_tolerance_m_);
   lattice_merge_settle_max_wpnts_ = std::max(0, lattice_merge_settle_max_wpnts_);
-  lattice_braking_buffer_wpnts_ = std::max(0, lattice_braking_buffer_wpnts_);
-  lattice_braking_deceleration_mps2_ = std::max(
-    0.10, lattice_braking_deceleration_mps2_);
+  lattice_safe_stop_buffer_wpnts_ = std::max(0, lattice_safe_stop_buffer_wpnts_);
+  lattice_safe_stop_deceleration_mps2_ = std::max(
+    0.10, lattice_safe_stop_deceleration_mps2_);
   lattice_replan_brake_timeout_sec_ = std::max(
     0.10, lattice_replan_brake_timeout_sec_);
   stationary_hold_point_spacing_m_ = std::clamp(
@@ -648,13 +648,6 @@ void LocalPlannerNode::onObstacles(
   if (!msg) {
     return;
   }
-  if (!msg->header.frame_id.empty() && msg->header.frame_id != frame_id_) {
-    RCLCPP_WARN_THROTTLE(
-      get_logger(), *get_clock(), 2000,
-      "Ignoring static Cartesian obstacles in frame '%s'; expected '%s'.",
-      msg->header.frame_id.c_str(), frame_id_.c_str());
-    return;
-  }
   const auto update_time = now();
   const double track_length = has_global_ && !global_wpnts_.wpnts.empty() ?
     global_wpnts_.wpnts.back().s_m : 0.0;
@@ -669,29 +662,7 @@ void LocalPlannerNode::onObstacles(
   // Associate nearby static detections with one persistent track. Multiple
   // detections of the same physical object in one message therefore collapse
   // into one filtered obstacle instead of producing competing map boxes.
-  for (const auto & raw_measurement : msg->obstacles) {
-    if (!raw_measurement.has_cartesian ||
-      !std::isfinite(raw_measurement.x_center) ||
-      !std::isfinite(raw_measurement.y_center) ||
-      !std::isfinite(raw_measurement.radius) ||
-      raw_measurement.radius <= 0.0 ||
-      !std::isfinite(raw_measurement.s_center) ||
-      !std::isfinite(raw_measurement.d_center))
-    {
-      RCLCPP_WARN_THROTTLE(
-        get_logger(), *get_clock(), 2000,
-        "Ignoring a static obstacle without finite x/y/s/d and positive radius.");
-      continue;
-    }
-    auto measurement = raw_measurement;
-    // Preserve main's Frenet lattice and lateral filtering. The Cartesian enclosing-circle radius
-    // is invariant under the local CLCS rotation, so use it as both longitudinal and lateral
-    // half-extent before passing the obstacle into the existing filtered planning grid.
-    measurement.size = 2.0 * measurement.radius;
-    measurement.s_start = measurement.s_center - measurement.radius;
-    measurement.s_end = measurement.s_center + measurement.radius;
-    measurement.d_right = measurement.d_center - measurement.radius;
-    measurement.d_left = measurement.d_center + measurement.radius;
+  for (const auto & measurement : msg->obstacles) {
     if (measurement.is_actually_a_gap ||
       (perception_static_only_ && !isPlanningStaticObstacle(measurement)))
     {
@@ -1092,12 +1063,12 @@ void LocalPlannerNode::rebuildPlanningGrid()
               committed_obstacle_match_distance_m_,
               2.5 * perception_grid_rebuild_motion_m_);
             return center_distance <= perception_static_grid_match_gate_m_ &&
-            interval_gap(
-              current.s_start, current.s_end,
-              frozen.s_start, frozen.s_end) <= interval_match_gate &&
-            interval_gap(
-              current.d_right, current.d_left,
-              frozen.d_right, frozen.d_left) <= interval_match_gate;
+                   interval_gap(
+                     current.s_start, current.s_end,
+                     frozen.s_start, frozen.s_end) <= interval_match_gate &&
+                   interval_gap(
+                     current.d_right, current.d_left,
+                     frozen.d_right, frozen.d_left) <= interval_match_gate;
           });
         if (!matches_snapshot) {
           planning_obstacles.push_back(current);
@@ -2878,6 +2849,51 @@ bool LocalPlannerNode::evaluateLatticeCandidate(
   return std::isfinite(candidate.cost);
 }
 
+bool LocalPlannerNode::buildSafeStopSegment(
+  const int start_idx, const int count,
+  const std::vector<int> & collision_indices,
+  f110_msgs::msg::WpntArray & segment) const
+{
+  if (collision_indices.empty() || global_wpnts_.wpnts.size() < 2) {
+    return false;
+  }
+
+  const int total = static_cast<int>(global_wpnts_.wpnts.size());
+  const int collision_begin = std::clamp(collision_indices.front(), 0, count - 1);
+  const double clearance = vehicle_radius_ + path_clearance_margin_;
+  int collision_free_count = 0;
+  for (int k = 0; k < collision_begin; ++k) {
+    const int index = (start_idx + k) % total;
+    const auto & waypoint = global_wpnts_.wpnts[index];
+    if (!isPathPointCollisionFree(
+        waypoint.x_m, waypoint.y_m, waypoint.psi_rad, clearance))
+    {
+      break;
+    }
+    if (k > 0) {
+      const int previous = (index - 1 + total) % total;
+      const auto & previous_waypoint = global_wpnts_.wpnts[previous];
+      if (!isPathSegmentCollisionFree(
+          previous_waypoint.x_m, previous_waypoint.y_m, previous_waypoint.psi_rad,
+          waypoint.x_m, waypoint.y_m, waypoint.psi_rad, clearance))
+      {
+        break;
+      }
+    }
+    collision_free_count = k + 1;
+  }
+
+  const int desired_count = collision_begin - lattice_safe_stop_buffer_wpnts_;
+  const int stop_count = std::min(collision_free_count, std::max(2, desired_count));
+  if (stop_count < 2) {
+    return false;
+  }
+
+  segment = makeForwardSegment(global_wpnts_, start_idx, stop_count);
+  applyBrakingProfile(segment);
+  return true;
+}
+
 bool LocalPlannerNode::buildReplanBrakingSegment(
   const f110_msgs::msg::WpntArray & source,
   const int start_idx, const int count,
@@ -2931,7 +2947,7 @@ bool LocalPlannerNode::buildReplanBrakingSegment(
   if (collision_free_count < 2) {
     return false;
   }
-  const int desired_count = collision_free_count - lattice_braking_buffer_wpnts_;
+  const int desired_count = collision_free_count - lattice_safe_stop_buffer_wpnts_;
   const int stop_count = std::min(collision_free_count, std::max(2, desired_count));
   segment = makeForwardSegment(source, start_idx, stop_count);
   applyBrakingProfile(segment);
@@ -2985,8 +3001,8 @@ bool LocalPlannerNode::buildSegmentBrakingPrefix(
     return false;
   }
   const std::size_t buffered = safe_count >
-    static_cast<std::size_t>(lattice_braking_buffer_wpnts_) + 1U ?
-    safe_count - static_cast<std::size_t>(lattice_braking_buffer_wpnts_) : safe_count;
+    static_cast<std::size_t>(lattice_safe_stop_buffer_wpnts_) + 1U ?
+    safe_count - static_cast<std::size_t>(lattice_safe_stop_buffer_wpnts_) : safe_count;
   const std::size_t stop_count = std::max<std::size_t>(2U, buffered);
   segment.header = source.header;
   segment.wpnts.assign(
@@ -3102,7 +3118,7 @@ void LocalPlannerNode::applyBrakingProfile(
         segment.wpnts[i + 1].y_m - segment.wpnts[i].y_m);
     }
     const double braking_speed = std::sqrt(
-      2.0 * lattice_braking_deceleration_mps2_ * remaining_distance);
+      2.0 * lattice_safe_stop_deceleration_mps2_ * remaining_distance);
     segment.wpnts[i].vx_mps = std::min(segment.wpnts[i].vx_mps, braking_speed);
   }
 
@@ -3612,6 +3628,34 @@ void LocalPlannerNode::publishDebugVisualization(
   markers.markers.push_back(std::move(left_space));
   markers.markers.push_back(std::move(right_space));
 
+  visualization_msgs::msg::Marker inflated_obstacles;
+  inflated_obstacles.header = marker_header;
+  inflated_obstacles.ns = "inflated_obstacles";
+  inflated_obstacles.id = 6;
+  inflated_obstacles.type = visualization_msgs::msg::Marker::SPHERE_LIST;
+  inflated_obstacles.action = visualization_msgs::msg::Marker::ADD;
+  inflated_obstacles.pose.orientation.w = 1.0;
+  const double inflation_diameter = 2.0 * std::max(
+    vehicle_radius_ + path_clearance_margin_,
+    0.5 * vehicle_width_m_ + localization_margin_m_ + corridor_safety_margin_m_);
+  inflated_obstacles.scale.x = inflation_diameter;
+  inflated_obstacles.scale.y = inflation_diameter;
+  inflated_obstacles.scale.z = 0.03;
+  inflated_obstacles.color.r = 1.0F;
+  inflated_obstacles.color.g = 0.45F;
+  inflated_obstacles.color.b = 0.0F;
+  inflated_obstacles.color.a = 0.18F;
+  const int width = static_cast<int>(grid_map_.info.width);
+  for (const int map_index : safe_corridor_.inflated_cell_indices) {
+    if (map_index >= 0 && width > 0 &&
+      map_index < static_cast<int>(grid_map_.data.size()))
+    {
+      inflated_obstacles.points.push_back(
+        mapCellCenter(map_index % width, map_index / width));
+    }
+  }
+  markers.markers.push_back(std::move(inflated_obstacles));
+
   visualization_msgs::msg::Marker rejection_text;
   rejection_text.header = marker_header;
   rejection_text.ns = "candidate_rejection_counts";
@@ -4031,18 +4075,22 @@ void LocalPlannerNode::onTimer()
         (now() - last_validated_path_time_).seconds() :
         std::numeric_limits<double>::infinity();
       const bool held_path_is_braking =
+        held_planner_name_.find("frenet_lattice_safe_stop") == 0U ||
         held_planner_name_.find("frenet_lattice_replan_brake") == 0U;
       const bool can_hold_previous_braking = has_held_avoidance_segment_ &&
         held_path_is_braking &&
         (now() - held_segment_time_).seconds() <= frenet_odom_path_hold_timeout_sec_;
       f110_msgs::msg::WpntArray replan_braking_segment;
       f110_msgs::msg::WpntArray held_braking_segment;
+      f110_msgs::msg::WpntArray safe_stop_segment;
       f110_msgs::msg::WpntArray stationary_hold_segment;
       const bool replan_brake_available =
         last_validated_path_age <= lattice_replan_brake_timeout_sec_ &&
         buildReplanBrakingSegment(
         last_validated_full_path_, start_idx, planning_count,
         replan_braking_segment);
+      const bool safe_stop_available = buildSafeStopSegment(
+        start_idx, planning_count, collision_indices, safe_stop_segment);
       const bool held_brake_available = has_held_avoidance_segment_ &&
         buildSegmentBrakingPrefix(held_avoidance_segment_, held_braking_segment);
       const bool stationary_hold_available = buildStationaryHoldSegment(
@@ -4066,6 +4114,22 @@ void LocalPlannerNode::onTimer()
           "Replacement lattice is temporarily unavailable; publishing %zu "
           "newly collision-checked braking points from the previous path.",
           replan_braking_segment.wpnts.size());
+      } else if (safe_stop_available) {
+        visualization_segment = safe_stop_segment;
+        full_local_path = safe_stop_segment;
+        marker_segment = safe_stop_segment;
+        held_avoidance_segment_ = safe_stop_segment;
+        held_avoid_left_ = preferred_side;
+        held_planner_name_ = "frenet_lattice_safe_stop";
+        held_segment_time_ = now();
+        has_held_avoidance_segment_ = true;
+        publishAvoidWaypoints(
+          &safe_stop_segment, preferred_side, "frenet_lattice_safe_stop");
+        avoidance_published = true;
+        RCLCPP_ERROR_THROTTLE(
+          get_logger(), *get_clock(), 2000,
+          "Primary and recovery Frenet lattices failed; publishing a gradual "
+          "collision-free braking segment before the obstacle.");
       } else if (held_brake_available && !held_path_is_braking) {
         visualization_segment = held_braking_segment;
         full_local_path = held_braking_segment;
@@ -4109,7 +4173,7 @@ void LocalPlannerNode::onTimer()
         avoidance_published = true;
         RCLCPP_ERROR_THROTTLE(
           get_logger(), *get_clock(), 2000,
-          "No Frenet lattice or braking segment passed validation; "
+          "No Frenet lattice or safe-stop segment passed validation; "
           "publishing a collision-checked zero-speed hold while replanning.");
       } else {
         has_held_avoidance_segment_ = false;
@@ -4127,8 +4191,9 @@ void LocalPlannerNode::onTimer()
     }
   }
 
-  // Keep the last validated segment through the configured obstacle-clear
-  // hysteresis so a one-cycle component miss cannot replace it with an empty path.
+  // A safe-stop segment has no merge commitment. Keep the last validated
+  // segment through the configured obstacle-clear hysteresis as well, so a
+  // one-cycle component miss cannot replace it with an empty path.
   const double held_path_age = has_held_avoidance_segment_ ?
     (now() - held_segment_time_).seconds() :
     std::numeric_limits<double>::infinity();

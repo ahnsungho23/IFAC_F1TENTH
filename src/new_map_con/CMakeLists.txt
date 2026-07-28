@@ -35,8 +35,28 @@ ament_target_dependencies(map_controller
   f110_msgs
 )
 
+add_executable(opponent_simulator src/opponent_simulator_node.cpp)
+ament_target_dependencies(opponent_simulator
+  rclcpp
+  nav_msgs
+  geometry_msgs
+  f110_msgs
+  tf2
+  tf2_ros
+)
+
+add_executable(opponent_drive_controller src/opponent_drive_controller.cpp)
+ament_target_dependencies(opponent_drive_controller
+  rclcpp
+  nav_msgs
+  ackermann_msgs
+  f110_msgs
+)
+
 install(TARGETS
   map_controller
+  opponent_simulator
+  opponent_drive_controller
   DESTINATION lib/${PROJECT_NAME}
 )
 

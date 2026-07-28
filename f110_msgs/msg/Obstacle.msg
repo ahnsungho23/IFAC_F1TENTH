@@ -1,21 +1,5 @@
 int32 id
 
-# Map-frame Cartesian representation. `has_cartesian` is explicit so consumers never interpret
-# default-zero fields from an older or partially populated producer as a real obstacle at (0, 0).
-bool has_cartesian
-float64 x_center
-float64 y_center
-# Circular obstacle radius [m]. The detector encloses the complete Cartesian AABB:
-# radius = 0.5 * hypot(x_max - x_min, y_max - y_min).
-float64 radius
-float64 x_min
-float64 x_max
-float64 y_min
-float64 y_max
-float64 x_var
-float64 y_var
-
-# Frenet representation used by dynamic-opponent tracking and trajectory prediction.
 float64 s_start
 float64 s_end
 float64 d_right           # defined as right bound of the obstacle

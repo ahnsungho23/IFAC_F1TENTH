@@ -6,94 +6,73 @@ F1TENTH 자율주행 스택입니다. 위치추정(MCL), 글로벌 플래닝, �
 
 
 slam launch방법 로컬에서
-```bash
 cd ~/slam_toolbox
 source /opt/ros/humble/setup.zsh
 source install/setup.zsh
 ros2 launch slam_toolbox online_async_launch.py use_sim_time:=false
-```
 
 slam 저장방법 로컬에서
-```bash
 cd ~/slam_toolbox
 source /opt/ros/humble/setup.zsh
 source install/setup.zsh
 ros2 run nav2_map_server map_saver_cli \
     -f /home/haejun/slam_toolbox/map
-```
     
 딴 맵을 로컬에서 젯슨으로 맵 전송
-```bash
 scp ~/slam_toolbox/map.png ~/slam_toolbox/map.yaml \
     miru@10.1.1.3:~/2026_IFAC/src/monte_carlo_localization/maps/
-```
+    
     
 offline gui 파일을 로컬에서 젯슨으로 전송
-```bash
 scp -r ~/2026_IFAC/offline_trajectory_generator/output/map \
     miru@10.1.1.3:~/2026_IFAC/offline_trajectory_generator/output/
-```
 
 터미널1
-```bash
 cd ~/2026_IFAC
 source /opt/ros/humble/setup.zsh
 source install/setup.zsh
 ros2 launch particle_filter_cpp mcl_launch.py mod:=real map_name:=map
-```
 
 터미널2
-```bash
 cd ~/2026_IFAC
 source /opt/ros/humble/setup.zsh
 source install/setup.zsh
 ros2 launch global_planning global_planning.launch.py
-```
 
 터미널3
-```bash
 cd ~/2026_IFAC
 source /opt/ros/humble/setup.zsh
 source install/setup.zsh
 ros2 launch local_planning local_planning.launch.py
-```
 
 터미널4
-```bash
 cd ~/2026_IFAC
 source /opt/ros/humble/setup.zsh
 source install/setup.zsh
 ros2 launch state_machine state_machine.launch.py
-```
 
 터미널5
-```bash
 cd ~/2026_IFAC
 source /opt/ros/humble/setup.zsh
 source install/setup.zsh
 ros2 launch state_machine state_machine.launch.py
-```
 
 터미널6
-```bash
 cd ~/2026_IFAC
 source /opt/ros/humble/setup.zsh
 source install/setup.zsh
 ros2 run wpnt_publisher wpnt_publisher
-```
 
 터미널7
-```bash
 cd ~/2026_IFAC
 source /opt/ros/humble/setup.zsh
 source ~/f1tenth_ws/install/setup.zsh
 source install/setup.zsh
 ros2 launch f1tenth_control control_real.launch.py
-```
+
 
 
 rosbag
-```
 cd ~/miru/2026_IFAC
 
 source /opt/ros/humble/setup.zsh
@@ -112,7 +91,7 @@ ros2 bag record \
   /debug/l1_lookahead \
   /drive_autonomous\ 
   /drive
-```
+
 ---
 
 ## 프로젝트 구조

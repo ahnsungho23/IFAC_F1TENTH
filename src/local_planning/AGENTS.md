@@ -2,7 +2,7 @@
 
 ## 1. Package Purpose
 - Provides real-time obstacle interference checking against global waypoints and computes a multi-candidate Frenet lattice avoidance trajectory. No legacy generator may bypass lattice dynamic-feasibility validation.
-- Publishes an ego-to-merge avoidance segment as `/avoid_waypoints` (OTWpntArray). If the primary lattice is infeasible, run the denser recovery lattice without relaxing collision clearance. `wpnt_publisher` routes this segment into `/local_waypoints`; standalone publishing remains disabled by default.
+- Publishes an ego-to-merge avoidance segment as `/avoid_waypoints` (OTWpntArray). If the primary lattice is infeasible, run the denser recovery lattice without relaxing collision clearance. If recovery also fails, publish a collision-checked gradual-braking segment before the obstacle; publish an empty array only when even that segment cannot be formed. `wpnt_publisher` routes this segment into `/local_waypoints`; standalone publishing remains disabled by default.
 
 ## 2. Key Rules & Conventions
 - Written in modern C++17 for ROS 2 Humble.
@@ -37,7 +37,7 @@
 - Validate both avoidance sides and every segment between waypoints against the complete occupancy grid with footprint inflation before publishing.
 - Reject candidates above configured curvature, distance-normalized curvature-rate, and lateral-acceleration limits; cap candidate velocity from the recomputed curvature.
 - Do not restore legacy least-squares or independent smoothstep avoidance fallbacks. Quintic smoothstep is permitted only as the lateral transition inside a fully validated lattice candidate.
-- If primary and recovery lattice candidates fail during a sequential-obstacle handoff, rebuild a braking prefix from the last validated full avoidance path. Recheck its remaining track boundary, point footprint, and swept-segment clearance from the current position, and use it only within `lattice_replan_brake_timeout_sec`. During a short replanning gap, retain only an already checked braking segment for the configured bounded hold time. When no moving or braking segment remains, publish a collision-checked two-point zero-speed hold at the current Frenet pose and keep replanning. Never force an occupancy-colliding candidate merely to keep the topic non-empty.
+- If primary and recovery lattice candidates fail during a sequential-obstacle handoff, first rebuild a braking prefix from the last validated full avoidance path. Recheck its remaining track boundary, point footprint, and swept-segment clearance from the current position, and use it only within `lattice_replan_brake_timeout_sec`. Then try the global-path safe stop. During a short replanning gap, retain only an already checked braking segment for the configured bounded hold time. When no moving or braking segment remains, publish a collision-checked two-point zero-speed hold at the current Frenet pose and keep replanning. Never force an occupancy-colliding candidate merely to keep the topic non-empty.
 - Treat an obstacle as blocking only when its lateral extent overlaps the vehicle envelope around the global raceline. Expand that envelope by the configured tracking margin as curvature rises so tight-corner tracking error is covered.
 - Never allow the candidate-generation wall margin to be smaller than `vehicle_radius + path_clearance_margin`.
 - Publish only collision-checked paths on `/local_planning/path`. Keep failed candidates on the orange debug marker and publish an empty Path instead of relabeling the global path as local avoidance.
@@ -48,12 +48,7 @@
   relationship `lookahead_wpnt_num >= detection_lookahead_wpnt_num` when tuning it.
 
 ## 3. Interfaces
-- Subscribes: `/global_waypoints`, `/map`, `/perception/static_obstacles`,
-  `/car_state/frenet/odom`.
-- Static obstacle input must set `has_cartesian=true` and provide finite map-frame `x_center`,
-  `y_center`, Frenet `s_center`, `d_center`, and a positive enclosing-circle `radius`. Preserve
-  the main multi-candidate lattice and lateral filtering; apply the radius as both Frenet
-  longitudinal and lateral half-extent before feeding the existing planning grid.
+- Subscribes: `/global_waypoints`, `/map`, `/perception/obstacles`, `/car_state/frenet/odom`.
 - Publishes: `/avoid_waypoints`, `/local_waypoints`, `/local_planning/path`, `/local_planning/markers`.
 
 ## 4. Default Early-Avoidance Profile

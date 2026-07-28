@@ -53,54 +53,26 @@ void ObstacleTracker::predict(Track &t, double dt) const
     t.P = F * t.P * F.transpose() + Q;
 }
 
-Eigen::Matrix2d ObstacleTracker::measurementCovariance(const Detection &detection) const
-{
-    const double scale = std::max(1.0, detection.variance_scale);
-    Eigen::Matrix2d R = Eigen::Matrix2d::Zero();
-    R(0, 0) = p_.meas_var_s * scale;
-    R(1, 1) = p_.meas_var_d * scale;
-    return R;
-}
-
-double ObstacleTracker::innovationDistanceSquared(
-    const Track &t, const Detection &detection) const
-{
-    Eigen::Matrix<double, 2, 4> H = Eigen::Matrix<double, 2, 4>::Zero();
-    H(0, 0) = 1.0;
-    H(1, 2) = 1.0;
-
-    Eigen::Vector2d innovation;
-    innovation(0) = frenet_ ?
-        frenet_->wrapDelta(detection.s, t.x(0)) : detection.s - t.x(0);
-    innovation(1) = detection.d - t.x(2);
-    const Eigen::Matrix2d S =
-        H * t.P * H.transpose() + measurementCovariance(detection);
-    const Eigen::LDLT<Eigen::Matrix2d> solver(S);
-    if (solver.info() != Eigen::Success)
-    {
-        return std::numeric_limits<double>::infinity();
-    }
-    return innovation.dot(solver.solve(innovation));
-}
-
-void ObstacleTracker::kalmanUpdate(Track &t, const Detection &detection) const
+void ObstacleTracker::kalmanUpdate(Track &t, double meas_s, double meas_d) const
 {
     // H selects s (row0) and d (row2)
     Eigen::Matrix<double, 2, 4> H = Eigen::Matrix<double, 2, 4>::Zero();
     H(0, 0) = 1.0;
     H(1, 2) = 1.0;
 
-    const Eigen::Matrix2d R = measurementCovariance(detection);
+    Eigen::Matrix2d R = Eigen::Matrix2d::Zero();
+    R(0, 0) = p_.meas_var_s;
+    R(1, 1) = p_.meas_var_d;
 
     // innovation with s-wrap handling
     Eigen::Vector2d z;
-    z << detection.s, detection.d;
+    z << meas_s, meas_d;
     Eigen::Vector2d hx;
     hx << t.x(0), t.x(2);
     Eigen::Vector2d y = z - hx;
     if (frenet_)
     {
-        y(0) = frenet_->wrapDelta(detection.s, t.x(0));
+        y(0) = frenet_->wrapDelta(meas_s, t.x(0));
     }
 
     Eigen::Matrix2d S = H * t.P * H.transpose() + R;
@@ -243,7 +215,6 @@ void ObstacleTracker::updateStaticReference()
 
 void ObstacleTracker::update(const std::vector<Detection> &detections, double stamp)
 {
-    last_stats_ = TrackerUpdateStats{};
     double dt = 0.0;
     if (has_last_stamp_)
     {
@@ -284,22 +255,7 @@ void ObstacleTracker::update(const std::vector<Detection> &detections, double st
         {
             const double c = frenetDist(tracks_[ti].x(0), tracks_[ti].x(2), detections[di].s,
                                         detections[di].d);
-            if (c > gate)
-            {
-                ++last_stats_.euclidean_rejected;
-                continue;
-            }
-            if (p_.assoc_use_mahalanobis)
-            {
-                const double m2 = innovationDistanceSquared(tracks_[ti], detections[di]);
-                if (!std::isfinite(m2) || m2 > p_.assoc_mahalanobis_gate)
-                {
-                    ++last_stats_.mahalanobis_rejected;
-                    continue;
-                }
-                pairs.push_back({ti, di, m2});
-            }
-            else
+            if (c <= gate)
             {
                 pairs.push_back({ti, di, c});
             }
@@ -324,18 +280,13 @@ void ObstacleTracker::update(const std::vector<Detection> &detections, double st
         if (trk_assigned[ti] >= 0)
         {
             const Detection &det = detections[trk_assigned[ti]];
-            kalmanUpdate(t, det);
-            ++last_stats_.matched;
+            kalmanUpdate(t, det.s, det.d);
             t.hits++;
             t.misses = 0;
             t.is_visible = true;
             t.size = det.size;
             t.x_map = det.x;
             t.y_map = det.y;
-            t.x_min_map = det.x_min;
-            t.x_max_map = det.x_max;
-            t.y_min_map = det.y_min;
-            t.y_max_map = det.y_max;
             t.hist.emplace_back(t.x(0), t.x(2));
             while (static_cast<int>(t.hist.size()) > p_.std_window)
             {
@@ -372,13 +323,8 @@ void ObstacleTracker::update(const std::vector<Detection> &detections, double st
         t.size = detections[di].size;
         t.x_map = detections[di].x;
         t.y_map = detections[di].y;
-        t.x_min_map = detections[di].x_min;
-        t.x_max_map = detections[di].x_max;
-        t.y_min_map = detections[di].y_min;
-        t.y_max_map = detections[di].y_max;
         t.hist.emplace_back(t.x(0), t.x(2));
         tracks_.push_back(std::move(t));
-        ++last_stats_.spawned;
     }
 
     // 4b) refresh the static-field reference from slow tracks, then classify every track relative
@@ -394,11 +340,9 @@ void ObstacleTracker::update(const std::vector<Detection> &detections, double st
     }
 
     // 5) retire dead tracks
-    const auto before_retire = tracks_.size();
     tracks_.erase(std::remove_if(tracks_.begin(), tracks_.end(),
                                  [](const Track &t) { return t.ttl <= 0; }),
                   tracks_.end());
-    last_stats_.retired = static_cast<int>(before_retire - tracks_.size());
 }
 
 int ObstacleTracker::opponentIndex(double ego_s) const
