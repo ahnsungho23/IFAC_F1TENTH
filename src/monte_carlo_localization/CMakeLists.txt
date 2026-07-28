@@ -65,7 +65,7 @@ ament_target_dependencies(${PROJECT_NAME}_lib ${dependencies})
 
 # Create executable for particle filter
 add_executable(particle_filter_node 
-  src/particle_filter.cpp
+  src/particle_filter_main.cpp
 )
 
 target_link_libraries(particle_filter_node ${PROJECT_NAME}_lib)

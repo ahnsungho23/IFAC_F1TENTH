@@ -1523,13 +1523,5 @@ Eigen::Vector3d ParticleFilter::apply_tf_offset(const Eigen::Vector3d& pose_in_l
 // ================================================================================================
 // PROGRAM ENTRY POINT
 // ================================================================================================
-int main(int argc, char *argv[])
-{
-    rclcpp::init(argc, argv);
-    rclcpp::spin(std::make_shared<particle_filter_cpp::ParticleFilter>());
-    rclcpp::shutdown();
-    return 0;
-}
-
 #include "rclcpp_components/register_node_macro.hpp"
 RCLCPP_COMPONENTS_REGISTER_NODE(particle_filter_cpp::ParticleFilter)

@@ -50,13 +50,15 @@ StateMachineNode::StateMachineNode()
   //발행하는 /state 메시지의 header.frame_id에 들어가는 값
   declare_parameter<std::string>("default_state", "global");
   //global, avoid, overtake 등이 들어갈 수 있습니다.
-  //다만 avoid는 fresh한 avoid waypoint, overtake는 fresh한 overtake waypoint가 있어야 유지
+  //avoid 경로는 timeout 없이 최신 non-empty 수신 여부로 유지하고, overtake는 별도 timeout을 사용한다.
   declare_parameter<double>("publish_rate_hz", 10.0);
   //state를 몇 Hz로 publish할지 정함.
-  declare_parameter<double>("avoid_stale_timeout_sec", 0.5);
-  //avoid_waypoints가 얼마나 오래되면 stale로 볼지 정함.
   declare_parameter<double>("overtake_stale_timeout_sec", 0.5);
   //overtake_waypoints가 얼마나 오래되면 stale로 볼지 정함.
+  declare_parameter<int64_t>("local_path_confirmation_window_size", 5);
+  //상태 진입 판정에 사용할 최근 local path 메시지 개수.
+  declare_parameter<int64_t>("local_path_confirmation_min_hits", 3);
+  //최근 window 안에서 필요한 non-empty local path 메시지 개수.
   declare_parameter<double>("global_stale_timeout_sec", 0.5);
   //global_waypoints가 얼마나 오래되면 stale로 볼지 정함.
   declare_parameter<double>("frenet_stale_timeout_sec", 0.5);
@@ -74,8 +76,13 @@ StateMachineNode::StateMachineNode()
   state_topic_ = get_parameter("state_topic").as_string();
   frame_id_ = get_parameter("frame_id").as_string();
   default_state_name_ = get_parameter("default_state").as_string();
-  avoid_stale_timeout_sec_ = get_parameter("avoid_stale_timeout_sec").as_double();
   overtake_stale_timeout_sec_ = get_parameter("overtake_stale_timeout_sec").as_double();
+  local_path_confirmation_window_size_ = std::max<int64_t>(
+    1, get_parameter("local_path_confirmation_window_size").as_int());
+  local_path_confirmation_min_hits_ = std::clamp<int64_t>(
+    get_parameter("local_path_confirmation_min_hits").as_int(),
+    1,
+    local_path_confirmation_window_size_);
   global_stale_timeout_sec_ = get_parameter("global_stale_timeout_sec").as_double();
   frenet_stale_timeout_sec_ = get_parameter("frenet_stale_timeout_sec").as_double();
   enter_global_sec_ = get_parameter("enter_global_sec").as_double();
@@ -151,18 +158,16 @@ bool StateMachineNode::is_fresh(const rclcpp::Time & stamp, double timeout_sec) 
   return (now() - stamp).seconds() <= timeout_sec;
 }
 
-bool StateMachineNode::is_not_null_ptr(
-  const rclcpp::Time & stamp,
-  double timeout_sec,
+bool StateMachineNode::local_path_confirmed(
+  const std::deque<bool> & history,
   const f110_msgs::msg::OTWpntArray::SharedPtr msg) const
 {
-  //msg가 비어있으면(포인터 자체가 null이거나 wpnts가 비어있으면) "채워진 상태 유지"가 성립하지 않으므로 false.
   if (msg == nullptr || msg->wpnts.empty()) {
     return false;
   }
-  //msg가 채워진 채로 stamp(채워지기 시작한 시점)로부터 timeout_sec보다 오래 지속되었으면 true.
-  return (now() - stamp).seconds() > timeout_sec;
-}/////////일정시간동안 받아들이는 wpnt가nullptr이 아니라면 true 반환
+  return std::count(history.begin(), history.end(), true) >=
+         local_path_confirmation_min_hits_;
+}
 
 bool StateMachineNode::has_fresh_global() const
 {
@@ -174,9 +179,9 @@ bool StateMachineNode::has_fresh_frenet() const
   return has_frenet_ && is_fresh(last_frenet_time_, frenet_stale_timeout_sec_);
 }
 
-bool StateMachineNode::has_fresh_avoid_wpnts() const
+bool StateMachineNode::has_avoid_wpnts() const
 {
-  return has_avoid_wpnts_ && is_fresh(last_avoid_time_, avoid_stale_timeout_sec_);
+  return has_avoid_wpnts_;
 }
 
 bool StateMachineNode::has_fresh_overtake_wpnts() const
@@ -184,22 +189,16 @@ bool StateMachineNode::has_fresh_overtake_wpnts() const
   return has_overtake_wpnts_ && is_fresh(last_overtake_time_, overtake_stale_timeout_sec_);
 }
 
-//STATE_AVOID 전이 게이트: fresh한 avoid path가 있어야 함.
-bool StateMachineNode::can_enter_avoid(
-  const rclcpp::Time & stamp,
-  double timeout_sec,
-  const f110_msgs::msg::OTWpntArray::SharedPtr msg) const
+bool StateMachineNode::can_enter_avoid() const
 {
-  return is_not_null_ptr(stamp,timeout_sec,msg);
+  return local_path_confirmed(
+    avoid_path_history_, avoid_wpnts_msg_);
 }
 
-//STATE_OVERTAKE 전이 게이트: fresh한 overtake path가 있어야 함. 지금당장은 can_enter_avoid와 can_enter_overtake 구조가 같지만 추후 달라질걸 염두해 따로 둠.
-bool StateMachineNode::can_enter_overtake(
-  const rclcpp::Time & stamp,
-  double timeout_sec,
-  const f110_msgs::msg::OTWpntArray::SharedPtr msg) const
+bool StateMachineNode::can_enter_overtake() const
 {
-  return is_not_null_ptr(stamp,timeout_sec,msg);
+  return local_path_confirmed(
+    overtake_path_history_, overtake_wpnts_msg_);
 }
 
 void StateMachineNode::on_frenet_odom(const nav_msgs::msg::Odometry::SharedPtr msg)
@@ -227,14 +226,14 @@ void StateMachineNode::on_global_waypoints(const f110_msgs::msg::WpntArray::Shar
 void StateMachineNode::on_avoid_wpnts(const f110_msgs::msg::OTWpntArray::SharedPtr msg)
 {
   const bool non_empty = (msg != nullptr) && !msg->wpnts.empty();
-  //직전 msg가 fresh하게 채워져 있었을 때만 streak를 이어가고, 비어있었거나 오래 끊겼으면 streak를 새로 시작.
-  const bool streak_continues = has_avoid_wpnts_ && is_fresh(last_avoid_time_, avoid_stale_timeout_sec_);
-  if (non_empty && !streak_continues) {
-    avoid_nonempty_since_ = now();
+  avoid_path_history_.push_back(non_empty);
+  while (static_cast<int64_t>(avoid_path_history_.size()) >
+    local_path_confirmation_window_size_)
+  {
+    avoid_path_history_.pop_front();
   }
   has_avoid_wpnts_ = non_empty;
   avoid_wpnts_msg_ = msg;
-  last_avoid_time_ = now();
   if (!non_empty) {
     RCLCPP_WARN_THROTTLE(
       get_logger(),
@@ -247,10 +246,11 @@ void StateMachineNode::on_avoid_wpnts(const f110_msgs::msg::OTWpntArray::SharedP
 void StateMachineNode::on_overtake_wpnts(const f110_msgs::msg::OTWpntArray::SharedPtr msg)
 {
   const bool non_empty = (msg != nullptr) && !msg->wpnts.empty();
-  //직전 msg가 fresh하게 채워져 있었을 때만 streak를 이어가고, 비어있었거나 오래 끊겼으면 streak를 새로 시작.
-  const bool streak_continues = has_overtake_wpnts_ && is_fresh(last_overtake_time_, overtake_stale_timeout_sec_);
-  if (non_empty && !streak_continues) {
-    overtake_nonempty_since_ = now();
+  overtake_path_history_.push_back(non_empty);
+  while (static_cast<int64_t>(overtake_path_history_.size()) >
+    local_path_confirmation_window_size_)
+  {
+    overtake_path_history_.pop_front();
   }
   has_overtake_wpnts_ = non_empty;
   overtake_wpnts_msg_ = msg;
@@ -352,22 +352,22 @@ bool StateMachineNode::evaluate_enter_to_global(
 }
 
 //committed_state_ 기반 FSM 1-step. dwell/안전 fallback 없이 조건 만족 즉시 전이한다.
-//- GLOBAL: 지속된 avoid path면 AVOID(우선), 아니면 지속된 overtake path면 OVERTAKE로 진입.
+//- GLOBAL: 최근 N회 중 M회 이상 확인된 avoid path면 AVOID(우선), 아니면 overtake path면 OVERTAKE로 진입.
 //- AVOID/OVERTAKE: enter_to_global 합류 조건을 만족하면 GLOBAL로 복귀.
 uint8_t StateMachineNode::resolve_requested_state()
 {
   switch (committed_state_) {
     case f110_msgs::msg::StateMachine::STATE_GLOBAL:
       //진입 우선순위: AVOID > OVERTAKE.
-      if (can_enter_avoid(avoid_nonempty_since_, avoid_stale_timeout_sec_, avoid_wpnts_msg_)) {
+      if (can_enter_avoid()) {
         committed_state_ = f110_msgs::msg::StateMachine::STATE_AVOID;
         enter_global_ok_since_.reset();  //새 기동 진입: 이전 합류 타이머 잔재 제거.
-        RCLCPP_INFO(get_logger(), "STATE_GLOBAL -> STATE_AVOID (avoid path sustained).");
-      } else if (can_enter_overtake(
-          overtake_nonempty_since_, overtake_stale_timeout_sec_, overtake_wpnts_msg_)) {
+        RCLCPP_INFO(get_logger(), "STATE_GLOBAL -> STATE_AVOID (avoid path confirmed M-of-N).");
+      } else if (can_enter_overtake()) {
         committed_state_ = f110_msgs::msg::StateMachine::STATE_OVERTAKE;
         enter_global_ok_since_.reset();
-        RCLCPP_INFO(get_logger(), "STATE_GLOBAL -> STATE_OVERTAKE (overtake path sustained).");
+        RCLCPP_INFO(
+          get_logger(), "STATE_GLOBAL -> STATE_OVERTAKE (overtake path confirmed M-of-N).");
       }
       break;
 
@@ -375,7 +375,7 @@ uint8_t StateMachineNode::resolve_requested_state()
       //avoid 단계: ego(frenet) + 정적 회피경로(세그먼트) + global 경로로 global 합류 여부 판단.
       if (evaluate_enter_to_global(
           f110_msgs::msg::StateMachine::STATE_AVOID,
-          has_fresh_avoid_wpnts(),
+          has_avoid_wpnts(),
           avoid_wpnts_msg_))
       {
         committed_state_ = f110_msgs::msg::StateMachine::STATE_GLOBAL;
@@ -408,7 +408,7 @@ void StateMachineNode::publish_state()
 
   const bool global_ready = has_fresh_global();
   const bool frenet_ready = has_fresh_frenet();
-  const bool avoid_ready = has_fresh_avoid_wpnts();
+  const bool avoid_ready = has_avoid_wpnts();
   const bool overtake_ready = has_fresh_overtake_wpnts();
   if (!global_ready || !frenet_ready || !avoid_ready || !overtake_ready) {
     RCLCPP_WARN_THROTTLE(

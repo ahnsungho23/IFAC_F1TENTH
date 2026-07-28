@@ -24,6 +24,7 @@ include_directories(
 
 add_library(local_planner_core STATIC
   src/local_planner_node.cpp
+  src/raceline_spline_planner.cpp
   src/safe_corridor.cpp
 )
 ament_target_dependencies(local_planner_core
@@ -43,6 +44,10 @@ target_link_libraries(local_planner_node local_planner_core)
 install(TARGETS
   local_planner_node
   DESTINATION lib/${PROJECT_NAME}
+)
+
+install(DIRECTORY include/
+  DESTINATION include
 )
 
 install(DIRECTORY launch config docs
@@ -66,6 +71,16 @@ if(BUILD_TESTING)
       f110_msgs
     )
     target_link_libraries(test_frenet_lattice local_planner_core)
+  endif()
+
+  ament_add_gtest(test_raceline_spline test/test_raceline_spline.cpp)
+  if(TARGET test_raceline_spline)
+    ament_target_dependencies(test_raceline_spline
+      rclcpp
+      nav_msgs
+      f110_msgs
+    )
+    target_link_libraries(test_raceline_spline local_planner_core)
   endif()
 
   ament_add_gtest(test_safe_corridor test/test_safe_corridor.cpp)
