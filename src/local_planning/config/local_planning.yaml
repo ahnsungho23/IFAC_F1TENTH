@@ -31,6 +31,7 @@ local_planner_node:
     maximum_curvature_radpm: 3.20
     maximum_curvature_rate_radpm2: 20.0
 
+<<<<<<< HEAD
     # 제어기 단독 감속 시험 설정입니다. 로컬플래너는 글로벌 속도 프로파일을 그대로 유지합니다.
     # 큰 가속도 값은 곡률 속도 캡과 종방향 재프로파일을 실질적으로 비활성화합니다.
     # 경로 형상 안전성 검사(maximum_curvature_radpm 등)와 safe-stop 감속은 계속 적용됩니다.
@@ -43,6 +44,101 @@ local_planner_node:
     safe_stop_buffer_m: 0.80
     safe_stop_deceleration_mps2: 2.5
     minimum_path_points: 8
+=======
+    # Frenet lattice 비용함수 가중치
+    # 평균 clearance와 경로의 가장 좁은 지점을 함께 평가해 벽-장애물 통로 중앙을 선호합니다.
+    lattice_weight_clearance: 2.0
+    lattice_weight_min_clearance: 12.0
+    lattice_weight_deviation: 1.0
+    lattice_weight_curvature: 0.30
+    # 이제 단순 인접점 곡률 차이가 아니라 |delta_kappa| / ds 비용입니다.
+    lattice_weight_curvature_change: 0.12
+    # Werling et al.의 저속 Frenet 식 C_d = k_j J_s + k_t S + k_d d_end^2를 반영합니다.
+    # J_s는 실제 기준선 호길이 s에 대한 횡오프셋 3차 미분 제곱 적분이며,
+    # 두 항의 균형으로 너무 짧고 급한 전환과 지나치게 긴 전환을 함께 억제합니다.
+    lattice_weight_spatial_lateral_jerk: 0.02
+    lattice_weight_maneuver_length: 0.08
+    lattice_weight_path_length: 0.30
+    lattice_weight_speed_loss: 0.20
+    # 회피가 시작되면 같은 방향을 유지하고, 현재 방향이 불가능할 때만 반대편을 선택합니다.
+    lattice_weight_opposite_side: 2.0
+    # 최초로 선택한 충돌 없는 경로를 장애물 검출이 해제될 때까지 재사용해 재계획 흔들림을 막습니다.
+    lattice_commit_path_until_clear: true
+    # 현재 merge 약 2.5 m 전부터 다음 장애물 군집을 미리 계획합니다. 새 경로 시작점이 실제
+    # 차량에서 멀거나 안전 검사를 실패하면 기존 커밋 경로를 그대로 유지합니다.
+    lattice_preplan_before_merge_m: 10.0
+    lattice_preplan_max_start_gap_m: 0.35
+    # 실제 합류점 뒤에 충돌 없는 글로벌 경로를 약 4 m 덧붙여 제어기의 전방 경로를 확보합니다.
+    # 합류 인덱스 자체는 별도로 보존하므로 차량이 합류점에 도달하면 정상적으로 GLOBAL로 복귀합니다.
+    lattice_post_merge_lookahead_wpnts: 60
+    # 설계 합류점을 지나도 실제 차량 d가 충분히 작아질 때까지 같은 경로 소스를 유지합니다.
+    lattice_merge_lateral_tolerance_m: 0.15
+    lattice_merge_settle_max_wpnts: 30
+    # 기본/복구 lattice가 모두 실패하면 장애물 약 0.8 m 앞까지 점진 감속 경로를 발행합니다.
+    lattice_safe_stop_buffer_wpnts: 8
+    lattice_safe_stop_deceleration_mps2: 2.50
+    # 연속 장애물로 경로를 넘기는 순간 새 lattice가 한두 주기 실패하면, 직전 전체 경로를
+    # 현재 지도에서 다시 검사해 충돌 전 감속 prefix로 사용합니다. 오래된 경로는 사용하지 않습니다.
+    lattice_replan_brake_timeout_sec: 1.50
+    # 이동/감속 경로가 모두 실패했을 때 현재 위치에 만드는 정지 경로의 점 간격입니다.
+    stationary_hold_point_spacing_m: 0.03
+
+    # 점유 판정은 전체 grid를 사용합니다. 컴포넌트 면적은 시각화/로그 그룹에만 적용되므로
+    # 벽에 붙은 장애물과 2.0 m²보다 큰 장애물도 검출 및 hard rejection 대상입니다.
+    occupied_threshold: 50
+    # /map은 벽과 맵 경계의 안전 검사용으로 유지하고, opponent_detector가 추적한
+    # Frenet 장애물 상자를 planning grid에 겹쳐 기존 safe-corridor/lattice 로직으로 회피합니다.
+    use_perception_obstacles: true
+    require_perception_obstacles: true
+    obstacles_topic: "/perception/obstacles"
+    # local planner는 정적 장애물만 담당하고, 동적 상대차는 opponent_detector의 추월/추종에 맡깁니다.
+    perception_static_only: true
+    # opponent_detector가 is_static을 확정하기 전에도 Frenet 추정속도가 거의 0이면
+    # 정적 후보로 먼저 반영합니다. 실제 동적 상대차는 이 문턱을 넘어 제외됩니다.
+    perception_static_speed_threshold_mps: 0.25
+    # tracker 상자의 불확실성과 rasterization 오차를 보상하는 추가 외곽 여유입니다.
+    # tracker의 횡경계가 주행 중 10 cm 이상 흔들린 실제 로그와 3 cm grid 양자화를
+    # 흡수합니다. 차체 hard check와 합쳐 중심선 옆 장애물도 미리 회피 대상으로 만듭니다.
+    perception_obstacle_padding_m: 0.10
+    # 정적 tracker는 scan보다 느리게 planning grid에 반영해 전체 맵 거리장 재계산이
+    # Frenet odometry callback을 굶기지 않도록 합니다. 첫 메시지는 즉시 반영됩니다.
+    # 정적 장애물만 사용하므로 매 planning tick마다 676x451 맵을 다시 만들 필요가 없습니다.
+    # 한 번의 rasterization이 약 0.55~1.17 s 걸려 0.20 s 주기는 callback backlog를 만들고,
+    # 다음 장애물을 지난 뒤에야 odom/obstacle을 처리하게 했습니다.
+    perception_grid_update_period_sec: 1.00
+    # 정적 tracker의 중심/크기가 이 값보다 적게 흔들리면 기존 occupancy/distance
+    # grid를 재사용합니다. 3 cm 셀 몇 개의 jitter 때문에 0.6초 전체 재계산을 하지 않습니다.
+    perception_grid_rebuild_motion_m: 0.12
+    # detector가 같은 정적 물체에 새 ID를 붙여도 Frenet 상자 위치가 겹치면 하나의
+    # 물리 장애물로 유지합니다.
+    perception_static_grid_match_gate_m: 0.75
+    # 최근 관측만으로 정적 장애물 외곽을 계산합니다. 최초의 부분 검출은 후속 관측으로
+    # 확장하되, 오래된 큰 오측정은 이 창을 벗어나면 제거되어 상자가 영구 팽창하지 않습니다.
+    perception_static_history_size: 6
+    # 한 프레임의 큰 외곽값은 무시하고 같은 확장이 연속으로 관측될 때만 반영합니다.
+    # 새 물리 장애물의 최초 등록 자체는 이 확인을 기다리지 않고 즉시 반영됩니다.
+    perception_static_expand_confirm_cycles: 2
+    # 안전에 필요한 외곽 확장은 즉시 반영하지만, 축소는 연속 관측으로 확인하여 최근 관측
+    # 창의 경계값 교체만으로 planning grid가 반복 재생성되는 것을 방지합니다.
+    perception_static_shrink_confirm_cycles: 3
+    # Stabilize static tracks before rasterizing them into the planning grid.
+    perception_filter_alpha: 0.25
+    # 정적 장애물을 한 바퀴 동안 기억해 가시권을 벗어날 때마다 grid에서 지웠다가
+    # 다음 바퀴에 다시 추가하는 전체 재계산을 방지합니다.
+    perception_track_hold_sec: 60.0
+    perception_association_gate_m: 0.35
+    perception_max_s_step_m: 0.20
+    perception_max_d_step_m: 0.12
+    # 회피 경로 확정 시 사용한 정적 장애물 박스를 merge 완료까지 고정하여
+    # detector jitter가 이미 검증된 경로를 침범하는 현상을 막습니다.
+    freeze_committed_static_obstacles: true
+    # snapshot 장애물과 새 검출이 같은 물체인지 판단하는 Frenet 중심 거리입니다.
+    committed_obstacle_match_distance_m: 0.35
+    obstacle_component_min_area_m2: 0.002
+    obstacle_component_max_area_m2: 2.0
+    # treat_as_free | treat_as_occupied | reject_candidate
+    unknown_cell_policy: "reject_candidate"
+>>>>>>> f9713510246c01603e88db1d5002ca178b07a970
 
     # map-frame Cartesian AABB를 CLCS로 내부 투영한 정적 물체만 담당합니다.
     require_obstacles_message: true

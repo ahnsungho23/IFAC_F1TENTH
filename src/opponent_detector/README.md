@@ -2,9 +2,8 @@
 
 > 🌐 **한국어** · [English](README_en.md)
 
-**2D LiDAR를 주 계측으로** 동적 상대차를 **검출·추적하고, 확정형(committed) 추월 경로까지 만드는**
-C++ 노드 패키지. 선택적으로 IMU/odom을 사용해 스캔 중 차량 회전에 의한 왜곡을 보정한 뒤 상대차의
-Frenet 위치·속도를 추정하고, global path 위의 상대차를 추월하는
+**LiDAR 단독**으로 동적 상대차를 **검출·추적하고, 확정형(committed) 추월 경로까지 만드는** C++ 노드
+패키지. 2D LiDAR 스캔만으로 상대차의 Frenet 위치·속도를 추정하고, global path 위의 상대차를 추월하는
 **국소(local) spline 추월 라인**을 `OTWpntArray`로 발행한다. 검출과 추월 플래너가 한 노드에 합쳐져
 있고, spline 파라미터를 포함한 모든 튜닝값이 **단일 YAML**(`config/opponent_detector.yaml`)에 있다.
 추월 라인은 `wpnt_publisher` → `/local_waypoints` → `new_map_con` 순으로 흘러 컨트롤러가 자동으로
@@ -23,29 +22,21 @@ optimization…*)의 상대차 검출 아이디어를 이 저장소(카메라 �
 
 에고 pose로 에고 운동을 상쇄하는 Frenet 프레임에서 "정적/동적"을 가른다.
 
-1. `/scan`의 각 빔을 IMU yaw rate(없으면 odom)로 스캔 시작 시각에 **deskew**한다. 병진 보정과
-   원시 노이즈 필터는 검증 후 켤 수 있는 선택 기능이다.
-2. **Adaptive Breakpoint** 군집화 — 거리 의존 임계로 점을 클러스터로 나누고, 가까운 파편은
-   벽 크기로 커지지 않는 범위에서 병합한다.
-3. deskew된 점을 TF로 map 프레임에 옮기고 각 클러스터를 박스(AABB)로 피팅해 중심·크기를 얻는다.
+1. `/scan`을 TF로 map 프레임 점군으로 변환한다(스캔의 `frame_id`를 그대로 사용).
+2. **Adaptive Breakpoint** 군집화 — 거리 의존 임계로 점을 클러스터로 나눈다.
+3. 각 클러스터를 박스(AABB)로 피팅해 중심·크기를 얻고, 너무 큰 것은 버린다.
 4. **지도필터 + 코너 경계 필터** — `/global_waypoints`의 `d_left/d_right`로 주행 통로 밖을 버리고,
    `/map`(SLAM) 점유격자에서 알려진 정적 구조물(**벽**)에 놓인 클러스터를 버린다.
 5. 중심을 **Frenet (s,d)** 로 투영한다 — **`global_planning`의 CLCS 변환기**(`ClcsFrenetConverter`,
    vendored CommonRoad CLCS) 사용. 투영 도메인 밖(트랙에서 먼 점)이면 폐기. (경량 `FrenetProjector`는
    트랙 경계 `d_left/d_right` 조회와 s-wrap 용도로만 남겨둠 — CLCS가 이 둘은 제공 안 함.)
-6. 유클리드 거리의 안전 게이트 안에서 **Mahalanobis 거리**로 불확실성을 고려해 연관하고,
-   거리·점 개수·yaw rate에 따라 측정 공분산을 조절하는 **등속 칼만 필터**
-   (상태 `[s, vs, d, vd]`)로 프레임 간 추적한다.
+6. 최근접 연관 + **등속 칼만 필터**(상태 `[s, vs, d, vd]`)로 프레임 간 추적한다.
 7. **정적배경 기준속도 대비 상대속도로 동적/정적 분류.** 벽(지도로 제거됨)과 정지 장애물은 하나의
    *정적배경 속도*(map 프레임에서 ≈0)를 공유한다. 각 트랙을 그 기준속도 대비 상대속도로 판정해
    **"벽과 같은 속도면 정적, 뚜렷이 다르면 동적(상대차)"**. 기준은 느린 트랙(`static_ref_gate` 미만)의
    평균이라 지역화 드리프트가 상쇄되고, 상대차는 기준에서 제외된다. (히스테리시스 + 상대`vs<reset`
    백스톱, `std` 위치표준편차 방식도 토글.)
-8. 추적 결과를 `ObstacleArray`로 발행하고, 정적 장애물은 별도 토픽에 Cartesian 중심 `(x,y)`,
-   Frenet 중심 `(s,d)`, 전체 AABB를 감싸는 원의 반지름
-   `r=0.5·hypot(x_max-x_min, y_max-y_min)`으로 발행한다. 동적 상대차는 Frenet
-   `ProjOppTraj`로 발행한다. Perception은 정적 장애물을 계속 재검출·발행하며, `ttl_static`은 짧은
-   센서 누락만 잇는다. 장기 기억과 회피 판단은 로컬 플래너의 책임이다.
+8. 추적 결과를 `ObstacleArray`로(정적 장애물은 `is_static=true`), 동적 상대차를 Frenet `ProjOppTraj`로 발행한다.
 9. **추월 플래너(상태머신 + PCHIP spline)** — `Idle → Committed → Cooldown` 상태머신이 추월
    기동의 존재 여부 자체를 결정한다.
    - **Commit 게이트(전부 만족해야 경로 생성):** 동적 상대차가 전방 `[trigger_min_ds, trigger_max_ds]`
@@ -103,8 +94,6 @@ optimization…*)의 상대차 검출 아이디어를 이 저장소(카메라 �
                         │
                         ├─────── /pf/pose/odom (Odometry)
                         │           from: MCL / sim
-                        ├─────── /sensors/imu/raw (Imu, optional)
-                        │           real-car scan deskew
                         │
                         └─────── TF: map → laser frame
                                           │
@@ -123,7 +112,7 @@ optimization…*)의 상대차 검출 아이디어를 이 저장소(카메라 �
 
 **입력:** MCL(`monte_carlo_localization`)이 제공하는 `/map`(SLAM 점유격자)·`/pf/pose/odom`(에고
 위치)·TF(`map→laser`), `new_map_con`이 발행하는 `/global_waypoints`(전역 경로+트랙 경계),
-LiDAR 하드웨어의 `/scan`, 선택적 deskew용 IMU `/sensors/imu/raw`를 구독한다.
+그리고 LiDAR 하드웨어의 `/scan`을 구독한다.
 
 **출력:** 확정형 추월 경로 `/overtake_waypoints`는 `wpnt_publisher`가 수신해
 `/local_waypoints`로 합산한 뒤 `new_map_con`(pure-pursuit)이 추종한다.
@@ -138,10 +127,12 @@ LiDAR 하드웨어의 `/scan`, 선택적 deskew용 IMU `/sensors/imu/raw`를 구
 | 구독 | `global_waypoints_topic` | `f110_msgs/WpntArray` (latched) | `/global_waypoints` (from `new_map_con`) |
 | 구독 | `map_topic` | `nav_msgs/OccupancyGrid` (latched) | `/map` (from `monte_carlo_localization`) |
 | 구독 | `ego_odom_topic` | `nav_msgs/Odometry` | `/pf/pose/odom` (sim: `/ego_racecar/odom`) |
-| 구독 | `imu_topic` | `sensor_msgs/Imu` | `/sensors/imu/raw` (선택, 없으면 odom fallback) |
 | 구독 | TF | `map → <scan frame>` | MCL/시뮬레이터가 제공 |
 | 발행 | `obstacles_topic` | `f110_msgs/ObstacleArray` | `/perception/obstacles` |
+<<<<<<< HEAD
 | 발행 | `static_obstacles_topic` | `f110_msgs/ObstacleArray` | `/perception/static_obstacles/cartesian` |
+=======
+>>>>>>> f9713510246c01603e88db1d5002ca178b07a970
 | 발행 | `raw_obstacles_topic` | `f110_msgs/ObstacleArray` | `/perception/detection/raw_obstacles` |
 | 발행 | `proj_opp_traj_topic` | `f110_msgs/ProjOppTraj` | `/proj_opponent_trajectory` |
 | 발행 | `avoidance_ot_topic` | `f110_msgs/OTWpntArray` | `/overtake_waypoints` (→ `wpnt_publisher`; Committed 동안만, 종료 시 빈 OT 1회 후 침묵) |
@@ -158,12 +149,6 @@ LiDAR 하드웨어의 `/scan`, 선택적 deskew용 IMU `/sensors/imu/raw`를 구
 | `simulator` | 시뮬 프로파일(에고 odom을 `/ego_racecar/odom`으로) | `false` |
 | `lambda_deg` / `cluster_sigma` | Adaptive breakpoint 각/노이즈 | `10.0` / `0.03` |
 | `min_cluster_points` / `max_obs_size` | 클러스터 최소 점수 / 최대 크기[m] (0.5×0.5 통과 위해 >0.707) | `5` / `0.8` |
-| `deskew_enable` / `deskew_source` | 빔별 운동 보정 / `auto`\|`imu`\|`odom` | `true` / `auto` |
-| `deskew_translation_enable` / `deskew_sensor_timeout` | 병진 deskew(검증 전 기본 off) / 센서 신선도[s] | `false` / `0.15` |
-| `imu_angular_scale` | IMU yaw rate 단위 보정(현재 VESC deg/s→rad/s) | `π/180` |
-| `noise_filter_enable` / `scan_median_window` | 선택적 원시 이웃 필터 / 중앙값 창(1=off) | `false` / `1` |
-| `cluster_merge_enable` / `cluster_merge_distance` | 근접 클러스터 파편 병합 / AABB 간격[m] | `true` / `0.12` |
-| `meas_range_var_scale` / `meas_sparse_var_scale` / `meas_yaw_rate_var_scale` | 거리·희소도·회전률 기반 칼만 측정분산 증가량 | `2.0` / `1.5` / `0.25` |
 | `max_viewing_distance` | 전방 관측 거리[m] | `9.0` |
 | `boundaries_inflation` / `fallback_track_halfwidth` | 통로 축소[m] / 경계 미설정 시 반폭[m] | `0.1` / `1.5` |
 | `use_map_filter` / `map_point_reject_ratio` | 지도(SLAM)필터로 벽 제거 / 클러스터 기각 비율 | `true` / `0.6` |
@@ -172,7 +157,6 @@ LiDAR 하드웨어의 `/scan`, 선택적 deskew용 IMU `/sensors/imu/raw`를 구
 | `static_ref_gate` | 정적배경 속도 기준을 정의하는 트랙 속도 상한[m/s] | `0.3` |
 | `vs_reset` | 저(상대)속 백스톱(정적 강제)[m/s] | `0.1` |
 | `assoc_gate` / `ttl_dynamic` / `ttl_static` | 연관 게이트[m] / 동적·정적 수명 | `0.5` / `40` / `3` |
-| `assoc_use_mahalanobis` / `assoc_mahalanobis_gate` | 공분산 기반 연관 / 2자유도 χ² 게이트 | `true` / `9.21` |
 | `process_var_vs` / `process_var_vd` | 칼만 과정노이즈(s/d축) | `2.0` / `8.0` |
 | **`avoidance_enabled`** | 추월 플래너 on/off | `true` |
 | `avoid_trigger_min_ds` / `avoid_trigger_max_ds` | 추월 고려 전방 s-구간[m] | `0.5` / `8.0` |

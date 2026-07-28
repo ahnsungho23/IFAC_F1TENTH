@@ -240,7 +240,7 @@ void StateMachineNode::on_avoid_wpnts(const f110_msgs::msg::OTWpntArray::SharedP
       get_logger(),
       *get_clock(),
       2000,
-      "Received empty avoid waypoints. STATE_AVOID transition is not allowed.");
+      "Received empty avoid waypoints. STATE_AVOID transition will be blocked.");
   }
 }
 
@@ -260,7 +260,7 @@ void StateMachineNode::on_overtake_wpnts(const f110_msgs::msg::OTWpntArray::Shar
       get_logger(),
       *get_clock(),
       2000,
-      "Received empty overtake waypoints. STATE_OVERTAKE transition is not allowed.");
+      "Received empty overtake waypoints. STATE_OVERTAKE transition will be blocked.");
   }
 }
 
