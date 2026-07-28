@@ -228,7 +228,7 @@ def declare_common_args():
         # 그립만 보고 2배 빠르게 진입한 결과 풀락(0.410)에도 안 돌아가고 크로스트랙이
         # 0.11 → 2.07m로 발산했다. understeer_gradient=0 이면 이 항 전체 비활성(구 거동).
         DeclareLaunchArgument(
-            'understeer_gradient', default_value='0.019',
+            'understeer_gradient', default_value='0.0',
             description='언더스티어 그래디언트 K_us [rad/(m/s^2)]. 0이면 조향 권한 캡 비활성'
         ),
         # ⚠️ 1.0으로 두면 곡률 추종에 δ_max를 다 써버려 횡오차 보정·요레이트 피드백 여력이 0이 된다.
@@ -290,7 +290,7 @@ def declare_common_args():
             description='점프가 연속 이 사이클(50Hz) 유지되면 채택. 0이면 게이트 비활성'
         ),
         DeclareLaunchArgument(
-            'pose_suspect_speed', default_value='1.5',
+            'pose_suspect_speed', default_value='5.0',
             description='pose 튐 보류 중 속도 상한 [m/s]'
         ),
 
@@ -372,12 +372,12 @@ def declare_common_args():
         #      큰 전류 → 예측 불가능한 펀치가 된다.
         # 출발 불능이 재발하면 `launch_boost_enable:=true`로 되살릴 것(파라미터는 그대로 보존).
         DeclareLaunchArgument(
-            'launch_boost_enable', default_value='false',
-            description='런치 킥 on/off (자율 정지출발 데드존 관통 펀치). 07-27부터 기본 꺼짐 — 데드존은 VESC 오픈루프 전류로 해결됨'
+            'launch_boost_enable', default_value='true',
+            description='런치 킥 on/off (자율 정지출발 데드존 관통 펀치)'
         ),
         DeclareLaunchArgument(
-            'launch_boost_speed', default_value='3.0',
-            description='데드존 관통용 펀치 속도 명령 [m/s]. 매뉴얼 스로틀 세기 감각으로 조정(세게=5.0/약하게=2.0)'
+            'launch_boost_speed', default_value='2.2',
+            description='데드존 관통용 펀치 속도 명령 [m/s]'
         ),
         DeclareLaunchArgument(
             'launch_boost_time', default_value='0.6',
