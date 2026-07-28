@@ -140,11 +140,10 @@ local_planner_node:
     # 설계 합류점을 지나도 실제 차량 d가 충분히 작아질 때까지 같은 경로 소스를 유지합니다.
     lattice_merge_lateral_tolerance_m: 0.15
     lattice_merge_settle_max_wpnts: 30
-    # 기본/복구 lattice가 모두 실패하면 장애물 약 0.8 m 앞까지 점진 감속 경로를 발행합니다.
-    lattice_safe_stop_buffer_wpnts: 8
-    lattice_safe_stop_deceleration_mps2: 2.50
     # 연속 장애물로 경로를 넘기는 순간 새 lattice가 한두 주기 실패하면, 직전 전체 경로를
     # 현재 지도에서 다시 검사해 충돌 전 감속 prefix로 사용합니다. 오래된 경로는 사용하지 않습니다.
+    lattice_braking_buffer_wpnts: 8
+    lattice_braking_deceleration_mps2: 2.50
     lattice_replan_brake_timeout_sec: 1.50
     # 이동/감속 경로가 모두 실패했을 때 현재 위치에 만드는 정지 경로의 점 간격입니다.
     stationary_hold_point_spacing_m: 0.03
@@ -152,11 +151,12 @@ local_planner_node:
     # 점유 판정은 전체 grid를 사용합니다. 컴포넌트 면적은 시각화/로그 그룹에만 적용되므로
     # 벽에 붙은 장애물과 2.0 m²보다 큰 장애물도 검출 및 hard rejection 대상입니다.
     occupied_threshold: 50
-    # /map은 벽과 맵 경계의 안전 검사용으로 유지하고, opponent_detector가 추적한
-    # Frenet 장애물 상자를 planning grid에 겹쳐 기존 safe-corridor/lattice 로직으로 회피합니다.
+    # /map은 벽과 맵 경계의 안전 검사용으로 유지하고, opponent_detector가 추적한 정적
+    # Cartesian 중심과 enclosing-circle radius를 Frenet 종·횡 반경으로 적용한 뒤 planning
+    # grid에 겹쳐 기존 safe-corridor/lattice 로직으로 회피합니다.
     use_perception_obstacles: true
     require_perception_obstacles: true
-    obstacles_topic: "/perception/obstacles"
+    obstacles_topic: "/perception/static_obstacles"
     # local planner는 정적 장애물만 담당하고, 동적 상대차는 opponent_detector의 추월/추종에 맡깁니다.
     perception_static_only: true
     # opponent_detector가 is_static을 확정하기 전에도 Frenet 추정속도가 거의 0이면

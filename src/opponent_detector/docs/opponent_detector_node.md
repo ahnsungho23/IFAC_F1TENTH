@@ -4,22 +4,25 @@
 
 ## 1. 무엇을 하나
 
-에고 차량의 **2D LiDAR 스캔 하나만**으로 트랙 위 **움직이는 상대차**를 찾아 추적하고, 그 위치·속도를
-Frenet 좌표로 발행한다. 논문 `2603.27207v1.pdf`는 depth 카메라(YOLO)로 "어느 LiDAR 클러스터가
+에고 차량의 **2D LiDAR를 주 계측으로** 트랙 위 장애물과 움직이는 상대차를 찾아 추적하고, 그
+위치·속도를 Frenet 좌표로 발행한다. IMU/odom은 물체를 직접 검출하지 않고 회전 중 LiDAR 스캔의
+시간 왜곡을 보정하는 데만 선택적으로 쓴다. 논문 `2603.27207v1.pdf`는 depth 카메라(YOLO)로 "어느 LiDAR 클러스터가
 상대차인지"를 골라내지만, 이 저장소엔 카메라가 없다. 대신 **raceline(Frenet) 프레임에서의 상대속도**로
 상대차를 골라낸다: 벽·정적 물체는 트랙 프레임에서 제자리, 상대차만 `s`(와 `d`)를 따라 움직인다.
 
 ## 2. 파이프라인 (스캔 콜백 1회)
 
 ```
-/scan ──TF(map←laser)──▶ map 프레임 점군
-      ──ABD 군집화──▶ 클러스터들
+/scan + IMU/odom ──빔별 deskew + 선택적 노이즈 필터──▶ 보정 점군
+      ──ABD 군집화 + 근접 파편 병합──▶ 클러스터들
+      ──TF(map←laser)──▶ map 프레임 점군
       ──박스 피팅──▶ (중심 x,y, 크기)
       ──지도필터 + 코너 경계──▶ 동적 후보만 남김
       ──Frenet 투영──▶ (s, d)
-      ──NN 연관 + 등속 칼만──▶ 트랙 [s, vs, d, vd]
+      ──Mahalanobis 연관 + 적응형 등속 칼만──▶ 트랙 [s, vs, d, vd]
       ──속도 기반 정적/동적 분류──▶ is_static
       ──▶ /perception/obstacles (ObstacleArray)
+      ──▶ /perception/static_obstacles (정적 전용 x, y, s, d, radius)
       ──▶ /proj_opponent_trajectory (ProjOppTraj, 동적 상대차)
       ──추월 상태머신(Idle→Committed→Cooldown)──▶ /overtake_waypoints (OTWpntArray)
       ──▶ /perception/obstacles/markers (RViz: 상대차 + 추월 라인 초록)
@@ -29,26 +32,35 @@ Frenet 좌표로 발행한다. 논문 `2603.27207v1.pdf`는 depth 카메라(YOLO
   (Committed 동안만 발행; 완료/중단 시 빈 OT 1회 → global 폴백 → 발행 중단)
 ```
 
-1. **TF 변환**: `lookupTransform(map_frame, scan.frame_id, stamp)`. 스캔의 `frame_id`를 그대로
+1. **스캔 deskew**: `LaserScan.header.stamp`를 첫 빔 시각으로 보고 각 빔의
+   `time_increment`만큼 누적된 회전을 IMU `angular_velocity.z`로 되돌린다. `auto`는 신선한 IMU를
+   우선하고 없으면 odom yaw rate를 쓴다. 둘 다 오래됐으면 보정 없이 처리한다. 현재 실차 VESC가
+   deg/s로 관측되어 `imu_angular_scale=π/180`이며, rad/s 드라이버나 시뮬 IMU를 연결하면 `1.0`으로
+   바꿔야 한다. 병진 deskew는 `deskew_translation_enable=false`가 기본이다.
+2. **선택적 원시 노이즈 필터**: 중앙값 창과 정렬된 스캔 이웃 밀도 필터를 제공하지만 기본은 꺼져
+   있다. 작은 원거리 장애물을 지우지 않는지 f1sim_C와 rosbag에서 확인한 뒤 켠다.
+3. **Adaptive Breakpoint Detector + 파편 병합**: 인접 빔 점 간 거리가
+   `r·sin(Δφ)/sin(λ−Δφ)+3σ`를 넘으면 클러스터를 끊는다. 가까운 파편의 AABB 간격이
+   `cluster_merge_distance` 이내이고 병합 후에도 `max_obs_size` 이하일 때만 다시 합친다.
+4. **TF 변환**: `lookupTransform(map_frame, scan.frame_id, stamp)`. 스캔의 `frame_id`를 그대로
    쓰므로 실차 `laser`·시뮬 `ego_racecar/laser` 구분이 자동. 실패 시 최신(Time0)로 폴백.
-2. **Adaptive Breakpoint Detector**: 인접 빔 점 간 거리가 `r·sin(Δφ)/sin(λ−Δφ)+3σ`를 넘으면
-   클러스터를 끊는다(거리가 멀수록 임계가 커짐). 무효 빔은 연속성을 끊는다.
-3. **박스 피팅**: 클러스터 중심(평균)과 AABB 대각 크기. `max_obs_size` 초과는 폐기. 정지 장애물도
+5. **박스 피팅**: 클러스터 중심(평균)과 AABB 대각 크기. `max_obs_size` 초과는 폐기. 정지 장애물도
    차 크기(≤0.5×0.5 m, 대각 0.707 m)라 크기로 상대차와 못 가르므로 `max_obs_size`는 0.8(=0.707 초과)로
    둬서 **정지 장애물이 검출되게** 하고, 정적/동적 구분은 속도로만 한다.
-4. **필터(지도필터 + 속도 하이브리드의 "지도" 부분)**:
+6. **필터(지도필터 + 속도 하이브리드의 "지도" 부분)**:
    - 전방 관측: 에고 `s` 기준 `-view_behind ≤ Δs ≤ max_viewing_distance`.
    - 코너 경계: `d`가 `[-(d_right-infl), +(d_left-infl)]` 밖이면 폐기. 경계 미설정 시
      `fallback_track_halfwidth` 사용.
    - 점유격자: 클러스터 점의 `map_point_reject_ratio` 이상이 `/map`의 점유셀에 있으면 폐기
      (알려진 정적 구조물). 상대차는 지도에 없어 살아남는다.
-5. **Frenet 투영**: `global_planning`의 **CLCS 변환기**(`ClcsFrenetConverter`, vendored CommonRoad
+7. **Frenet 투영**: `global_planning`의 **CLCS 변환기**(`ClcsFrenetConverter`, vendored CommonRoad
    CLCS)로 클러스터 중심·에고를 `(s,d)`로 투영. `convert().valid`가 false(투영 도메인 밖=트랙에서 먼
    점)면 폐기. 트랙 경계(`d_left/d_right`)와 s-wrap은 CLCS가 안 주므로 경량 `FrenetProjector`를 그
    용도로만 유지. (파이썬 전용 `frenet_converter`는 C++ 링크 불가라 CLCS 라이브러리를 export해 링크.)
-6. **연관 + 추적**: 예측 `(s,d)` 최근접 그리디 연관(게이트 `assoc_gate`, 동적은 ×`aggro_multi`).
-   등속 칼만(`[s,vs,d,vd]`, 위치만 관측)으로 속도를 추정. 미연관 트랙은 TTL 감소 후 삭제.
-7. **분류**(`classifier_mode`) — 정적배경(=벽·정지 장애물이 공유하는 겉보기 속도) 기준:
+8. **연관 + 추적**: `assoc_gate`(동적은 ×`aggro_multi`)를 절대 안전거리로 유지하고, 그 안에서는
+   예측 공분산과 측정 공분산을 합친 Mahalanobis 거리로 연관한다. 원거리·희소 클러스터·큰 yaw
+   rate에는 측정 공분산을 키워 칼만 업데이트를 덜 신뢰한다. 미연관 트랙은 TTL 감소 후 삭제.
+9. **분류**(`classifier_mode`) — 정적배경(=벽·정지 장애물이 공유하는 겉보기 속도) 기준:
    - 매 프레임 `static_ref_gate` 미만인 느린 트랙들의 평균속도를 **정적배경 기준속도**로 잡는다
      (map 프레임이라 ≈0, 지역화 드리프트만큼 어긋나면 그 값; 빠른 상대차는 기준에서 제외).
    - `velocity`(기본): **기준 대비 상대속도** `|v_track − v_ref|`가 `dyn_vel_enter` 초과가
@@ -56,9 +68,20 @@ Frenet 좌표로 발행한다. 논문 `2603.27207v1.pdf`는 depth 카메라(YOLO
      정적 강제(백스톱). → "벽과 같은 상대속도면 정적, 다르면 동적."
    - `std`: 최근 창의 `(s,d)` 표준편차로 판정(ForzaETH식, `min_std/max_std`).
    - `both`: 두 방식이 모두 동적일 때만 동적(보수적).
-8. **발행**: 확정 트랙(`hits≥min_hits_confirm`)을 `ObstacleArray`로. 동적 상대차 1대를 골라
-   `ProjOppPoint`로 누적해 `ProjOppTraj` 발행. 마커도 발행(정적=파랑, 동적=빨강).
-9. **추월 플래너(상태머신 + PCHIP spline)** — `OvertakePlanner`가 `Idle → Committed → Cooldown`
+10. **발행·계측**: 확정 트랙(`hits≥min_hits_confirm`)을 `ObstacleArray`로 발행하고, 정적 트랙은
+   `has_cartesian=true`인 `(x_center,y_center,s_center,d_center,radius)`로
+   `/perception/static_obstacles`에도 분리 발행한다. `radius`는 검출 AABB 전체를 감싸는
+   원의 반지름으로, `0.5×0.5 m` 정사각형이면 `0.25√2 m`다.
+   동적 상대차 1대를 골라
+   `ProjOppPoint`로 누적해 `ProjOppTraj` 발행. 마커는 정적=파랑, 동적=빨강이며 raw/tracked 토픽을
+   함께 보면 필터 효과를 비교할 수 있다. 초당 한 번 `DIAG perception` 로그에 빔 수, 노이즈 제거,
+   클러스터 수, 단계별 기각, deskew 소스/yaw rate, 연관·생성·삭제 통계를 출력한다.
+
+   Perception은 정적 장애물을 매 스캔 재검출해 `is_static=true`, Cartesian `(x,y)`, Frenet
+   `(s,d)`, 최대 반지름 `radius`를 반복 발행한다.
+   `ttl_static`은 순간적인 센서 누락만 연결하며, 정적 장애물의 장기 기억과 최종 회피 판단은 로컬
+   플래너가 담당한다.
+11. **추월 플래너(상태머신 + PCHIP spline)** — `OvertakePlanner`가 `Idle → Committed → Cooldown`
    상태머신으로 추월 기동의 시작/유지/종료를 결정한다. 상대차도 움직이므로 매 사이클 경로의 당위성을
    재판정한다.
    - **Commit 게이트(Idle→Committed, 전부 만족해야 함)**:
@@ -279,6 +302,7 @@ ros2 launch opponent_detector opponent_detector.launch.py simulator:=true rviz:=
 
 ```bash
 ros2 topic echo /perception/obstacles          # is_static/vs/vd 확인
+ros2 topic echo /perception/static_obstacles  # x/y/s/d/radius 확인
 ros2 topic echo /proj_opponent_trajectory       # 동적 상대차 Frenet 포인트
 # RViz를 따로 띄우려면:
 rviz2 -d install/opponent_detector/share/opponent_detector/rviz/opponent_detector.rviz

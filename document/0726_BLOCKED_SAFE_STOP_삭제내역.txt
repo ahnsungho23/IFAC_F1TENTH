@@ -1,0 +1,50 @@
+0726 BLOCKED / SAFE_STOP 삭제 내역
+
+목적
+- 상태머신은 GLOBAL, AVOID, OVERTAKE 세 상태만 사용한다.
+- BLOCKED 및 SAFE_STOP 상태와 연결된 로컬 플래닝 fallback을 제거한다.
+
+삭제 및 변경 경로
+1. src/local_planning/include/local_planning/local_planner_node.hpp
+   - buildSafeStopSegment() 선언 삭제
+   - SAFE_STOP 이름이 들어간 공용 제동 파라미터 멤버를 lattice_braking_* 이름으로 변경
+
+2. src/local_planning/src/local_planner_node.cpp
+   - buildSafeStopSegment() 구현 삭제
+   - 기본·복구 lattice 실패 시 글로벌 경로를 잘라 frenet_lattice_safe_stop으로 발행하던 분기 삭제
+   - frenet_lattice_safe_stop 경로의 hold 판정 삭제
+   - 남아 있는 재계획 제동 prefix가 사용하는 파라미터 이름을 lattice_braking_*로 변경
+
+3. src/local_planning/config/local_planning.yaml
+   - lattice_safe_stop_buffer_wpnts 삭제
+   - lattice_safe_stop_deceleration_mps2 삭제
+   - 재계획 제동 기능용 lattice_braking_buffer_wpnts 및
+     lattice_braking_deceleration_mps2로 이름 변경
+
+4. src/local_planning/test/test_frenet_lattice.cpp
+   - PublishesSafeStopWhenEveryLatticeCandidateFails 통합 테스트 삭제
+   - UsesRecoveryLatticeBeforeSafeStop 테스트 이름에서 SAFE_STOP 표현 삭제
+
+5. src/state_machine/src/state_machine_node.cpp
+   - 빈 회피·추월 경로 로그의 "transition will be blocked" 표현 제거
+   - 이 표현은 BLOCKED 상태가 아니라 전환 불가를 뜻하던 일반 문구였음
+
+6. src/local_planning/README.md
+7. src/local_planning/docs/local_planner.md
+8. src/local_planning/AGENTS.md
+   - 삭제된 SAFE_STOP fallback, 파라미터, ot_line 설명 및 동작 절차 정리
+
+유지한 코드
+- GLOBAL, AVOID, OVERTAKE 상태와 상태 전환 로직
+- safe corridor의 blocked interval: BLOCKED 상태가 아니라 장애물 점유 구간을 뜻함
+- frenet_lattice_replan_brake: 기존에 검증된 회피 경로의 안전한 prefix 제동
+- frenet_lattice_stationary_hold: 현재 위치에서 충돌 검증한 0속도 경로
+- opponent_detector의 blocked 표현: 추월 통로가 물리적으로 막힌 상황을 뜻함
+- f1tenth_control의 publish_safe_stop(): 상태머신 상태가 아니라 입력 경로 부재 시 차량 명령 안전 fallback
+
+삭제 후 동작
+- primary와 recovery lattice가 모두 실패하면 글로벌 경로 기반
+  frenet_lattice_safe_stop 경로를 새로 생성하지 않는다.
+- 최근 검증 경로의 제동 prefix를 사용할 수 있으면 이를 발행한다.
+- 사용할 제동 경로가 없으면 현재 위치의 충돌 검증된 stationary hold를 시도한다.
+- 그것도 안전하지 않으면 빈 avoid path를 발행한다.

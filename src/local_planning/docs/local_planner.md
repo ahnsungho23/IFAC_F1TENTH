@@ -2,11 +2,19 @@
 
 ## 1. 목적
 
-`local_planner_node`는 `/map`의 정적 장애물과 글로벌 기준 경로의 간섭을 검사하고, 차량 앞에서 글로벌 경로로 다시 합류하는 Frenet lattice 회피 구간을 생성합니다. 양쪽 방향의 여러 횡오프셋과 전환 길이를 평가해 최저 비용 경로를 선택하며, 기본 탐색이 실패하면 더 촘촘한 복구 lattice를 실행합니다. 복구도 실패할 때만 장애물 전의 충돌 없는 점진 감속 구간을 발행합니다.
+`local_planner_node`는 `/map`의 트랙 경계와
+`/perception/static_obstacles`의 정적 장애물을 글로벌 기준 경로와 함께 검사하고,
+차량 앞에서 글로벌 경로로 다시 합류하는 Frenet lattice 회피 구간을 생성합니다. 양쪽 방향의
+여러 횡오프셋과 전환 길이를 평가해 최저 비용 경로를 선택하며, 기본 탐색이 실패하면 더 촘촘한
+복구 lattice를 실행합니다. 복구도 실패할 때만 장애물 전의 충돌 없는 점진 감속 구간을 발행합니다.
 
 ## 2. 동작 원리
 
 1. `/map`을 받으면 내용 서명을 비교하고, 실제로 지도가 바뀐 경우에만 전체 점유 셀 mask와 8방향 연결요소를 다시 만듭니다.
+   정적 장애물 입력은 `/perception/static_obstacles`에서 `has_cartesian=true`이고 map-frame
+   `(x_center,y_center)`, Frenet `(s_center,d_center)`, 양의 `radius`가 유효한 정적 장애물만
+   받습니다. 전체 Cartesian AABB를 감싸는 반지름을 Frenet 종·횡 반경으로 적용한 뒤 기존
+   다중 lateral 필터와 planning grid에 전달합니다.
 2. 경로 차단 판단에는 컴포넌트 면적과 무관하게 전체 OccupancyGrid를 사용합니다. 연결요소의 크기 분류는 장애물 그룹 중심 시각화와 로그에만 사용하므로 벽에 붙거나 2.0 m²보다 큰 장애물도 검출됩니다.
 3. `/car_state/frenet/odom`의 Frenet `s`, `d`가 트랙 범위 안에서 연속적으로 들어오는지 확인합니다. 시작 직후에는 3개 연속 샘플을 요구합니다. 주행 중 순간적인 이상 샘플은 설정 횟수만큼 무시하고, 짧은 입력 공백에는 마지막 충돌 검증 경로를 제한시간 동안 유지합니다. 안정화 후 `s`와 글로벌 웨이포인트의 `s_m`을 비교해 현재 시작점을 찾습니다. CLCS 내부 `child_frame_id`는 글로벌 인덱스로 사용하지 않습니다.
 4. 계획 horizon의 각 sampled `s`에 트랙 경계, 전체 점유 셀, 차량 반폭/보수적 원형, 위치추정 여유와 추가 안전 여유를 적용한 Frenet safe corridor를 만듭니다. `blocked_intervals`, 통과 가능한 `feasible_intervals`, 좌우 통과 가능 여부를 명시적으로 저장합니다. 종방향 검색은 고정 폭이 아니라 waypoint 반간격+차체 종방향 길이+셀 반대각선으로 자동 확장하고 start/finish 인덱스를 감습니다. 지도와 글로벌 경로가 동일하면 waypoint별 계산 결과를 재사용하고, 아직 계산하지 않은 전방 단면만 새로 검사합니다. 지도 또는 경로가 바뀌면 이 캐시를 전부 폐기합니다.
@@ -33,6 +41,7 @@
 |---|---|---|---|
 | 구독 | `/global_waypoints` | `f110_msgs/msg/WpntArray` | 글로벌 기준 경로 |
 | 구독 | `/map` | `nav_msgs/msg/OccupancyGrid` | 트랙 벽과 정적 장애물이 포함된 지도 |
+| 구독 | `/perception/static_obstacles` | `f110_msgs/msg/ObstacleArray` | 정적 장애물의 map-frame `(x,y)`, Frenet `(s,d)`, enclosing-circle `radius` |
 | 구독 | `/car_state/frenet/odom` | `nav_msgs/msg/Odometry` | 차량 Frenet `s`, `d` |
 | 발행 | `/avoid_waypoints` | `f110_msgs/msg/OTWpntArray` | 차량→합류점 회피 구간과 충돌 없는 글로벌 후속 구간. 장애물이 없으면 빈 배열 |
 | 발행 | `/local_waypoints` | `f110_msgs/msg/WpntArray` | 단독 실행 옵션이 켜졌을 때의 전방 구간 |
@@ -91,7 +100,7 @@
 - `lattice_post_merge_lookahead_wpnts`: 실제 합류점 뒤에 추가할 충돌 검증 완료 글로벌 waypoint 수
 - `lattice_merge_lateral_tolerance_m`: 실제 차량이 글로벌 라인에 복귀했다고 판단하는 Frenet `d` 허용값
 - `lattice_merge_settle_max_wpnts`: 설계 합류점 이후 동일한 경로 소스를 유지할 수 있는 최대 waypoint 수
-- `lattice_safe_stop_buffer_wpnts`, `lattice_safe_stop_deceleration_mps2`: lattice 전체 실패 시 감속 구간의 정지 여유와 제동 감속도
+- `lattice_braking_buffer_wpnts`, `lattice_braking_deceleration_mps2`: 재계획 제동 prefix의 정지 여유와 제동 감속도
 - `lattice_replan_brake_timeout_sec`: 연속 장애물 재계획 공백에서 직전 전체 회피 경로를 재검사해 사용할 수 있는 최대 시간
 - `frenet_odom_confirm_cycles`: 시작 또는 좌표 점프 후 필요한 연속 정상 입력 수
 - `frenet_odom_invalid_grace_cycles`: 주행 중 무시할 연속 이상 입력 수
@@ -100,6 +109,10 @@
 - `frenet_odom_max_s_jump_m`: 한 입력 주기에서 허용하는 최대 원형 `s` 변화량
 - `frenet_odom_track_margin_m`: 트랙 폭 검사에 추가하는 위치 추정 여유
 - `occupied_threshold`: 점유 셀 판정 임계값
+- `use_perception_obstacles`, `require_perception_obstacles`, `obstacles_topic`: Cartesian 정적
+  장애물 입력 활성화, 필수 여부와 구독 토픽
+- `perception_obstacle_padding_m`, `perception_filter_alpha`,
+  `perception_track_hold_sec`: 정적 장애물 외곽 여유, 위치 필터와 유지시간
 - `obstacle_component_min_area_m2`, `obstacle_component_max_area_m2`: 시각화/로그용 컴포넌트 분류 범위. 검출 hard mask에는 영향 없음
 - `detection_confirm_cycles`, `detection_clear_cycles`: 검출/해제 히스테리시스
 - `timer_period_ms`: planning과 안전 검사의 계산 주기
@@ -144,9 +157,9 @@ ros2 launch local_planning local_planning.launch.py
 2. Topic을 `/local_planning/markers`로 설정합니다.
 3. 빨간 구체는 그룹화된 장애물 중심, 초록 선은 안전 검사를 통과한 전방 경로입니다. 연두 경계는 안전 회랑, 빨간 횡선은 막힌 구간, 청록/파란 횡선은 좌우 통과 공간, 반투명 주황 구체는 팽창 장애물입니다.
 4. `/local_planning/path`에는 안전 검사를 통과한 경로만 표시됩니다.
-5. 흰색 텍스트 마커에는 safe corridor·트랙·점유·unknown·곡률·횡가속도별 후보 거절 횟수와 직전 계획 latency가 표시됩니다. 기본 후보가 실패하면 복구 lattice를 탐색하고, 복구도 실패하면 점진 감속 구간을 발행합니다.
+5. 흰색 텍스트 마커에는 safe corridor·트랙·점유·unknown·곡률·횡가속도별 후보 거절 횟수와 직전 계획 latency가 표시됩니다. 기본 후보가 실패하면 복구 lattice를 탐색합니다.
 
-`/avoid_waypoints.ot_line`은 상태를 알려줍니다. 정상 lattice 경로는 `frenet_lattice_segment`, 복구 탐색 경로는 `frenet_lattice_recovery`, 연속 장애물 재계획 공백의 재검증 제동 경로는 `frenet_lattice_replan_brake`, 짧은 입력 이상 중 유지되는 경로는 기존 이름 뒤에 `_held`, lattice 전체 실패 후 글로벌 기준 감속 구간은 `frenet_lattice_safe_stop`, 감속 경로가 소진된 뒤 현재 위치에서 정지하며 재계획하는 경로는 `frenet_lattice_stationary_hold`, 정지 위치조차 충돌 검사를 통과하지 못하면 `no_safe_path`, 유지 제한시간이 끝난 Frenet 입력 이상은 `invalid_frenet_odom`입니다.
+`/avoid_waypoints.ot_line`은 상태를 알려줍니다. 정상 lattice 경로는 `frenet_lattice_segment`, 복구 탐색 경로는 `frenet_lattice_recovery`, 연속 장애물 재계획 공백의 재검증 제동 경로는 `frenet_lattice_replan_brake`, 짧은 입력 이상 중 유지되는 경로는 기존 이름 뒤에 `_held`, 감속 경로가 소진된 뒤 현재 위치에서 정지하며 재계획하는 경로는 `frenet_lattice_stationary_hold`, 정지 위치조차 충돌 검사를 통과하지 못하면 `no_safe_path`, 유지 제한시간이 끝난 Frenet 입력 이상은 `invalid_frenet_odom`입니다.
 
 `freeze_committed_static_obstacles=true`이면 경로 확정 시점의 정적 장애물 박스를 merge 완료까지
 고정합니다. `committed_obstacle_match_distance_m` 안의 후속 검출은 같은 장애물의 jitter로 보고
@@ -154,5 +167,6 @@ snapshot 좌표를 사용하며, 매칭되지 않는 새 장애물만 현재 gri
 
 ```zsh
 ros2 topic echo /avoid_waypoints --once
+ros2 topic echo /perception/static_obstacles --once
 ros2 topic hz /local_planning/markers
 ```

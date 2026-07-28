@@ -257,9 +257,22 @@ def declare_common_args():
         # 걸린 채 튀어나간다. 근본 원인은 VESC mcconf(오픈루프 800 vs 옵저버 인수 2500 ERPM
         # 갭)라 그쪽에서 고쳐야 하지만, 이 가드는 그와 무관하게 급발진만 막는 안전망이다.
         # 시뮬에선 차가 명령을 즉시 따라가므로 발동하지 않는다(무회귀).
+        #
+        # ⚠️ 2026-07-27 기본값 true→false. 07-27 21:31 bag에서 자율 명령이 3.5초 내내
+        # **정확히 1.50**(= stall_hold_speed)에 묶였다. 그 지점(idx 48~51)의 계산 캡은
+        # 3.13 m/s이고, min_speed(1.0)·로컬경로(2.42~4.50, 글로벌 대비 0.997)·글로벌경로
+        # (2.40~4.50) 어느 것도 1.5를 설명하지 못한다 — 값이 일치하는 건 이 가드뿐이다.
+        # 컨트롤러는 수동/E-stop 중에도 돌기 때문에, 자율 진입 전 정차 동안 가드가 이미
+        # 발동해 램프를 되감아 둔 것으로 보인다(자율 첫 샘플부터 1.50).
+        #
+        # 이 가드는 램프 2000 시절(명령만 감겨 올라가다 모터가 물리는 순간 급발진)의
+        # 안전망이었고, 데드존은 그 뒤 VESC 오픈루프 전류 상향으로 근본 해결됐다.
+        # ⚠️ 다만 끄면 와인드업 급발진 보호가 사라진다. 출발이 여전히 더듬거리면
+        # `stall_guard_enable:=true`로 즉시 되돌릴 것. base_max_accel이 9.0→2.5로
+        # 내려가 있어 와인드업 속도 자체는 예전보다 3.6배 느리다.
         DeclareLaunchArgument(
-            'stall_guard_enable', default_value='true',
-            description='기동 실패(탈조) 시 속도 명령 와인드업 차단 가드 on/off'
+            'stall_guard_enable', default_value='false',
+            description='기동 실패(탈조) 시 속도 명령 와인드업 차단 가드 on/off. 07-27부터 기본 꺼짐 — 명령이 stall_hold_speed(1.5)에 묶이는 증상 때문'
         ),
         DeclareLaunchArgument(
             'stall_speed_threshold', default_value='0.7',

@@ -1,7 +1,7 @@
 # local_planning
 
 `local_planning`은 벽만 포함한 `fuck_f1`의 `/map`과 opponent detector가 발행하는
-`/perception/obstacles`를 함께 사용합니다. 이 중 `is_static=true`인 정적 장애물만 planning
+`/perception/static_obstacles`을 함께 사용합니다. 이 중 `is_static=true`인 정적 장애물만 planning
 grid에 합성하고, 글로벌 기준 경로에서 장애물의 왼쪽 또는 오른쪽으로 우회한 뒤 다시 합류하는
 회피 구간을 생성하는 ROS 2 Humble 패키지입니다. 동적 장애물은 이 패키지에서 경로 생성에
 사용하지 않으며 opponent detector의 추월·추종 로직이 담당합니다.
@@ -9,7 +9,8 @@ grid에 합성하고, 글로벌 기준 경로에서 장애물의 왼쪽 또는 �
 이 패키지의 핵심 역할은 다음과 같습니다.
 
 - `/map`에서 트랙 벽과 주행 경계를 가져옵니다.
-- `/perception/obstacles`에서 `is_static=true`, `is_visible=true`인 정적 장애물을 선택합니다.
+- `/perception/static_obstacles`에서 `is_static=true`, `is_visible=true`이고
+  유효한 Cartesian `(x,y)`, Frenet `(s,d)`, 양의 enclosing-circle `radius`를 가진 장애물을 선택합니다.
 - 현재 차량 위치부터 일정 거리 앞의 글로벌 경로를 검사합니다.
 - 장애물 좌우의 사용 가능한 공간을 비교합니다.
 - 좌우 횡방향 오프셋과 전환 길이를 조합해 Frenet lattice 후보군을 만듭니다.
@@ -25,7 +26,7 @@ grid에 합성하고, 글로벌 기준 경로에서 장애물의 왼쪽 또는 �
                          ┌──────────────────────────────┐
 /map (fuck_f1 벽) ──────>│                              │
                          │                              │
-/perception/obstacles ──>│     local_planner_node       │
+/perception/static_obstacles ──>│     local_planner_node       │
   (is_static=true만 사용)│                              │
                          │                              ├──> /avoid_waypoints
 /global_waypoints ──────>│                              ├──> /local_planning/path
@@ -52,13 +53,13 @@ grid에 합성하고, 글로벌 기준 경로에서 장애물의 왼쪽 또는 �
 | 토픽 | 메시지 타입 | 사용하는 정보 |
 |---|---|---|
 | `/map` | `nav_msgs/msg/OccupancyGrid` | 장애물이 없는 `fuck_f1`의 트랙 벽, map 경계 및 unknown 영역 |
-| `/perception/obstacles` | `f110_msgs/msg/ObstacleArray` | opponent detector가 추적한 물체 중 `is_static=true`, `is_visible=true`인 정적 장애물의 Frenet 경계 |
+| `/perception/static_obstacles` | `f110_msgs/msg/ObstacleArray` | 정적 장애물의 map-frame `(x,y)`, Frenet `(s,d)`, enclosing-circle `radius` |
 | `/global_waypoints` | `f110_msgs/msg/WpntArray` | `x_m`, `y_m`, `s_m`, `psi_rad`, `kappa_radpm`, 좌우 트랙 폭, 기준 속도 |
 | `/car_state/frenet/odom` | `nav_msgs/msg/Odometry` | `pose.pose.position.x/y`에 저장된 현재 Frenet `s`, `d` |
 
 운영 시 MCL map server는 반드시 장애물이 구워진 `*_obs` 맵이 아니라 원본 `fuck_f1`을
 발행해야 합니다. `/scan`에서 검출한 벽은 opponent detector가 이 `/map`과 비교해 제거하고,
-지도에 없는 물체를 추적·분류한 결과를 `/perception/obstacles`로 보냅니다. local planner는
+지도에 없는 물체를 추적·분류한 결과를 `/perception/static_obstacles`으로 보냅니다. local planner는
 그 배열에서 정적 물체만 사용합니다.
 
 ### 출력 데이터
@@ -125,13 +126,13 @@ OccupancyGrid 셀 값이 `occupied_threshold`보다 크면 점유 셀로 간주�
 장애물을 점유값 100인 셀로 합성한 **planning grid**를 경로 검출과 최종 충돌 판정에 사용합니다.
 따라서 합성된 정적 장애물이 벽에 붙거나 큰 컴포넌트가 되어도 계획 입력에서 빠지지 않습니다.
 
-### 3.3 `/perception/obstacles` 정적 장애물 합성
+### 3.3 `/perception/static_obstacles` 정적 장애물 합성
 
 기본 설정은 다음과 같습니다.
 
 ```yaml
 use_perception_obstacles: true
-obstacles_topic: "/perception/obstacles"
+obstacles_topic: "/perception/static_obstacles"
 perception_static_only: true
 perception_obstacle_padding_m: 0.06
 freeze_committed_static_obstacles: true
@@ -481,7 +482,7 @@ reject입니다. 동일한 보간점의 clearance도 soft clearance 비용에 �
 
 연속 장애물 때문에 기존 경로의 합류 지점에서 재계획하는 도중 복구 후보까지 모두 실패하면, 먼저 직전에 검증한 전체 회피 경로를 현재 위치부터 다시 검사합니다. 트랙 경계, 각 pose의 footprint, 선분 내부의 swept collision 검사를 통과한 prefix만 잘라 `frenet_lattice_replan_brake`로 발행합니다. 이 경로는 `lattice_replan_brake_timeout_sec` 안에서만 사용할 수 있고, 속도를 다시 올리지 않는 제동 프로파일을 적용해 마지막 웨이포인트에서 0이 됩니다. 따라서 일시적인 후보 공백 때문에 `/avoid_waypoints`가 비거나 GLOBAL 경로로 순간 전환되는 현상을 막으면서도, 이미 막힌 과거 경로를 강제로 재사용하지 않습니다.
 
-이전 전체 경로에서 안전한 prefix를 만들 수 없으면 글로벌 경로 중 장애물 전까지 충돌 검사를 통과한 구간을 자르고, `lattice_safe_stop_deceleration_mps2`로 계산한 제동 속도 프로파일을 넣습니다. 이전처럼 전 구간 속도를 즉시 0으로 만들지 않으므로 제어 명령이 갑자기 정지로 바뀌지 않으며, 마지막 웨이포인트에서만 속도가 0이 됩니다. 두 방법 모두 최소 2개의 안전한 웨이포인트를 만들지 못하고 제한된 제동 경로 유지시간도 끝났을 때만 빈 `/avoid_waypoints`와 빈 `/local_planning/path`를 발행합니다.
+직전 전체 경로에서 안전한 prefix를 만들 수 없으면 글로벌 기준 감속 경로를 새로 만들지 않습니다. 짧은 재계획 공백에는 기존에 충돌 검사를 통과한 제동 경로만 제한시간 동안 유지하며, 그 경로도 사용할 수 없으면 현재 위치의 충돌 검증된 정지 hold를 시도합니다.
 
 이전 최소자승 다항식과 독립 smoothstep fallback은 실제 lattice 실패 시 사용되고 있었지만, 점·선분 충돌만 확인하고 수정 경로의 곡률·횡가속도를 lattice와 동일하게 검증하지 않아 제거했습니다. 5차 smoothstep 함수 자체는 각 lattice 후보의 부드러운 횡전환에만 사용되며, 그 결과는 lattice의 전체 동역학·연속 충돌 검사를 거칩니다.
 
@@ -525,7 +526,6 @@ reject입니다. 동일한 보간점의 clearance도 soft clearance 비용에 �
 | `frenet_lattice_recovery` | 기본 후보 실패 후 더 촘촘한 복구 lattice 경로가 선택됨 |
 | `frenet_lattice_replan_brake` | 연속 장애물 재계획 공백에서 직전 전체 경로를 다시 충돌 검사해 만든 제동 prefix |
 | `*_held` | 짧은 Frenet 입력 이상 동안 마지막 충돌 검증 경로를 제한시간 내 재발행함 |
-| `frenet_lattice_safe_stop` | 기본·복구 후보가 실패해 장애물 전의 점진 감속 구간을 발행함 |
 | `frenet_lattice_stationary_hold` | 감속 경로 소진 후 현재 위치의 충돌 검증된 0속도 경로를 유지하며 재계획함 |
 | `no_safe_path` | 현재 정지 위치까지 충돌 검사를 통과하지 못해 발행 가능한 경로가 없음 |
 | `invalid_frenet_odom` | Frenet 입력이 아직 안정화되지 않았거나 오래됨 |
@@ -614,17 +614,12 @@ every_timer_cycle():
     if candidates is not empty:
         publish(minimum_cost(candidates))
     else:
-        safe_stop = collision_free_prefix_of_last_validated_full_path()
-        if safe_stop has at least two waypoints and cache is not expired:
-            apply_nonaccelerating_braking_profile(safe_stop)
-            publish(safe_stop)
+        braking_prefix = collision_free_prefix_of_last_validated_full_path()
+        if braking_prefix has at least two waypoints and cache is not expired:
+            apply_nonaccelerating_braking_profile(braking_prefix)
+            publish(braking_prefix)
         else:
-            safe_stop = collision_free_global_segment_before_obstacle()
-            if safe_stop has at least two waypoints:
-                apply_gradual_braking_profile(safe_stop)
-                publish(safe_stop)
-            else:
-                publish_empty_avoid_waypoints()
+            publish_collision_checked_stationary_hold_or_empty()
 ```
 
 ## 14. 주요 튜닝 값
@@ -650,7 +645,7 @@ every_timer_cycle():
 | 회피 경로 고정 사용 여부 | `lattice_commit_path_until_clear` 변경 |
 | 합류 직전 제어기 전방 경로 길이 변경 | `lattice_post_merge_lookahead_wpnts` 조정 |
 | 실제 차량이 글로벌 라인에 복귀한 뒤 전환 | `lattice_merge_lateral_tolerance_m`, `lattice_merge_settle_max_wpnts` 조정 |
-| lattice 전체 실패 시 정지 여유·감속도 변경 | `lattice_safe_stop_buffer_wpnts`, `lattice_safe_stop_deceleration_mps2` 조정 |
+| 재계획 제동 prefix의 정지 여유·감속도 변경 | `lattice_braking_buffer_wpnts`, `lattice_braking_deceleration_mps2` 조정 |
 | 연속 장애물 재계획 시 직전 전체 경로 사용 제한시간 | `lattice_replan_brake_timeout_sec` 조정 |
 | 초기 위치 안정화 조건 변경 | `frenet_odom_confirm_cycles`, `frenet_odom_max_s_jump_m` 조정 |
 | Frenet 입력 이상 허용 및 경로 유지 시간 변경 | `frenet_odom_invalid_grace_cycles`, `frenet_odom_stale_timeout_sec`, `frenet_odom_path_hold_timeout_sec` 조정 |
@@ -734,11 +729,10 @@ recovery는 안전 여유를 낮추는 우회 수단이 아닙니다. corridor�
 
 1. 최근 commit 경로의 남은 부분을 현재 지도에서 다시 검사합니다.
 2. 안전한 prefix가 있으면 가속하지 않는 점진 제동 경로로 발행합니다.
-3. 그것도 불가능하면 글로벌 경로에서 장애물 전까지 안전한 구간을 찾아 safe-stop을 만듭니다.
-4. 짧은 입력 공백에는 이미 검증된 제동 경로만 제한시간 동안 유지합니다.
-5. 감속 경로가 소진되면 현재 Frenet 위치에 충돌 검증된 2점 0속도 경로를 발행하면서
+3. 짧은 입력 공백에는 이미 검증된 제동 경로만 제한시간 동안 유지합니다.
+4. 감속 경로가 소진되면 현재 Frenet 위치에 충돌 검증된 2점 0속도 경로를 발행하면서
    매 planning 주기마다 이동 가능한 회피 경로를 다시 탐색합니다.
-6. 현재 정지 위치의 footprint조차 안전하지 않을 때만 빈 avoid path를 발행합니다.
+5. 현재 정지 위치의 footprint조차 안전하지 않을 때만 빈 avoid path를 발행합니다.
 
 최종 `/local_waypoints` 선택과 정지 명령은 `wpnt_publisher`와 상태 머신의 연결 상태에도 영향을
 받으므로, 실패 로그를 볼 때는 `/avoid_waypoints`, `/state`, `/local_waypoints`를 함께 확인해야
@@ -810,7 +804,7 @@ on Numerical Analysis*, vol. 17, no. 2, 1980, DOI:
 - primary 32개 실패 뒤 안전 기준을 유지하는 recovery 84개 탐색
 - 경로 commitment, 방향 hysteresis, merge 이후 글로벌 lookahead
 - 다음 장애물 군집의 merge 2~3 m 전 선행 재계획과 검증 후 교체
-- 전체 후보 실패 시 검증된 prefix 제동 및 global safe-stop
+- 전체 후보 실패 시 검증된 기존 경로 prefix 제동 및 현재 위치 정지 hold
 - 지도·corridor·commit 충돌 검사 캐시와 저주기 RViz 디버그 발행
 
 따라서 논문이나 보고서에는 “Werling의 Frenet quintic 후보 생성과 jerk 비용을 기반으로 하고,

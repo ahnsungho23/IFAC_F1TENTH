@@ -3,11 +3,11 @@
 <package format="3">
   <name>opponent_detector</name>
   <version>0.0.1</version>
-  <description>LiDAR-only dynamic opponent detection and tracking (Frenet output) for F1TENTH racing.
-    Clusters the 2D LiDAR scan, filters static structure with the known map and track boundaries,
-    projects clusters into the raceline Frenet frame, and identifies the moving opponent by its
-    relative velocity (constant-velocity Kalman tracking). Publishes f110_msgs ObstacleArray and
-    ProjOppTraj for the overtaking pipeline.</description>
+  <description>LiDAR obstacle detection and tracking (Frenet output) for F1TENTH racing.
+    Optionally deskews scans from IMU or odometry motion, clusters and merges LiDAR returns, filters
+    static structure with the known map and track boundaries, and applies covariance-aware
+    constant-velocity Kalman tracking. Publishes f110_msgs ObstacleArray and ProjOppTraj for the
+    overtaking pipeline.</description>
   <maintainer email="parkm04@hanyang.ac.kr">parkm04</maintainer>
   <license>Apache-2.0</license>
 

@@ -9,10 +9,12 @@ opponent_detector:
   ros__parameters:
     # === ROS INTERFACE ===
     scan_topic: "/scan"                       # LaserScan input (ego)
-    global_waypoints_topic: "/global_waypoints"   # f110_msgs/WpntArray (latched) from new_map_con
+    global_waypoints_topic: "/global_waypoints"   # f110_msgs/WpntArray (latched) from global_planning
     map_topic: "/map"                          # nav_msgs/OccupancyGrid (latched) from MCL
     ego_odom_topic: "/pf/pose/odom"            # ego pose in map frame (MCL). Sim: /ego_racecar/odom
+    imu_topic: "/sensors/imu/raw"               # real VESC IMU; auto deskew falls back to odom in sim
     obstacles_topic: "/perception/obstacles"   # tracked obstacles (ObstacleArray)
+    static_obstacles_topic: "/perception/static_obstacles"  # static x/y/s/d/r ObstacleArray
     raw_obstacles_topic: "/perception/detection/raw_obstacles"
     proj_opp_traj_topic: "/proj_opponent_trajectory"   # ProjOppTraj (Frenet opponent output)
     markers_topic: "/perception/obstacles/markers"
@@ -28,6 +30,40 @@ opponent_detector:
     min_cluster_points: 5                      # discard clusters with fewer points
     max_obs_size: 0.8                          # max box size (m); > diagonal of a 0.5x0.5 obstacle
                                                #   (0.707) so car-sized static obstacles pass
+
+    # === SCAN MOTION COMPENSATION ===
+    # LaserScan.header.stamp is the first ray. Rotate later rays back to that pose using yaw rate.
+    # auto: fresh IMU first, then ego odometry; no fresh source means the original scan is used.
+    deskew_enable: true
+    deskew_source: "auto"                      # "auto" | "imu" | "odom"
+    deskew_translation_enable: false           # yaw deskew first; enable translation after validation
+    deskew_sensor_timeout: 0.15                # max |scan_stamp-sensor_stamp| [s]
+    # 2026-07-19 real VESC observation: gyro is deg/s despite sensor_msgs/Imu rad/s convention.
+    # Set to 1.0 when the driver is fixed or when imu_topic already publishes rad/s.
+    imu_angular_scale: 0.017453292519943295     # pi/180
+
+    # === OPTIONAL RAW-SCAN NOISE FILTER ===
+    # Off by default so small/far objects are not removed before f1sim_C parameter sweeps.
+    noise_filter_enable: false
+    noise_eps: 0.05                            # absolute neighbour-radius floor [m]
+    noise_eps_scale: 1.5                       # multiplier on range-adaptive ABD distance
+    noise_min_neighbors: 2
+    noise_search_halfwidth: 4                  # ordered scan indices on each side
+    scan_median_window: 1                      # odd; 1 disables median filtering
+
+    # === FRAGMENT MERGE ===
+    # Rejoin close pieces of one object before projection/tracking. Combined AABB diagonal must
+    # still be <= max_obs_size, which prevents merging into a wall-sized cluster.
+    cluster_merge_enable: true
+    cluster_merge_distance: 0.12               # Cartesian AABB edge gap [m]
+    cluster_merge_min_fragment_points: 2
+
+    # === ADAPTIVE MEASUREMENT UNCERTAINTY ===
+    # Scale meas_var_s/d for far, sparse, or high-yaw-rate clusters.
+    meas_range_var_scale: 2.0
+    meas_sparse_var_scale: 1.5
+    meas_yaw_rate_var_scale: 0.25
+    meas_reference_points: 8
 
     # === STATIC FILTERING (map + track boundary) ===
     max_viewing_distance: 9.0                  # only consider obstacles up to this far ahead (m)
@@ -51,6 +87,8 @@ opponent_detector:
     process_var_vd: 8.0
     assoc_gate: 0.5                            # Frenet association gate (m)
     aggro_multi: 2.0                           # gate multiplier once a track is dynamic
+    assoc_use_mahalanobis: true                # covariance-aware gate inside assoc_gate
+    assoc_mahalanobis_gate: 9.21               # chi-square threshold, 2 DoF, 99%
     ttl_dynamic: 40                            # frames to keep a lost dynamic track
     ttl_static: 3                              # frames to keep a lost static track
     min_hits_confirm: 3                        # measurements before a track is reported
