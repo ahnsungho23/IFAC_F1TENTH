@@ -13,7 +13,9 @@ ROS 2 패키지 `f1tenth_control` 하나로 구성되며, 플래닝 팀이 발�
 - 언어: C++17 (메인 런타임), Python (참조용 원본 컨트롤러 / LUT 프로토타입)
 - 빌드 시스템: `ament_cmake` (ROS 2)
 - 코드/주석 언어: **한국어** — 새 코드도 주변 코드의 한국어 주석 밀도·스타일에 맞출 것
-- 차량: 휠베이스 0.33 m, 최대 조향각 ±0.41 rad (약 ±23.5°), VESC 모터 컨트롤러
+- 차량: 휠베이스 0.33 m, 최대 조향각 **좌 0.41 / 우 0.379 rad(비대칭)** — servo_min/max가 옛 중심
+  기준이라 우측이 잘린다. 2026-07-28에 ±0.42 대칭화를 시도했다가 **odom이 깨져 롤백**
+  (아래 ⚠️ 참고). 시뮬은 대칭 ±0.41. VESC 모터 컨트롤러
 
 ## 워크스페이스 구조 ⚠️ 중요
 
@@ -82,7 +84,7 @@ ros2 launch f1tenth_control dashboard.launch.py mode:=real  # 실차 원격(우�
 
 ### 1. `control_map_node` (control_code/control_map_node.cpp) — 메인 자율주행 제어
 50 Hz 제어 루프. **L1 Guidance + Steering Lookup Table(LUT)** 기반.
-- 구독: `<odom_topic>`(기본 `/ego_racecar/odom`), `/imu/data`, `/scan`, `/global_waypoints`(`f110_msgs/WpntArray`, transient_local QoS)
+- 구독: `<odom_topic>`(기본 `/ego_racecar/odom`), `/imu/data`, `/scan`, `/global_waypoints`(`f110_msgs/WpntArray`, transient_local QoS), `/drive_mode`(`std_msgs/String` — 2026-07-28 신설, 자율 미체결 중 속도 램프 와인드업 차단. 발행자 없으면 자동 비활성이라 시뮬 무영향)
 - 발행: `/drive_autonomous` (`ackermann_msgs/AckermannDriveStamped`) — Mux를 거쳐 최종 `/drive`로 전달됨
 - 분리된 알고리즘 모듈(별도 .cpp/.hpp):
   - `GapFollower` — 글로벌 경로 미수신 시 순수 LiDAR 갭 추종 폴백
@@ -278,10 +280,24 @@ graph TD
 
 속도 비례 룩어헤드 거리로 전방 목표점을 선정, 횡가속도 명령을 계산한 뒤 LUT로 조향각을 결정합니다.
 
-$$\delta = \arctan\!\left(\frac{2L\sin\alpha}{L_{lt}}\right), \quad L_{lt} = k_{ld} \cdot v + L_{min}$$
+$$L_1 = \mathrm{clip}\Big(\big(q + m\,v\big)\cdot s_\kappa,\ \ \max(t_{min},\ \sqrt{2}\,e_{lat}),\ \ t_{max}\Big)
+\qquad
+a_{lat} = \frac{2\,v_{lu}^2}{\lVert \mathbf{p}_t - \mathbf{p}\rVert}\sin\eta
+\qquad
+\delta = \mathrm{LUT}(a_{lat},\ v_{lu})$$
 
-- $L$: 휠베이스 (0.33 m), $\alpha$: 차량 헤딩과 목표점 사이 각도
-- $k_{ld}$: `l1_gain`, $L_{min}$: `l1_distance`
+- $q$ = `l1_gain`(0.5) = **상수항**, $m$ = `l1_distance`(0.3) = **속도 계수** → $L_1 = 0.5 + 0.3v$
+  > ⚠️ **이름이 역할과 반대다.** `l1_gain`이 기울기가 아니라 절편이고 `l1_distance`가 기울기다
+  > (원본 Python MAP의 `q_l1`/`m_l1` 대응). 2026-07-28 이전 문서는 이걸 거꾸로 적어놨었다.
+- $s_\kappa$: $|\kappa_{closest}|>0.3$이면 최대 25% 축소(코너 반응성), $t_{min}$=`t_clip_min`(0.6), $t_{max}$=`t_clip_max`(5.0)
+- $\sin\eta$: 차량 좌표계에서 목표점 방향의 횡성분 / 실제 거리 (+면 목표가 왼쪽)
+- **목표점 $\mathbf{p}_t$는 `closest_idx`로부터 경로 호 길이 $L_1$만큼 전진한 점**(`walk_forward`).
+  차량 기준 직선거리가 아니다.
+- ⚠️ **분모는 명목 $L_1$이 아니라 목표점까지의 실제 거리 $\lVert\mathbf{p}_t-\mathbf{p}\rVert$다**
+  (2026-07-28 수정, `l1_use_actual_distance`=false면 구 거동). 호 길이로 고른 목표점의 실제
+  거리는 웨이포인트 이산화(1점 간격까지 초과) + 차량 오프셋 때문에 $L_1$보다 길다 —
+  07-27 실차 bag 실측 비율 중앙 1.06~1.31·p95 최대 1.72. 명목값을 쓰면 횡가속 명령이 그만큼
+  과대해지고 **경로에서 벗어날수록 = 복귀가 필요한 순간에 더 심해진다.**
 
 #### 요레이트 피드백 카운터스티어 (Yaw Rate Feedback)
 
@@ -344,6 +360,13 @@ $$a_{\max} = a_{\text{base}} \cdot \Bigl(1 - \text{clip}\!\left(\frac{|\phi|}{\p
 | `curvature_lookahead_count` | 60 | 곡률 룩어헤드 스캔 거리 하한 (×0.1m → 6m). 20(=2m)은 4 m/s에서 0.5초 앞밖에 못 봄 (2026-07-25 승격·상향) |
 | `understeer_gradient` | 0.019 | **조향 권한 속도 캡**의 K_us [rad/(m/s²)]. 0이면 캡 비활성(구 거동). 아래 ②-b 참고 (2026-07-26 신설) |
 | `steer_authority_ratio` | 0.85 | δ_max(0.41) 중 곡률 추종에 배정할 비율. 나머지는 횡오차·요레이트 보정 여유 (2026-07-26 신설) |
+| `l1_use_actual_distance` | true | L1 횡가속 분모로 목표점까지의 **실제 직선거리** 사용. false면 구 거동(명목 L1 거리) (2026-07-28 신설) |
+| `closest_idx_max_heading_err` | 1.75 | 최근접 전역 재탐색 시 경로접선-차량헤딩 허용오차 [rad]. 0이면 비활성 (2026-07-28 신설) |
+| `idx_jump_confirm_dist` / `idx_jump_confirm_cycles` | 2.0 / 5 | 이 거리[m] 초과 인덱스 점프는 연속 N사이클 유지될 때만 채택. cycles=0이면 비활성 (2026-07-28 신설) |
+| `pose_suspect_speed` | 1.5 | 인덱스 점프 보류 중(조향 홀드) 속도 상한 [m/s] (2026-07-28 신설) |
+| `engage_gate_enable` | true | 자율 미체결(`/drive_mode` != autonomous) 중 속도 램프를 실측에 고정 (2026-07-28 신설) |
+| `max_steering_left` / `max_steering_right` | 0.41 / 0.379 (real), 0.41 / 0.41 (sim) | 좌/우 조향 물리 한계 [rad]. **젯슨 `vesc.yaml`의 `servo_min`(0.2703)/`servo_max`(0.6363)과 반드시 한 쌍.** ⚠️ vesc.yaml만 넓히면 **odom이 깨진다** — `use_servo_cmd_to_calc_angular_velocity: true`라 odom 요레이트가 클립된 조향 **명령**에서 합성되므로, 클립이 풀리면 링키지가 못 가는 각도를 odom이 믿는다(07-28 ±0.42 대칭화 시도 → SLAM 헤딩 붕괴 → 롤백). 곡률 조향 권한 캡·갭팔로워는 둘 중 **작은 쪽**을 씀 (2026-07-28 신설) |
+| `drive_mode_topic` / `engaged_mode_value` / `drive_mode_timeout` | `/drive_mode` / `autonomous` / 1.0 | engage 게이트 입력. timeout 넘게 미수신이면 게이트 자동 비활성(시뮬 호환) (2026-07-28 신설) |
 
 (2026-07-11: 과거 "③ 어디에도 노출 안 됨" 그룹이었던 15개 전부 `_control_common.py`의
 `declare_common_args()`에 추가해 여기로 이동 — 이제 `control_map_node.cpp`를 안 건드리고도 전부
@@ -490,7 +513,9 @@ MPPI 알고리즘은 **CPU/GPU 두 솔버**로 구현돼 있고, `control_mppi_n
 - **빌드는 항상 `~/2026_IFAC`에서** — 이 폴더 단독 빌드 불가(COLCON_IGNORE)
 - 한국어 주석 컨벤션 유지, 실시간 50Hz 루프이므로 콜백/루프 내 무거운 연산 지양
 - 안전 노드(Mux)의 brake 우선순위 로직은 안전 직결 — 변경 시 신중히
-- 조향 한계 ±0.41 rad, brake accel -9.0 등 물리/안전 상수는 하드웨어 기준값
+- 조향 한계(실차 ±0.42 / 시뮬 ±0.41), brake accel -9.0 등 물리/안전 상수는 하드웨어 기준값.
+  ⚠️ 조향 한계는 **젯슨 `vesc.yaml`의 `servo_min`/`servo_max`와 한 쌍**으로만 바꿀 것 —
+  한쪽만 바꾸면 vesc_driver가 조용히 자르고 컨트롤러는 꺾었다고 착각한다
 - 시뮬/실차 런치파일 공통 로직은 `launch/_control_common.py`에 있음 — 공통 파라미터 추가/변경
   시 여기 한 곳만 고치면 됨. 단 조이스틱 드라이버·`sim_imu_bridge_node` 포함 여부 같은
   안전 관련 구조 차이는 일부러 공용화하지 않고 각 진입점 파일(`control_sim/real.launch.py`)에

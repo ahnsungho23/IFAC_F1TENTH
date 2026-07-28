@@ -70,6 +70,9 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
     this->declare_parameter("publish_map_odom_tf", true);
     this->declare_parameter("publish_odom_base_tf", true);
 
+    // Auto-initialization from global path
+    this->declare_parameter("auto_init_from_waypoints", true);
+
     // === PARAMETER RETRIEVAL ===
     // Core algorithm parameters
     ANGLE_STEP = this->get_parameter("angle_step").as_int();
@@ -114,6 +117,10 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
     // TF publishing control
     PUBLISH_MAP_ODOM_TF = this->get_parameter("publish_map_odom_tf").as_bool();
     PUBLISH_ODOM_BASE_TF = this->get_parameter("publish_odom_base_tf").as_bool();
+
+    // Auto-initialization from global path
+    auto_init_from_waypoints_ = this->get_parameter("auto_init_from_waypoints").as_bool();
+    auto_init_done_ = false;
 
     // State initialization
     MAX_RANGE_PX = 0;
@@ -202,6 +209,13 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
 
     click_sub_ = this->create_subscription<geometry_msgs::msg::PointStamped>(
         "/clicked_point", 1, std::bind(&ParticleFilter::clicked_point, this, std::placeholders::_1));
+
+    if (auto_init_from_waypoints_)
+    {
+        waypoints_sub_ = this->create_subscription<f110_msgs::msg::WpntArray>(
+            "/global_waypoints", rclcpp::QoS(1).transient_local(),
+            std::bind(&ParticleFilter::waypointsCB, this, std::placeholders::_1));
+    }
 
     // Map service client
     map_client_ = this->create_client<nav_msgs::srv::GetMap>("/map_server/map");
@@ -393,7 +407,7 @@ void ParticleFilter::lidarCB(const sensor_msgs::msg::LaserScan::SharedPtr msg)
         has_new_lidar_data_ = true;
 
         RCLCPP_DEBUG_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
-            "LiDAR callback: new data received, timestamp: %ld.%09ld",
+            "LiDAR callback: new data received, timestamp: %d.%09u",
             msg->header.stamp.sec, msg->header.stamp.nanosec);
     }
     lidar_initialized_ = true;
@@ -461,6 +475,37 @@ void ParticleFilter::clicked_pose(const geometry_msgs::msg::PoseWithCovarianceSt
 void ParticleFilter::clicked_point(const geometry_msgs::msg::PointStamped::SharedPtr /*msg*/)
 {
     initialize_global();
+}
+
+void ParticleFilter::waypointsCB(const f110_msgs::msg::WpntArray::ConstSharedPtr msg)
+{
+    if (!auto_init_from_waypoints_ || auto_init_done_ || pose_initialized_from_rviz_)
+    {
+        return;
+    }
+
+    if (msg->wpnts.empty())
+    {
+        return;
+    }
+
+    // Extract initial pose from first waypoint (start line pose)
+    const auto &start_wp = msg->wpnts[0];
+    Eigen::Vector3d start_pose(start_wp.x_m, start_wp.y_m, start_wp.psi_rad);
+
+    RCLCPP_INFO(this->get_logger(),
+                "Auto-initializing particles from global waypoints start pose: [%.3f, %.3f, %.3f rad (%.1f deg)]",
+                start_pose[0], start_pose[1], start_pose[2], start_pose[2] * 180.0 / M_PI);
+
+    initialize_particles_pose(start_pose);
+    initialize_odom_tracking(start_pose, false);
+
+    inferred_pose_ = start_pose;
+    fast_convergence_mode_ = true;
+    fast_convergence_remaining_ = 30;
+    auto_init_done_ = true;
+
+    visualize(this->get_clock()->now());
 }
 
 // ================================================================================================

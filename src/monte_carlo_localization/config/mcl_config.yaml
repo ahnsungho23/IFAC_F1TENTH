@@ -18,6 +18,7 @@ particle_filter:
     sim_mode: false                    # Simulation mode flag (set by launch file)
     publish_map_odom_tf: true          # Publish map->odom transform (real mode only)
     publish_odom_base_tf: false        # Let F1Tenth stack handle odom->base_link
+    auto_init_from_waypoints: true     # Auto-initialize particles from /global_waypoints start pose
     
     # === MOTION MODEL NOISE ===
     motion_dispersion_x: 0.15          # Forward motion noise (m) - increased for simulation

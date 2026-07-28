@@ -7,6 +7,7 @@
 #ifndef PARTICLE_FILTER_CPP__PARTICLE_FILTER_HPP_
 #define PARTICLE_FILTER_CPP__PARTICLE_FILTER_HPP_
 
+#include <f110_msgs/msg/wpnt_array.hpp>
 #include <geometry_msgs/msg/point_stamped.hpp>
 #include <geometry_msgs/msg/pose_array.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
@@ -85,6 +86,7 @@ class ParticleFilter : public rclcpp::Node
     void odomCB(const nav_msgs::msg::Odometry::SharedPtr msg);
     void clicked_pose(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg);
     void clicked_point(const geometry_msgs::msg::PointStamped::SharedPtr msg);
+    void waypointsCB(const f110_msgs::msg::WpntArray::ConstSharedPtr msg);
 
     // --------------------------------- MAP MANAGEMENT ---------------------------------
     void get_omap();
@@ -205,6 +207,11 @@ class ParticleFilter : public rclcpp::Node
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
     rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pose_sub_;
     rclcpp::Subscription<geometry_msgs::msg::PointStamped>::SharedPtr click_sub_;
+    rclcpp::Subscription<f110_msgs::msg::WpntArray>::SharedPtr waypoints_sub_;
+
+    // Auto-initialization from global path
+    bool auto_init_from_waypoints_;
+    bool auto_init_done_;
 
     // Publishers
     rclcpp::Publisher<geometry_msgs::msg::PoseArray>::SharedPtr particle_pub_;
