@@ -8,14 +8,15 @@
 - Never add Cartesian nearest-path search, free-space graph search, or a map shortcut that can jump
   to a different geometric track branch. This invariant is especially important on non-convex
   snake sections.
-- Dynamic opponents remain the responsibility of `opponent_detector` and `/overtake_waypoints`.
+- Dynamic-opponent planning is outside this package. `obstacle_detector` publishes dynamic
+  perception separately on `/opp_obs`.
 
 ## Algorithm rules
 
 - Runtime code is C++17 for ROS 2 Humble.
 - Use `f110_msgs/msg/ObstacleArray`, `WpntArray`, and `OTWpntArray`; do not create a new message.
 - Consume map-frame Cartesian obstacle centers and enclosing-circle radii from
-  `/perception/static_obstacles/cartesian`. Project each center through the shared CLCS converter,
+  `obstacle_detector` Layer 2 on `/static_obs`. Project each center through the shared CLCS converter,
   then use the same radius as its longitudinal and lateral Frenet extent before selecting the
   nearest blocking obstacle cluster and evaluating both sides.
 - Derive each target `d` from the obstacle lateral bound plus configured clearance. Reject targets
@@ -34,7 +35,7 @@
 ## Interfaces
 
 - Subscribe: `/global_waypoints` (`f110_msgs/msg/WpntArray`).
-- Subscribe: `/perception/static_obstacles/cartesian` (`f110_msgs/msg/ObstacleArray`); each obstacle
+- Subscribe: `/static_obs` (`f110_msgs/msg/ObstacleArray`); each obstacle
   must set `has_cartesian=true` and provide `x_center`, `y_center`, and a positive `radius`.
 - Subscribe: `/car_state/frenet/odom` (`nav_msgs/msg/Odometry`), with `position.x=s` and
   `position.y=d`.
@@ -55,6 +56,9 @@
 - Algorithm tests: `test/test_raceline_spline.cpp`, including the wrong-branch snake regression.
 - Manual Cartesian contract harness: `test/cartesian_static_pipeline_test.py`; run it against a
   fresh `local_planner_node` with a `global_waypoints.csv` path.
+- End-to-end detector harness: `test/static_obs_pipeline_test.py`; run it while
+  `obstacle_detector_node` and `local_planner_node` are active to verify
+  `/scan -> /static_obs -> /avoid_waypoints`.
 - Keep all runtime values configurable in YAML and load that YAML from the launch file.
 - Update this file and the Korean documentation when behavior, topics, parameters, or launch usage
   changes.

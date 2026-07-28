@@ -25,7 +25,6 @@ include_directories(
 add_library(local_planner_core STATIC
   src/local_planner_node.cpp
   src/raceline_spline_planner.cpp
-  src/safe_corridor.cpp
 )
 ament_target_dependencies(local_planner_core
   rclcpp
@@ -63,16 +62,6 @@ if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   ament_lint_auto_find_test_dependencies()
 
-  ament_add_gtest(test_frenet_lattice test/test_frenet_lattice.cpp)
-  if(TARGET test_frenet_lattice)
-    ament_target_dependencies(test_frenet_lattice
-      rclcpp
-      nav_msgs
-      f110_msgs
-    )
-    target_link_libraries(test_frenet_lattice local_planner_core)
-  endif()
-
   ament_add_gtest(test_raceline_spline test/test_raceline_spline.cpp)
   if(TARGET test_raceline_spline)
     ament_target_dependencies(test_raceline_spline
@@ -81,12 +70,6 @@ if(BUILD_TESTING)
       f110_msgs
     )
     target_link_libraries(test_raceline_spline local_planner_core)
-  endif()
-
-  ament_add_gtest(test_safe_corridor test/test_safe_corridor.cpp)
-  if(TARGET test_safe_corridor)
-    ament_target_dependencies(test_safe_corridor nav_msgs)
-    target_link_libraries(test_safe_corridor local_planner_core)
   endif()
 endif()
 

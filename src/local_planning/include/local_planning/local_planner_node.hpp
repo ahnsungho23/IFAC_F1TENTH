@@ -110,7 +110,7 @@ private:
   double path_marker_width_m_{0.06};
 
   std::string global_waypoints_topic_{"/global_waypoints"};
-  std::string obstacles_topic_{"/perception/static_obstacles/cartesian"};
+  std::string obstacles_topic_{"/static_obs"};
   std::string frenet_odom_topic_{"/car_state/frenet/odom"};
   std::string ot_waypoints_topic_{"/avoid_waypoints"};
   std::string local_waypoints_topic_{"/local_waypoints"};

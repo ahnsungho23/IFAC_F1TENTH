@@ -1,7 +1,7 @@
 # local_planning
 
 글로벌 Race Line의 순서를 고정한 정적 장애물 회피 패키지입니다.
-정적 장애물은 `/perception/static_obstacles/cartesian`의 map-frame 중심 `(x,y)`와 원 반지름으로 받고, CLCS를 이용해
+정적 장애물은 `obstacle_detector`의 `/static_obs`에서 map-frame 중심 `(x,y)`와 원 반지름으로 받고, CLCS를 이용해
 트랙 위상을 보존한 회피선을 만든 뒤 Cartesian `x_m/y_m`이 채워진 `/avoid_waypoints`를 발행합니다.
 
 장애물이 나타나면 자유공간에서 새 경로를 검색하지 않습니다. 현재 글로벌 waypoint 구간을 그대로

@@ -1,0 +1,105 @@
+# ================================================================================================
+# OBSTACLE DETECTOR CONFIGURATION (Layer 1/2/3 LiDAR obstacle detection)
+# ================================================================================================
+# LiDAR-only layered obstacle detection with Frenet output. The launch file overrides
+# ego_odom_topic based on the `simulator:=` launch argument.
+#   Layer 1 [map]     -> filter (remove walls / known static structure), not published
+#   Layer 2 [static]  -> /static_obs  (f110_msgs/ObstacleArray, every merged static OBJECT)
+#   Layer 3 [dynamic] -> /opp_obs     (f110_msgs/ObstacleArray, <=1 merged opponent, nearest ahead)
+# Inside each layer, tracks within layer_merge_gap_s/_d of each other are merged into ONE
+# object-level obstacle before publishing (occlusion/corner fragments -> one entry).
+# ================================================================================================
+
+obstacle_detector:
+  ros__parameters:
+    # === ROS INTERFACE ===
+    scan_topic: "/scan"                        # LaserScan input (ego)
+    global_waypoints_topic: "/global_waypoints"   # f110_msgs/WpntArray (latched) from global_planning
+    map_topic: "/map"                          # nav_msgs/OccupancyGrid (latched) from MCL
+    ego_odom_topic: "/pf/pose/odom"            # ego pose in map frame (MCL). Sim: /ego_racecar/odom
+    static_obs_topic: "/static_obs"            # Layer 2 output (ObstacleArray, is_static=true)
+    opp_obs_topic: "/opp_obs"                  # Layer 3 output (ObstacleArray, <=1 opponent)
+    markers_topic: "/perception/obstacles/markers"   # RViz MarkerArray (blue=static, red=opponent)
+    map_frame: "map"
+
+    max_range: 14.0                            # ignore returns beyond this (m). Upper bound is the
+                                               #   LiDAR itself and min_cluster_points: a 0.3 m
+                                               #   obstacle at 14 m subtends ~5 beams at 0.25 deg.
+
+    # === CLUSTERING (adaptive breakpoint detector) ===
+    lambda_deg: 10.0                           # min reliable incidence angle (deg)
+    cluster_sigma: 0.03                        # LiDAR range noise std (m)
+    min_2_points_dist: 0.01                    # floor on the breakpoint threshold (m)
+    min_cluster_points: 5                      # discard clusters with fewer points
+    max_obs_size: 0.8                          # max box size (m); > diagonal of a 0.5x0.5 obstacle
+                                               #   (0.707) so car-sized static obstacles pass
+
+    # === PRE-TRACKING FRAGMENT MERGE ===
+    # Keep small LiDAR fragments temporarily, then join only when their Cartesian AABBs are close,
+    # at least one real point pair is close, and the merged AABB remains <= max_obs_size.
+    cluster_merge_enable: true
+    cluster_merge_distance: 0.12               # maximum AABB AND real point-pair gap (m)
+    cluster_merge_min_fragment_points: 2       # temporary minimum; final cluster still needs 5
+
+    # === ADAPTIVE MEASUREMENT COVARIANCE ===
+    # R = base meas_var_s/d * variance_scale. The scale grows for distant, sparse, or
+    # high-yaw-rate measurements and is bounded to avoid a bad motion sample freezing updates.
+    meas_range_var_scale: 2.0
+    meas_sparse_var_scale: 1.5
+    meas_yaw_rate_var_scale: 0.25               # set lower/zero when upstream scan is deskewed
+    meas_reference_points: 8
+    meas_variance_scale_max: 10.0
+    meas_motion_timeout: 0.1                    # max scan/odom timestamp difference for yaw rate (s)
+
+    # === LAYER 1 FILTERING (map + track boundary + viewing window) ===
+    max_viewing_distance: 13.0                 # only consider obstacles up to this far ahead (m);
+                                               #   keep it at or below max_range
+    view_behind_distance: 1.0                  # small allowance behind ego (m)
+    boundaries_inflation: 0.1                  # shrink drivable corridor inward (m) to kill walls
+    fallback_track_halfwidth: 1.5              # used when waypoint d_left/d_right are unset (m)
+    use_map_filter: true                       # drop clusters on known static structure (/map)
+    map_occupied_thresh: 50                    # occupancy value considered "occupied"
+    map_inflation_cells: 1                     # neighbourhood radius (cells) for the map check
+    map_point_reject_ratio: 0.6                # drop cluster if this fraction of points are on map
+
+    # === LAYER MERGE (2nd-stage clustering inside each layer) ===
+    layer_merge_enable: true                   # merge nearby same-layer tracks into one object
+                                               #   (false = per-track publishing, old behaviour)
+    layer_merge_gap_s: 0.4                     # [m] max edge-to-edge s-gap between track boxes
+    layer_merge_gap_d: 0.3                     # [m] max edge-to-edge d-gap; a passable lateral gap
+                                               #   (>= ~0.6 m) between distinct objects never merges
+
+    # === OUTPUT ===
+    publish_markers: true                      # RViz MarkerArray
+    diagnostics_enable: true                   # emit passive perception diagnostics
+    diagnostics_period_sec: 1.0                # wall-clock accumulation window (s, minimum 0.1)
+
+    # === TRACKING (constant-velocity Kalman, Frenet state [s, vs, d, vd]) ===
+    meas_var_s: 0.002
+    meas_var_d: 0.002
+    process_var_vs: 2.0
+    process_var_vd: 8.0
+    assoc_gate: 0.5                            # Frenet association gate (m)
+    aggro_multi: 2.0                           # gate multiplier once a track is dynamic
+    assoc_use_mahalanobis: true                # second gate after the physical Frenet hard gate
+    assoc_mahalanobis_gate: 9.21               # chi-square threshold, 2 DoF, approximately 99%
+    ttl_dynamic: 40                            # frames to keep a lost dynamic track
+    ttl_static: 3                              # frames to keep a lost static track
+    min_hits_confirm: 3                        # measurements before a track is reported
+
+    # === LAYER 2 / LAYER 3 CLASSIFICATION (flow vs the map-flow reference) ===
+    # The walls/stationary obstacles stream past the ego at the "map-flow" velocity (measured as
+    # the mean flow of the slow tracks). A track that flows WITH the map -> Layer 2 (static); a
+    # track that clearly flows slower (the same-direction opponent) -> Layer 3 (dynamic).
+    classifier_mode: "velocity"                # "velocity" | "std" | "both"
+    dyn_vel_enter: 0.5                         # flow deviation from the map-flow ref -> dynamic (m/s)
+    dyn_vel_exit: 0.25                         # flow deviation -> back to static (m/s, hysteresis)
+    dyn_min_frames: 3                          # sustained frames before flipping the label
+    vs_reset: 0.1                              # flow-deviation backstop -> force static (m/s)
+    static_ref_gate: 0.3                       # tracks slower than this define the map-flow velocity
+                                               #   (walls + stationary obstacles); opponent excluded (m/s)
+    std_window: 30                             # history window for the std classifier
+    min_nb_meas: 5                             # measurements before the std classifier votes
+    min_std: 0.16                              # below on both axes -> static vote (m)
+    max_std: 0.20                              # above on either axis -> dynamic (m)
+    dt_max: 0.5                                # clamp for the Kalman prediction step (s)

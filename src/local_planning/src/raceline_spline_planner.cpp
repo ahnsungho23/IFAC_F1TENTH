@@ -798,5 +798,3 @@ void RacelineSplinePlanner::toCartesian(
 }
 
 }  // namespace local_planning
-
-

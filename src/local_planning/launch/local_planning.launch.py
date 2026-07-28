@@ -31,10 +31,10 @@ def generate_launch_description():
         'maps',
         os.environ.get('F1_MAP', 'map') + '.yaml',
     )
-    opponent_detector_launch = os.path.join(
-        get_package_share_directory('opponent_detector'),
+    obstacle_detector_launch = os.path.join(
+        get_package_share_directory('obstacle_detector'),
         'launch',
-        'opponent_detector.launch.py',
+        'obstacle_detector.launch.py',
     )
 
     params_file_arg = DeclareLaunchArgument(
@@ -47,10 +47,15 @@ def generate_launch_description():
         default_value='true',
         description='Use gym ego odometry for the perception node',
     )
+    use_sim_time_arg = DeclareLaunchArgument(
+        'use_sim_time',
+        default_value='false',
+        description='Use ROS simulation time for all nodes (requires a /clock publisher)',
+    )
     start_detector_arg = DeclareLaunchArgument(
-        'start_opponent_detector',
+        'start_obstacle_detector',
         default_value='true',
-        description='Start the required /perception/obstacles publisher',
+        description='Start the obstacle_detector that publishes /static_obs',
     )
     planning_map_topic_arg = DeclareLaunchArgument(
         'planning_map_topic',
@@ -71,7 +76,10 @@ def generate_launch_description():
         executable='map_server',
         name='local_planning_map_server',
         output='screen',
-        parameters=[{'yaml_filename': LaunchConfiguration('reference_map')}],
+        parameters=[{
+            'yaml_filename': LaunchConfiguration('reference_map'),
+            'use_sim_time': LaunchConfiguration('use_sim_time'),
+        }],
         remappings=[('/map', LaunchConfiguration('planning_map_topic'))],
     )
     reference_map_lifecycle = Node(
@@ -82,17 +90,18 @@ def generate_launch_description():
         parameters=[{
             'autostart': True,
             'node_names': ['local_planning_map_server'],
+            'use_sim_time': LaunchConfiguration('use_sim_time'),
         }],
     )
 
-    opponent_detector = GroupAction(actions=[
+    obstacle_detector = GroupAction(actions=[
         SetRemap(src='/map', dst=LaunchConfiguration('planning_map_topic')),
         IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(opponent_detector_launch),
-            condition=IfCondition(LaunchConfiguration('start_opponent_detector')),
+            PythonLaunchDescriptionSource(obstacle_detector_launch),
+            condition=IfCondition(LaunchConfiguration('start_obstacle_detector')),
             launch_arguments={
                 'simulator': LaunchConfiguration('simulator'),
-                'use_sim_time': 'false',
+                'use_sim_time': LaunchConfiguration('use_sim_time'),
                 'rviz': 'false',
             }.items(),
         ),
@@ -105,18 +114,19 @@ def generate_launch_description():
         output='screen',
         parameters=[
             LaunchConfiguration('params_file'),
-            {'map_topic': LaunchConfiguration('planning_map_topic')},
+            {'use_sim_time': LaunchConfiguration('use_sim_time')},
         ]
     )
 
     return LaunchDescription([
         params_file_arg,
         simulator_arg,
+        use_sim_time_arg,
         start_detector_arg,
         planning_map_topic_arg,
         reference_map_arg,
         reference_map_server,
         reference_map_lifecycle,
-        opponent_detector,
+        obstacle_detector,
         local_planner_node
     ])

@@ -209,5 +209,3 @@ TEST(RacelineSplinePlanner, NeverJumpsToNearbyWrongSnakeBranch)
 
 }  // namespace
 }  // namespace local_planning
-
-

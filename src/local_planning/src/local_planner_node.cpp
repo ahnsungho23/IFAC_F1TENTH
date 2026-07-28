@@ -133,7 +133,7 @@ void LocalPlannerNode::initializeParameters()
     declare_parameter<std::string>("global_waypoints_topic", "/global_waypoints");
   obstacles_topic_ =
     declare_parameter<std::string>(
-    "obstacles_topic", "/perception/static_obstacles/cartesian");
+    "obstacles_topic", "/static_obs");
   frenet_odom_topic_ =
     declare_parameter<std::string>("frenet_odom_topic", "/car_state/frenet/odom");
   ot_waypoints_topic_ =

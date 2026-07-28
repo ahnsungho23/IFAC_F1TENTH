@@ -3,8 +3,8 @@
 ## 1. 노드 목적
 
 `local_planner_node`는 정적 장애물이 글로벌 Race Line을 막을 때만 로컬 회피 세그먼트를 만듭니다.
-동적 상대 차량의 추월·추종은 `opponent_detector`의 `/overtake_waypoints`가 담당하고, 이 노드는
-`/avoid_waypoints`만 발행합니다.
+동적 상대 차량 정보는 `obstacle_detector`의 `/opp_obs`로 분리되며, 이 노드는 정적 장애물용
+`/static_obs`만 구독하고 `/avoid_waypoints`를 발행합니다.
 
 가장 중요한 설계 조건은 다음과 같습니다.
 
@@ -27,7 +27,7 @@
 현재 프로젝트에는 다음 차이를 반영해 C++17로 새로 구현했습니다.
 
 1. CSV 대신 `/global_waypoints`를 사용합니다.
-2. `/perception/static_obstacles/cartesian`의 map-frame Cartesian 중심 `(x,y)`와 양의 `radius`를
+2. `/static_obs`의 map-frame Cartesian 중심 `(x,y)`와 양의 `radius`를
    사용합니다. 중심은 CLCS로 `(s,d)`에 투영하고, 장애물을 원으로 간주해 s축과 d축 양쪽에 같은
    `radius`를 적용한 내부 Frenet 경계를 만듭니다.
 3. 한 점 apex가 아니라 장애물 군집의 앞·뒤에서 목표 `d`를 유지해 긴 정적 장애물도 처리합니다.
@@ -109,7 +109,7 @@ tail까지 경로를 유지합니다. ego가 tail에 도달하고 `|ego d| <= me
 | 구분 | 기본 토픽 | 메시지 | 설명 |
 |---|---|---|---|
 | 구독 | `/global_waypoints` | `f110_msgs/msg/WpntArray` | 순서를 고정할 글로벌 Race Line |
-| 구독 | `/perception/static_obstacles/cartesian` | `f110_msgs/msg/ObstacleArray` | 정적 장애물 x/y/s/d/radius |
+| 구독 | `/static_obs` | `f110_msgs/msg/ObstacleArray` | `obstacle_detector` Layer 2 정적 장애물 x/y/radius |
 | 구독 | `/car_state/frenet/odom` | `nav_msgs/msg/Odometry` | `x=s`, `y=d` ego 상태 |
 | 발행 | `/avoid_waypoints` | `f110_msgs/msg/OTWpntArray` | ego부터 글로벌 합류 뒤 lookahead까지의 회피 세그먼트 |
 | 발행 | `/local_planning/path` | `nav_msgs/msg/Path` | RViz용 현재 안전 경로 |
@@ -173,9 +173,9 @@ colcon test-result --verbose --test-result-base build/local_planning
 
 ### 7.1 perception을 함께 실행
 
-기본 launch는 `opponent_detector`를 함께 실행합니다. 지도 서버는 중복 실행하지 않으며,
-먼저 실행한 `particle_filter_cpp` MCL map server의 `/map`을 detector가 그대로 구독합니다.
-MCL의 기본 지도는 `monte_carlo_localization/maps/ifac_track.yaml`입니다.
+기본 launch는 `obstacle_detector`를 함께 실행합니다. local planning 전용 reference-map 서버를
+`/local_planning/reference_map`에 올리고 detector의 지도 필터 입력을 그 토픽으로 remap합니다.
+이 지도는 장애물이 미리 그려지지 않은 wall-only 지도여야 합니다.
 
 ```zsh
 cd ~/2026_IFAC
@@ -195,11 +195,11 @@ ros2 launch local_planning local_planning.launch.py
 
 ### 7.2 외부 perception 사용
 
-이미 `/perception/static_obstacles/cartesian` 발행기가 실행 중이면 detector 포함을 끕니다.
+이미 `/static_obs` 발행기가 실행 중이면 detector 포함을 끕니다.
 
 ```zsh
 ros2 launch local_planning local_planning.launch.py \
-  start_opponent_detector:=false
+  start_obstacle_detector:=false
 ```
 
 시뮬레이션 clock을 쓰는 전체 파이프라인이면 `use_sim_time:=true`를 함께 지정합니다.
@@ -231,13 +231,24 @@ python3 src/local_planning/test/cartesian_static_pipeline_test.py \
 별도 터미널에서 `local_planner_node`가 실행 중이어야 한다. 테스트는 map-frame 중심과 radius를 넣고
 `/avoid_waypoints`의 모든 `x_m/y_m`이 유한하며 횡방향 회피가 실제로 생성됐는지 확인한다.
 
+실제 detector 연결을 포함한 전체 경로는 두 노드를 실행한 상태에서 다음으로 확인한다.
+
+```bash
+python3 src/local_planning/test/static_obs_pipeline_test.py
+```
+
+이 테스트는 원형 글로벌 경로, free map, ego odometry, TF와 정적 장애물이 있는 LaserScan을 발행하고,
+`obstacle_detector`가 유효한 Cartesian `/static_obs`를 만든 뒤 `local_planning`이 횡방향
+`/avoid_waypoints`를 만드는지 확인한다.
+
 ## 9. 전체 파이프라인 영향
 
 상태머신과 perception의 메시지 계약은 바꾸지 않았습니다.
 
 - `state_machine`: 기존 `/avoid_waypoints` ego→merge 규약을 그대로 사용합니다.
 - `wpnt_publisher`: `STATE_AVOID`일 때 기존처럼 `/avoid_waypoints`를 `/local_waypoints`로 중계합니다.
-- `opponent_detector`: `f110_msgs/msg/ObstacleArray`에 Cartesian x/y, Frenet s/d, radius를 채워 발행합니다.
+- `obstacle_detector`: Layer 2 `/static_obs`의 `f110_msgs/msg/ObstacleArray`에
+  `has_cartesian=true`, Cartesian x/y/AABB/radius와 `is_static=true`를 채워 발행합니다.
 - 회피 결과: `/avoid_waypoints` 각 점의 `x_m/y_m`은 map-frame Cartesian 좌표입니다.
 
 따라서 이번 변경에는 `src/local_planning` 밖의 소스 수정이 필요하지 않습니다.

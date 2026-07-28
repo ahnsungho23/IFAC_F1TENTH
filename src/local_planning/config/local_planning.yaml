@@ -63,7 +63,8 @@ local_planner_node:
     path_marker_width_m: 0.06
 
     global_waypoints_topic: "/global_waypoints"
-    obstacles_topic: "/perception/static_obstacles/cartesian"
+    # obstacle_detector Layer 2 output. It contains only confirmed static objects.
+    obstacles_topic: "/static_obs"
     frenet_odom_topic: "/car_state/frenet/odom"
     ot_waypoints_topic: "/avoid_waypoints"
     local_waypoints_topic: "/local_waypoints"

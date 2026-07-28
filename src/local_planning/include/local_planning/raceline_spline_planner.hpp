@@ -151,5 +151,3 @@ private:
 }  // namespace local_planning
 
 #endif  // LOCAL_PLANNING__RACELINE_SPLINE_PLANNER_HPP_
-
-

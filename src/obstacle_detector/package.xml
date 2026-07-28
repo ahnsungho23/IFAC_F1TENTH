@@ -1,0 +1,45 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>obstacle_detector</name>
+  <version>0.0.1</version>
+  <description>LiDAR-only layered obstacle detection for F1TENTH racing.
+    obstacle_detector_node clusters the 2D LiDAR scan, safely rejoins fragmented surfaces,
+    removes walls with the known /map (Layer 1), projects detections into the raceline Frenet
+    frame, and tracks them with adaptive measurement covariance and gated one-to-one association.
+    It preserves visible map-frame Cartesian AABBs and publishes stationary obstacles on
+    /static_obs (Layer 2) and the nearest moving opponent on /opp_obs (Layer 3).</description>
+  <maintainer email="parkm04@hanyang.ac.kr">parkm04</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>sensor_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>visualization_msgs</depend>
+  <depend>builtin_interfaces</depend>
+  <depend>tf2</depend>
+  <depend>tf2_ros</depend>
+  <depend>tf2_geometry_msgs</depend>
+  <depend>f110_msgs</depend>
+  <depend>eigen</depend>
+  <!-- CLCS Frenet converter library (exported by global_planning as export_global_planning) -->
+  <depend>global_planning</depend>
+
+  <!-- launch-only: rviz:=true and the optional clean-map server (detector_map_yaml:=...) -->
+  <exec_depend>rviz2</exec_depend>
+  <exec_depend>nav2_map_server</exec_depend>
+  <exec_depend>nav2_lifecycle_manager</exec_depend>
+
+  <!-- CMakeLists does find_package(ament_lint_auto REQUIRED) under BUILD_TESTING (ON by default).
+       ament_lint_common is deliberately NOT declared: the scenario harnesses in test/ are manual
+       rclpy scripts, not linted unit tests. -->
+  <test_depend>ament_lint_auto</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
