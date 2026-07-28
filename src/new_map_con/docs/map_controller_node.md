@@ -93,7 +93,7 @@ f1sim과 같이 실행할 때는 f1sim의 `sim.yaml`에 설정된 `map_path`와 
 다른 CSV를 쓰려면 `config/config.yaml`의 `global_waypoints_csv`를 바꾼다. 예를 들어 offline trajectory generator 출력 파일을 직접 쓰려면 절대 경로를 넣는다.
 
 ```yaml
-global_waypoints_csv: /home/tenmeneat/2026_IFAC/offline_trajectory_generator/output/fuck_f1_1/global_waypoints.csv
+global_waypoints_csv: /home/sungho/2026_IFAC/offline_trajectory_generator/output/fuck_f1_1/global_waypoints.csv
 ```
 
 ## 7. offline trajectory generator와의 연결

@@ -8,7 +8,7 @@
     static structure with the known map and track boundaries, and applies covariance-aware
     constant-velocity Kalman tracking. Publishes f110_msgs ObstacleArray and ProjOppTraj for the
     overtaking pipeline.</description>
-  <maintainer email="parkm04@hanyang.ac.kr">parkm04</maintainer>
+  <maintainer email="sungho@hanyang.ac.kr">sungho</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
