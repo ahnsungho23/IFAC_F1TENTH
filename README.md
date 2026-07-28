@@ -2,7 +2,10 @@
 
 F1TENTH 자율주행 스택입니다. 위치추정(MCL), 글로벌 플래닝, 로컬 플래닝(장애물 회피), 제어를 포함합니다.
 
-시뮬레이터는 별도 워크스페이스(`~/sim_ws`)의 `f1tenth_gym_ros`를 사용합니다.
+**대상 배포판: ROS 2 Jazzy** (Ubuntu 24.04). Jazzy 포팅 및 검증 내역은 [§6. ROS 2 Jazzy 포트 검증](#6-ros-2-jazzy-포트-검증)을 참고하세요.
+
+시뮬레이터는 별도 워크스페이스(`~/f1sim_C`)의 `f1tenth_gym_ros`를 사용합니다.
+시뮬레이터 맵(`f1tenth_gym_ros/config/sim.yaml`의 `map_path`)과 MCL 맵, 글로벌 웨이포인트 생성 맵 **세 곳은 반드시 같은 맵**이어야 합니다.
 
 
 slam launch방법 로컬에서
@@ -31,7 +34,7 @@ scp -r ~/2026_IFAC/offline_trajectory_generator/output/map \
 cd ~/2026_IFAC
 source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
-ros2 launch particle_filter_cpp mcl_launch.py mod:=real map_name:=map
+ros2 launch particle_filter_cpp mcl_launch.py mod:=real map_name:=ifac_track
 
 터미널2
 cd ~/2026_IFAC
@@ -55,15 +58,9 @@ ros2 launch state_machine state_machine.launch.py
 cd ~/2026_IFAC
 source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
-ros2 launch state_machine state_machine.launch.py
-
-터미널6
-cd ~/2026_IFAC
-source /opt/ros/jazzy/setup.zsh
-source install/setup.zsh
 ros2 run wpnt_publisher wpnt_publisher
 
-터미널7
+터미널6
 cd ~/2026_IFAC
 source /opt/ros/jazzy/setup.zsh
 source ~/f1tenth_ws/install/setup.zsh
@@ -131,7 +128,7 @@ ROS 2 Jazzy workspace for the 2026 IFAC F1TENTH stack. ROS packages live under `
 │   ├── trajectory_gui.py
 │   ├── gui_params.yaml
 │   ├── requirements.txt
-│   ├── output/                   # generated maps (e.g. fuck_f1/: global_waypoints.{csv,json}, centerline.csv, metadata.json)
+│   ├── output/                   # generated maps (e.g. ifac_track/: global_waypoints.{csv,json}, centerline.csv, metadata.json) — gitignored
 │   ├── AGENTS.md
 │   └── README.md / README_en.md
 │
@@ -196,7 +193,7 @@ ROS 2 Jazzy workspace for the 2026 IFAC F1TENTH stack. ROS packages live under `
 │   │   ├── config/mcl_config.yaml
 │   │   ├── include/particle_filter_cpp/  # particle_filter.hpp, utils.hpp
 │   │   ├── launch/mcl_launch.py
-│   │   ├── maps/                 # 2 files (e.g. fuck_f1.{pgm,yaml})
+│   │   ├── maps/                 # ifac_track.{png,yaml} + ifac_track.md
 │   │   ├── rviz/particle_filter.rviz
 │   │   ├── src/                  # particle_filter.cpp, utils.cpp
 │   │   ├── CMakeLists.txt, package.xml, README.md
@@ -238,9 +235,10 @@ ROS 2 Jazzy workspace for the 2026 IFAC F1TENTH stack. ROS packages live under `
 
 ## 1. 사전 요구사항
 
-- ROS 2 Jazzy
-- 시뮬레이터 워크스페이스 `~/sim_ws` (`f1tenth_gym_ros` 빌드 완료)
+- ROS 2 Jazzy (Ubuntu 24.04)
+- 시뮬레이터 워크스페이스 `~/f1sim_C` (`f1tenth_gym_ros` Jazzy 빌드 완료)
 - 이 저장소가 `~/2026_IFAC`에 위치
+- 글로벌 웨이포인트 생성 완료 (§4.2 참고 — 없으면 스택 전체가 대기 상태에 머뭅니다)
 
 ---
 
@@ -257,7 +255,10 @@ colcon build --symlink-install
 > `AMENT_CMAKE_SYMLINK_INSTALL` 캐시가 엇갈려 `f110_msgs`에서 심볼릭 링크 충돌로 빌드가 깨집니다.
 > 이미 깨졌다면 `rm -rf build install` 후 위 명령으로 다시 빌드하면 됩니다.
 
-symlink-install 덕분에 `config/*.yaml`과 `launch/*.launch.py`는 수정 후 **재빌드 없이** 바로 반영됩니다.
+> **주의**: `config/*.yaml`·`launch/*.launch.py`는 대부분 패키지가 `install(DIRECTORY ...)`로 설치하므로
+> symlink-install이어도 **실제 심볼릭 링크가 아닙니다** (ament의 symlink 훅은 `install(FILES/TARGETS)`만
+> 가로챕니다). launch/config를 수정했다면 해당 패키지를 다시 빌드해야 반영됩니다:
+> `colcon build --symlink-install --packages-select <pkg>`
 
 ---
 
@@ -279,8 +280,11 @@ source install/setup.zsh   # bash 사용 시 setup.bash
 
 ### 터미널 1 — 시뮬레이터 (gym bridge)
 
+먼저 `~/f1sim_C/f1tenth_gym_ros/config/sim.yaml`의 `map_path`가 스택과 같은 맵을 가리키는지 확인하세요
+(확장자 없는 절대경로, 예: `/home/<user>/2026_IFAC/src/monte_carlo_localization/maps/ifac_track`).
+
 ```bash
-cd ~/sim_ws
+cd ~/f1sim_C
 source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 ros2 launch f1tenth_gym_ros gym_bridge_launch.py
@@ -294,14 +298,27 @@ ros2 launch f1tenth_gym_ros gym_bridge_launch.py
 cd ~/2026_IFAC
 source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
-ros2 launch particle_filter_cpp mcl_launch.py mod:=sim map_name:=fuck_f1 use_rviz:=true
+ros2 launch particle_filter_cpp mcl_launch.py mod:=sim map_name:=ifac_track use_rviz:=true
 ```
 
 | 인자 | 값 | 설명 |
 |---|---|---|
 | `mod` | `sim` | 시뮬레이션 모드 (`/ego_racecar/odom` 사용, sim time 활성) |
-| `map_name` | `fuck_f1` | `monte_carlo_localization/maps/fuck_f1.yaml` |
+| `map_name` | `ifac_track` | `monte_carlo_localization/maps/ifac_track.yaml` |
 | `use_rviz` | `true` | RViz 동시 실행 |
+
+> **초기 위치 지정(필수)**: MCL은 전역 초기화로 시작하므로 RViz의 **2D Pose Estimate**로
+> 시작 위치를 찍어줘야 정확히 수렴합니다. RViz 없이(헤드리스) 돌릴 때는 아래처럼 직접 발행하세요.
+> `/initialpose`는 gym 브리지도 구독하므로 **차량 텔레포트와 MCL 초기화가 동시에** 일어납니다.
+> (주행 중 재초기화할 때는 차량을 먼저 정지시킨 뒤 두 번 발행하면 확실합니다 — 첫 발행의 텔레포트
+> 순간 odom 점프가 MCL에 반영되는 것을 두 번째 발행이 정리해 줍니다.)
+>
+> ```bash
+> ros2 topic pub --once /initialpose geometry_msgs/msg/PoseWithCovarianceStamped \
+>   '{header: {frame_id: map}, pose: {pose: {position: {x: -0.427, y: 0.456}, orientation: {z: 0.3651, w: 0.9310}}}}'
+> ```
+>
+> 위 좌표는 `ifac_track` 레이스라인 위의 스폰 인접 지점(헤딩 정렬)입니다.
 
 ### 터미널 3 — 글로벌 플래너
 
@@ -394,7 +411,7 @@ ros2 launch f1tenth_control control_real.launch.py
 > 아래 두 터미널은 **상대차 검출/추월을 볼 때만** 추가로 띄웁니다. 기본 주행에는 필요 없습니다.
 >
 > **전제 2가지**
-> 1. 터미널 1의 gym 시뮬을 **`num_agent: 2`** (sim_ws의 `config/sim.yaml`)로 띄워야 상대차량이 스폰됩니다. 1-agent면 상대차가 아예 없어 RViz에도 안 보이고 검출도 안 됩니다. (sim.yaml 수정 후 gym 브리지를 **재실행**해야 반영됨)
+> 1. 터미널 1의 gym 시뮬을 **`num_agent: 2`** (`~/f1sim_C/f1tenth_gym_ros/config/sim.yaml`)로 띄워야 상대차량이 스폰됩니다. 1-agent면 상대차가 아예 없어 RViz에도 안 보이고 검출도 안 됩니다. (sim.yaml 수정 후 gym 브리지를 **재실행**해야 반영됨)
 > 2. 이 2-agent 브리지는 **에고·상대 둘 다 `drive`를 발행해야 물리 스텝**을 돕니다. 따라서 **터미널 7(에고 제어)을 그대로 유지**해야 하며, 8·9는 교체가 아니라 **추가**입니다.
 
 ### 터미널 8 — 상대차 주행 (opponent simulator)
@@ -478,7 +495,7 @@ ros2 launch f1tenth_control control_real.launch.py \
 ```yaml
 # global_trajectory_publisher_node: JSON을 <output_base_dir>/<map_name>/global_waypoints.json 에서 읽음
 output_base_dir: "offline_trajectory_generator/output"
-map_name: "fuck_f1"
+map_name: "ifac_track"   # F1_MAP 환경변수가 설정돼 있으면 launch 인자가 이를 우선함
 ```
 
 따라서 워크스페이스 루트가 아닌 곳에서 터미널 3을 실행하면 파일을 찾지 못합니다.
@@ -488,9 +505,26 @@ map_name: "fuck_f1"
 `global_trajectory_publisher_node`는 시작할 때 JSON을 **딱 한 번만** 읽습니다. 파일이 없거나 파싱에 실패하면
 `/global_waypoints`를 아예 발행하지 않고, 그 뒤의 로컬 플래너와 제어가 전부 대기 상태로 멈춥니다.
 
-읽는 위치는 `<output_base_dir>/<map_name>/global_waypoints.json`(기본 `offline_trajectory_generator/output/fuck_f1/`)입니다.
-**맵을 바꾸려면** yaml의 `map_name`만 그 맵 이름(= `offline_trajectory_generator/output/` 하위 폴더명)으로 바꾸면 됩니다.
+읽는 위치는 `<output_base_dir>/<map_name>/global_waypoints.json`(기본 `offline_trajectory_generator/output/<F1_MAP>/`)입니다.
+**맵을 바꾸려면** `F1_MAP` 환경변수(또는 yaml의 `map_name`)만 그 맵 이름(= `offline_trajectory_generator/output/` 하위 폴더명)으로 바꾸면 됩니다.
 새 맵을 생성했거나 파일을 교체했다면 터미널 3을 재시작해야 반영됩니다.
+
+`output/`은 gitignore 대상이라 클린 체크아웃에는 없습니다. 아래처럼 생성하세요 (`torch` 미설치 환경에서는
+`--optimizer mincurv`만 가능):
+
+```bash
+cd ~/2026_IFAC
+python3 offline_trajectory_generator/generate_global_trajectory.py \
+  --map-yaml src/monte_carlo_localization/maps/ifac_track.yaml \
+  --output-dir offline_trajectory_generator/output/ifac_track \
+  --optimizer mincurv --raceline-smooth-sigma 3.0 \
+  --max-speed 0.5 --min-speed 0.4 --max-lateral-accel 1.0
+```
+
+> 속도 상한을 `0.5 m/s`로 두는 이유: gym 시뮬 폐루프 검증 기준값입니다. 합성 복도 맵에서는
+> 코너 요레이트가 커지면(≈0.6 rad/s 이상) MCL 파티클이 복도 대칭성 때문에 뒤집힐 수 있고,
+> 트랙 코너 반경(~1 m)이 작아 고속에서는 L1 추종이 코너를 잘라먹습니다. 실차/실맵에서는
+> 기존 튜닝 값을 그대로 쓰면 됩니다.
 
 ### 4.4 파라미터 파일을 명시하고 싶다면
 
@@ -548,3 +582,42 @@ ros2 launch local_planning local_planning.launch.py \
                                                                                 /drive
                                                 (시뮬: gym_bridge가 직접 구독 / 실차: ackermann_to_vesc_node → VESC)
 ```
+
+---
+
+## 6. ROS 2 Jazzy 포트 검증
+
+이 브랜치(`jazzy-port-test`)는 Humble 기반 스택을 **ROS 2 Jazzy (Ubuntu 24.04)** 로 포팅하고
+실제 빌드·주행으로 검증한 결과입니다. (검증일: 2026-07-28, x86_64 데스크톱)
+
+### 6.1 포팅 변경 사항
+
+| 분류 | 내용 |
+|---|---|
+| tf2 헤더 | deprecated `.h` → `.hpp` 5개 파일 (particle_filter, opponent_simulator, opponent_detector 등) — Kilted 대비 겸용 |
+| CMake | 전 패키지 `ament_target_dependencies` → modern `target_link_libraries` (9개 패키지 27곳) |
+| rosdep 키 | `nlohmann_json`→`nlohmann-json-dev`, 가짜 `openmp` 제거 (global_planning), `nav_mags` 오타 수정 (wpnt_publisher), 미선언 `angles` 제거 (MCL), 미사용 `pcl_ros`/`pcl_conversions` 제거 (MCL) |
+| lap_timer | `rviz_2d_overlay_msgs` 무가드 import 제거 — Jazzy에 바이너리 미배포라 실행 즉시 죽던 것을 선택적 import로 전환 |
+| vendor | `gb_optimizer`(ROS1 catkin)에 `COLCON_IGNORE` 명시 |
+| MCL sim 튜닝 | sim 모드 한정 motion_dispersion/smoothing 오버라이드 (`mcl_launch.py`, 실차 값 불변) |
+| 데이터 복구 | git에서 유실됐던 `ifac_track.{png,yaml}` 맵 복구 |
+| 포맷 | `builtin_interfaces/Time` 로그 포맷 `-Wformat` 경고 수정 |
+
+### 6.2 검증 결과
+
+- **빌드**: `build/ install/ log/` 전부 삭제 후 클린 빌드 — **12개 패키지 전부 성공, 경고 0건** (2분 18초, Ninja)
+- **런타임**: gym 시뮬레이터(f1sim_C, Jazzy 네이티브) + 7노드 풀스택으로 **자율주행 3랩 연속 완주**
+  - 랩타임 ~102 s (지시 속도 0.5 m/s 정속)
+  - MCL 위치추정 오차: 최대 0.18 m, 평상시 1~6 cm (320 s 연속 추적)
+  - 레이스라인 횡편차 |d| ≤ 0.36 m, 전 코너 통과
+  - 전 토픽 발행 확인: `/scan` 49 Hz, `/pf/pose/odom` 30 Hz, `/car_state/frenet/odom` 21 Hz, `/local_waypoints` 21 Hz, `/drive` 38 Hz 등
+
+### 6.3 시뮬 검증에서 확인된 주의사항
+
+1. **초기 위치는 반드시 지정** — 헤드리스에서는 `/initialpose` 직접 발행 (§3 터미널 2 참고).
+   전역 초기화만으로는 반복 복도 형상 때문에 엉뚱한 위치에 수렴할 수 있습니다.
+2. **gym은 벽 충돌을 물리적으로 막지 않습니다** — 제어가 이탈하면 차가 벽을 통과해 맵 밖으로 나가고,
+   그 순간부터 스캔이 맵과 매칭되지 않아 MCL이 복구 불가능하게 발산합니다.
+3. **시뮬 맵·MCL 맵·웨이포인트 맵 3곳 일치**는 절대 조건입니다 (sim.yaml `map_path` 확인).
+4. gym 브리지는 `/clock`을 발행하지 않습니다 — `use_sim_time`이 sim 모드에서 true로 설정되지만
+   타이머가 전부 wall clock 기반이라 동작에는 지장이 없음을 확인했습니다.

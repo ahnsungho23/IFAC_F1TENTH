@@ -27,8 +27,8 @@ role="${1:-scratch}"
 # directory name works — do NOT hard-code $HOME/2026_IFAC. $IFAC_WS overrides it if ever needed.
 IFAC="${IFAC_WS:-${0:A:h:h}}"
 
-# Track/map used by MCL. Keep in sync with the gym bridge's map (sim_ws config/sim.yaml map_path).
-# Override per run:  SIM_MAP_NAME=fuck_f1 ./sim/open_sim.sh
+# Track/map used by MCL. Keep in sync with the gym bridge's map (f1tenth_gym_ros config/sim.yaml map_path).
+# Override per run:  SIM_MAP_NAME=<map> ./sim/open_sim.sh
 MAP_NAME="${SIM_MAP_NAME:-ifac_track}"
 
 # ROS 2 Jazzy underlay first, then the overlay this role needs.
@@ -38,13 +38,13 @@ source /opt/ros/jazzy/setup.zsh 2>/dev/null
 # $F1SIM_WS overrides the candidates.
 source_sim_ws() {
   local ws
-  for ws in "${F1SIM_WS:-}" "$HOME/sim_ws" "$HOME/f1tenth_gym"; do
+  for ws in "${F1SIM_WS:-}" "$HOME/f1sim_C" "$HOME/sim_ws" "$HOME/f1tenth_gym"; do
     [[ -n "$ws" && -f "$ws/install/setup.zsh" ]] || continue
     source "$ws/install/setup.zsh"
     print -P "%F{242}(f1tenth_gym_ros workspace: $ws)%f"
     return 0
   done
-  print -P "%F{red}[run.sh] no f1tenth_gym_ros workspace found — tried \$F1SIM_WS, ~/sim_ws, ~/f1tenth_gym%f"
+  print -P "%F{red}[run.sh] no f1tenth_gym_ros workspace found — tried \$F1SIM_WS, ~/f1sim_C, ~/sim_ws, ~/f1tenth_gym%f"
   return 1
 }
 
@@ -163,7 +163,7 @@ case "$role" in
   opp|opponent)                            # Terminal 8 — opponent follows the global line -> /opp_drive
     source "$IFAC/install/setup.zsh" 2>/dev/null
     kill_pattern "${PAT_OPP[@]}"
-    # Needs the gym bridge at num_agent: 2 (sim_ws config/sim.yaml) AND terminal 7 kept running —
+    # Needs the gym bridge at num_agent: 2 (f1sim_C f1tenth_gym_ros/config/sim.yaml) AND terminal 7 kept running —
     # the 2-agent bridge only steps physics when BOTH cars publish drive.
     cmd=(ros2 launch new_map_con opponent_simulator.launch.py)
     delay=13

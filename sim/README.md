@@ -30,7 +30,7 @@ Terminator가 없으면 먼저 설치합니다: `sudo apt install terminator`
 
 | # | role | 실행 내용 | 대기(초) |
 |---|---|---|---|
-| 1 | `f1sim` | `ros2 launch f1tenth_gym_ros gym_bridge_launch.py` (sim_ws) | 0 |
+| 1 | `f1sim` | `ros2 launch f1tenth_gym_ros gym_bridge_launch.py` (f1sim_C) | 0 |
 | 2 | `mcl` | `ros2 launch particle_filter_cpp mcl_launch.py mod:=sim map_name:=<맵> use_rviz:=true` | 3 |
 | 3 | `global` | `ros2 launch global_planning global_planning.launch.py` | 6 |
 | 4 | `local` | `ros2 launch local_planning local_planning.launch.py` | 8 |
@@ -57,15 +57,15 @@ KEEP_SIM=1 ~/2026_IFAC/sim/run.sh stop   # gym 브리지는 남기고 나머지�
 | 변수 | 기본값 | 설명 |
 |---|---|---|
 | `SIM_MAP_NAME` | `ifac_track` | MCL 맵 이름 (`monte_carlo_localization/maps/<이름>.yaml`) |
-| `F1SIM_WS` | `~/sim_ws` → `~/f1tenth_gym` 순서로 탐색 | f1tenth_gym_ros 워크스페이스 경로 |
+| `F1SIM_WS` | `~/f1sim_C` → `~/sim_ws` → `~/f1tenth_gym` 순서로 탐색 | f1tenth_gym_ros 워크스페이스 경로 |
 | `MCL_RVIZ` | `true` | MCL 자체 RViz 창 켜기/끄기 (`0`이면 끔) |
 | `IFAC_WS` | 스크립트 위치에서 자동 계산 | 이 저장소의 워크스페이스 루트 |
 
-예: `SIM_MAP_NAME=fuck_f1 ./sim/open_sim.sh`
+예: `SIM_MAP_NAME=<map> ./sim/open_sim.sh`
 
 ## 상대차 시나리오(`--opp`) 전제 조건
 
-1. gym 브리지를 **`num_agent: 2`**(sim_ws의 `config/sim.yaml`)로 띄워야 상대차가 스폰됩니다.
+1. gym 브리지를 **`num_agent: 2`**(`~/f1sim_C/f1tenth_gym_ros/config/sim.yaml`)로 띄워야 상대차가 스폰됩니다.
    sim.yaml 수정 후에는 패인 1에서 Ctrl-C → 재실행으로 브리지를 다시 띄우세요.
 2. 2-agent 브리지는 에고·상대 **둘 다** drive를 발행해야 물리 스텝을 돕니다.
    패인 7(에고 제어)을 끄지 말고 유지해야 합니다.

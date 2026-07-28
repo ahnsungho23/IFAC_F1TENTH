@@ -81,8 +81,11 @@ Before finishing any ROS 2 node change, verify:
 
 ### 터미널 1 — 시뮬레이터 (gym bridge)
 
+`~/f1sim_C/f1tenth_gym_ros/config/sim.yaml`의 `map_path`가 스택과 같은 맵(확장자 없는 절대경로,
+예: `.../2026_IFAC/src/monte_carlo_localization/maps/ifac_track`)인지 먼저 확인합니다.
+
 ```bash
-cd ~/sim_ws
+cd ~/f1sim_C
 source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 ros2 launch f1tenth_gym_ros gym_bridge_launch.py
@@ -96,14 +99,22 @@ ros2 launch f1tenth_gym_ros gym_bridge_launch.py
 cd ~/2026_IFAC
 source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
-ros2 launch particle_filter_cpp mcl_launch.py mod:=sim map_name:=fuck_f1 use_rviz:=true
+ros2 launch particle_filter_cpp mcl_launch.py mod:=sim map_name:=ifac_track use_rviz:=true
 ```
 
 | 인자 | 값 | 설명 |
 |---|---|---|
 | `mod` | `sim` | 시뮬레이션 모드 (`/ego_racecar/odom` 사용, sim time 활성) |
-| `map_name` | `fuck_f1` | `monte_carlo_localization/maps/fuck_f1.yaml` |
+| `map_name` | `ifac_track` | `monte_carlo_localization/maps/ifac_track.yaml` |
 | `use_rviz` | `true` | RViz 동시 실행 |
+
+기동 후 RViz **2D Pose Estimate**로 초기 위치를 반드시 지정합니다. 헤드리스로 돌릴 때는 대신
+`/initialpose`를 직접 발행합니다 (gym 브리지 텔레포트 + MCL 초기화 동시 수행, README §3 참고):
+
+```bash
+ros2 topic pub --once /initialpose geometry_msgs/msg/PoseWithCovarianceStamped \
+  '{header: {frame_id: map}, pose: {pose: {position: {x: -0.427, y: 0.456}, orientation: {z: 0.3651, w: 0.9310}}}}'
+```
 
 ### 터미널 3 — 글로벌 플래너
 
@@ -167,7 +178,7 @@ ros2 launch f1tenth_control control_sim.launch.py force_autonomous:=true
 > 아래 두 터미널은 **상대차 검출/추월을 볼 때만** 추가로 띄웁니다. 기본 주행에는 필요 없습니다.
 >
 > **전제 2가지**
-> 1. 터미널 1의 gym 시뮬을 **`num_agent: 2`** (sim_ws의 `config/sim.yaml`)로 띄워야 상대차량이 스폰됩니다. 1-agent면 상대차가 아예 없어 RViz에도 안 보이고 검출도 안 됩니다. (sim.yaml 수정 후 gym 브리지를 **재실행**해야 반영됨)
+> 1. 터미널 1의 gym 시뮬을 **`num_agent: 2`** (`~/f1sim_C/f1tenth_gym_ros/config/sim.yaml`)로 띄워야 상대차량이 스폰됩니다. 1-agent면 상대차가 아예 없어 RViz에도 안 보이고 검출도 안 됩니다. (sim.yaml 수정 후 gym 브리지를 **재실행**해야 반영됨)
 > 2. 이 2-agent 브리지는 **에고·상대 둘 다 `drive`를 발행해야 물리 스텝**을 돕니다. 따라서 **터미널 7(에고 제어)을 그대로 유지**해야 하며, 8·9는 교체가 아니라 **추가**입니다.
 
 ### 터미널 8 — 상대차 주행 (opponent simulator)

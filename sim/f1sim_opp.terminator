@@ -6,7 +6,7 @@
 #   LEFT  column : 1 f1sim · 2 mcl · 3 global_planning · 4 local_planning · 5 state_machine
 #   RIGHT column : 6 wpnt_publisher · 7 f1tenth_control · 8 opponent sim · 9 opponent detector
 #
-# PREREQUISITE: the gym bridge must run with num_agent: 2 (sim_ws config/sim.yaml), otherwise the
+# PREREQUISITE: the gym bridge must run with num_agent: 2 (f1sim_C f1tenth_gym_ros/config/sim.yaml), otherwise the
 # opponent car never spawns. Terminal 7 (ego control) must KEEP running — the 2-agent bridge only
 # steps physics when both cars publish drive.
 # =================================================================================================
