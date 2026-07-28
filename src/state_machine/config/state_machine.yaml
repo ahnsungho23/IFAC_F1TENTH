@@ -9,8 +9,12 @@ state_machine_node:
     publish_rate_hz: 10.0
     default_state: "global"
 
-    avoid_stale_timeout_sec: 100.0
+    # AVOID 경로는 timeout 없이 최신 non-empty 경로 수신 여부로 유지합니다.
+    # 상태 진입은 아래 M-of-N 수신 확인으로 판정합니다.
     overtake_stale_timeout_sec: 100.0
+    # GLOBAL 진입 게이트: 최근 5개 local path 메시지 중 3개 이상이 non-empty여야 함
+    local_path_confirmation_window_size: 5
+    local_path_confirmation_min_hits: 3
     global_stale_timeout_sec: 2.0
     frenet_stale_timeout_sec: 0.5
 

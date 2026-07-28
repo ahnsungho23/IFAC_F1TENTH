@@ -5,14 +5,18 @@
 #include "opponent_detector/opponent_detector_node.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstdint>
+#include <limits>
+#include <numeric>
 
 #include <builtin_interfaces/msg/time.hpp>
 #include <f110_msgs/msg/obstacle.hpp>
 #include <geometry_msgs/msg/quaternion.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
-#include <tf2/exceptions.h>
-#include <tf2/time.h>
+#include <tf2/exceptions.hpp>
+#include <tf2/time.hpp>
 #include <visualization_msgs/msg/marker.hpp>
 
 namespace opponent_detector
@@ -62,8 +66,13 @@ OpponentDetectorNode::OpponentDetectorNode(const rclcpp::NodeOptions &options)
     ego_odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
         ego_odom_topic_, rclcpp::QoS(10),
         std::bind(&OpponentDetectorNode::egoOdomCallback, this, std::placeholders::_1));
+    imu_sub_ = this->create_subscription<sensor_msgs::msg::Imu>(
+        imu_topic_, rclcpp::SensorDataQoS(),
+        std::bind(&OpponentDetectorNode::imuCallback, this, std::placeholders::_1));
 
     obstacles_pub_ = this->create_publisher<f110_msgs::msg::ObstacleArray>(obstacles_topic_, 10);
+    static_obstacles_pub_ =
+        this->create_publisher<f110_msgs::msg::ObstacleArray>(static_obstacles_topic_, 10);
     if (publish_raw_)
     {
         raw_obstacles_pub_ =
@@ -81,9 +90,13 @@ OpponentDetectorNode::OpponentDetectorNode(const rclcpp::NodeOptions &options)
 
     RCLCPP_INFO(this->get_logger(),
                 "opponent_detector started (scan=%s, global=%s, map_filter=%s, classifier=%d, "
-                "simulator=%s)",
+                "deskew=%s(%s), merge=%s, mahalanobis=%s, simulator=%s)",
                 scan_topic_.c_str(), global_wpnts_topic_.c_str(), use_map_filter_ ? "on" : "off",
-                static_cast<int>(tracker_params_.classifier_mode), simulator_ ? "true" : "false");
+                static_cast<int>(tracker_params_.classifier_mode),
+                deskew_enable_ ? "on" : "off", deskew_source_.c_str(),
+                cluster_merge_enable_ ? "on" : "off",
+                tracker_params_.assoc_use_mahalanobis ? "on" : "off",
+                simulator_ ? "true" : "false");
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -95,12 +108,10 @@ void OpponentDetectorNode::declareParameters()
     this->declare_parameter<std::string>("global_waypoints_topic", "/global_waypoints");
     this->declare_parameter<std::string>("map_topic", "/map");
     this->declare_parameter<std::string>("ego_odom_topic", "/pf/pose/odom");
+    this->declare_parameter<std::string>("imu_topic", "/sensors/imu/raw");
     this->declare_parameter<std::string>("obstacles_topic", "/perception/obstacles");
-<<<<<<< HEAD
     this->declare_parameter<std::string>(
         "static_obstacles_topic", "/perception/static_obstacles/cartesian");
-=======
->>>>>>> f9713510246c01603e88db1d5002ca178b07a970
     this->declare_parameter<std::string>("raw_obstacles_topic", "/perception/detection/raw_obstacles");
     this->declare_parameter<std::string>("proj_opp_traj_topic", "/proj_opponent_trajectory");
     this->declare_parameter<std::string>("markers_topic", "/perception/obstacles/markers");
@@ -116,6 +127,32 @@ void OpponentDetectorNode::declareParameters()
     this->declare_parameter<int>("min_cluster_points", 5);
     // must exceed the diagonal of the largest car / static obstacle: a 0.5x0.5 m box is 0.707 m
     this->declare_parameter<double>("max_obs_size", 0.8);
+    // Per-beam motion compensation. LaserScan header.stamp is the first ray; later rays are
+    // transformed back to that pose using IMU yaw rate, with odometry as a simulator/fallback.
+    this->declare_parameter<bool>("deskew_enable", true);
+    this->declare_parameter<std::string>("deskew_source", "auto");
+    this->declare_parameter<bool>("deskew_translation_enable", false);
+    this->declare_parameter<double>("deskew_sensor_timeout", 0.15);
+    this->declare_parameter<double>("imu_angular_scale", M_PI / 180.0);
+
+    // Optional raw-range filtering. Defaults preserve small/far obstacles until tuned in f1sim_C.
+    this->declare_parameter<bool>("noise_filter_enable", false);
+    this->declare_parameter<double>("noise_eps", 0.05);
+    this->declare_parameter<double>("noise_eps_scale", 1.5);
+    this->declare_parameter<int>("noise_min_neighbors", 2);
+    this->declare_parameter<int>("noise_search_halfwidth", 4);
+    this->declare_parameter<int>("scan_median_window", 1);
+
+    // Merge fragments of one physical object before CLCS projection/tracking.
+    this->declare_parameter<bool>("cluster_merge_enable", true);
+    this->declare_parameter<double>("cluster_merge_distance", 0.12);
+    this->declare_parameter<int>("cluster_merge_min_fragment_points", 2);
+
+    // Scale the Kalman measurement covariance for far, sparse, or high-yaw-rate detections.
+    this->declare_parameter<double>("meas_range_var_scale", 2.0);
+    this->declare_parameter<double>("meas_sparse_var_scale", 1.5);
+    this->declare_parameter<double>("meas_yaw_rate_var_scale", 0.25);
+    this->declare_parameter<int>("meas_reference_points", 8);
 
     // filtering
     this->declare_parameter<double>("max_viewing_distance", 9.0);
@@ -139,6 +176,8 @@ void OpponentDetectorNode::declareParameters()
     this->declare_parameter<double>("process_var_vd", 8.0);
     this->declare_parameter<double>("assoc_gate", 0.5);
     this->declare_parameter<double>("aggro_multi", 2.0);
+    this->declare_parameter<bool>("assoc_use_mahalanobis", true);
+    this->declare_parameter<double>("assoc_mahalanobis_gate", 9.21);
     this->declare_parameter<int>("ttl_dynamic", 40);
     this->declare_parameter<int>("ttl_static", 3);
     this->declare_parameter<int>("min_hits_confirm", 3);
@@ -207,7 +246,9 @@ void OpponentDetectorNode::loadParameters()
     global_wpnts_topic_ = this->get_parameter("global_waypoints_topic").as_string();
     map_topic_ = this->get_parameter("map_topic").as_string();
     ego_odom_topic_ = this->get_parameter("ego_odom_topic").as_string();
+    imu_topic_ = this->get_parameter("imu_topic").as_string();
     obstacles_topic_ = this->get_parameter("obstacles_topic").as_string();
+    static_obstacles_topic_ = this->get_parameter("static_obstacles_topic").as_string();
     raw_obstacles_topic_ = this->get_parameter("raw_obstacles_topic").as_string();
     proj_opp_topic_ = this->get_parameter("proj_opp_traj_topic").as_string();
     markers_topic_ = this->get_parameter("markers_topic").as_string();
@@ -224,6 +265,44 @@ void OpponentDetectorNode::loadParameters()
     min_2_points_dist_ = this->get_parameter("min_2_points_dist").as_double();
     min_cluster_points_ = this->get_parameter("min_cluster_points").as_int();
     max_obs_size_ = this->get_parameter("max_obs_size").as_double();
+    deskew_enable_ = this->get_parameter("deskew_enable").as_bool();
+    deskew_source_ = this->get_parameter("deskew_source").as_string();
+    deskew_translation_enable_ =
+        this->get_parameter("deskew_translation_enable").as_bool();
+    deskew_sensor_timeout_ =
+        std::max(0.0, this->get_parameter("deskew_sensor_timeout").as_double());
+    imu_angular_scale_ = this->get_parameter("imu_angular_scale").as_double();
+    noise_filter_enable_ = this->get_parameter("noise_filter_enable").as_bool();
+    noise_eps_ = std::max(0.0, this->get_parameter("noise_eps").as_double());
+    noise_eps_scale_ = std::max(0.0, this->get_parameter("noise_eps_scale").as_double());
+    noise_min_neighbors_ = std::max(
+        0, static_cast<int>(this->get_parameter("noise_min_neighbors").as_int()));
+    noise_search_halfwidth_ =
+        std::max(1, static_cast<int>(
+            this->get_parameter("noise_search_halfwidth").as_int()));
+    scan_median_window_ = std::max(
+        1, static_cast<int>(this->get_parameter("scan_median_window").as_int()));
+    if (scan_median_window_ % 2 == 0)
+    {
+        ++scan_median_window_;
+        RCLCPP_WARN(this->get_logger(),
+                    "scan_median_window must be odd; using %d", scan_median_window_);
+    }
+    cluster_merge_enable_ = this->get_parameter("cluster_merge_enable").as_bool();
+    cluster_merge_distance_ =
+        std::max(0.0, this->get_parameter("cluster_merge_distance").as_double());
+    cluster_merge_min_fragment_points_ =
+        std::max(1, static_cast<int>(
+            this->get_parameter("cluster_merge_min_fragment_points").as_int()));
+    meas_range_var_scale_ =
+        std::max(0.0, this->get_parameter("meas_range_var_scale").as_double());
+    meas_sparse_var_scale_ =
+        std::max(0.0, this->get_parameter("meas_sparse_var_scale").as_double());
+    meas_yaw_rate_var_scale_ =
+        std::max(0.0, this->get_parameter("meas_yaw_rate_var_scale").as_double());
+    meas_reference_points_ =
+        std::max(1, static_cast<int>(
+            this->get_parameter("meas_reference_points").as_int()));
 
     max_viewing_distance_ = this->get_parameter("max_viewing_distance").as_double();
     view_behind_distance_ = this->get_parameter("view_behind_distance").as_double();
@@ -243,6 +322,10 @@ void OpponentDetectorNode::loadParameters()
     tracker_params_.process_var_vd = this->get_parameter("process_var_vd").as_double();
     tracker_params_.assoc_gate = this->get_parameter("assoc_gate").as_double();
     tracker_params_.aggro_multi = this->get_parameter("aggro_multi").as_double();
+    tracker_params_.assoc_use_mahalanobis =
+        this->get_parameter("assoc_use_mahalanobis").as_bool();
+    tracker_params_.assoc_mahalanobis_gate =
+        std::max(0.1, this->get_parameter("assoc_mahalanobis_gate").as_double());
     tracker_params_.ttl_dynamic = this->get_parameter("ttl_dynamic").as_int();
     tracker_params_.ttl_static = this->get_parameter("ttl_static").as_int();
     tracker_params_.min_hits_confirm = this->get_parameter("min_hits_confirm").as_int();
@@ -387,6 +470,10 @@ void OpponentDetectorNode::egoOdomCallback(const nav_msgs::msg::Odometry::Shared
     ego_y_ = msg->pose.pose.position.y;
     // planar speed (twist is body-frame; the magnitude is what the catchability gate needs)
     ego_v_ = std::hypot(msg->twist.twist.linear.x, msg->twist.twist.linear.y);
+    odom_linear_x_ = msg->twist.twist.linear.x;
+    odom_linear_y_ = msg->twist.twist.linear.y;
+    odom_yaw_rate_ = msg->twist.twist.angular.z;
+    odom_motion_stamp_ = stampToSec(msg->header.stamp);
     have_ego_pose_ = true;
     if (converter_)
     {
@@ -404,6 +491,52 @@ void OpponentDetectorNode::egoOdomCallback(const nav_msgs::msg::Odometry::Shared
             ego_frenet_stamp_ = stampToSec(msg->header.stamp);
         }
     }
+}
+
+void OpponentDetectorNode::imuCallback(const sensor_msgs::msg::Imu::SharedPtr msg)
+{
+    const double scaled_yaw_rate = msg->angular_velocity.z * imu_angular_scale_;
+    if (!std::isfinite(scaled_yaw_rate))
+    {
+        return;
+    }
+    imu_yaw_rate_ = scaled_yaw_rate;
+    imu_stamp_ = stampToSec(msg->header.stamp);
+}
+
+OpponentDetectorNode::DeskewMotion
+OpponentDetectorNode::selectDeskewMotion(double scan_stamp) const
+{
+    DeskewMotion motion;
+    if (!deskew_enable_)
+    {
+        return motion;
+    }
+
+    const auto fresh = [this, scan_stamp](double stamp) {
+        return stamp >= 0.0 && scan_stamp >= 0.0 &&
+               std::abs(scan_stamp - stamp) <= deskew_sensor_timeout_;
+    };
+    const bool allow_imu = deskew_source_ == "auto" || deskew_source_ == "imu";
+    const bool allow_odom = deskew_source_ == "auto" || deskew_source_ == "odom";
+    if (allow_imu && fresh(imu_stamp_))
+    {
+        motion.enabled = true;
+        motion.yaw_rate = imu_yaw_rate_;
+        motion.source = "imu";
+    }
+    else if (allow_odom && fresh(odom_motion_stamp_))
+    {
+        motion.enabled = true;
+        motion.yaw_rate = odom_yaw_rate_;
+        motion.source = "odom";
+    }
+    if (motion.enabled && deskew_translation_enable_ && fresh(odom_motion_stamp_))
+    {
+        motion.linear_x = odom_linear_x_;
+        motion.linear_y = odom_linear_y_;
+    }
+    return motion;
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -439,11 +572,12 @@ bool OpponentDetectorNode::lookupScanToMap(const std_msgs::msg::Header &scan_hea
 }
 
 // ------------------------------------------------------------------------------------------------
-// Adaptive-breakpoint clustering (points already in map frame)
+// Motion-compensated adaptive-breakpoint clustering (points already in map frame)
 // ------------------------------------------------------------------------------------------------
 std::vector<std::vector<OpponentDetectorNode::ScanPoint>>
 OpponentDetectorNode::clusterScan(const sensor_msgs::msg::LaserScan &scan, double tx, double ty,
-                                  double yaw) const
+                                  double yaw, const DeskewMotion &motion,
+                                  ScanProcessingStats &stats) const
 {
     std::vector<std::vector<ScanPoint>> clusters;
     std::vector<ScanPoint> current;
@@ -451,32 +585,144 @@ OpponentDetectorNode::clusterScan(const sensor_msgs::msg::LaserScan &scan, doubl
     const double denom = std::sin(lambda_rad_ - dphi);
     const double cyaw = std::cos(yaw);
     const double syaw = std::sin(yaw);
+    const std::size_t beam_count = scan.ranges.size();
+    std::vector<double> ranges(scan.ranges.begin(), scan.ranges.end());
+
+    // A small median window removes isolated range spikes without inventing returns where the
+    // sensor reported invalid data. Window 1 preserves the original scan.
+    if (scan_median_window_ > 1 && beam_count > 0)
+    {
+        const int half = scan_median_window_ / 2;
+        std::vector<double> filtered(ranges);
+        std::vector<double> window;
+        window.reserve(static_cast<std::size_t>(scan_median_window_));
+        for (std::size_t i = 0; i < beam_count; ++i)
+        {
+            if (!std::isfinite(ranges[i]))
+            {
+                continue;
+            }
+            window.clear();
+            const std::size_t lo =
+                i > static_cast<std::size_t>(half) ? i - static_cast<std::size_t>(half) : 0;
+            const std::size_t hi =
+                std::min(beam_count - 1, i + static_cast<std::size_t>(half));
+            for (std::size_t j = lo; j <= hi; ++j)
+            {
+                if (std::isfinite(ranges[j]))
+                {
+                    window.push_back(ranges[j]);
+                }
+            }
+            if (static_cast<int>(window.size()) > half)
+            {
+                auto middle = window.begin() +
+                    static_cast<std::ptrdiff_t>(window.size() / 2);
+                std::nth_element(window.begin(), middle, window.end());
+                filtered[i] = *middle;
+            }
+        }
+        ranges.swap(filtered);
+    }
+
+    // Ordered-scan DBSCAN core-point test. The adaptive radius grows with range so legitimate
+    // far-object returns are not removed merely because adjacent laser rays spread apart.
+    std::vector<std::uint8_t> keep(beam_count, 1);
+    if (noise_filter_enable_ && noise_min_neighbors_ > 0)
+    {
+        for (std::size_t i = 0; i < beam_count; ++i)
+        {
+            const double ri = ranges[i];
+            if (!std::isfinite(ri) || ri < scan.range_min || ri >= max_range_)
+            {
+                continue;
+            }
+            const double ai = scan.angle_min + static_cast<double>(i) * dphi;
+            const double xi = ri * std::cos(ai);
+            const double yi = ri * std::sin(ai);
+            double eps = 3.0 * cluster_sigma_;
+            if (denom > 1e-6)
+            {
+                eps += ri * std::sin(dphi) / denom;
+            }
+            eps = std::max(noise_eps_, noise_eps_scale_ * eps);
+            const double eps2 = eps * eps;
+            const std::size_t halfwidth =
+                static_cast<std::size_t>(noise_search_halfwidth_);
+            const std::size_t lo = i > halfwidth ? i - halfwidth : 0;
+            const std::size_t hi = std::min(beam_count - 1, i + halfwidth);
+            int neighbors = 0;
+            for (std::size_t j = lo; j <= hi && neighbors < noise_min_neighbors_; ++j)
+            {
+                if (j == i)
+                {
+                    continue;
+                }
+                const double rj = ranges[j];
+                if (!std::isfinite(rj) || rj < scan.range_min || rj >= max_range_)
+                {
+                    continue;
+                }
+                const double aj = scan.angle_min + static_cast<double>(j) * dphi;
+                const double dx = rj * std::cos(aj) - xi;
+                const double dy = rj * std::sin(aj) - yi;
+                if (dx * dx + dy * dy <= eps2)
+                {
+                    ++neighbors;
+                }
+            }
+            if (neighbors < noise_min_neighbors_)
+            {
+                keep[i] = 0;
+                ++stats.noise_rejected;
+            }
+        }
+    }
 
     bool have_prev = false;
     ScanPoint prev{};
     int prev_index = -1000;
 
     auto flush = [&]() {
-        if (static_cast<int>(current.size()) >= min_cluster_points_)
+        const int required_points =
+            cluster_merge_enable_ ? cluster_merge_min_fragment_points_ : min_cluster_points_;
+        if (static_cast<int>(current.size()) >= required_points)
         {
             clusters.push_back(current);
         }
         current.clear();
     };
 
-    for (std::size_t i = 0; i < scan.ranges.size(); ++i)
+    double time_increment = static_cast<double>(scan.time_increment);
+    if (time_increment <= 0.0 && beam_count > 1 && scan.scan_time > 0.0)
     {
-        const double r = scan.ranges[i];
-        if (!std::isfinite(r) || r < scan.range_min || r >= max_range_)
+        time_increment = static_cast<double>(scan.scan_time) /
+            static_cast<double>(beam_count - 1);
+    }
+    for (std::size_t i = 0; i < beam_count; ++i)
+    {
+        const double r = ranges[i];
+        if (!std::isfinite(r) || r < scan.range_min || r >= max_range_ || keep[i] == 0)
         {
             continue;  // invalid beam breaks contiguity (handled by index gap below)
         }
+        ++stats.valid_beams;
         const double ang = scan.angle_min + static_cast<double>(i) * scan.angle_increment;
         const double lx = r * std::cos(ang);
         const double ly = r * std::sin(ang);
+        const double dt = motion.enabled ? static_cast<double>(i) * time_increment : 0.0;
+        const double delta_yaw = motion.yaw_rate * dt;
+        const double cdelta = std::cos(delta_yaw);
+        const double sdelta = std::sin(delta_yaw);
+        // Transform a point measured at t_i back into the laser pose at the first ray. Body-frame
+        // translation is optional because yaw-rate deskew is the dominant, better-observed term.
+        const double compensated_x =
+            cdelta * lx - sdelta * ly + motion.linear_x * dt;
+        const double compensated_y =
+            sdelta * lx + cdelta * ly + motion.linear_y * dt;
         ScanPoint pt;
-        pt.x = tx + cyaw * lx - syaw * ly;
-        pt.y = ty + syaw * lx + cyaw * ly;
+        pt.x = tx + cyaw * compensated_x - syaw * compensated_y;
+        pt.y = ty + syaw * compensated_x + cyaw * compensated_y;
         pt.range = r;
 
         bool same_cluster = false;
@@ -502,6 +748,72 @@ OpponentDetectorNode::clusterScan(const sensor_msgs::msg::LaserScan &scan, doubl
         have_prev = true;
     }
     flush();
+    stats.clusters_before_merge = clusters.size();
+    return mergeClusters(std::move(clusters), stats);
+}
+
+std::vector<std::vector<OpponentDetectorNode::ScanPoint>>
+OpponentDetectorNode::mergeClusters(
+    std::vector<std::vector<ScanPoint>> clusters, ScanProcessingStats &stats) const
+{
+    if (cluster_merge_enable_ && clusters.size() > 1)
+    {
+        const auto bounds = [](const std::vector<ScanPoint> &cluster) {
+            std::array<double, 4> result{
+                cluster.front().x, cluster.front().x, cluster.front().y, cluster.front().y};
+            for (const auto &point : cluster)
+            {
+                result[0] = std::min(result[0], point.x);
+                result[1] = std::max(result[1], point.x);
+                result[2] = std::min(result[2], point.y);
+                result[3] = std::max(result[3], point.y);
+            }
+            return result;
+        };
+        bool changed = true;
+        while (changed)
+        {
+            changed = false;
+            for (std::size_t i = 0; i < clusters.size() && !changed; ++i)
+            {
+                const auto a = bounds(clusters[i]);
+                for (std::size_t j = i + 1; j < clusters.size(); ++j)
+                {
+                    const auto b = bounds(clusters[j]);
+                    const double gap_x =
+                        std::max({0.0, a[0] - b[1], b[0] - a[1]});
+                    const double gap_y =
+                        std::max({0.0, a[2] - b[3], b[2] - a[3]});
+                    if (std::hypot(gap_x, gap_y) > cluster_merge_distance_)
+                    {
+                        continue;
+                    }
+                    const double merged_min_x = std::min(a[0], b[0]);
+                    const double merged_max_x = std::max(a[1], b[1]);
+                    const double merged_min_y = std::min(a[2], b[2]);
+                    const double merged_max_y = std::max(a[3], b[3]);
+                    if (std::hypot(merged_max_x - merged_min_x,
+                                   merged_max_y - merged_min_y) > max_obs_size_)
+                    {
+                        continue;
+                    }
+                    clusters[i].insert(
+                        clusters[i].end(), clusters[j].begin(), clusters[j].end());
+                    clusters.erase(clusters.begin() + static_cast<std::ptrdiff_t>(j));
+                    changed = true;
+                    break;
+                }
+            }
+        }
+    }
+    clusters.erase(
+        std::remove_if(
+            clusters.begin(), clusters.end(),
+            [this](const auto &cluster) {
+                return static_cast<int>(cluster.size()) < min_cluster_points_;
+            }),
+        clusters.end());
+    stats.clusters_after_merge = clusters.size();
     return clusters;
 }
 
@@ -589,7 +901,10 @@ void OpponentDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
     }
 
     const double stamp = stampToSec(msg->header.stamp);
-    const auto clusters = clusterScan(*msg, tx, ty, yaw);
+    const DeskewMotion deskew_motion = selectDeskewMotion(stamp);
+    ScanProcessingStats scan_stats;
+    const auto clusters =
+        clusterScan(*msg, tx, ty, yaw, deskew_motion, scan_stats);
 
     std::vector<Detection> detections;
     f110_msgs::msg::ObstacleArray raw_array;
@@ -620,6 +935,7 @@ void OpponentDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
         const double size = std::hypot(maxx - minx, maxy - miny);
         if (size > max_obs_size_)
         {
+            ++scan_stats.clusters_size_rejected;
             continue;  // too big to be an F1TENTH car
         }
 
@@ -631,6 +947,7 @@ void OpponentDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
         const auto cr = converter_->convert(ci);
         if (!cr.valid)
         {
+            ++scan_stats.clusters_projection_rejected;
             continue;
         }
         const FrenetPoint fp{cr.s, cr.d};
@@ -655,6 +972,7 @@ void OpponentDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
         const double right_bound = (dr > 0.05 ? dr : fallback) - boundaries_inflation_;
         if (fp.d > left_bound || fp.d < -right_bound)
         {
+            ++scan_stats.clusters_corridor_rejected;
             continue;
         }
 
@@ -672,6 +990,7 @@ void OpponentDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
             const double ratio = static_cast<double>(occ) / static_cast<double>(cluster.size());
             if (ratio >= map_point_reject_ratio_)
             {
+                ++scan_stats.clusters_map_rejected;
                 continue;
             }
         }
@@ -682,12 +1001,40 @@ void OpponentDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
         det.size = size;
         det.x = cx;
         det.y = cy;
+        det.x_min = minx;
+        det.x_max = maxx;
+        det.y_min = miny;
+        det.y_max = maxy;
+        const double mean_range = std::accumulate(
+            cluster.begin(), cluster.end(), 0.0,
+            [](double sum, const ScanPoint &point) { return sum + point.range; }) /
+            static_cast<double>(cluster.size());
+        const double range_ratio = max_range_ > 1e-6 ?
+            std::clamp(mean_range / max_range_, 0.0, 1.0) : 0.0;
+        const double sparse_ratio = std::clamp(
+            (static_cast<double>(meas_reference_points_) -
+             static_cast<double>(cluster.size())) /
+                static_cast<double>(meas_reference_points_),
+            0.0, 1.0);
+        det.variance_scale =
+            1.0 +
+            meas_range_var_scale_ * range_ratio * range_ratio +
+            meas_sparse_var_scale_ * sparse_ratio +
+            meas_yaw_rate_var_scale_ * std::abs(deskew_motion.yaw_rate);
         detections.push_back(det);
 
         if (publish_raw_)
         {
             f110_msgs::msg::Obstacle ob;
             ob.id = raw_id++;
+            ob.has_cartesian = true;
+            ob.x_center = cx;
+            ob.y_center = cy;
+            ob.radius = 0.5 * size;
+            ob.x_min = minx;
+            ob.x_max = maxx;
+            ob.y_min = miny;
+            ob.y_max = maxy;
             ob.s_center = fp.s;
             ob.d_center = fp.d;
             ob.s_start = fp.s - size / 2.0;
@@ -708,11 +1055,27 @@ void OpponentDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
 
     // ---- tracking ----
     tracker_.update(detections, stamp);
+    const auto &tracker_stats = tracker_.lastStats();
+    RCLCPP_INFO_THROTTLE(
+        this->get_logger(), *this->get_clock(), 1000,
+        "DIAG perception: beams=%zu noise_drop=%zu clusters=%zu->%zu detections=%zu "
+        "reject(size=%zu clcs=%zu corridor=%zu map=%zu) deskew=%s yaw_rate=%.3f "
+        "tracks=%zu assoc(match=%d spawn=%d retire=%d euclid_reject=%d maha_reject=%d)",
+        scan_stats.valid_beams, scan_stats.noise_rejected,
+        scan_stats.clusters_before_merge, scan_stats.clusters_after_merge,
+        detections.size(), scan_stats.clusters_size_rejected,
+        scan_stats.clusters_projection_rejected, scan_stats.clusters_corridor_rejected,
+        scan_stats.clusters_map_rejected, deskew_motion.source, deskew_motion.yaw_rate,
+        tracker_.tracks().size(), tracker_stats.matched, tracker_stats.spawned,
+        tracker_stats.retired, tracker_stats.euclidean_rejected,
+        tracker_stats.mahalanobis_rejected);
 
     // ---- publish tracked obstacles ----
     f110_msgs::msg::ObstacleArray obs_array;
     obs_array.header = msg->header;
     obs_array.header.frame_id = map_frame_;
+    f110_msgs::msg::ObstacleArray static_array;
+    static_array.header = obs_array.header;
     for (const auto &t : tracker_.tracks())
     {
         if (t.hits < tracker_params_.min_hits_confirm)
@@ -721,6 +1084,19 @@ void OpponentDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
         }
         f110_msgs::msg::Obstacle ob;
         ob.id = t.id;
+        ob.has_cartesian = true;
+        ob.x_center = t.x_map;
+        ob.y_center = t.y_map;
+        ob.radius = 0.5 * t.size;
+        ob.x_min = t.x_min_map;
+        ob.x_max = t.x_max_map;
+        ob.y_min = t.y_min_map;
+        ob.y_max = t.y_max_map;
+        // Cartesian covariance is approximated from the Frenet covariance. A rotated covariance
+        // would require the local CLCS tangent; the conservative max keeps this frame contract
+        // useful without understating uncertainty.
+        ob.x_var = std::max(t.P(0, 0), t.P(2, 2));
+        ob.y_var = ob.x_var;
         ob.s_center = t.s();
         ob.d_center = t.d();
         ob.s_start = t.s() - t.size / 2.0;
@@ -738,8 +1114,13 @@ void OpponentDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
         ob.is_visible = t.is_visible;
         ob.is_actually_a_gap = false;
         obs_array.obstacles.push_back(ob);
+        if (ob.is_static)
+        {
+            static_array.obstacles.push_back(ob);
+        }
     }
     obstacles_pub_->publish(obs_array);
+    static_obstacles_pub_->publish(static_array);
 
     // ---- opponent -> projected Frenet trajectory ----
     const int opp = tracker_.opponentIndex(ego_s_);

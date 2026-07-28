@@ -16,11 +16,11 @@ find_package(sensor_msgs REQUIRED)
 find_package(ackermann_msgs REQUIRED)
 
 add_executable(lap_referee src/lap_referee_node.cpp)
-ament_target_dependencies(lap_referee
-  rclcpp
-  nav_msgs
-  sensor_msgs
-  ackermann_msgs
+target_link_libraries(lap_referee
+  rclcpp::rclcpp
+  ${nav_msgs_TARGETS}
+  ${sensor_msgs_TARGETS}
+  ${ackermann_msgs_TARGETS}
 )
 
 install(TARGETS

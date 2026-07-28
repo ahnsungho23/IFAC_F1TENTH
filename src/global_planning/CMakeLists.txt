@@ -25,29 +25,29 @@ include_directories(include)
 add_subdirectory(vendor/commonroad_clcs)
 
 add_library(${PROJECT_NAME}_rw src/readwrite_global_waypoints.cpp)
-ament_target_dependencies(${PROJECT_NAME}_rw
-  std_msgs
-  geometry_msgs
-  visualization_msgs
-  f110_msgs
+target_link_libraries(${PROJECT_NAME}_rw PUBLIC
+  ${std_msgs_TARGETS}
+  ${geometry_msgs_TARGETS}
+  ${visualization_msgs_TARGETS}
+  ${f110_msgs_TARGETS}
+  nlohmann_json::nlohmann_json
 )
-target_link_libraries(${PROJECT_NAME}_rw nlohmann_json::nlohmann_json)
 
 add_executable(global_planning_node src/global_planning_node.cpp)
-ament_target_dependencies(global_planning_node
-  rclcpp
-  nav_msgs
+target_link_libraries(global_planning_node PUBLIC
+  ${PROJECT_NAME}_rw
+  rclcpp::rclcpp
+  ${nav_msgs_TARGETS}
 )
-target_link_libraries(global_planning_node ${PROJECT_NAME}_rw)
 
 add_executable(global_trajectory_publisher_node src/global_trajectory_publisher_node.cpp)
-ament_target_dependencies(global_trajectory_publisher_node
-  rclcpp
-  std_msgs
-  visualization_msgs
-  f110_msgs
+target_link_libraries(global_trajectory_publisher_node PUBLIC
+  ${PROJECT_NAME}_rw
+  rclcpp::rclcpp
+  ${std_msgs_TARGETS}
+  ${visualization_msgs_TARGETS}
+  ${f110_msgs_TARGETS}
 )
-target_link_libraries(global_trajectory_publisher_node ${PROJECT_NAME}_rw)
 
 add_library(${PROJECT_NAME}_frenet_conversion src/clcs_frenet_converter.cpp)
 target_include_directories(${PROJECT_NAME}_frenet_conversion
@@ -61,14 +61,14 @@ target_link_libraries(${PROJECT_NAME}_frenet_conversion
 )
 
 add_executable(frenet_odom_node src/frenet_odom_node.cpp)
-ament_target_dependencies(frenet_odom_node
-  rclcpp
-  std_msgs
-  nav_msgs
-  geometry_msgs
-  f110_msgs
+target_link_libraries(frenet_odom_node PUBLIC
+  ${PROJECT_NAME}_frenet_conversion
+  rclcpp::rclcpp
+  ${std_msgs_TARGETS}
+  ${nav_msgs_TARGETS}
+  ${geometry_msgs_TARGETS}
+  ${f110_msgs_TARGETS}
 )
-target_link_libraries(frenet_odom_node ${PROJECT_NAME}_frenet_conversion)
 
 install(TARGETS
   global_planning_node

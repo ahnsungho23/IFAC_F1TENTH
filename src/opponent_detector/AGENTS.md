@@ -5,8 +5,9 @@ root `CLAUDE.md` / `AGENTS.md`.
 
 ## Purpose
 
-A C++ ROS 2 node that detects and tracks a **dynamic opponent from the 2D LiDAR scan only**
-(no camera), for the overtaking pipeline. It adapts the opponent-detection idea of the paper
+A C++ ROS 2 node that uses **2D LiDAR as the primary obstacle measurement** and optional IMU/odom
+motion compensation to detect and track a dynamic opponent (no camera), for the overtaking pipeline.
+It adapts the opponent-detection idea of the paper
 `2603.27207v1.pdf` (Cihlar et al., "Autonomous overtaking trajectory optimization…"): that paper
 uses a depth camera + YOLO to pick which LiDAR cluster is the opponent. We have no camera, so the
 camera's cluster-selection role is replaced by **relative velocity in the raceline (Frenet) frame** —
@@ -15,7 +16,7 @@ static structure sits still in that frame, the opponent moves. Output is ForzaET
 
 ## Rules
 
-- Runtime node is C++ (ROS 2 Humble). Do not add a Python runtime node here. The `test/` script is
+- Runtime node is C++ (ROS 2 Jazzy). Do not add a Python runtime node here. The `test/` script is
   a manual integration harness only (allowed as a test helper), not a runtime dependency.
 - Frenet projection uses **`global_planning`'s CLCS converter** (`global_planning::ClcsFrenetConverter`),
   linked as an exported library — `opponent_detector` depends on `global_planning` (build it first). Do
@@ -23,18 +24,14 @@ static structure sits still in that frame, the opponent moves. Output is ForzaET
   `FrenetProjector` remains ONLY for track-boundary (`d_left/d_right`) lookup and s-wrap, which CLCS
   does not provide; don't use it for projection. If `global_planning`'s exported lib changes, keep the
   `find_package(global_planning)` + link in `CMakeLists.txt` working.
-<<<<<<< HEAD
 - Prefer existing `f110_msgs`: publish `ObstacleArray` (`/perception/obstacles`), a static-only
   Cartesian `ObstacleArray` (`/perception/static_obstacles/cartesian`), and `ProjOppTraj`
   (`/proj_opponent_trajectory`). Populate each `Obstacle` with Cartesian `x_center/y_center`,
   Frenet `s_center/d_center`, and a conservative enclosing-circle `radius` equal to half the
   Cartesian AABB diagonal. Set `has_cartesian=true`; do NOT invent a new message type.
-=======
-- Prefer existing `f110_msgs`: publish `ObstacleArray` (`/perception/obstacles`) and `ProjOppTraj`
-  (`/proj_opponent_trajectory`). Do NOT invent a new message type for detections.
->>>>>>> f9713510246c01603e88db1d5002ca178b07a970
 - Inputs: `/scan` (ego LiDAR), `/global_waypoints` (latched, from `new_map_con`), `/map` (latched,
-  from `monte_carlo_localization`), ego pose odom (`/pf/pose/odom`, sim `/ego_racecar/odom`). The
+  from `monte_carlo_localization`), ego pose odom (`/pf/pose/odom`, sim `/ego_racecar/odom`), and
+  optional `/sensors/imu/raw` for scan deskew. The
   laser→map transform uses TF2 with the scan's own `frame_id`, so `laser` vs `ego_racecar/laser`
   needs no manual switch.
 - All tunables live in `config/opponent_detector.yaml`, declared with safe defaults in the node.
@@ -47,7 +44,6 @@ static structure sits still in that frame, the opponent moves. Output is ForzaET
   **velocity relative to the static-field reference** (mean of tracks below `static_ref_gate`) — same
   velocity as the walls → static, deviating → dynamic. Do NOT reintroduce an absolute-zero velocity
   test, and keep `max_obs_size` above the 0.5×0.5 diagonal (0.707 m) so those obstacles are detected.
-<<<<<<< HEAD
 - Perception must repeatedly publish confirmed static detections. Its `ttl_static` only bridges
   brief measurement dropouts; long-term static-obstacle memory and avoidance decisions belong to
   the downstream local planner. Static detections are published as map-frame Cartesian centers
@@ -59,8 +55,6 @@ static structure sits still in that frame, the opponent moves. Output is ForzaET
 - Tracker association keeps `assoc_gate` as a hard geometric bound, then optionally applies the
   covariance-aware Mahalanobis gate. Detection covariance must remain parameterized and may grow
   with range, sparsity, and yaw rate.
-=======
->>>>>>> f9713510246c01603e88db1d5002ca178b07a970
 - **Overtake planner is merged into this node** (not a separate package): detection AND the committed
   spline overtaking line live in `opponent_detector_node`. It publishes `f110_msgs/OTWpntArray` on
   `/overtake_waypoints`; do NOT invent a new message. Keep the downstream contract intact —

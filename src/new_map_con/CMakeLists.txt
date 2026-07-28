@@ -23,34 +23,34 @@ find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 
 add_executable(map_controller src/map_controller_node.cpp)
-ament_target_dependencies(map_controller
-  ament_index_cpp
-  rclcpp
-  std_msgs
-  geometry_msgs
-  nav_msgs
-  sensor_msgs
-  visualization_msgs
-  ackermann_msgs
-  f110_msgs
+target_link_libraries(map_controller
+  ament_index_cpp::ament_index_cpp
+  rclcpp::rclcpp
+  ${std_msgs_TARGETS}
+  ${geometry_msgs_TARGETS}
+  ${nav_msgs_TARGETS}
+  ${sensor_msgs_TARGETS}
+  ${visualization_msgs_TARGETS}
+  ${ackermann_msgs_TARGETS}
+  ${f110_msgs_TARGETS}
 )
 
 add_executable(opponent_simulator src/opponent_simulator_node.cpp)
-ament_target_dependencies(opponent_simulator
-  rclcpp
-  nav_msgs
-  geometry_msgs
-  f110_msgs
-  tf2
-  tf2_ros
+target_link_libraries(opponent_simulator
+  rclcpp::rclcpp
+  ${nav_msgs_TARGETS}
+  ${geometry_msgs_TARGETS}
+  ${f110_msgs_TARGETS}
+  tf2::tf2
+  tf2_ros::tf2_ros
 )
 
 add_executable(opponent_drive_controller src/opponent_drive_controller.cpp)
-ament_target_dependencies(opponent_drive_controller
-  rclcpp
-  nav_msgs
-  ackermann_msgs
-  f110_msgs
+target_link_libraries(opponent_drive_controller
+  rclcpp::rclcpp
+  ${nav_msgs_TARGETS}
+  ${ackermann_msgs_TARGETS}
+  ${f110_msgs_TARGETS}
 )
 
 install(TARGETS

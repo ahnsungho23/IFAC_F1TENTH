@@ -36,7 +36,7 @@
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 ros2 launch wpnt_publisher wpnt_publisher.launch.py
 ```

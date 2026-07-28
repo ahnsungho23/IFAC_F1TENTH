@@ -14,10 +14,10 @@
   <depend>geometry_msgs</depend>
   <depend>visualization_msgs</depend>
   <depend>f110_msgs</depend>
-  <depend>nlohmann_json</depend>
+  <depend>nlohmann-json-dev</depend>
   <build_depend>boost</build_depend>
   <build_depend>eigen</build_depend>
-  <build_depend>openmp</build_depend>
+  <!-- OpenMP comes from the compiler toolchain (GCC); no rosdep key needed -->
   <build_depend>spdlog</build_depend>
 
   <test_depend>ament_cmake_gtest</test_depend>

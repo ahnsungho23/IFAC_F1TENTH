@@ -190,6 +190,21 @@ def generate_launch_description():
         ]),
         'publish_odom_base_tf': PythonExpression([
             "'false' if '", LaunchConfiguration('mod'), "' == 'sim' else 'true'"
+        ]),
+
+        # Motion/smoothing overrides for gym simulation only (real/bag keep YAML values).
+        # gym scans of the synthetic corridor map are near-symmetric; the large real-car
+        # dispersion lets the particle cloud flip 180 deg during turns, and heavy pose
+        # smoothing lags yaw. Verified in sim: with these values MCL holds <0.2 m error
+        # over full laps, with YAML values it diverges at the first corner.
+        'motion_dispersion_x': PythonExpression([
+            "0.05 if '", LaunchConfiguration('mod'), "' == 'sim' else 0.15"
+        ]),
+        'motion_dispersion_theta': PythonExpression([
+            "0.04 if '", LaunchConfiguration('mod'), "' == 'sim' else 0.25"
+        ]),
+        'smoothing_alpha': PythonExpression([
+            "0.5 if '", LaunchConfiguration('mod'), "' == 'sim' else 0.05"
         ])
     }
     

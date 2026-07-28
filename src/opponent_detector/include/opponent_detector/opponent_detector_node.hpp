@@ -1,14 +1,16 @@
 // ================================================================================================
-// OPPONENT DETECTOR NODE - LiDAR-only dynamic opponent detection & tracking (Frenet output)
+// OPPONENT DETECTOR NODE - LiDAR obstacle detection & tracking with optional motion compensation
 // ================================================================================================
-// Pipeline: /scan -> map-frame points (TF2) -> adaptive-breakpoint clustering -> box fit ->
-// map + track-boundary static filter -> Frenet projection -> NN association + CV Kalman tracking ->
-// velocity-based static/dynamic classification -> publish f110_msgs ObstacleArray + ProjOppTraj.
+// Pipeline: /scan + IMU/odom deskew -> adaptive-breakpoint clustering + fragment merge ->
+// map-frame points (TF2) -> map + track-boundary filter -> Frenet projection ->
+// covariance-aware association + CV Kalman tracking -> velocity-based static/dynamic
+// classification -> publish f110_msgs ObstacleArray + ProjOppTraj.
 // ================================================================================================
 
 #ifndef OPPONENT_DETECTOR__OPPONENT_DETECTOR_NODE_HPP_
 #define OPPONENT_DETECTOR__OPPONENT_DETECTOR_NODE_HPP_
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -18,11 +20,12 @@
 #include <nav_msgs/msg/occupancy_grid.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <nav_msgs/msg/path.hpp>
+#include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/laser_scan.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 
-#include <tf2_ros/buffer.h>
-#include <tf2_ros/transform_listener.h>
+#include <tf2_ros/buffer.hpp>
+#include <tf2_ros/transform_listener.hpp>
 
 #include <f110_msgs/msg/obstacle_array.hpp>
 #include <f110_msgs/msg/proj_opp_traj.hpp>
@@ -53,17 +56,44 @@ class OpponentDetectorNode : public rclcpp::Node
         double range;
     };
 
+    struct DeskewMotion
+    {
+        bool enabled{false};
+        double yaw_rate{0.0};
+        double linear_x{0.0};
+        double linear_y{0.0};
+        const char *source{"off"};
+    };
+
+    struct ScanProcessingStats
+    {
+        std::size_t valid_beams{0};
+        std::size_t noise_rejected{0};
+        std::size_t clusters_before_merge{0};
+        std::size_t clusters_after_merge{0};
+        std::size_t clusters_size_rejected{0};
+        std::size_t clusters_projection_rejected{0};
+        std::size_t clusters_corridor_rejected{0};
+        std::size_t clusters_map_rejected{0};
+    };
+
     // ---- callbacks ----
     void scanCallback(const sensor_msgs::msg::LaserScan::SharedPtr msg);
     void globalWpntsCallback(const f110_msgs::msg::WpntArray::SharedPtr msg);
     void mapCallback(const nav_msgs::msg::OccupancyGrid::SharedPtr msg);
     void egoOdomCallback(const nav_msgs::msg::Odometry::SharedPtr msg);
+    void imuCallback(const sensor_msgs::msg::Imu::SharedPtr msg);
 
     // ---- pipeline helpers ----
     bool lookupScanToMap(const std_msgs::msg::Header &scan_header, double &tx, double &ty,
                          double &yaw);
     std::vector<std::vector<ScanPoint>> clusterScan(const sensor_msgs::msg::LaserScan &scan,
-                                                    double tx, double ty, double yaw) const;
+                                                    double tx, double ty, double yaw,
+                                                    const DeskewMotion &motion,
+                                                    ScanProcessingStats &stats) const;
+    std::vector<std::vector<ScanPoint>> mergeClusters(
+        std::vector<std::vector<ScanPoint>> clusters, ScanProcessingStats &stats) const;
+    DeskewMotion selectDeskewMotion(double scan_stamp) const;
     bool occupiedInMap(double x, double y) const;
     bool pathPointCollides(double x, double y) const;  // occupiedInMap + ot_map_clearance ring
 
@@ -75,7 +105,9 @@ class OpponentDetectorNode : public rclcpp::Node
     std::string global_wpnts_topic_;
     std::string map_topic_;
     std::string ego_odom_topic_;
+    std::string imu_topic_;
     std::string obstacles_topic_;
+    std::string static_obstacles_topic_;
     std::string raw_obstacles_topic_;
     std::string proj_opp_topic_;
     std::string markers_topic_;
@@ -91,6 +123,28 @@ class OpponentDetectorNode : public rclcpp::Node
     double min_2_points_dist_;
     int min_cluster_points_;
     double max_obs_size_;
+    // scan motion compensation
+    bool deskew_enable_;
+    std::string deskew_source_;
+    bool deskew_translation_enable_;
+    double deskew_sensor_timeout_;
+    double imu_angular_scale_;
+    // optional raw scan noise filter
+    bool noise_filter_enable_;
+    double noise_eps_;
+    double noise_eps_scale_;
+    int noise_min_neighbors_;
+    int noise_search_halfwidth_;
+    int scan_median_window_;
+    // fragmented-cluster merge
+    bool cluster_merge_enable_;
+    double cluster_merge_distance_;
+    int cluster_merge_min_fragment_points_;
+    // adaptive measurement covariance
+    double meas_range_var_scale_;
+    double meas_sparse_var_scale_;
+    double meas_yaw_rate_var_scale_;
+    int meas_reference_points_;
     // filtering
     double max_viewing_distance_;
     double view_behind_distance_;
@@ -128,6 +182,12 @@ class OpponentDetectorNode : public rclcpp::Node
     double ego_s_{-1.0};
     double ego_d_{0.0};
     double ego_v_{0.0};
+    double odom_linear_x_{0.0};
+    double odom_linear_y_{0.0};
+    double odom_yaw_rate_{0.0};
+    double odom_motion_stamp_{-1.0};
+    double imu_yaw_rate_{0.0};
+    double imu_stamp_{-1.0};
     // stamp (odom header, sec) of the last SUCCESSFUL ego CLCS projection. A failed projection
     // (ego outside the domain, e.g. pushed off-track by a crash) must not silently reuse the
     // stale (s,d) forever — the planner gets ego.s = -1 once this is older than ego_pose_grace_s.
@@ -141,8 +201,10 @@ class OpponentDetectorNode : public rclcpp::Node
     rclcpp::Subscription<f110_msgs::msg::WpntArray>::SharedPtr global_wpnts_sub_;
     rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr map_sub_;
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr ego_odom_sub_;
+    rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
 
     rclcpp::Publisher<f110_msgs::msg::ObstacleArray>::SharedPtr obstacles_pub_;
+    rclcpp::Publisher<f110_msgs::msg::ObstacleArray>::SharedPtr static_obstacles_pub_;
     rclcpp::Publisher<f110_msgs::msg::ObstacleArray>::SharedPtr raw_obstacles_pub_;
     rclcpp::Publisher<f110_msgs::msg::ProjOppTraj>::SharedPtr proj_opp_pub_;
     rclcpp::Publisher<f110_msgs::msg::OTWpntArray>::SharedPtr ot_pub_;

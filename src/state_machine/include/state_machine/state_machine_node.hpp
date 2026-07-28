@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <deque>
 #include <optional>
 #include <string>
 
@@ -20,22 +21,18 @@ public:
 private:
   std::optional<uint8_t> parse_state(const std::string & state_name) const;
   bool is_fresh(const rclcpp::Time & stamp, double timeout_sec) const;
+  bool local_path_confirmed(
+    const std::deque<bool> & history,
+    const f110_msgs::msg::OTWpntArray::SharedPtr msg) const;
   bool has_fresh_global() const;
   bool has_fresh_frenet() const;
-  bool has_fresh_avoid_wpnts() const;
+  bool has_avoid_wpnts() const;
   bool has_fresh_overtake_wpnts() const;
 
   // --- Transition gates ---
-  //정적 장애물 회피(avoid) wpnt가 required_count회 연속 수신되었을 때 STATE_AVOID 허용.
-  bool can_enter_avoid(
-    std::size_t received_count,
-    int64_t required_count,
-    const f110_msgs::msg::OTWpntArray::SharedPtr msg) const;
-  //동적 장애물 회피(overtake) wpnt가 required_count회 연속 수신되었을 때 STATE_OVERTAKE 허용.
-  bool can_enter_overtake(
-    std::size_t received_count,
-    int64_t required_count,
-    const f110_msgs::msg::OTWpntArray::SharedPtr msg) const;
+  //최근 N회 중 M회 이상 non-empty 경로가 수신되면 상태 진입 허용.
+  bool can_enter_avoid() const;
+  bool can_enter_overtake() const;
 
   //local path(avoid/overtake)에서 global path로 합류(복귀)해도 되는지 판단.
   //전제: local path는 ego에서 시작해 merge 지점에서 끝나는 세그먼트(tail은 d->0 수렴).
@@ -63,10 +60,9 @@ private:
   std::string state_topic_;
   std::string frame_id_;
   std::string default_state_name_;
-  double avoid_stale_timeout_sec_{0.5};
   double overtake_stale_timeout_sec_{0.5};
-  int64_t avoid_confirm_count_{2};
-  int64_t overtake_confirm_count_{2};
+  int64_t local_path_confirmation_window_size_{5};
+  int64_t local_path_confirmation_min_hits_{3};
   double global_stale_timeout_sec_{2.0};
   double frenet_stale_timeout_sec_{0.5};
 
@@ -86,7 +82,6 @@ private:
   bool has_overtake_wpnts_{false};
   rclcpp::Time last_frenet_time_{0, 0, RCL_ROS_TIME};
   rclcpp::Time last_global_time_{0, 0, RCL_ROS_TIME};
-  rclcpp::Time last_avoid_time_{0, 0, RCL_ROS_TIME};
   rclcpp::Time last_overtake_time_{0, 0, RCL_ROS_TIME};
   std::optional<uint8_t> last_published_state_;
 
@@ -95,8 +90,8 @@ private:
   f110_msgs::msg::WpntArray::SharedPtr global_wpnts_msg_;      //global 경로
   f110_msgs::msg::OTWpntArray::SharedPtr avoid_wpnts_msg_;      //정적 장애물 회피 wpnt
   f110_msgs::msg::OTWpntArray::SharedPtr overtake_wpnts_msg_;   //동적 장애물 회피 wpnt
-  std::size_t avoid_nonempty_count_{0};                         //연속 non-empty avoid wpnt 수신 횟수
-  std::size_t overtake_nonempty_count_{0};                      //연속 non-empty overtake wpnt 수신 횟수
+  std::deque<bool> avoid_path_history_;                         //최근 avoid 경로 non-empty 여부
+  std::deque<bool> overtake_path_history_;                      //최근 overtake 경로 non-empty 여부
 
   // FSM 현재 상태 (committed)
   uint8_t committed_state_{f110_msgs::msg::StateMachine::STATE_GLOBAL};

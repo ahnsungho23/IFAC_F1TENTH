@@ -7,7 +7,12 @@ from std_msgs.msg import Float64, Float32, ColorRGBA
 from visualization_msgs.msg import Marker
 from builtin_interfaces.msg import Duration
 from std_srvs.srv import Empty
-from rviz_2d_overlay_msgs.msg import OverlayText
+
+# 선택적 import: rviz_2d_overlay_msgs는 Jazzy 바이너리로 배포되지 않음 (없으면 HUD 발행 생략)
+try:
+    from rviz_2d_overlay_msgs.msg import OverlayText
+except Exception:
+    OverlayText = None
 
 # 선택적 import (파라미터에 따라 사용)
 try:
@@ -80,7 +85,11 @@ class FrenetLapTimer(Node):
         self.pub_lap = self.create_publisher(Float64, 'lap_time', 10)
         self.pub_best = self.create_publisher(Float64, 'best_lap_time', 10)
         self.pub_marker = self.create_publisher(Marker, 'lap_time_text', 10) if self.show_rviz_text else None
-        self.pub_overlay = self.create_publisher(OverlayText, 'lap_hud', 10)
+        if OverlayText is not None:
+            self.pub_overlay = self.create_publisher(OverlayText, 'lap_hud', 10)
+        else:
+            self.pub_overlay = None
+            self.get_logger().warn('rviz_2d_overlay_msgs not found. lap_hud overlay disabled.')
 
         self.pub_speed = self.create_publisher(Float32, 'speed', 10)
         self.pub_steer = self.create_publisher(Float32, 'steer', 10)
@@ -181,6 +190,8 @@ class FrenetLapTimer(Node):
     # ---------- periodic HUD ----------
     def tick_hud(self):
         """랩이 끝나지 않아도 현재 speed/steer와 마지막/베스트 랩을 계속 HUD로 표시"""
+        if self.pub_overlay is None:
+            return
         hud = OverlayText()
         hud.action = getattr(OverlayText, "ACTION_ADD", 0)
 

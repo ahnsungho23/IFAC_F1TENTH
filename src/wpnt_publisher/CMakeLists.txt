@@ -13,7 +13,7 @@ find_package(nav_msgs REQUIRED)
 find_package(f110_msgs REQUIRED)
 
 add_executable(wpnt_publisher src/wpnt_publisher.cpp)
-ament_target_dependencies(wpnt_publisher rclcpp nav_msgs f110_msgs)
+target_link_libraries(wpnt_publisher rclcpp::rclcpp ${nav_msgs_TARGETS} ${f110_msgs_TARGETS})
 
 install(TARGETS wpnt_publisher
   DESTINATION lib/${PROJECT_NAME})
