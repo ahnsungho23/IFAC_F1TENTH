@@ -19,7 +19,7 @@ cd ~/slam_toolbox
 source /opt/ros/humble/setup.zsh
 source install/setup.zsh
 ros2 run nav2_map_server map_saver_cli \
-    -f /home/haejun/slam_toolbox/map
+    -f /home/sungho/slam_toolbox/map
 ```
     
 딴 맵을 로컬에서 젯슨으로 맵 전송

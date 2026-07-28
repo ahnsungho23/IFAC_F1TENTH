@@ -1,5 +1,5 @@
-map_yaml: /home/myungsub/2026_IFAC/src/monte_carlo_localization/maps/map.yaml
-output_dir: /home/myungsub/2026_IFAC/offline_trajectory_generator/output/map
+map_yaml: /home/sungho/2026_IFAC/src/monte_carlo_localization/maps/map.yaml
+output_dir: /home/sungho/2026_IFAC/offline_trajectory_generator/output/map
 optimizer: mincurv
 width_mode: hybrid
 show_centerline: true
