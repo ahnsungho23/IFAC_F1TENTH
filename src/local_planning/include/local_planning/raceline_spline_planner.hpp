@@ -41,6 +41,7 @@ struct RacelineSplineParameters
   std::vector<double> transition_distance_scales{1.0, 1.25, 1.50};
   double outside_line_transition_scale{1.35};
   double post_merge_lookahead_m{2.0};
+  double post_merge_min_time_sec{1.0};
   double minimum_target_offset_m{0.20};
   double maximum_target_offset_m{1.50};
   double maximum_lateral_slope{0.65};
@@ -103,6 +104,8 @@ public:
   bool ready() const;
   double trackLength() const;
   double forwardDistance(double from_s, double to_s) const;
+  f110_msgs::msg::WpntArray buildGlobalHandoffPath(
+    double ego_s, double state_tail_ratio, double speed_cap_mps) const;
 
   RacelineSplineResult plan(
     const EgoFrenetState & ego,

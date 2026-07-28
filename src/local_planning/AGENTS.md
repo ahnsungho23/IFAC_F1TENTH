@@ -27,6 +27,10 @@
   track-bound clearance before publishing.
 - Prefer a committed side while it remains feasible. Keep a validated commitment until its tail
   merges at `d=0`, even if perception drops the passed obstacle.
+- Append a speed-aware ordered global `d=0` tail after the spline merge. After geometric merge,
+  publish one rotated full global loop with ego at the start of the final state-machine tail ratio.
+  Continue that non-empty handoff path until `/state` has entered `STATE_AVOID` for the commitment
+  and subsequently confirms `STATE_GLOBAL`. Do not modify state-machine behavior for this handoff.
 - If neither side is safe, publish only a collision-checked gradual-stop prefix before the obstacle.
   Never publish an unvalidated avoidance path merely to keep `/avoid_waypoints` non-empty.
 - Recompute heading, curvature, velocity, and acceleration after applying `d(s)`.
@@ -39,6 +43,8 @@
   must set `has_cartesian=true` and provide `x_center`, `y_center`, and a positive `radius`.
 - Subscribe: `/car_state/frenet/odom` (`nav_msgs/msg/Odometry`), with `position.x=s` and
   `position.y=d`.
+- Subscribe: `/state` (`f110_msgs/msg/StateMachine`) for explicit AVOID-to-GLOBAL handoff
+  acknowledgement.
 - Publish: `/avoid_waypoints` (`f110_msgs/msg/OTWpntArray`) as an ego-to-merge segment with
   map-frame Cartesian `x_m/y_m` populated for every waypoint.
 - Publish debug: `/local_planning/path`, `/local_path`, `/local_planning/markers`.

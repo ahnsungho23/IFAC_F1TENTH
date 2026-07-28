@@ -21,8 +21,10 @@ local_planner_node:
     transition_distance_scales: [1.0, 1.25, 1.50]
     # 코너 바깥쪽 회피는 reference 구현처럼 전환 길이를 더 늘려 조향을 완만하게 합니다.
     outside_line_transition_scale: 1.35
-    # d=0 합류점 뒤 글로벌 점을 덧붙여 controller와 state machine이 tail을 안정적으로 확인합니다.
+    # d=0 합류점 뒤 글로벌 점을 덧붙여 controller와 state machine이 handoff를 완료할 시간을 줍니다.
+    # 실제 tail은 max(post_merge_lookahead_m, 계획 시 ego_speed * post_merge_min_time_sec)입니다.
     post_merge_lookahead_m: 2.0
+    post_merge_min_time_sec: 1.0
     minimum_target_offset_m: 0.20
     maximum_target_offset_m: 1.50
 
@@ -51,11 +53,18 @@ local_planner_node:
     obstacle_stale_timeout_sec: 0.75
     odometry_stale_timeout_sec: 0.50
 
-    # 설계된 spline tail에 도달하고 실제 ego d도 글로벌 라인에 들어온 뒤 commitment를 해제합니다.
+    # 설계된 spline merge 지점에 도달하고 실제 ego d도 글로벌 라인에 들어왔는지 확인합니다.
+    # 이 확인만으로 commitment를 해제하지 않고, /state가 AVOID를 거쳐 GLOBAL로 돌아올 때까지
+    # non-empty global tail을 계속 발행합니다.
     merge_lateral_tolerance_m: 0.15
-    # state_machine의 기본 enter_global_sec=0.5보다 긴 0.75초(20 Hz * 15회)를 유지합니다.
+    # planning_period_ms=25이므로 15회는 0.375초입니다.
     merge_confirm_cycles: 15
     planning_period_ms: 25
+    # state_machine 코드를 바꾸지 않고 기존 "배열 마지막 10%" 합류 게이트를 만족시킵니다.
+    # 기하 합류 후 전체 global loop를 회전해 ego를 마지막 10% 시작점에 놓고 GLOBAL 확인까지 발행합니다.
+    # state_handoff_tail_ratio는 state_machine의 enter_global_tail_ratio와 같게 유지합니다.
+    state_handoff_tail_ratio: 0.10
+    state_handoff_speed_cap_mps: 6.0
 
     # wpnt_publisher가 /avoid_waypoints를 /local_waypoints로 선택하므로 기본 중복 발행은 끕니다.
     publish_standalone_local: false
@@ -66,6 +75,7 @@ local_planner_node:
     # obstacle_detector Layer 2 output. It contains only confirmed static objects.
     obstacles_topic: "/static_obs"
     frenet_odom_topic: "/car_state/frenet/odom"
+    state_topic: "/state"
     ot_waypoints_topic: "/avoid_waypoints"
     local_waypoints_topic: "/local_waypoints"
     local_path_topic: "/local_planning/path"

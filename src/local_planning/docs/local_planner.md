@@ -70,7 +70,14 @@
 장애물 뒤에는 `post_apex_distances_m`의 세 점을 `d=0`으로 둡니다. 이 제어점 사이에 natural
 cubic spline `d(s)`를 맞춥니다. spline의 반대편 overshoot는 제어점의 최소·최대 `d`로 제한합니다.
 
-그다음 ego부터 merge 뒤 `post_merge_lookahead_m`까지의 글로벌 waypoint를 순서대로 복사합니다.
+그다음 ego부터 merge 뒤 global tail까지의 글로벌 waypoint를 순서대로 복사합니다. tail 길이는
+다음처럼 거리 하한과 계획 당시 속도 기준 시간 하한 중 큰 값입니다.
+
+```text
+tail_distance = max(post_merge_lookahead_m, ego_speed * post_merge_min_time_sec)
+```
+
+따라서 고속에서도 상태 전환이 끝나기 전에 열린 회피 경로의 끝점에 도달하지 않습니다.
 각 점은 다음 식으로만 이동합니다.
 
 ```text
@@ -99,10 +106,22 @@ y_local = y_global + d(s) * cos(psi_global)
 
 ### 3.6 commitment와 합류
 
-안전 경로가 선택되면 방향을 고정합니다. 장애물을 지난 뒤 perception에서 물체가 사라져도 spline
-tail까지 경로를 유지합니다. ego가 tail에 도달하고 `|ego d| <= merge_lateral_tolerance_m`을
-`merge_confirm_cycles` 동안 만족하면 commitment를 해제합니다. 기본 20 Hz에서 15회(0.75초)로
-설정하여 `state_machine`의 기본 `enter_global_sec=0.5`보다 오랫동안 non-empty tail을 유지합니다.
+안전 경로가 선택되면 방향을 고정합니다. 장애물을 지난 뒤 perception에서 물체가 사라져도
+검증된 spline과 뒤쪽 global tail을 유지합니다. ego가 실제 spline merge 지점에 도달하고
+`|ego d| <= merge_lateral_tolerance_m`을 `merge_confirm_cycles` 동안 만족하면 기하학적 합류가
+확인됩니다.
+
+기하학적 합류만으로 commitment를 해제하지는 않습니다. 합류가 확인되면 전체 global waypoint를
+원래 순서 그대로 한 번 포함하는 폐루프 handoff 경로로 교체합니다. 배열 시작점만 회전해 현재
+ego가 마지막 `state_handoff_tail_ratio` 구간의 첫 부분에 위치하도록 합니다. 따라서 기존
+state machine의 “배열 마지막 10%” 합류 판정을 수정하지 않아도 0.5초 확인 시간을 확보하며,
+컨트롤러에는 충분한 전방 global 경로가 계속 제공됩니다.
+
+현재 commitment에서 `/state`의 `STATE_AVOID`를 한 번 이상 확인한 뒤 `STATE_GLOBAL` 복귀가
+발행될 때까지 이 non-empty 폐루프를 계속 발행합니다. `STATE_GLOBAL` 확인 후에만 빈
+`/avoid_waypoints`를 발행합니다. 기본 `planning_period_ms=25`, `merge_confirm_cycles=15`의
+기하 확인 시간은 0.375초입니다. handoff 중 waypoint 속도는
+`state_handoff_speed_cap_mps` 이하로 제한합니다.
 
 ## 4. 토픽과 메시지
 
@@ -111,6 +130,7 @@ tail까지 경로를 유지합니다. ego가 tail에 도달하고 `|ego d| <= me
 | 구독 | `/global_waypoints` | `f110_msgs/msg/WpntArray` | 순서를 고정할 글로벌 Race Line |
 | 구독 | `/static_obs` | `f110_msgs/msg/ObstacleArray` | `obstacle_detector` Layer 2 정적 장애물 x/y/radius |
 | 구독 | `/car_state/frenet/odom` | `nav_msgs/msg/Odometry` | `x=s`, `y=d` ego 상태 |
+| 구독 | `/state` | `f110_msgs/msg/StateMachine` | AVOID 진입 및 GLOBAL handoff 완료 확인 |
 | 발행 | `/avoid_waypoints` | `f110_msgs/msg/OTWpntArray` | ego부터 글로벌 합류 뒤 lookahead까지의 회피 세그먼트 |
 | 발행 | `/local_planning/path` | `nav_msgs/msg/Path` | RViz용 현재 안전 경로 |
 | 발행 | `/local_path` | `nav_msgs/msg/Path` | 기존 시각화 호환 토픽 |
@@ -129,7 +149,7 @@ tail까지 경로를 유지합니다. ego가 tail에 도달하고 `|ego d| <= me
 - 차체/트랙: `vehicle_half_width_m`, `boundary_margin_m`, `fallback_track_half_width_m`
 - spline 제어점: `pre_apex_distances_m`, `post_apex_distances_m`
 - spline 길이: `transition_distance_scales`, `outside_line_transition_scale`
-- 합류 후 시야: `post_merge_lookahead_m`
+- 합류 후 시야: `post_merge_lookahead_m`, `post_merge_min_time_sec`
 - 목표 제한: `minimum_target_offset_m`, `maximum_target_offset_m`
 - 기하 제한: `maximum_lateral_slope`, `maximum_curvature_radpm`,
   `maximum_curvature_rate_radpm2`
@@ -142,7 +162,8 @@ tail까지 경로를 유지합니다. ego가 tail에 도달하고 `|ego d| <= me
 회피 경로의 속도 배율, 곡률 기반 속도 캡, 종방향 속도 재프로파일을 실질적으로
 비활성화한다. 경로 형상의 곡률·곡률 변화율 검증과 안전정지 속도 프로파일은 그대로 유지된다.
 - 입력 freshness: `obstacle_stale_timeout_sec`, `odometry_stale_timeout_sec`
-- 합류 확인: `merge_lateral_tolerance_m`, `merge_confirm_cycles`
+- 합류 확인: `merge_lateral_tolerance_m`, `merge_confirm_cycles`, `state_topic`,
+  `state_handoff_tail_ratio`, `state_handoff_speed_cap_mps`
 - 토픽과 프레임: `*_topic`, `frame_id`
 
 ## 6. 빌드와 테스트
