@@ -13,12 +13,90 @@ Usage:
 """
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, TimerAction
+from launch.actions import DeclareLaunchArgument, TimerAction, OpaqueFunction, LogInfo
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 import os
+
+
+# Ctrl+C teardown escalation window (SIGINT -> SIGTERM -> SIGKILL) for the launched processes.
+# The terminal sends every Ctrl+C to the whole foreground process group, so mashing it can wedge a
+# nav2 node mid-shutdown: rclcpp catches SIGINT/SIGTERM, and a second signal arriving during that
+# handler leaves the node stuck. launch ignores the repeated SIGINTs and keeps its own escalation
+# timers running, so capping them guarantees an *uncatchable* SIGKILL ~4 s later instead of the
+# default 5 + 5 = 10 s that reads as "the node won't die". Values are strings (launch substitutions).
+FAST_SHUTDOWN = {'sigterm_timeout': '2.0', 'sigkill_timeout': '2.0'}
+
+
+def _node_running_in_domain(target_name, settle_sec=1.5):
+    """Return True if a node named `target_name` is already visible in this ROS_DOMAIN_ID.
+
+    Stops a second mcl_launch from spawning a duplicate map_server: two nodes sharing the
+    fully-qualified name /particle_filter_map_server both publish /particle_filter_map_server/map
+    and their two lifecycle managers fight over configure/activate transitions, so RViz and the
+    particle filter see a map that flaps or never activates. This happens whenever mcl_launch is
+    started twice in one domain -- e.g. real/all.launch.py already includes it and a debug
+    `ros2 launch particle_filter_cpp mcl_launch.py` is run alongside, or the launch is restarted
+    before the previous particle_filter_map_server is reaped.
+
+    rclpy honours ROS_DOMAIN_ID, so this only ever sees nodes in the *same* domain -- exactly the
+    scope the check must cover. Any failure (no rclpy, discovery hiccup) returns False so the
+    map_server still starts: never worse than the unconditional launch.
+    """
+    try:
+        import time
+        import rclpy
+    except Exception:
+        return False
+
+    started_here = False
+    probe = None
+    try:
+        if not rclpy.ok():
+            rclpy.init()
+            started_here = True
+        probe = rclpy.create_node('mcl_map_server_probe_%d' % os.getpid())
+        deadline = time.monotonic() + settle_sec
+        while time.monotonic() < deadline:
+            if target_name in probe.get_node_names():
+                return True
+            rclpy.spin_once(probe, timeout_sec=0.1)
+        return target_name in probe.get_node_names()
+    except Exception:
+        return False
+    finally:
+        try:
+            if probe is not None:
+                probe.destroy_node()
+        except Exception:
+            pass
+        if started_here:
+            try:
+                rclpy.shutdown()
+            except Exception:
+                pass
+
+
+def _map_server_actions(map_server_node, lifecycle_manager_node):
+    """OpaqueFunction body: launch the map_server pair only when it won't duplicate one already up.
+
+    start_map_server:=auto (default) skips both nodes when a particle_filter_map_server is already
+    running in this domain; :=true forces them (old behaviour); :=false never starts them (attach to
+    a map_server provided elsewhere).
+    """
+    def _decide(context):
+        mode = LaunchConfiguration('start_map_server').perform(context).strip().lower()
+        if mode == 'false':
+            return [LogInfo(msg='[MCL Launch] start_map_server:=false -> not starting map_server '
+                                '(reusing /particle_filter_map_server/map from elsewhere).')]
+        if mode != 'true' and _node_running_in_domain('particle_filter_map_server'):
+            return [LogInfo(msg="[MCL Launch] 'particle_filter_map_server' already running in this "
+                                'ROS_DOMAIN_ID -> reusing it; NOT starting a duplicate '
+                                'map_server/lifecycle_manager.')]
+        return [map_server_node, lifecycle_manager_node]
+    return OpaqueFunction(function=_decide)
 
 
 def generate_launch_description():
@@ -44,6 +122,14 @@ def generate_launch_description():
         'use_rviz',
         default_value='true',
         description='Launch RViz visualization'
+    )
+
+    start_map_server_arg = DeclareLaunchArgument(
+        'start_map_server',
+        default_value='auto',
+        description="Map server policy: 'auto' skips it when a particle_filter_map_server is already "
+                    "running in this ROS_DOMAIN_ID (prevents duplicates); 'true' always starts it; "
+                    "'false' never starts it (attach to a map_server provided elsewhere)."
     )
     
     # === CONFIGURATION ===
@@ -123,7 +209,8 @@ def generate_launch_description():
         parameters=[
             common_params,
             {'yaml_filename': map_file_path}
-        ]
+        ],
+        **FAST_SHUTDOWN
     )
     
     # === LIFECYCLE MANAGER ===
@@ -136,9 +223,13 @@ def generate_launch_description():
             common_params,
             {
                 'autostart': True,
-                'node_names': ['particle_filter_map_server']
+                'node_names': ['particle_filter_map_server'],
+                # Don't wait on the managed-node heartbeat during teardown: a short bond timeout
+                # keeps the manager from blocking on a map_server that is already being killed.
+                'bond_timeout': 0.0,
             }
-        ]
+        ],
+        **FAST_SHUTDOWN
     )
     
     # === PARTICLE FILTER NODE ===
@@ -157,7 +248,8 @@ def generate_launch_description():
                 ],
                 remappings=[
                     ('/map_server/map', '/particle_filter_map_server/map')
-                ]
+                ],
+                **FAST_SHUTDOWN
             )
         ]
     )
@@ -183,19 +275,22 @@ def generate_launch_description():
                 'tf_buffer_cache_time_s': 300.0,
                 'tf_tolerance': 300.0
             }
-        ]
+        ],
+        **FAST_SHUTDOWN
     )
-    
+
     return LaunchDescription([
         # Launch arguments
         mode_arg,
         map_name_arg,
         use_rviz_arg,
+        start_map_server_arg,
         config_arg,
-        
+
         # Nodes
-        map_server_node,
-        lifecycle_manager_node,
+        # map_server + lifecycle_manager are gated so a second mcl_launch in the same
+        # ROS_DOMAIN_ID reuses the running particle_filter_map_server instead of duplicating it.
+        _map_server_actions(map_server_node, lifecycle_manager_node),
         particle_filter_node,
         rviz_node,
     ])
