@@ -1,6 +1,6 @@
 // opponent_simulator_node.cpp
 // Standalone opponent vehicle simulator that follows global waypoints at 0.8x speed.
-// Publishes its own odometry on /opponent_racecar/odom for opponent_detector to track.
+// Publishes its own odometry on /opponent_racecar/odom for obstacle_detector to track.
 
 #include <rclcpp/rclcpp.hpp>
 #include <nav_msgs/msg/odometry.hpp>

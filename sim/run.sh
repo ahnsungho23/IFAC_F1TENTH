@@ -108,7 +108,7 @@ PAT_CONTROL=('ros2 launch f1tenth_control' 'control_map_node' 'control_mppi_node
              'sim_imu_bridge_node' 'joy_teleop_monitor')
 PAT_OPP=('ros2 launch new_map_con opponent_simulator' 'opponent_simulator'
          'opponent_drive_controller')
-PAT_OPPDET=('ros2 launch opponent_detector' 'opponent_detector_node')
+PAT_OPPDET=('ros2 launch obstacle_detector' 'obstacle_detector_node')
 
 typeset -a cmd
 delay=0
@@ -171,10 +171,10 @@ case "$role" in
     cmd=(ros2 launch new_map_con opponent_simulator.launch.py)
     delay=13
     ;;
-  oppdet|detector)                         # Terminal 9 — opponent detector <- ego /scan
+  oppdet|detector)                         # Terminal 9 — obstacle/opponent detector <- ego /scan
     source "$IFAC/install/setup.zsh" 2>/dev/null
     kill_pattern "${PAT_OPPDET[@]}"
-    cmd=(ros2 launch opponent_detector opponent_detector.launch.py simulator:=true)
+    cmd=(ros2 launch obstacle_detector obstacle_detector.launch.py simulator:=true)
     delay=14
     ;;
   stop|clean|kill)                         # kill every node this stack owns, then exit

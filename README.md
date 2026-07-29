@@ -159,13 +159,13 @@ ROS 2 Jazzy workspace for the 2026 IFAC F1TENTH stack. ROS packages live under `
 │   │   ├── src/local_planner_node.cpp
 │   │   ├── AGENTS.md, CMakeLists.txt, package.xml
 │   │
-│   ├── opponent_detector/        # opponent detection + tracking + overtake planner
-│   │   ├── config/opponent_detector.yaml
-│   │   ├── docs/                 # opponent_detector_node.md, sim_test_commands.md
-│   │   ├── include/opponent_detector/  # frenet_projector, obstacle_tracker, opponent_detector_node, overtake_planner
-│   │   ├── src/                        # frenet_projector, obstacle_tracker, opponent_detector_node, overtake_planner
-│   │   ├── rviz/opponent_detector.rviz
-│   │   ├── test/                       # commit_lock, offpath_recovery, synthetic_opponent, trail_to_overtake
+│   ├── obstacle_detector/        # layered LiDAR obstacle detection (static /static_obs + opponent /opp_obs)
+│   │   ├── config/obstacle_detector.yaml
+│   │   ├── docs/                 # obstacle_detector_node.md, sim_test_commands.md
+│   │   ├── include/obstacle_detector/  # frenet_projector, obstacle_tracker, obstacle_detector_node
+│   │   ├── src/                        # frenet_projector, obstacle_tracker, obstacle_detector_node
+│   │   ├── rviz/obstacle_detector.rviz
+│   │   ├── test/                       # synthetic_opponent
 │   │   ├── AGENTS.md, CMakeLists.txt, package.xml, README(.en).md
 │   │
 │   ├── state_machine/            # driving-mode state machine (GLOBAL / AVOID / OVERTAKE)
@@ -335,9 +335,9 @@ F1_MAP=ifac_track ros2 launch global_planning global_planning.launch.py
 
 ### 터미널 4 — 로컬 플래너 (장애물 회피)
 
-`/perception/static_obstacles/cartesian`의 정적 장애물을 CLCS로 투영해 글로벌 라인의 Frenet
-`d(s)`만 수정한 회피 경로(`/avoid_waypoints`)를 만듭니다. 이 launch가 wall-only 레퍼런스 맵
-서버와 **opponent_detector를 기본 포함**(`start_opponent_detector:=true`)해서 띄웁니다.
+`/static_obs`(obstacle_detector Layer 2의 확정 정적 장애물, `f110_msgs/ObstacleArray`)를 받아
+글로벌 라인의 Frenet `d(s)`만 수정한 회피 경로(`/avoid_waypoints`)를 만듭니다. 이 launch가
+wall-only 레퍼런스 맵 서버와 **obstacle_detector를 기본 포함**(`start_obstacle_detector:=true`)해서 띄웁니다.
 
 ```bash
 cd ~/2026_IFAC
@@ -429,24 +429,23 @@ source install/setup.zsh
 ros2 launch new_map_con opponent_simulator.launch.py
 ```
 
-### 터미널 9 — 상대차 검출기 (opponent detector)
+### 터미널 9 — 장애물·상대차 검출기 (obstacle detector)
 
-에고 `/scan`으로 장애물·상대차를 검출해 `/perception/obstacles`,
-`/perception/static_obstacles/cartesian`, `/proj_opponent_trajectory`를 발행합니다.
-정적 장애물은 Cartesian `(x,y)`, Frenet `(s,d)`, 최대 반지름 `radius`로 로컬 플래너에 전달합니다. IMU/odom 기반 스캔
-deskew와 불확실성 기반 추적을 사용하며, 정적 장애물의 장기 기억과
-회피 판단은 로컬 플래너가 담당합니다.
+에고 `/scan`을 레이어드 파이프라인(Layer 1 맵 필터 → Layer 2 정적 추적 → Layer 3 동적 분리)으로
+처리해 정적 장애물은 `/static_obs`, 상대차는 `/opp_obs`(전방 최근접 1대)로 발행합니다.
+둘 다 `f110_msgs/ObstacleArray`이며 Cartesian `(x,y)`·Frenet `(s,d)`·크기가 채워집니다.
+정적 장애물의 장기 기억과 회피 판단은 로컬 플래너가 담당합니다.
 
-> ⚠️ 터미널 4(local_planning launch)가 opponent_detector를 **기본 포함**해서 이미 띄웁니다.
+> ⚠️ 터미널 4(local_planning launch)가 obstacle_detector를 **기본 포함**해서 이미 띄웁니다.
 > 터미널 9를 수동으로 추가하면 검출기가 중복 기동되므로, 터미널 4를
-> `start_opponent_detector:=false`로 띄웠을 때만 아래를 실행하세요.
+> `start_obstacle_detector:=false`로 띄웠을 때만 아래를 실행하세요.
 > (`./sim/open_sim.sh --opp`는 run.sh의 kill_pattern이 중복을 자동 정리합니다.)
 
 ```bash
 cd ~/2026_IFAC
 source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
-ros2 launch opponent_detector opponent_detector.launch.py simulator:=true
+ros2 launch obstacle_detector obstacle_detector.launch.py simulator:=true
 ```
 
 RViz에서 `/perception/obstacles/markers`(빨강=동적 상대차, 파랑=정적)를 Add 하면 검출 결과가 보입니다.
@@ -600,9 +599,10 @@ ros2 launch local_planning local_planning.launch.py \
 
 ## 6. ROS 2 Jazzy 포트 검증
 
-이 브랜치(`jazzy_port_backup`)는 `backup/jetson-20260725`의 Humble 기반 스택을
-**ROS 2 Jazzy (Ubuntu 24.04)** 로 포팅하고 실제 빌드·주행으로 검증한 결과입니다.
-(검증일: 2026-07-29, x86_64 데스크톱 / 포트 커밋은 `jazzy-port-test`와 공유)
+이 브랜치(`ros_jazzy_backup`)는 `backup/jetson-20260725`의 Humble 기반 스택을
+**ROS 2 Jazzy (Ubuntu 24.04)** 로 포팅하고 실제 빌드·주행으로 검증한 결과에,
+2026-07-29의 obstacle_detector 교체·teleop 제거·MCL 개선(아래 참고)을 반영한 것입니다.
+(검증일: 2026-07-29, x86_64 데스크톱 / 포트 커밋은 `jazzy-port-test`·`jazzy_port_main`과 공유)
 
 ### 6.1 포팅 변경 사항
 
@@ -618,6 +618,7 @@ ros2 launch local_planning local_planning.launch.py \
 | 포맷 | `builtin_interfaces/Time` 로그 포맷 `-Wformat` 경고 수정 |
 | backup 머지 포트 (07-29) | MCL lib에 `${f110_msgs_TARGETS}` 링크 추가(backup이 MCL에 WpntArray 도입), 신규 문서·스크립트의 humble 표기 → jazzy, `sim/run.sh`가 `F1_MAP`을 export해 글로벌/로컬 플래너 맵 통일 |
 | 깨진 패키지 복구 | backup 팁은 **커밋된 미해결 충돌 마커**(`f971351` 머지 잔재)와 유실 파일 때문에 4개 패키지가 컴파일 불가였음 — ① local_planning: `raceline_spline_planner.cpp` 구현 유실+마커 ② state_machine: hpp/cpp 선언 불일치 ③ opponent_detector: cpp·yaml 등 6개 파일에 마커 ④ f110_msgs: `Obstacle.msg`의 Cartesian 확장 유실. 전부 main 복구 커밋 `b47c785`와 동일 내용(Jazzy 포트 포함, `jazzy-port-test` 검증본)으로 교체. f1tenth_control의 `WORKLOG.md`·`vesc_mcconf.xml` 마커는 젯슨 최신(HEAD쪽)으로 해소 |
+| 검출기 교체 포트 (07-29) | main 최신(`0dea9d2`)의 **obstacle_detector**(레이어드 검출, `/static_obs`·`/opp_obs`) + 재구성 **local_planning**(safe_corridor 제거, 노드 결합)으로 교체 — `opponent_detector` 패키지 삭제. 두 패키지 CMake를 modern `target_link_libraries`로 전환, obstacle_detector tf2 헤더 `.h`→`.hpp` 4곳, local_planning package.xml에 launch 실사용 exec_depend(nav2_map_server·nav2_lifecycle_manager·particle_filter_cpp) 보강, 문서·sim 스크립트의 opponent_detector 참조 일괄 갱신 |
 
 ### 6.2 검증 결과
 
@@ -634,6 +635,13 @@ ros2 launch local_planning local_planning.launch.py \
   완주**, MCL 오차 평균 0.032 m / 최대 0.183 m, 레이스라인 |d| 중앙값 0.014 m(순간 스파이크
   1회 0.48 m 제외 시 ≤ 0.09 m), 전 7노드 에러 로그 0건. (터미널 4가 opponent_detector·
   레퍼런스 맵 서버를 기본 포함하는 구조 — §3 터미널 4·9 참고)
+- **검출기 교체 재검증 (2026-07-29, `jazzy_port_main`에서 수행 — 이 브랜치에 반영)**:
+  main 최신(`0dea9d2`)의 obstacle_detector + 재구성 local_planning으로 교체한 뒤 재검증 —
+  클린 빌드 12/12 경고 0건(2분 6초), `colcon test`(local_planning gtest+lint 9/9) 통과,
+  합성 장애물 파이프라인 테스트(`static_obs_pipeline_test.py`, `/scan`→`/static_obs`→
+  `/avoid_waypoints`) PASS, gym 폐루프 3랩 연속 완주(0.5 m/s), MCL 오차 평균 0.014 m /
+  최대 0.130 m, 검출기 스캔 드롭 0·오탐 0, `/drive` 39 Hz·`/local_waypoints` 30 Hz,
+  전 노드 에러 로그 0건. (gym 워크스페이스가 `~/f1sim_C` → `~/sim_ws`로 이동됨)
 
 ### 6.3 시뮬 검증에서 확인된 주의사항
 

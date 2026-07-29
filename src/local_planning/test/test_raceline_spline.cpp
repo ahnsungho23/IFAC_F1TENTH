@@ -16,6 +16,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <limits>
 #include <vector>
 
 #include "local_planning/raceline_spline_planner.hpp"
@@ -43,6 +44,30 @@ f110_msgs::msg::WpntArray makeStraightReference(
     waypoint.vx_mps = 3.0;
     waypoint.d_left = left_width;
     waypoint.d_right = right_width;
+    reference.wpnts.push_back(waypoint);
+  }
+  return reference;
+}
+
+f110_msgs::msg::WpntArray makeCircularReference(
+  int count = 200, double radius = 5.0)
+{
+  f110_msgs::msg::WpntArray reference;
+  reference.header.frame_id = "map";
+  reference.wpnts.reserve(static_cast<std::size_t>(count));
+  const double spacing = 2.0 * M_PI * radius / static_cast<double>(count);
+  for (int i = 0; i < count; ++i) {
+    const double angle = 2.0 * M_PI * static_cast<double>(i) / static_cast<double>(count);
+    f110_msgs::msg::Wpnt waypoint;
+    waypoint.id = i;
+    waypoint.s_m = static_cast<double>(i) * spacing;
+    waypoint.x_m = radius * std::cos(angle);
+    waypoint.y_m = radius * std::sin(angle);
+    waypoint.psi_rad = angle + 0.5 * M_PI;
+    waypoint.kappa_radpm = 1.0 / radius;
+    waypoint.vx_mps = 3.0;
+    waypoint.d_left = 1.5;
+    waypoint.d_right = 1.5;
     reference.wpnts.push_back(waypoint);
   }
   return reference;
@@ -113,6 +138,66 @@ TEST(RacelineSplinePlanner, ShiftsOnlyOrderedGlobalRaceLineSamples)
   }
   EXPECT_TRUE(saw_offset);
   EXPECT_NEAR(result.path.wpnts.back().d_m, 0.0, 1.0e-6);
+}
+
+TEST(RacelineSplinePlanner, AppendsSpeedAwareGlobalTailAfterActualMerge)
+{
+  auto parameters = testParameters();
+  parameters.post_merge_lookahead_m = 2.0;
+  parameters.post_merge_min_time_sec = 1.0;
+  RacelineSplinePlanner planner(parameters);
+  ASSERT_TRUE(planner.setReference(makeStraightReference()));
+
+  const EgoFrenetState ego{0.0, 0.0, 6.0};
+  const auto result = planner.plan(ego, {makeObstacle(12, 7.0)});
+  ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
+  ASSERT_FALSE(result.path.wpnts.empty());
+
+  const double tail_distance =
+    planner.forwardDistance(result.merge_s, result.path.wpnts.back().s_m);
+  EXPECT_GE(tail_distance, 5.8);
+  EXPECT_NEAR(result.path.wpnts.back().d_m, 0.0, 1.0e-6);
+}
+
+TEST(RacelineSplinePlanner, BuildsClosedGlobalHandoffWithEgoInStateTail)
+{
+  const auto reference = makeCircularReference();
+  RacelineSplinePlanner planner(testParameters());
+  ASSERT_TRUE(planner.setReference(reference));
+
+  constexpr double kTailRatio = 0.10;
+  const double ego_s = reference.wpnts[37].s_m;
+  const auto path = planner.buildGlobalHandoffPath(ego_s, kTailRatio, 2.5);
+  ASSERT_EQ(path.wpnts.size(), reference.wpnts.size());
+
+  std::size_t closest_index = 0U;
+  double closest_gap = std::numeric_limits<double>::infinity();
+  double path_length = 0.0;
+  for (std::size_t i = 0; i < path.wpnts.size(); ++i) {
+    const double gap = planner.forwardDistance(ego_s, path.wpnts[i].s_m);
+    const double circular_gap = std::min(gap, planner.trackLength() - gap);
+    if (circular_gap < closest_gap) {
+      closest_gap = circular_gap;
+      closest_index = i;
+    }
+    EXPECT_DOUBLE_EQ(path.wpnts[i].d_m, 0.0);
+    EXPECT_LE(path.wpnts[i].vx_mps, 2.5);
+    if (i > 0U) {
+      path_length += std::hypot(
+        path.wpnts[i].x_m - path.wpnts[i - 1U].x_m,
+        path.wpnts[i].y_m - path.wpnts[i - 1U].y_m);
+    }
+  }
+  const std::size_t tail_count = static_cast<std::size_t>(
+    std::ceil(kTailRatio * static_cast<double>(path.wpnts.size())));
+  EXPECT_GE(closest_index, path.wpnts.size() - tail_count);
+
+  const double average_spacing =
+    path_length / static_cast<double>(path.wpnts.size() - 1U);
+  const double closing_gap = std::hypot(
+    path.wpnts.front().x_m - path.wpnts.back().x_m,
+    path.wpnts.front().y_m - path.wpnts.back().y_m);
+  EXPECT_LE(closing_gap, 2.0 * average_spacing);
 }
 
 TEST(RacelineSplinePlanner, UsesRightSideWhenLeftTrackSpaceIsInsufficient)
@@ -209,5 +294,3 @@ TEST(RacelineSplinePlanner, NeverJumpsToNearbyWrongSnakeBranch)
 
 }  // namespace
 }  // namespace local_planning
-
-

@@ -360,6 +360,41 @@ RacelineSplinePlanner::nearestCluster(
   return cluster;
 }
 
+f110_msgs::msg::WpntArray RacelineSplinePlanner::buildGlobalHandoffPath(
+  double ego_s, double state_tail_ratio, double speed_cap_mps) const
+{
+  f110_msgs::msg::WpntArray path;
+  path.header = reference_.header;
+  if (!ready() || !std::isfinite(ego_s) || !(state_tail_ratio > 0.0) ||
+    state_tail_ratio > 1.0 || !(speed_cap_mps > 0.0))
+  {
+    return path;
+  }
+
+  const std::size_t total = reference_.wpnts.size();
+  const std::size_t tail_count = std::max<std::size_t>(
+    1U,
+    static_cast<std::size_t>(
+      std::ceil(state_tail_ratio * static_cast<double>(total))));
+  const std::size_t tail_begin = total - std::min(tail_count, total);
+  const std::size_t ego_index = nearestReferenceIndex(ego_s);
+
+  // 기존 state_machine은 배열 마지막 tail_ratio 구간에서 merge를 평가한다. 코드를 바꾸지
+  // 않고 충분한 전방 경로를 주기 위해 전체 global loop를 회전시켜 현재 ego가 그 tail의
+  // 첫 점에 놓이게 한다. 배열은 모든 global 표본을 원래 순서로 정확히 한 번 포함하므로
+  // controller는 이를 정상적인 닫힌 경로로 판정한다.
+  const std::size_t first_index = (ego_index + total - tail_begin) % total;
+  path.wpnts.reserve(total);
+  for (std::size_t k = 0; k < total; ++k) {
+    auto waypoint = reference_.wpnts[(first_index + k) % total];
+    waypoint.id = static_cast<int32_t>(k);
+    waypoint.d_m = 0.0;
+    waypoint.vx_mps = std::min(std::max(0.0, waypoint.vx_mps), speed_cap_mps);
+    path.wpnts.push_back(waypoint);
+  }
+  return path;
+}
+
 RacelineSplinePlanner::Candidate RacelineSplinePlanner::buildCandidate(
   const EgoFrenetState & ego,
   const std::vector<ExpandedObstacle> & visible,
@@ -458,7 +493,14 @@ RacelineSplinePlanner::Candidate RacelineSplinePlanner::buildCandidate(
   }
 
   const double spline_end = cluster_end + post_far;
-  const double path_end = spline_end + parameters_.post_merge_lookahead_m;
+  // 고속에서 고정 2m tail은 state-machine handoff가 끝나기 전에 소진된다. 회피를 계획한
+  // 순간의 ego 속도를 기준으로 최소 시간만큼 global d=0 구간을 확보하되, 저속에서는 기존
+  // 거리 하한을 유지한다. 이 tail은 회피 형상을 바꾸지 않고 동일 ordered race-line 표본을
+  // 뒤에 더 붙이는 것뿐이다.
+  const double post_merge_tail = std::max(
+    parameters_.post_merge_lookahead_m,
+    std::abs(ego.speed) * parameters_.post_merge_min_time_sec);
+  const double path_end = spline_end + post_merge_tail;
   const double clip_min = std::min({0.0, ego.d, target_d});
   const double clip_max = std::max({0.0, ego.d, target_d});
   const std::size_t first_index = nextReferenceIndex(ego.s);
@@ -490,7 +532,9 @@ RacelineSplinePlanner::Candidate RacelineSplinePlanner::buildCandidate(
 
   candidate.valid = true;
   candidate.target_d = target_d;
-  candidate.merge_s = candidate.path.wpnts.back().s_m;
+  // merge_s는 발행 세그먼트 끝이 아니라 d-offset spline이 실제로 d=0에 복귀하는 지점이다.
+  // tail 길이를 늘려도 합류 완료 판정 시점이 뒤로 밀리지 않아야 한다.
+  candidate.merge_s = wrapS(ego.s + spline_end);
   candidate.score = std::abs(target_d) + 0.02 * transition_scale;
   return candidate;
 }
@@ -798,5 +842,3 @@ void RacelineSplinePlanner::toCartesian(
 }
 
 }  // namespace local_planning
-
-

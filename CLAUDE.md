@@ -131,9 +131,9 @@ F1_MAP=ifac_track ros2 launch global_planning global_planning.launch.py
 
 ### 터미널 4 — 로컬 플래너 (장애물 회피)
 
-`/perception/static_obstacles/cartesian`의 정적 장애물을 CLCS로 투영해 글로벌 라인의 Frenet
-`d(s)`만 수정한 회피 경로(`/avoid_waypoints`)를 만듭니다. 이 launch가 wall-only 레퍼런스 맵
-서버와 **opponent_detector를 기본 포함**(`start_opponent_detector:=true`)해서 띄웁니다.
+`/static_obs`(obstacle_detector Layer 2의 확정 정적 장애물, `f110_msgs/ObstacleArray`)를 받아
+글로벌 라인의 Frenet `d(s)`만 수정한 회피 경로(`/avoid_waypoints`)를 만듭니다. 이 launch가
+wall-only 레퍼런스 맵 서버와 **obstacle_detector를 기본 포함**(`start_obstacle_detector:=true`)해서 띄웁니다.
 
 ```bash
 cd ~/2026_IFAC
@@ -196,23 +196,22 @@ source install/setup.zsh
 ros2 launch new_map_con opponent_simulator.launch.py
 ```
 
-### 터미널 9 — 상대차 검출기 (opponent detector)
+### 터미널 9 — 장애물·상대차 검출기 (obstacle detector)
 
-에고 `/scan`으로 상대차와 정적 장애물을 검출해 `/perception/obstacles`,
-`/perception/static_obstacles/cartesian`, `/proj_opponent_trajectory`를 발행합니다. 로컬
-플래너는 정적 장애물의 Cartesian `(x,y)`와 최대 반지름을 받아 CLCS로 트랙 위상을 보존해 투영한 뒤
-Cartesian `x_m/y_m` 회피 경로를 생성합니다.
+에고 `/scan`을 레이어드 파이프라인으로 처리해 정적 장애물은 `/static_obs`(Layer 2),
+상대차는 `/opp_obs`(Layer 3, 전방 최근접 1대)로 발행합니다(둘 다 `f110_msgs/ObstacleArray`,
+Frenet s/d 포함). 로컬 플래너는 `/static_obs`를 CLCS로 투영해 회피 경로를 생성합니다.
 
-> ⚠️ 터미널 4(local_planning launch)가 opponent_detector를 **기본 포함**해서 이미 띄웁니다.
+> ⚠️ 터미널 4(local_planning launch)가 obstacle_detector를 **기본 포함**해서 이미 띄웁니다.
 > 터미널 9를 수동으로 추가하면 검출기가 중복 기동되므로, 터미널 4를
-> `start_opponent_detector:=false`로 띄웠을 때만 아래를 실행하세요.
+> `start_obstacle_detector:=false`로 띄웠을 때만 아래를 실행하세요.
 > (`./sim/open_sim.sh --opp`는 run.sh의 kill_pattern이 중복을 자동 정리합니다.)
 
 ```bash
 cd ~/2026_IFAC
 source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
-ros2 launch opponent_detector opponent_detector.launch.py simulator:=true
+ros2 launch obstacle_detector obstacle_detector.launch.py simulator:=true
 ```
 
 RViz에서 `/perception/obstacles/markers`(빨강=동적 상대차, 파랑=정적)를 Add 하면 검출 결과가 보입니다.

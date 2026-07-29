@@ -19,7 +19,11 @@
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
-  <exec_depend>opponent_detector</exec_depend>
+  <exec_depend>obstacle_detector</exec_depend>
+  <!-- launch가 wall-only 레퍼런스 맵 서버와 기본 맵 YAML 경로 해석에 사용 -->
+  <exec_depend>nav2_map_server</exec_depend>
+  <exec_depend>nav2_lifecycle_manager</exec_depend>
+  <exec_depend>particle_filter_cpp</exec_depend>
 
   <test_depend>ament_cmake_gtest</test_depend>
   <test_depend>ament_lint_auto</test_depend>

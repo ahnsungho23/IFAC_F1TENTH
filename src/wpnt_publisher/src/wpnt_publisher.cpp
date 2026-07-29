@@ -60,7 +60,7 @@ public:
       global_waypoints_topic_, qos_gl, std::bind(&WpntPublisher::onGlobalWaypoints, this, _1));
 
     // OT 스플라인 웨이포인트 (일반적으로 volatile)
-    // 동적 추월(opponent_detector)과 정적 회피(local_planning)를 서로 다른 콜백으로 분리 수신
+    // 동적 추월(/overtake_waypoints)과 정적 회피(local_planning)를 서로 다른 콜백으로 분리 수신
     ot_sub_ = this->create_subscription<f110_msgs::msg::OTWpntArray>(
       "/overtake_waypoints", qos, std::bind(&WpntPublisher::onOTWpnts, this, _1));
     avoid_sub_ = this->create_subscription<f110_msgs::msg::OTWpntArray>(

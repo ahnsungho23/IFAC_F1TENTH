@@ -169,7 +169,7 @@ CSV 포맷은 `src/new_map_con/maps/fuck_f1.csv`와 같은 10개 컬럼 구조�
 - `distance`: distance transform 기반. 빠르지만 최근접 벽 한 값만 주므로 `d_left == d_right`가 되어 좌/우 구분이 불가능하다.
 - `raycast`: 방향별 raycast만 사용(robust 게이트 포함). gap 새어나감 보정은 없다.
 
-`d_left`/`d_right`는 `opponent_detector`의 회피 안전 마진 계산과 `new_map_con`의 경로 경계 판정에 직접 사용되므로, 좌/우 비대칭이 필요한 회피 로직에는 `hybrid` 모드를 사용해야 한다. `--max-width-distance`는 raycast 상한이며 트랙 폭에 맞춰 설정한다(F1TENTH 실내 트랙은 3.0m 권장). `d_m`, `s_m` 등 나머지 ROS waypoint 필드는 `global_waypoints.json` 안에 유지된다.
+`d_left`/`d_right`는 `local_planning` 회피 안전 마진 계산과 `new_map_con`의 경로 경계 판정에 직접 사용되므로, 좌/우 비대칭이 필요한 회피 로직에는 `hybrid` 모드를 사용해야 한다. `--max-width-distance`는 raycast 상한이며 트랙 폭에 맞춰 설정한다(F1TENTH 실내 트랙은 3.0m 권장). `d_m`, `s_m` 등 나머지 ROS waypoint 필드는 `global_waypoints.json` 안에 유지된다.
 
 CSV의 `x_m`, `y_m`은 선택한 ROS map YAML의 `resolution`과 `origin`이 적용된 map frame 좌표이다. RViz에서 map과 path가 어긋나면 generator에 넣은 map YAML과 f1sim/map server가 띄운 map YAML이 같은 파일인지 먼저 확인한다.
 

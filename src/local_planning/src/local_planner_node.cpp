@@ -92,6 +92,8 @@ void LocalPlannerNode::initializeParameters()
     declare_parameter<double>("outside_line_transition_scale", 1.35);
   planner_parameters_.post_merge_lookahead_m =
     declare_parameter<double>("post_merge_lookahead_m", 2.0);
+  planner_parameters_.post_merge_min_time_sec =
+    declare_parameter<double>("post_merge_min_time_sec", 1.0);
   planner_parameters_.minimum_target_offset_m =
     declare_parameter<double>("minimum_target_offset_m", 0.20);
   planner_parameters_.maximum_target_offset_m =
@@ -125,6 +127,9 @@ void LocalPlannerNode::initializeParameters()
   merge_lateral_tolerance_m_ = declare_parameter<double>("merge_lateral_tolerance_m", 0.15);
   merge_confirm_cycles_ = declare_parameter<int>("merge_confirm_cycles", 15);
   planning_period_ms_ = declare_parameter<int>("planning_period_ms", 50);
+  state_handoff_tail_ratio_ = declare_parameter<double>("state_handoff_tail_ratio", 0.10);
+  state_handoff_speed_cap_mps_ =
+    declare_parameter<double>("state_handoff_speed_cap_mps", 6.0);
   publish_standalone_local_ = declare_parameter<bool>("publish_standalone_local", false);
   obstacle_marker_scale_m_ = declare_parameter<double>("obstacle_marker_scale_m", 0.35);
   path_marker_width_m_ = declare_parameter<double>("path_marker_width_m", 0.06);
@@ -133,9 +138,11 @@ void LocalPlannerNode::initializeParameters()
     declare_parameter<std::string>("global_waypoints_topic", "/global_waypoints");
   obstacles_topic_ =
     declare_parameter<std::string>(
-    "obstacles_topic", "/perception/static_obstacles/cartesian");
+    "obstacles_topic", "/static_obs");
   frenet_odom_topic_ =
     declare_parameter<std::string>("frenet_odom_topic", "/car_state/frenet/odom");
+  state_topic_ =
+    declare_parameter<std::string>("state_topic", "/state");
   ot_waypoints_topic_ =
     declare_parameter<std::string>("ot_waypoints_topic", "/avoid_waypoints");
   local_waypoints_topic_ =
@@ -169,10 +176,15 @@ void LocalPlannerNode::initializeParameters()
             "scales must be positive");
   }
   if (planning_period_ms_ <= 0 || merge_confirm_cycles_ <= 0 ||
+    planner_parameters_.post_merge_lookahead_m < 0.0 ||
+    planner_parameters_.post_merge_min_time_sec < 0.0 ||
+    !(state_handoff_tail_ratio_ > 0.0) || state_handoff_tail_ratio_ > 1.0 ||
+    !(state_handoff_speed_cap_mps_ > 0.0) ||
     planner_parameters_.minimum_path_points < 2)
   {
     throw std::invalid_argument(
-            "planning periods, confirmation counts, and point counts must be positive");
+            "planning periods, confirmation counts, handoff settings, and point counts "
+            "must be valid");
   }
 }
 
@@ -196,6 +208,9 @@ void LocalPlannerNode::initializeInterfaces()
   frenet_odometry_sub_ = create_subscription<nav_msgs::msg::Odometry>(
     frenet_odom_topic_, volatile_qos,
     std::bind(&LocalPlannerNode::onFrenetOdometry, this, std::placeholders::_1), odometry_options);
+  state_sub_ = create_subscription<f110_msgs::msg::StateMachine>(
+    state_topic_, global_qos,
+    std::bind(&LocalPlannerNode::onState, this, std::placeholders::_1), planning_options);
 
   avoid_waypoints_pub_ =
     create_publisher<f110_msgs::msg::OTWpntArray>(ot_waypoints_topic_, volatile_qos);
@@ -369,11 +384,25 @@ void LocalPlannerNode::onFrenetOdometry(const nav_msgs::msg::Odometry::SharedPtr
   has_odometry_ = true;
 }
 
+void LocalPlannerNode::onState(const f110_msgs::msg::StateMachine::SharedPtr message)
+{
+  current_state_ = message->state;
+  has_state_ = true;
+  if (has_commitment_ &&
+    current_state_ == f110_msgs::msg::StateMachine::STATE_AVOID)
+  {
+    avoid_state_observed_ = true;
+  }
+}
+
 void LocalPlannerNode::clearCommitment()
 {
   has_commitment_ = false;
   committed_result_ = RacelineSplineResult();
   merge_complete_count_ = 0;
+  merge_geometry_confirmed_ = false;
+  handoff_active_ = false;
+  avoid_state_observed_ = false;
 }
 
 bool LocalPlannerNode::commitmentComplete(const EgoFrenetState & ego)
@@ -430,10 +459,41 @@ void LocalPlannerNode::onPlanningTimer()
   ego.s = odometry.pose.pose.position.x;
   ego.d = odometry.pose.pose.position.y;
   ego.speed = std::abs(odometry.twist.twist.linear.x);
-  if (commitmentComplete(ego)) {
-    RCLCPP_INFO(get_logger(), "Static avoidance completed and merged onto the global race line.");
+
+  // local planner가 먼저 빈 경로를 보내면 state_machine은 merge 판단에 사용할 tail을 잃는다.
+  // 이번 commitment에서 STATE_AVOID를 실제로 관측했고, spline 합류가 확인된 뒤
+  // state_machine이 STATE_GLOBAL을 발행한 경우에만 non-empty 경로 발행을 종료한다.
+  if (has_commitment_ && merge_geometry_confirmed_ && avoid_state_observed_ && has_state_ &&
+    current_state_ == f110_msgs::msg::StateMachine::STATE_GLOBAL)
+  {
+    RCLCPP_INFO(
+      get_logger(),
+      "State machine confirmed GLOBAL after static avoidance; releasing committed tail.");
     clearCommitment();
-    publishEmpty("avoidance merge complete");
+    publishEmpty("state machine confirmed global handoff");
+    return;
+  }
+  if (has_commitment_ && !merge_geometry_confirmed_ && commitmentComplete(ego)) {
+    merge_geometry_confirmed_ = true;
+    auto handoff_path = planner_.buildGlobalHandoffPath(
+      ego.s, state_handoff_tail_ratio_, state_handoff_speed_cap_mps_);
+    if (!handoff_path.wpnts.empty()) {
+      committed_result_.path = std::move(handoff_path);
+      committed_result_.merge_s = ego.s;
+      committed_result_.control_points.clear();
+      handoff_active_ = true;
+    } else {
+      RCLCPP_ERROR(
+        get_logger(),
+        "Failed to build the global handoff loop; retaining the validated avoidance tail.");
+    }
+    RCLCPP_INFO(
+      get_logger(),
+      "Static avoidance geometry merged; publishing a closed global handoff loop until "
+      "STATE_GLOBAL confirmation.");
+  }
+  if (has_commitment_ && merge_geometry_confirmed_) {
+    publishResult(committed_result_, ego, static_obstacles_);
     return;
   }
 
@@ -452,6 +512,10 @@ void LocalPlannerNode::onPlanningTimer()
     if (new_commitment || side_changed) {
       commitment_start_s_ = ego.s;
       merge_complete_count_ = 0;
+      merge_geometry_confirmed_ = false;
+      handoff_active_ = false;
+      avoid_state_observed_ =
+        has_state_ && current_state_ == f110_msgs::msg::StateMachine::STATE_AVOID;
       RCLCPP_INFO(
         get_logger(), "Committed %s d-offset spline around static obstacle %d (target d=%.2f).",
         result.go_left ? "left" : "right", result.obstacle_id, result.target_d);
@@ -584,7 +648,8 @@ void LocalPlannerNode::publishResult(
   output.ot_side = result.kind == SplinePlanKind::kSafeStop ?
     "stop" : (result.go_left ? "left" : "right");
   output.ot_line = result.kind == SplinePlanKind::kSafeStop ?
-    "raceline_static_safe_stop" : "raceline_local_d_offset_spline";
+    "raceline_static_safe_stop" :
+    (handoff_active_ ? "raceline_global_handoff" : "raceline_local_d_offset_spline");
   const std::optional<bool> current_side = result.kind == SplinePlanKind::kAvoidance ?
     std::optional<bool>(result.go_left) : std::nullopt;
   output.side_switch = current_side.has_value() &&

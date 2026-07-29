@@ -3,7 +3,7 @@
 루트 `CLAUDE.md`의 "Simulation Run Order"(터미널 7개 + 선택 2개)를 매번 손으로 띄우는 대신,
 Terminator 한 창에 분할 화면으로 한 번에 띄우는 스크립트 모음입니다.
 `parkm_combine` 브랜치의 `sim/` 런처 구조를 이 브랜치의 노드 구성
-(local_planning + state_machine + f1tenth_control + opponent_detector)에 맞게 옮긴 것입니다.
+(local_planning + state_machine + f1tenth_control + obstacle_detector)에 맞게 옮긴 것입니다.
 
 ## 빠른 시작
 
@@ -38,7 +38,7 @@ Terminator가 없으면 먼저 설치합니다: `sudo apt install terminator`
 | 6 | `wpnt` | `ros2 run wpnt_publisher wpnt_publisher` | 10 |
 | 7 | `control` | `ros2 launch f1tenth_control control_sim.launch.py force_autonomous:=true` | 11 |
 | 8 | `opp` | `ros2 launch new_map_con opponent_simulator.launch.py` (`--opp` 전용) | 13 |
-| 9 | `oppdet` | `ros2 launch opponent_detector opponent_detector.launch.py simulator:=true` (`--opp` 전용) | 14 |
+| 9 | `oppdet` | `ros2 launch obstacle_detector obstacle_detector.launch.py simulator:=true` (`--opp` 전용) | 14 |
 
 대기 시간은 상류 노드가 먼저 뜨도록 순서를 보장하기 위한 것으로, 패인에서 Ctrl-C 한 번이면
 대기를 건너뛰고 즉시 실행됩니다.
