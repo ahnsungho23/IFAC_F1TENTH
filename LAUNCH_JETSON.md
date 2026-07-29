@@ -243,7 +243,7 @@ ros2 run tf2_tools view_frames
 시뮬레이터는 Jetson 실차 드라이버 대신 별도 시뮬레이터 워크스페이스에서 실행합니다. 시뮬레이션 제어에는 다음 launch를 사용합니다.
 
 ```zsh
-ros2 launch f1tenth_control control_sim.launch.py force_autonomous:=true
+ros2 launch f1tenth_control control_sim.launch.py
 ```
 
 시뮬레이션에서는 `control_real.launch.py`를 사용하지 않습니다. 실차용 `control_real.launch.py`는 VESC 하드웨어 명령 변환을 포함하기 때문입니다.

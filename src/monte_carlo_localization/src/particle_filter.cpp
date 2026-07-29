@@ -33,6 +33,9 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
     this->declare_parameter("max_pose_range", 10000.0);
     this->declare_parameter("delay_compensation_factor", 1.5);
     this->declare_parameter("smoothing_alpha", 0.3);
+    this->declare_parameter("smoothing_velocity_full_mps", 2.0);
+    this->declare_parameter("smoothing_alpha_gain", 0.4);
+    this->declare_parameter("smoothing_alpha_max", 0.8);
     
     // Sensor model parameters
     this->declare_parameter("z_short", 0.01);
@@ -83,6 +86,9 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
     MAX_POSE_RANGE = this->get_parameter("max_pose_range").as_double();
     DELAY_COMPENSATION_FACTOR = this->get_parameter("delay_compensation_factor").as_double();
     SMOOTHING_ALPHA = this->get_parameter("smoothing_alpha").as_double();
+    SMOOTHING_VELOCITY_FULL_MPS = this->get_parameter("smoothing_velocity_full_mps").as_double();
+    SMOOTHING_ALPHA_GAIN = this->get_parameter("smoothing_alpha_gain").as_double();
+    SMOOTHING_ALPHA_MAX = this->get_parameter("smoothing_alpha_max").as_double();
 
     // Sensor model parameters
     Z_SHORT = this->get_parameter("z_short").as_double();
@@ -436,7 +442,7 @@ void ParticleFilter::odomCB(const nav_msgs::msg::Odometry::SharedPtr msg)
         std::lock_guard<std::mutex> lock(state_lock_);
         if (last_pose_.norm() <= 0)
         {
-            RCLCPP_INFO(this->get_logger(), "Odometry initialized");
+            RCLCPP_INFO_ONCE(this->get_logger(), "Odometry initialized");
         }
         last_pose_ = position;
         last_stamp_ = msg->header.stamp;
@@ -980,11 +986,15 @@ Eigen::Vector3d ParticleFilter::smooth_pose(const Eigen::Vector3d &raw_pose)
         return smoothed_pose_;
     }
     
-    // EMA filter with adaptive alpha based on velocity
+    // EMA filter with adaptive alpha based on velocity.
+    // 출력 지연 시정수 τ ≈ T·(1-α)/α (T = 1/timer_frequency). 저속에서 α가 작을수록
+    // 노이즈는 줄지만 pose가 실제를 뒤따르는 지연이 커진다 — base alpha 0.05는 30 Hz에서
+    // τ ≈ 0.63 s로 실차 저속 체감 지연의 주범이었다(2026-07-29 sim 실측 근거는 README §6).
     double base_alpha = SMOOTHING_ALPHA;  // Base smoothing factor from config
-    double velocity_factor = std::min(1.0, std::abs(current_velocity_) / 2.0);  // Scale with velocity
-    double alpha = base_alpha + velocity_factor * 0.4;  // base_alpha to (base_alpha + 0.4) range
-    alpha = std::min(0.8, alpha);  // Cap at 0.8
+    double velocity_factor =
+        std::min(1.0, std::abs(current_velocity_) / SMOOTHING_VELOCITY_FULL_MPS);
+    double alpha = base_alpha + velocity_factor * SMOOTHING_ALPHA_GAIN;
+    alpha = std::min(SMOOTHING_ALPHA_MAX, alpha);
     
     // Smooth x, y
     smoothed_pose_[0] = alpha * raw_pose[0] + (1.0 - alpha) * smoothed_pose_[0];

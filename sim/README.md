@@ -36,7 +36,7 @@ Terminator가 없으면 먼저 설치합니다: `sudo apt install terminator`
 | 4 | `local` | `ros2 launch local_planning local_planning.launch.py` | 8 |
 | 5 | `state` | `ros2 launch state_machine state_machine.launch.py` | 9 |
 | 6 | `wpnt` | `ros2 run wpnt_publisher wpnt_publisher` | 10 |
-| 7 | `control` | `ros2 launch f1tenth_control control_sim.launch.py force_autonomous:=true` | 11 |
+| 7 | `control` | `ros2 launch f1tenth_control control_sim.launch.py` | 11 |
 | 8 | `opp` | `ros2 launch new_map_con opponent_simulator.launch.py` (`--opp` 전용) | 13 |
 | 9 | `oppdet` | `ros2 launch obstacle_detector obstacle_detector.launch.py simulator:=true` (`--opp` 전용) | 14 |
 

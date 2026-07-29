@@ -166,13 +166,15 @@ ros2 run wpnt_publisher wpnt_publisher
 
 ### 터미널 7 — 제어
 
-L1 Guidance + Steering LUT 기반 조향/속도 제어. `force_autonomous:=true`면 조이스틱 없이 즉시 자율주행합니다.
+L1 Guidance + Steering LUT 기반 조향/속도 제어. 기동 즉시 자율주행합니다
+(teleop Mux는 이 저장소에 없음 — 실차는 f1tenth_stack 담당, 시뮬은 drive_source_selector가
+자율 명령을 `/drive`로 직결).
 
 ```bash
 cd ~/2026_IFAC
 source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
-ros2 launch f1tenth_control control_sim.launch.py force_autonomous:=true
+ros2 launch f1tenth_control control_sim.launch.py
 ```
 
 ---

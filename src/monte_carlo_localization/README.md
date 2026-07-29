@@ -67,6 +67,15 @@ max_pose_range: 10000.0       # Map coordinate limits (m)
 # Vehicle parameters (auto-set by sim_mode)
 # Real hardware: wheelbase=0.325, lidar_offset=0.288
 # Simulation: wheelbase=0.324, lidar_offset=0.25
+
+# Pose EMA smoothing (2026-07-29 저속 지연 개선)
+# 유효 alpha = min(alpha_max, smoothing_alpha + min(1, |v|/velocity_full)·alpha_gain)
+# 출력 지연 시정수 τ ≈ (1/timer_frequency)·(1-α)/α — alpha가 작을수록 매끈하지만 느리다.
+smoothing_alpha: 0.3               # 실차 base. 구값 0.05는 저속 τ≈0.63 s 지연 유발
+smoothing_velocity_full_mps: 2.0   # 속도 적응 보정이 최대가 되는 속도
+smoothing_alpha_gain: 0.4          # 최대 속도에서 base에 더해지는 폭
+smoothing_alpha_max: 0.8           # 유효 alpha 상한
+# 시뮬은 mcl_launch.py가 smoothing_alpha=0.5로 오버라이드 (모션 모델 튜닝과 한 세트)
 ```
 
 ## Initialization

@@ -105,7 +105,7 @@ PAT_LOCAL=('ros2 launch local_planning' 'local_planner_node')
 PAT_STATE=('ros2 launch state_machine' 'state_machine_node')
 PAT_WPNT=('ros2 run wpnt_publisher' 'wpnt_publisher/wpnt_publisher')
 PAT_CONTROL=('ros2 launch f1tenth_control' 'control_map_node' 'control_mppi_node'
-             'sim_imu_bridge_node' 'joy_teleop_monitor')
+             'sim_imu_bridge_node' 'drive_source_selector')
 PAT_OPP=('ros2 launch new_map_con opponent_simulator' 'opponent_simulator'
          'opponent_drive_controller')
 PAT_OPPDET=('ros2 launch obstacle_detector' 'obstacle_detector_node')
@@ -159,8 +159,8 @@ case "$role" in
   control|ego)                             # Terminal 7 — L1 + Steering LUT control -> /drive
     source "$IFAC/install/setup.zsh" 2>/dev/null
     kill_pattern "${PAT_CONTROL[@]}"
-    # force_autonomous:=true drives immediately without a joystick.
-    cmd=(ros2 launch f1tenth_control control_sim.launch.py force_autonomous:=true)
+    # Drives immediately — no teleop in this repo; drive_source_selector wires /drive.
+    cmd=(ros2 launch f1tenth_control control_sim.launch.py)
     delay=11
     ;;
   opp|opponent)                            # Terminal 8 — opponent follows the global line -> /opp_drive

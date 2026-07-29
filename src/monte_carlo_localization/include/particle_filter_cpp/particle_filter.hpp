@@ -128,6 +128,9 @@ class ParticleFilter : public rclcpp::Node
     double MAX_POSE_RANGE;
     double DELAY_COMPENSATION_FACTOR;
     double SMOOTHING_ALPHA;
+    double SMOOTHING_VELOCITY_FULL_MPS;   // 속도 적응 alpha가 최대 보정에 도달하는 속도
+    double SMOOTHING_ALPHA_GAIN;          // 최대 속도에서 base alpha에 더해지는 폭
+    double SMOOTHING_ALPHA_MAX;           // 속도 적응 alpha 상한
 
     // --------------------------------- SENSOR MODEL PARAMETERS ---------------------------------
     double Z_SHORT, Z_MAX, Z_RAND, Z_HIT, SIGMA_HIT;

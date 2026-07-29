@@ -36,22 +36,6 @@ find_package(visualization_msgs REQUIRED)
 find_package(ament_index_cpp REQUIRED)
 
 # ==============================================================================
-# 1. Xbox Teleop Monitor 노드 빌드
-# ==============================================================================
-add_executable(joy_teleop_monitor control_code/joy_teleop_monitor.cpp)
-target_include_directories(joy_teleop_monitor PUBLIC
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  $<INSTALL_INTERFACE:include>
-)
-target_link_libraries(joy_teleop_monitor
-  rclcpp::rclcpp
-  ${sensor_msgs_TARGETS}
-  ${nav_msgs_TARGETS}
-  ${ackermann_msgs_TARGETS}
-  ${std_msgs_TARGETS}
-)
-
-# ==============================================================================
 # 2. Control MAP 노드 빌드 (L1 Guidance + Steering LUT)
 # ==============================================================================
 add_executable(control_map_node
@@ -72,15 +56,6 @@ target_link_libraries(control_map_node
   ${f110_msgs_TARGETS}
   ${visualization_msgs_TARGETS}
   ament_index_cpp::ament_index_cpp
-)
-
-# ==============================================================================
-# 3. Teleop Dashboard 뷰어 노드 빌드 (대시보드를 별도 터미널에서 렌더링)
-# ==============================================================================
-add_executable(teleop_dashboard_node control_code/teleop_dashboard_node.cpp)
-target_link_libraries(teleop_dashboard_node
-  rclcpp::rclcpp
-  ${std_msgs_TARGETS}
 )
 
 # ==============================================================================
@@ -113,7 +88,7 @@ target_link_libraries(sim_imu_bridge_node
 # ==============================================================================
 # 6. MPPI 컨트롤러 노드 (control_mppi_node) — control_map_node와 동급 상시 구동
 #    샘플링 기반 MPPI(동역학 자전거+Pacejka, 조향+가속 동시)로 글로벌 경로 추종,
-#    결과를 /drive_mppi로 발행. Mux(joy_teleop_monitor)가 RB로 MAP↔MPPI 라우팅.
+#    결과를 /drive_mppi로 발행. drive_source_selector가 RB로 MAP↔MPPI 라우팅.
 #    솔버는 컴파일 타임 자동선택: CUDA 있으면 GPU(아래 6-B에서 USE_MPPI_GPU 정의 +
 #    control_mppi_gpu_solver 링크), 없으면 CPU(control_mppi_node.cpp가
 #    control_mppi_solver_cpu.cpp를 직접 include). 어느 쪽이든 실행파일은 항상 빌드된다.
@@ -187,10 +162,10 @@ else()
 endif()
 
 # ==============================================================================
-# 7. Drive Source Selector 노드 (실차 전용 MAP/MPPI 슬림 셀렉터)
-#    실차는 수동/자율/E-stop Mux를 f1tenth_stack(drive_mode_manager+ackermann_mux)이 맡고,
-#    joy_teleop_monitor는 실차 런치에서 제외된다. 그 스택엔 MAP/MPPI 개념이 없으므로 이 노드가
-#    RB로 /drive_autonomous(MAP)↔/drive_mppi(MPPI)를 골라 /drive(navigation 채널)로 포워딩한다.
+# 7. Drive Source Selector 노드 (MAP/MPPI 슬림 셀렉터 — sim/real 공용)
+#    수동/자율/E-stop Mux(teleop)는 이 저장소 밖 담당이다: 실차는 f1tenth_stack
+#    (drive_mode_manager+ackermann_mux), 시뮬은 Mux 없이 이 노드가 자율 명령을 /drive로
+#    직결한다. RB로 /drive_autonomous(MAP)↔/drive_mppi(MPPI)를 골라 /drive로 포워딩한다.
 # ==============================================================================
 add_executable(drive_source_selector control_code/drive_source_selector.cpp)
 target_link_libraries(drive_source_selector
@@ -203,7 +178,7 @@ target_link_libraries(drive_source_selector
 # ==============================================================================
 # 7-B. Real-car Dashboard 노드 (실차 젯슨 원격 모니터링 — 우리 컴에서 실행)
 #    젯슨 원시 토픽(/drive_mode,/mppi_active,/drive,odom,/joy)을 직접 구독해 로컬에서
-#    렌더링(젯슨 렌더 연산 0). 시뮬용 teleop_dashboard_node(문자열 뷰어)와 별개 노드.
+#    렌더링(젯슨 렌더 연산 0).
 # ==============================================================================
 add_executable(realcar_dashboard_node control_code/realcar_dashboard_node.cpp)
 target_link_libraries(realcar_dashboard_node
@@ -231,13 +206,11 @@ target_link_libraries(odom_calib_node
 # 8. 파일 설치 (Install) 규칙
 # ==============================================================================
 install(TARGETS
-  joy_teleop_monitor
   drive_source_selector
   realcar_dashboard_node
   odom_calib_node
   control_map_node
   control_mppi_node
-  teleop_dashboard_node
   lut_calibrator_node
   sim_imu_bridge_node
   DESTINATION lib/${PROJECT_NAME}

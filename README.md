@@ -133,8 +133,8 @@ ROS 2 Jazzy workspace for the 2026 IFAC F1TENTH stack. ROS packages live under `
 │   └── README.md / README_en.md
 │
 ├── src/                          # ROS 2 packages
-│   ├── f1tenth_control/          # 차량 제어: MAP(L1 Guidance+Steering LUT)/MPPI 이중 컨트롤러, joy Mux, LUT 실측 보정
-│   │   ├── control_code/         # control_map_node, control_mppi_node(+solver_cpu/gpu), joy_teleop_monitor(Mux), teleop_dashboard_node, lut_calibrator_node, sim_imu_bridge_node, gap_follower, imu_stability_controller, steer lookup(Python/CSV)
+│   ├── f1tenth_control/          # 차량 제어: MAP(L1 Guidance+Steering LUT)/MPPI 이중 컨트롤러, MAP/MPPI 셀렉터, LUT 실측 보정 (teleop Mux 없음 — 실차 f1tenth_stack 담당)
+│   │   ├── control_code/         # control_map_node, control_mppi_node(+solver_cpu/gpu), drive_source_selector, realcar_dashboard_node, odom_calib_node, lut_calibrator_node, sim_imu_bridge_node, gap_follower, imu_stability_controller, steer lookup(Python/CSV)
 │   │   ├── include/f1tenth_control/
 │   │   ├── launch/               # control_real / control_sim / dashboard / lut_calibration
 │   │   ├── vesc_appconf.xml, vesc_mcconf.xml
@@ -383,11 +383,11 @@ L1 Guidance + Steering LUT 기반 조향/속도 제어(MAP). 나란히 MPPI 컨�
 cd ~/2026_IFAC
 source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
-ros2 launch f1tenth_control control_sim.launch.py force_autonomous:=true
+ros2 launch f1tenth_control control_sim.launch.py
 ```
 
-`force_autonomous:=true`면 조이스틱 없이 즉시 자율주행합니다. 생략하면 MANUAL로 시작하며
-조이스틱 LB 버튼으로 AUTONOMOUS 전환이 필요합니다.
+기동 즉시 자율주행합니다. teleop Mux(수동/자율/E-stop)는 이 저장소에 없고(2026-07-29 제거),
+`drive_source_selector`가 자율 명령을 `/drive`로 직결합니다.
 
 **실차 — `control_real.launch.py`**
 
@@ -404,9 +404,9 @@ ros2 launch f1tenth_control control_real.launch.py
 같이 소싱하지 않으면 `Package 'vesc_ackermann' not found`로 실행이 실패합니다.
 
 전제: **f110 단축어(`f1tenth_stack`)로 라이다·조이스틱·VESC 드라이버가 먼저 떠 있어야 합니다**
-(`/scan`, `/joy`, VESC IMU 등). 이 launch는 그 위에서 제어 로직(MAP+MPPI) + Mux
-(`joy_teleop_monitor`) + `ackermann_to_vesc_node`만 담당하며, 자체적으로 조이스틱을 기동하지
-않습니다. 기본 시작 모드는 MANUAL(조이스틱 LB로 AUTONOMOUS 전환).
+(`/scan`, `/joy`, VESC IMU 등). 이 launch는 그 위에서 제어 로직(MAP) +
+`drive_source_selector`(MAP/MPPI 선택)만 담당합니다. 수동/자율/E-stop Mux(teleop)와
+`ackermann_to_vesc_node`는 f1tenth_stack이 담당합니다.
 
 ---
 
@@ -588,7 +588,7 @@ ros2 launch local_planning local_planning.launch.py \
      ├─ control_map_node  (MAP: L1 Guidance+Steering LUT)  ──► /drive_autonomous ─┐
      └─ control_mppi_node (MPPI: 샘플링 기반, 나란히 상시구동) ──► /drive_mppi ───┤
                                                                                    ▼
-                                             joy_teleop_monitor (Mux — RB로 MAP/MPPI 선택)
+                                             drive_source_selector (RB로 MAP/MPPI 선택)
                                                                                    │
                                                                                    ▼
                                                                                 /drive
