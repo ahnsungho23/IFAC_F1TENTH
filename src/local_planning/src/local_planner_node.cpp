@@ -72,7 +72,7 @@ void LocalPlannerNode::initializeParameters()
   planner_parameters_.obstacle_longitudinal_padding_m =
     declare_parameter<double>("obstacle_longitudinal_padding_m", 0.35);
   planner_parameters_.obstacle_clearance_m =
-    declare_parameter<double>("obstacle_clearance_m", 0.30);
+    declare_parameter<double>("obstacle_clearance_m", 0.35);
   planner_parameters_.blocking_margin_m =
     declare_parameter<double>("blocking_margin_m", 0.10);
   planner_parameters_.vehicle_half_width_m =

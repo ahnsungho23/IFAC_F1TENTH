@@ -7,7 +7,7 @@ local_planner_node:
 
     # 장애물 상자를 이 값만큼 횡방향으로 팽창한 뒤 차량 중심 경로를 만듭니다.
     # vehicle_half_width_m와 중복 합산하지 않도록 차량 반폭+추가 여유를 합친 값으로 설정합니다.
-    obstacle_clearance_m: 0.30
+    obstacle_clearance_m: 0.35
     blocking_margin_m: 0.10
     vehicle_half_width_m: 0.121
     boundary_margin_m: 0.10

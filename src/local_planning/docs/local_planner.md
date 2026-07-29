@@ -55,6 +55,9 @@
 1. ego 앞 `detection_lookahead_m` 안의 장애물 상자를 폐루프 `s`로 펼칩니다.
 2. 장애물 상자를 종방향 `obstacle_longitudinal_padding_m`, 횡방향
    `obstacle_clearance_m`만큼 팽창합니다.
+   현재 횡방향 기본값은 0.35 m이며, 최초 목표에는
+   `commitment_clearance_reserve_m=0.05 m`를 더해 장애물 면에서 0.40 m 떨어진 차량 중심
+   경로를 목표로 합니다.
 3. 원본 장애물의 가장 가까운 면에서 구한 곡선 기준 `|d|`가 글로벌 `d=0`의 차량 envelope
    (`vehicle_half_width_m + blocking_margin_m`) 안에 들어올 때만 blocking 장애물로 봅니다.
    경로 생성용 `obstacle_clearance_m`을 blocking 판정에 다시 더하지 않습니다.
