@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Exercise the Cartesian-static-obstacle to Cartesian-avoidance-path contract."""
+"""Exercise the Cartesian-AABB-obstacle to Cartesian-avoidance-path contract."""
 
 import argparse
 import csv
@@ -49,7 +49,7 @@ def load_waypoints(path):
 
 
 class CartesianPipelineProbe(Node):
-    """Publish one Cartesian obstacle and wait for a valid Cartesian path."""
+    """Publish one Cartesian AABB and wait for a valid Cartesian path."""
 
     def __init__(self, waypoints):
         super().__init__('cartesian_static_pipeline_probe')
@@ -65,6 +65,10 @@ class CartesianPipelineProbe(Node):
             OTWpntArray, '/avoid_waypoints', self.on_path, 10)
         self.passed = False
         self.failure = ''
+        self.publish_count = 0
+        self.path_sample_count = 0
+        self.committed_peak_d = None
+        self.saw_preparation = False
 
         self.ego_index = max(1, len(waypoints) // 8)
         self.obstacle_index = (self.ego_index + 12) % len(waypoints)
@@ -78,14 +82,16 @@ class CartesianPipelineProbe(Node):
         self.global_pub.publish(global_message)
 
         reference = self.waypoints[self.obstacle_index]
+        jitter = 0.01 if self.publish_count % 2 == 0 else -0.01
+        self.publish_count += 1
         obstacle = Obstacle()
         obstacle.id = 1
         obstacle.has_cartesian = True
-        obstacle.x_center = reference.x_m
+        obstacle.x_center = reference.x_m + jitter
         obstacle.y_center = reference.y_m
         obstacle.radius = 0.20 * math.sqrt(2.0)
-        obstacle.x_min = reference.x_m - 0.20
-        obstacle.x_max = reference.x_m + 0.20
+        obstacle.x_min = reference.x_m - 0.20 + jitter
+        obstacle.x_max = reference.x_m + 0.20 + jitter
         obstacle.y_min = reference.y_m - 0.20
         obstacle.y_max = reference.y_m + 0.20
         obstacle.size = math.hypot(0.40, 0.40)
@@ -114,10 +120,27 @@ class CartesianPipelineProbe(Node):
                 math.isfinite(point.s_m) for point in message.wpnts):
             self.failure = 'path contains non-finite Cartesian coordinates'
             return
+        if message.ot_line == 'raceline_static_prepare':
+            self.saw_preparation = True
+            if max(abs(point.d_m) for point in message.wpnts) > 1.0e-9:
+                self.failure = 'preparation path unexpectedly moved laterally'
+            return
         if max(abs(point.d_m) for point in message.wpnts) < 0.05:
             self.failure = 'path did not move laterally around the obstacle'
             return
-        self.passed = True
+        if message.ot_line != 'raceline_local_d_offset_spline':
+            self.failure = f'unexpected path mode during AABB jitter: {message.ot_line}'
+            return
+        peak_d = max(message.wpnts, key=lambda point: abs(point.d_m)).d_m
+        if self.committed_peak_d is None:
+            self.committed_peak_d = peak_d
+        elif not math.isclose(peak_d, self.committed_peak_d, abs_tol=1.0e-9):
+            self.failure = (
+                'committed path changed under 1 cm same-ID AABB jitter: '
+                f'{self.committed_peak_d:.6f} -> {peak_d:.6f}')
+            return
+        self.path_sample_count += 1
+        self.passed = self.path_sample_count >= 10
 
 
 def main():
@@ -139,7 +162,9 @@ def main():
         while rclpy.ok() and time.monotonic() < deadline and not node.passed:
             rclpy.spin_once(node, timeout_sec=0.1)
         if node.passed:
-            print('PASS: Cartesian static obstacle produced a finite Cartesian avoidance path')
+            print(
+                'PASS: preparation preceded a same-ID finite Cartesian commitment '
+                'for 10 output cycles')
             return 0
         print(f'FAIL: {node.failure or "no non-empty avoidance path received"}')
         return 1

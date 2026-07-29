@@ -34,9 +34,8 @@
   <exec_depend>nav2_map_server</exec_depend>
   <exec_depend>nav2_lifecycle_manager</exec_depend>
 
-  <!-- CMakeLists does find_package(ament_lint_auto REQUIRED) under BUILD_TESTING (ON by default).
-       ament_lint_common is deliberately NOT declared: the scenario harnesses in test/ are manual
-       rclpy scripts, not linted unit tests. -->
+  <!-- The scenario harnesses in test/ remain manual rclpy integration tests. -->
+  <test_depend>ament_cmake_gtest</test_depend>
   <test_depend>ament_lint_auto</test_depend>
 
   <export>

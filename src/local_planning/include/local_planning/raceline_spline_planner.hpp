@@ -44,6 +44,7 @@ struct RacelineSplineParameters
   double post_merge_min_time_sec{1.0};
   double minimum_target_offset_m{0.20};
   double maximum_target_offset_m{1.50};
+  double commitment_clearance_reserve_m{0.05};
   double maximum_lateral_slope{0.65};
   double maximum_curvature_radpm{3.20};
   double maximum_curvature_rate_radpm2{20.0};
@@ -67,6 +68,7 @@ struct EgoFrenetState
 enum class SplinePlanKind
 {
   kNoObstacle,
+  kPreparation,
   kAvoidance,
   kSafeStop,
   kNoSafePath
@@ -86,6 +88,7 @@ struct RacelineSplineResult
   double target_d{0.0};
   double merge_s{0.0};
   int obstacle_id{-1};
+  std::vector<int> obstacle_ids;
   std::vector<SplineControlPoint> control_points;
   std::string reason;
 };
@@ -106,11 +109,22 @@ public:
   double forwardDistance(double from_s, double to_s) const;
   f110_msgs::msg::WpntArray buildGlobalHandoffPath(
     double ego_s, double state_tail_ratio, double speed_cap_mps) const;
+  f110_msgs::msg::WpntArray buildEmergencyStopPath(const EgoFrenetState & ego) const;
+  RacelineSplineResult buildPreparationStop(
+    const EgoFrenetState & ego,
+    const std::vector<f110_msgs::msg::Obstacle> & obstacles) const;
 
   RacelineSplineResult plan(
     const EgoFrenetState & ego,
     const std::vector<f110_msgs::msg::Obstacle> & obstacles,
-    const std::optional<bool> & preferred_left = std::nullopt) const;
+    const std::optional<bool> & preferred_left = std::nullopt,
+    bool allow_side_switch = true) const;
+
+  bool validatePath(
+    const EgoFrenetState & ego,
+    const f110_msgs::msg::WpntArray & path,
+    const std::vector<f110_msgs::msg::Obstacle> & obstacles,
+    std::string * error = nullptr) const;
 
   void toCartesian(double s, double d, double & x, double & y, double & yaw) const;
 
@@ -127,12 +141,16 @@ private:
   bool isBlockingRaceline(const ExpandedObstacle & obstacle) const;
   std::vector<ExpandedObstacle> nearestCluster(
     const std::vector<ExpandedObstacle> & obstacles) const;
+  bool outsideIsLeft(
+    const EgoFrenetState & ego,
+    const std::vector<ExpandedObstacle> & cluster) const;
   Candidate buildCandidate(
     const EgoFrenetState & ego,
     const std::vector<ExpandedObstacle> & visible,
     const std::vector<ExpandedObstacle> & cluster,
     bool go_left,
-    double transition_scale) const;
+    double transition_scale,
+    bool outside_is_left) const;
   RacelineSplineResult buildSafeStop(
     const EgoFrenetState & ego,
     const std::vector<ExpandedObstacle> & visible,
@@ -144,7 +162,9 @@ private:
     const EgoFrenetState & ego,
     const f110_msgs::msg::WpntArray & path,
     const std::vector<ExpandedObstacle> & visible,
-    std::string & reason) const;
+    std::string & reason,
+    std::size_t start_index = 0U,
+    std::size_t minimum_points = 0U) const;
 
   RacelineSplineParameters parameters_;
   f110_msgs::msg::WpntArray reference_;

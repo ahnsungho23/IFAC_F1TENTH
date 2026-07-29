@@ -15,6 +15,7 @@
 #ifndef LOCAL_PLANNING__LOCAL_PLANNER_NODE_HPP_
 #define LOCAL_PLANNING__LOCAL_PLANNER_NODE_HPP_
 
+#include <map>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -27,6 +28,7 @@
 #include <nav_msgs/msg/odometry.hpp>
 #include <nav_msgs/msg/path.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <std_msgs/msg/header.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 
 #include "global_planning/clcs_frenet_converter.hpp"
@@ -54,13 +56,26 @@ private:
     const f110_msgs::msg::Obstacle & obstacle) const;
   bool sameReference(const f110_msgs::msg::WpntArray & message) const;
   void clearCommitment();
+  void commitAvoidance(RacelineSplineResult result, const EgoFrenetState & ego);
+  void resetInitialStabilization();
+  std::vector<f110_msgs::msg::Obstacle> buildInitialStabilizationInput() const;
+  bool updateInitialStabilization(
+    const std::vector<int> & cluster_ids,
+    const std::vector<f110_msgs::msg::Obstacle> & conservative_obstacles,
+    const rclcpp::Time & update_time);
+  bool commitmentSideLocked(const EgoFrenetState & ego) const;
+  bool activateGlobalHandoff(const EgoFrenetState & ego);
+  void latchSafeStop(RacelineSplineResult result, const EgoFrenetState & ego);
+  void handleSafeStopLatch(const EgoFrenetState & ego);
   bool commitmentComplete(const EgoFrenetState & ego);
   void publishResult(
     const RacelineSplineResult & result,
     const EgoFrenetState & ego,
     const std::vector<f110_msgs::msg::Obstacle> & obstacles);
   void publishEmpty(const std::string & reason);
-  nav_msgs::msg::Path makePath(const f110_msgs::msg::WpntArray & waypoints) const;
+  nav_msgs::msg::Path makePath(
+    const std::vector<f110_msgs::msg::Wpnt> & waypoints,
+    const std_msgs::msg::Header & header) const;
   visualization_msgs::msg::MarkerArray makeMarkers(
     const RacelineSplineResult & result,
     const EgoFrenetState & ego,
@@ -90,20 +105,28 @@ private:
   rclcpp::Time last_odometry_time_{0, 0, RCL_ROS_TIME};
   rclcpp::Time last_obstacles_time_{0, 0, RCL_ROS_TIME};
   rclcpp::Time last_side_switch_time_{0, 0, RCL_ROS_TIME};
+  rclcpp::Time initial_stabilization_start_{0, 0, RCL_ROS_TIME};
+  rclcpp::Time initial_last_change_time_{0, 0, RCL_ROS_TIME};
 
   bool has_global_waypoints_{false};
   bool has_obstacles_message_{false};
   bool has_odometry_{false};
   bool has_commitment_{false};
   RacelineSplineResult committed_result_;
+  bool safe_stop_latched_{false};
+  RacelineSplineResult safe_stop_result_;
+  int safe_stop_release_count_{0};
   double commitment_start_s_{0.0};
   int merge_complete_count_{0};
   bool merge_geometry_confirmed_{false};
   bool handoff_active_{false};
   bool avoid_state_observed_{false};
   bool has_state_{false};
+  bool initial_stabilization_active_{false};
+  bool initial_prepare_published_{false};
   uint8_t current_state_{f110_msgs::msg::StateMachine::STATE_GLOBAL};
   std::optional<bool> last_published_side_;
+  std::map<int, f110_msgs::msg::Obstacle> initial_cluster_union_;
 
   bool require_obstacles_message_{true};
   bool static_obstacles_only_{true};
@@ -112,9 +135,15 @@ private:
   double odometry_stale_timeout_sec_{0.50};
   double merge_lateral_tolerance_m_{0.15};
   int merge_confirm_cycles_{15};
+  int safe_stop_release_cycles_{8};
   int planning_period_ms_{50};
   double state_handoff_tail_ratio_{0.10};
   double state_handoff_speed_cap_mps_{6.0};
+  double initial_cluster_stabilization_sec_{0.20};
+  double initial_cluster_max_wait_sec_{0.35};
+  double cluster_envelope_change_threshold_m_{0.03};
+  double commitment_lock_lateral_threshold_m_{0.10};
+  double commitment_lock_longitudinal_m_{0.50};
   bool publish_standalone_local_{false};
   double obstacle_marker_scale_m_{0.35};
   double path_marker_width_m_{0.06};

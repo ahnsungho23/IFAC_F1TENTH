@@ -5,7 +5,7 @@
 `obstacle_detector_node`는 2D LiDAR scan에서 트랙 위의 비지도 장애물을 검출하고 Frenet 프레임에서
 추적한다. 확정된 장애물을 정적 레이어와 동적 레이어로 분리해 다음 토픽으로 발행한다.
 
-- `/static_obs`: 지도에는 없지만 정지해 있는 장애물 전체
+- `/static_obs`: 지도에는 없는 provisional/confirmed 정적 장애물 전체
 - `/opp_obs`: 에고 전방의 가장 가까운 동적 상대차 최대 1개
 
 이 패키지는 검출만 담당한다. 경로 계획, 회피·추월 waypoint, 주행 상태 결정은 다른 패키지의 책임이다.
@@ -102,19 +102,39 @@ adaptive `R`로 Kalman 측정 갱신하고, 연결되지 않은 track은 TTL을 
 느린 track들의 평균 Frenet 속도를 static-field reference로 계산한다. 각 track의 속도가 이 기준에서
 얼마나 벗어나는지로 정적/동적을 분류한다.
 
-- 기준과 같은 흐름: static
-- `dyn_vel_enter`보다 큰 편차가 `dyn_min_frames` 동안 지속: dynamic
-- `dyn_vel_exit` 아래로 내려오면 static으로 복귀
+```text
+v_rel = [vs - static_ref_vs, vd - static_ref_vd]
+relative_speed = ||v_rel||
+velocity_m2 = v_relᵀ P_velocity⁻¹ v_rel
+```
+
+기본 상태 전이는 다음과 같다.
+
+1. hits 1~2: `classified=false`, `PENDING`. `/static_obs`와 `/opp_obs` 모두 발행하지 않는다.
+2. hits 3: `classified=true`, `PROVISIONAL_STATIC`. 즉시 `/static_obs`에 발행한다.
+3. `relative_speed < dyn_vel_exit(0.25 m/s)`가 추가로 3회 연속 관측되면
+   `CONFIRMED_STATIC`이 된다.
+4. 아래 조건을 모두 만족하는 관측이 25회 연속 쌓이면 `DYNAMIC`이 된다.
+   - `relative_speed > dyn_vel_enter(0.5 m/s)`
+   - `velocity_m2 >= dyn_velocity_mahalanobis_gate(9.21)`
+   - ego odometry가 `meas_motion_timeout` 안의 최신 값
+   - `|yaw_rate| <= dyn_max_abs_yaw_rate(1.5 rad/s)`
+5. `DYNAMIC` track에서 저속 조건이 3회 연속 확인되면 `CONFIRMED_STATIC`으로 복귀한다.
+
+`0.25~0.5 m/s` hysteresis 구간, 속도 신뢰도 부족, 빠르거나 오래된 ego 회전 정보, detection miss는
+연속 이동 증거를 끊는다. 빠른 회전 중 발생한 Frenet 속도 오차가 dynamic으로 누적되지 않게 하기
+위함이다. 반면 저속 정적 증거는 회전율 gate 때문에 지연하지 않아 정적 장애물을 빠르게 확정한다.
+
+`PROVISIONAL_STATIC → CONFIRMED_STATIC`은 같은 Track 객체와 ID를 유지하며 두 상태 모두
+`/static_obs`에 실리므로 전환 공백이 없다. `DYNAMIC`으로 바뀐 동일 scan부터 `/static_obs`에서
+제거하고 `/opp_obs` 후보로 옮긴다.
 
 기본 `classifier_mode=velocity`에서는 사용하지 않는 positional-std 이력을 저장하거나 분산을 계산하지
 않는다. `classifier_mode=std` 또는 `both`일 때만 `std_window` 길이의 `(s,d)` 이력을 유지한다.
 
-새 track은 내부적으로 static에서 시작하지만 `classified=false`이므로 분류가 확정되기 전에는
-`/static_obs`로 발행하지 않는다.
-
 ### 2.6 레이어 병합과 발행
 
-확정된 track을 static과 dynamic으로 분리한다. 같은 레이어 안에서 Frenet 박스의 모서리 간격이
+발행 가능한 track을 static과 dynamic으로 분리한다. 같은 레이어 안에서 Frenet 박스의 모서리 간격이
 `layer_merge_gap_s/d` 이내인 track들을 하나의 객체로 병합한다.
 
 이 `layer_merge`는 tracking 전 `cluster_merge`와 역할이 다르다.
@@ -162,7 +182,8 @@ DIAG perception [1.00s scans=40/40 drop(clcs=0 tf=0)]
 beam(valid=.../... nonfinite=... below_min=... at_or_above_max=...)
 cluster=...->... fragment_drop=... detections=...
 reject(size=... clcs_projection=... view=... boundary=... map=...)
-track(total=... visible=... hit_pending=... class_pending=... static=... dynamic=...)
+track(total=... visible=... hit_pending=... class_pending=... provisional=...
+      static=... dynamic=... motion_gated=...)
 assoc(pairs=... match=... spawn=... retire=... euclid_reject=... maha_reject=...)
 motion(yaw_used=... fresh=... ref_vs=... ref_vd=...)
 ```
@@ -176,8 +197,9 @@ motion(yaw_used=... fresh=... ref_vs=... ref_vd=...)
 - `assoc`는 1초 동안 누적한 tracker event다. `pairs`, `euclid_reject`, `maha_reject`는 장애물 수가
   아니라 `track × detection` 후보 쌍 수다.
 - `track`은 누적합이 아니라 로그 시점의 최신 snapshot이다. `hit_pending`은
-  `min_hits_confirm` 미달, `class_pending`은 hit 조건을 채웠지만 static/dynamic 분류가 아직 확정되지
-  않은 track이다.
+  `min_hits_confirm` 미달이다. 정상 상태기계에서는 hit 조건을 채우는 즉시 provisional이 되므로
+  `class_pending=0`이다. `motion_gated`는 속도가 `dyn_vel_enter`를 넘었지만 속도 Mahalanobis
+  신뢰도 또는 ego yaw 조건을 통과하지 못한 visible track 수다.
 - `yaw_used`는 adaptive covariance 계산에 실제 사용한 yaw rate다. odometry timestamp가
   `meas_motion_timeout`을 넘으면 `yaw_used=0`, `fresh=false`가 된다.
 
@@ -200,7 +222,7 @@ motion(yaw_used=... fresh=... ref_vs=... ref_vd=...)
 
 | 토픽 파라미터 | 기본 토픽 | 메시지 타입 | 내용 |
 |---|---|---|---|
-| `static_obs_topic` | `/static_obs` | `f110_msgs/msg/ObstacleArray` | 확정 정적 객체 전체와 visible Cartesian AABB |
+| `static_obs_topic` | `/static_obs` | `f110_msgs/msg/ObstacleArray` | provisional/confirmed 정적 객체 전체와 visible Cartesian AABB |
 | `opp_obs_topic` | `/opp_obs` | `f110_msgs/msg/ObstacleArray` | 최근접 동적 상대차 최대 1개와 visible Cartesian AABB |
 | `markers_topic` | `/perception/obstacles/markers` | `visualization_msgs/msg/MarkerArray` | RViz 표시 |
 
@@ -218,8 +240,8 @@ motion(yaw_used=... fresh=... ref_vs=... ref_vd=...)
 | 지도 | `use_map_filter`, `map_occupied_thresh`, `map_inflation_cells`, `map_point_reject_ratio` | 점유지도 필터 |
 | 측정 불확실성 | `meas_range_var_scale`, `meas_sparse_var_scale`, `meas_yaw_rate_var_scale`, `meas_reference_points`, `meas_variance_scale_max`, `meas_motion_timeout` | Detection별 adaptive Kalman `R` |
 | 추적 | `meas_var_s/d`, `process_var_vs/vd`, `assoc_gate`, `aggro_multi`, `assoc_use_mahalanobis`, `assoc_mahalanobis_gate` | Kalman 및 2단계 association |
-| 수명 | `ttl_dynamic`, `ttl_static`, `min_hits_confirm` | track 유지와 발행 확정 |
-| 분류 | `classifier_mode`, `dyn_vel_enter/exit`, `dyn_min_frames`, `static_ref_gate` | static/dynamic 판정 |
+| 수명 | `ttl_dynamic`, `ttl_static`, `min_hits_confirm` | track 유지와 발행 확정. `ttl_static=25`는 약 250 Hz 입력에서 약 0.1초의 정적 track 검출 공백을 허용 |
+| 분류 | `classifier_mode`, `dyn_vel_enter/exit`, `static_confirm_frames`, `dynamic_confirm_frames`, `dyn_velocity_mahalanobis_gate`, `dyn_max_abs_yaw_rate`, `static_ref_gate` | provisional/static/dynamic 판정 |
 | 레이어 병합 | `layer_merge_enable`, `layer_merge_gap_s/d` | tracking 후 같은 레이어 객체 병합 |
 | 진단 | `diagnostics_enable`, `diagnostics_period_sec` | 누적 perception INFO 로그 활성화와 주기 |
 
@@ -283,6 +305,7 @@ source ~/2026_IFAC/install/setup.zsh
 python3 ~/2026_IFAC/src/obstacle_detector/test/synthetic_opponent_test.py
 ```
 
-PASS 조건은 동적 상대차가 `/opp_obs`에 나타나고, 정적 장애물이 `/static_obs`에만 나타나며,
+PASS 조건은 동적 상대차가 먼저 `/static_obs`에 provisional로 나타난 뒤 같은 ID로 `/opp_obs`에
+이동하고, 정적 장애물이 `/static_obs`에만 나타나며,
 5포인트 미만 LiDAR 파편들이 tracking 전에 하나의 detection으로 복원되고, 별도 track으로 남은
 조각난 정적 물체도 layer merge에서 하나의 출력 객체로 병합되는 것이다.

@@ -68,7 +68,20 @@ install(DIRECTORY
 )
 
 if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
   find_package(ament_lint_auto REQUIRED)
+
+  ament_add_gtest(test_obstacle_tracker
+    test/test_obstacle_tracker.cpp
+    src/obstacle_tracker.cpp
+    src/frenet_projector.cpp
+  )
+  target_include_directories(test_obstacle_tracker PRIVATE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  )
+  target_link_libraries(test_obstacle_tracker Eigen3::Eigen)
+  ament_target_dependencies(test_obstacle_tracker global_planning)
+
   ament_lint_auto_find_test_dependencies()
 endif()
 

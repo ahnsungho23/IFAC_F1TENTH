@@ -27,6 +27,8 @@ local_planner_node:
     post_merge_min_time_sec: 1.0
     minimum_target_offset_m: 0.20
     maximum_target_offset_m: 1.50
+    # 최초 경로를 검증 AABB보다 더 바깥에 두어 작은 AABB 흔들림을 commitment가 흡수합니다.
+    commitment_clearance_reserve_m: 0.05
 
     # 이동된 글로벌 점의 기하학적 주행 가능성 검사입니다.
     maximum_lateral_slope: 0.65
@@ -59,12 +61,23 @@ local_planner_node:
     merge_lateral_tolerance_m: 0.15
     # planning_period_ms=25이므로 15회는 0.375초입니다.
     merge_confirm_cycles: 15
+    # safe-stop 진입은 즉시 수행하고, 8회(0.2초) 연속 안전할 때만 해제합니다.
+    safe_stop_release_cycles: 8
     planning_period_ms: 25
-    # state_machine 코드를 바꾸지 않고 기존 "배열 마지막 10%" 합류 게이트를 만족시킵니다.
-    # 기하 합류 후 전체 global loop를 회전해 ego를 마지막 10% 시작점에 놓고 GLOBAL 확인까지 발행합니다.
-    # state_handoff_tail_ratio는 state_machine의 enter_global_tail_ratio와 같게 유지합니다.
+    # 기하 합류 후 전체 global loop를 회전해 발행합니다. state_machine은 ot_line의
+    # raceline_global_handoff 표식을 우선 사용하며, 이 비율은 기존 tail 판정 호환용입니다.
     state_handoff_tail_ratio: 0.10
     state_handoff_speed_cap_mps: 6.0
+
+    # 첫 blocking cluster는 즉시 횡이동하지 않고 준비 감속 경로로 잠깐 관측합니다.
+    # 새 ID가 붙거나 AABB 합집합이 3 cm 이상 넓어지면 안정화 시간을 다시 셉니다.
+    initial_cluster_stabilization_sec: 0.20
+    initial_cluster_max_wait_sec: 0.35
+    cluster_envelope_change_threshold_m: 0.03
+    # 아래 횡/종방향 조건 중 하나에 도달하기 전에는 새 장애물 때문에 기존 방향이
+    # 불가능해졌을 때 반대편을 한 번 더 평가합니다. 실제 회피 진입 뒤에는 방향을 고정합니다.
+    commitment_lock_lateral_threshold_m: 0.10
+    commitment_lock_longitudinal_m: 0.50
 
     # wpnt_publisher가 /avoid_waypoints를 /local_waypoints로 선택하므로 기본 중복 발행은 끕니다.
     publish_standalone_local: false

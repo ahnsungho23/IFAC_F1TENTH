@@ -15,24 +15,37 @@
 
 - Runtime code is C++17 for ROS 2 Humble.
 - Use `f110_msgs/msg/ObstacleArray`, `WpntArray`, and `OTWpntArray`; do not create a new message.
-- Consume map-frame Cartesian obstacle centers and enclosing-circle radii from
-  `obstacle_detector` Layer 2 on `/static_obs`. Project each center through the shared CLCS converter,
-  then use the same radius as its longitudinal and lateral Frenet extent before selecting the
-  nearest blocking obstacle cluster and evaluating both sides.
-- Derive each target `d` from the obstacle lateral bound plus configured clearance. Reject targets
-  outside the per-waypoint `d_left`/`d_right` track widths.
+- Consume map-frame Cartesian AABBs from `obstacle_detector` Layer 2 on `/static_obs`. Project each
+  AABB center through the shared CLCS converter to lock the correct track branch. Compute the exact
+  shortest distance from the AABB faces to the ordered global-race-line polyline only inside that
+  branch's local longitudinal window; use it for the race-line-facing Frenet bound and blocking
+  decision. Keep the centre-tangent four-corner envelope for the far bound and longitudinal extent
+  used by avoidance construction.
+- Derive each target `d` from the obstacle lateral bound plus configured clearance and the small
+  commitment reserve. Reject targets outside the per-waypoint `d_left`/`d_right` track widths.
 - Fit the local offset in unwrapped global Frenet `s`, clip cubic overshoot to the control-point
   extrema, and convert each selected global waypoint with its own normal. Preserve `s_m` and order.
 - Validate lateral slope, recomputed Cartesian curvature, curvature rate, obstacle clearance, and
   track-bound clearance before publishing.
-- Prefer a committed side while it remains feasible. Keep a validated commitment until its tail
-  merges at `d=0`, even if perception drops the passed obstacle.
+- Before the first lateral commitment, publish `ot_line=raceline_static_prepare` with a validated
+  braking prefix while collecting the nearest cluster's IDs and conservative Cartesian AABB union.
+  Reset the stabilization timer on a new cluster ID or meaningful envelope expansion, but use the
+  configured maximum wait as an upper bound. An obstacle already inside the stop buffer bypasses
+  this wait and enters safe-stop immediately.
+- Freeze committed path geometry while its remaining forward portion is still valid against the
+  latest AABBs. Replan only after that validation fails. A side may be reselected before the
+  configured lateral/longitudinal engagement threshold, then it is locked for the rest of the
+  maneuver. Keep the commitment until its tail merges at `d=0`, even if perception drops the passed
+  obstacle.
 - Append a speed-aware ordered global `d=0` tail after the spline merge. After geometric merge,
-  publish one rotated full global loop with ego at the start of the final state-machine tail ratio.
-  Continue that non-empty handoff path until `/state` has entered `STATE_AVOID` for the commitment
-  and subsequently confirms `STATE_GLOBAL`. Do not modify state-machine behavior for this handoff.
+  publish a full global loop with `ot_line=raceline_global_handoff`. Continue that non-empty
+  handoff path until `/state` has entered `STATE_AVOID` for the commitment and subsequently
+  confirms `STATE_GLOBAL`.
 - If neither side is safe, publish only a collision-checked gradual-stop prefix before the obstacle.
-  Never publish an unvalidated avoidance path merely to keep `/avoid_waypoints` non-empty.
+  Latch safe-stop immediately and release it only after the configured number of consecutive safe
+  plans. If no forward stop prefix exists, publish a zero-speed hold path rather than an empty path
+  that would fall back to global. Never publish an unvalidated moving avoidance path merely to keep
+  `/avoid_waypoints` non-empty.
 - Recompute heading, curvature, velocity, and acceleration after applying `d(s)`.
 - Handle closed-track `s` wrap explicitly. Never encode a waypoint index in Frenet odometry fields.
 
@@ -40,7 +53,9 @@
 
 - Subscribe: `/global_waypoints` (`f110_msgs/msg/WpntArray`).
 - Subscribe: `/static_obs` (`f110_msgs/msg/ObstacleArray`); each obstacle
-  must set `has_cartesian=true` and provide `x_center`, `y_center`, and a positive `radius`.
+  must set `has_cartesian=true` and provide finite, ordered `x_min`, `x_max`, `y_min`, and `y_max`
+  fields forming a non-point AABB. The enclosing `radius` remains message metadata and is not used
+  as the planner geometry.
 - Subscribe: `/car_state/frenet/odom` (`nav_msgs/msg/Odometry`), with `position.x=s` and
   `position.y=d`.
 - Subscribe: `/state` (`f110_msgs/msg/StateMachine`) for explicit AVOID-to-GLOBAL handoff
@@ -60,11 +75,21 @@
 - Launch entrypoint: `launch/local_planning.launch.py`.
 - Korean node documentation: `docs/local_planner.md`.
 - Algorithm tests: `test/test_raceline_spline.cpp`, including the wrong-branch snake regression.
+- AABB projection tests: `test/test_aabb_frenet_projector.cpp`, including independent longitudinal
+  and lateral extents, a rotated track frame, and curved-race-line closest-face distance.
 - Manual Cartesian contract harness: `test/cartesian_static_pipeline_test.py`; run it against a
   fresh `local_planner_node` with a `global_waypoints.csv` path.
+- Initial-cluster harness: `test/initial_cluster_stabilization_pipeline_test.py`; run it against a
+  fresh `local_planner_node` to verify that a late adjacent ID resets stabilization and affects the
+  first committed side.
+- Pre-engagement switch harness: `test/pre_engagement_side_switch_pipeline_test.py`; keep ego before
+  both lock thresholds and verify that an invalidated side is replaced directly by the other side.
 - End-to-end detector harness: `test/static_obs_pipeline_test.py`; run it while
   `obstacle_detector_node` and `local_planner_node` are active to verify
   `/scan -> /static_obs -> /avoid_waypoints`.
+- Safe-stop/state harness: `test/safe_stop_latch_pipeline_test.py`; run it with
+  `local_planner_node`, `state_machine_node`, and `wpnt_publisher` to verify the same-ID
+  avoidance-to-stop latch, delayed release, and `/local_waypoints` forwarding contract.
 - Keep all runtime values configurable in YAML and load that YAML from the launch file.
 - Update this file and the Korean documentation when behavior, topics, parameters, or launch usage
   changes.

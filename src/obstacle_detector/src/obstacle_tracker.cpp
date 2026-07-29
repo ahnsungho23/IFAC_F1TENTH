@@ -127,47 +127,82 @@ void ObstacleTracker::kalmanUpdate(Track &t, const Detection &detection) const
     }
 }
 
-void ObstacleTracker::classify(Track &t) const
+double ObstacleTracker::velocityMahalanobisSquared(
+    const Track &t, double rel_vs, double rel_vd) const
 {
-    // ---- velocity-based vote: flow RELATIVE to the map-flow reference, with hysteresis ----
-    // Walls (removed by the Layer-1 map filter) and stationary obstacles all flow with the map
-    // (static_ref_*). A track that flows WITH the map is static (Layer 2); one that clearly
-    // deviates is the dynamic opponent (Layer 3) — a same-direction opponent is the one that flows
-    // "slower" than the walls in the ego frame. Comparing to the map-flow reference (not absolute
-    // zero) cancels common ego-localization drift, so a car-sized stationary obstacle is not
-    // mistaken for the opponent.
-    bool vel_dynamic = t.is_static ? false : true;  // start from current label
+    Eigen::Matrix2d velocity_covariance;
+    velocity_covariance << t.P(1, 1), t.P(1, 3),
+                           t.P(3, 1), t.P(3, 3);
+    const Eigen::LDLT<Eigen::Matrix2d> solver(velocity_covariance);
+    if (solver.info() != Eigen::Success || !solver.isPositive())
+    {
+        return 0.0;
+    }
+
+    const Eigen::Vector2d relative_velocity(rel_vs, rel_vd);
+    const Eigen::Vector2d solved = solver.solve(relative_velocity);
+    if (solver.info() != Eigen::Success || !solved.allFinite())
+    {
+        return 0.0;
+    }
+    return std::max(0.0, relative_velocity.dot(solved));
+}
+
+void ObstacleTracker::classify(
+    Track &t, double ego_yaw_rate, bool yaw_rate_fresh) const
+{
+    // Detection confirmation and motion classification deliberately use separate state machines.
+    // Hits 1..(min_hits_confirm-1) are completely hidden. The confirming observation publishes the
+    // track immediately as provisional static, then later observations collect motion evidence.
+    if (!t.classified)
+    {
+        t.motion_class = MotionClass::Pending;
+        t.is_static = true;
+        t.dyn_streak = 0;
+        t.static_streak = 0;
+        t.relative_speed = 0.0;
+        t.velocity_mahalanobis_sq = 0.0;
+        t.dynamic_motion_reliable = false;
+        if (t.is_visible && t.hits >= std::max(1, p_.min_hits_confirm))
+        {
+            t.classified = true;
+            t.motion_class = MotionClass::ProvisionalStatic;
+        }
+        return;
+    }
+
+    // Evidence must come from consecutive measurements, never from prediction-only frames.
+    if (!t.is_visible)
+    {
+        t.dyn_streak = 0;
+        t.static_streak = 0;
+        t.dynamic_motion_reliable = false;
+        t.is_static = t.motion_class != MotionClass::Dynamic;
+        return;
+    }
+
+    // ---- velocity evidence: flow RELATIVE to the map-flow reference, with hysteresis ----
     const double rel_vs = t.vs() - static_ref_vs_;
     const double rel_vd = t.vd() - static_ref_vd_;
     const double rel_speed = std::hypot(rel_vs, rel_vd);
-    if (rel_speed > p_.dyn_vel_enter)
-    {
-        t.dyn_streak++;
-        t.static_streak = 0;
-    }
-    else if (rel_speed < p_.dyn_vel_exit)
-    {
-        t.static_streak++;
-        t.dyn_streak = 0;
-    }
-    if (t.dyn_streak >= p_.dyn_min_frames)
-    {
-        vel_dynamic = true;
-        t.classified = true;  // a dynamic vote has been confirmed
-    }
-    if (t.static_streak >= p_.dyn_min_frames)
-    {
-        vel_dynamic = false;
-        t.classified = true;  // a static vote has been confirmed
-    }
-    // low relative-speed backstop (moving with the static field -> static)
-    if (std::abs(rel_vs) < p_.vs_reset && std::abs(rel_vd) < p_.vs_reset)
-    {
-        vel_dynamic = false;
-    }
+    t.relative_speed = rel_speed;
+    t.velocity_mahalanobis_sq = velocityMahalanobisSquared(t, rel_vs, rel_vd);
+
+    const bool yaw_reliable =
+        yaw_rate_fresh && std::isfinite(ego_yaw_rate) &&
+        (p_.dyn_max_abs_yaw_rate <= 0.0 ||
+         std::abs(ego_yaw_rate) <= p_.dyn_max_abs_yaw_rate);
+    const bool velocity_confident =
+        p_.dyn_velocity_mahalanobis_gate <= 0.0 ||
+        t.velocity_mahalanobis_sq >= p_.dyn_velocity_mahalanobis_gate;
+    const bool vel_dynamic =
+        rel_speed > p_.dyn_vel_enter && velocity_confident && yaw_reliable;
+    const bool vel_static = rel_speed < p_.dyn_vel_exit;
+    t.dynamic_motion_reliable = vel_dynamic;
 
     // ---- positional-spread vote (ForzaETH style) ----
-    bool std_dynamic = !t.is_static;
+    bool std_dynamic = false;
+    bool std_static = false;
     const bool uses_std_classifier = p_.classifier_mode != ClassifierMode::Velocity;
     if (uses_std_classifier && static_cast<int>(t.hist.size()) >= p_.min_nb_meas)
     {
@@ -195,7 +230,7 @@ void ObstacleTracker::classify(Track &t) const
         const double std_d = std::sqrt(var_d);
         if (std_s < p_.min_std && std_d < p_.min_std)
         {
-            std_dynamic = false;
+            std_static = true;
         }
         else if (std_s > p_.max_std || std_d > p_.max_std)
         {
@@ -203,19 +238,65 @@ void ObstacleTracker::classify(Track &t) const
         }
     }
 
+    bool dynamic_evidence = false;
+    bool static_evidence = false;
     switch (p_.classifier_mode)
     {
         case ClassifierMode::Velocity:
-            t.is_static = !vel_dynamic;
+            dynamic_evidence = vel_dynamic;
+            static_evidence = vel_static;
             break;
         case ClassifierMode::Std:
-            t.is_static = !std_dynamic;
+            dynamic_evidence = std_dynamic && yaw_reliable;
+            static_evidence = std_static;
             break;
         case ClassifierMode::Both:
-            // dynamic only when both agree (conservative)
-            t.is_static = !(vel_dynamic && std_dynamic);
+            dynamic_evidence = vel_dynamic && std_dynamic;
+            static_evidence = vel_static || std_static;
             break;
     }
+
+    if (dynamic_evidence)
+    {
+        ++t.dyn_streak;
+        t.static_streak = 0;
+    }
+    else if (static_evidence)
+    {
+        ++t.static_streak;
+        t.dyn_streak = 0;
+    }
+    else
+    {
+        // The hysteresis band, weak velocity confidence, and rapid/stale ego yaw all break a
+        // consecutive-evidence streak rather than silently accumulating ambiguous observations.
+        t.dyn_streak = 0;
+        t.static_streak = 0;
+    }
+
+    const int static_frames = std::max(1, p_.static_confirm_frames);
+    const int dynamic_frames = std::max(1, p_.dynamic_confirm_frames);
+    if (t.motion_class == MotionClass::Dynamic)
+    {
+        if (t.static_streak >= static_frames)
+        {
+            t.motion_class = MotionClass::ConfirmedStatic;
+            t.static_streak = 0;
+        }
+    }
+    else if (t.dyn_streak >= dynamic_frames)
+    {
+        t.motion_class = MotionClass::Dynamic;
+        t.dyn_streak = 0;
+    }
+    else if (t.motion_class == MotionClass::ProvisionalStatic &&
+             t.static_streak >= static_frames)
+    {
+        t.motion_class = MotionClass::ConfirmedStatic;
+        t.static_streak = 0;
+    }
+
+    t.is_static = t.motion_class != MotionClass::Dynamic;
 }
 
 void ObstacleTracker::updateStaticReference()
@@ -251,7 +332,9 @@ void ObstacleTracker::updateStaticReference()
     }
 }
 
-void ObstacleTracker::update(const std::vector<Detection> &detections, double stamp)
+void ObstacleTracker::update(
+    const std::vector<Detection> &detections, double stamp,
+    double ego_yaw_rate, bool yaw_rate_fresh)
 {
     last_stats_ = TrackerUpdateStats{};
 
@@ -397,7 +480,7 @@ void ObstacleTracker::update(const std::vector<Detection> &detections, double st
     updateStaticReference();
     for (auto &t : tracks_)
     {
-        classify(t);
+        classify(t, ego_yaw_rate, yaw_rate_fresh);
         if (t.is_visible)  // matched or freshly spawned this frame
         {
             t.ttl = t.is_static ? p_.ttl_static : p_.ttl_dynamic;
@@ -428,13 +511,22 @@ void ObstacleTracker::update(const std::vector<Detection> &detections, double st
         {
             ++last_stats_.classification_pending;
         }
-        else if (t.is_static)
+        else if (t.motion_class == MotionClass::ProvisionalStatic)
+        {
+            ++last_stats_.provisional_static;
+        }
+        else if (t.motion_class == MotionClass::ConfirmedStatic)
         {
             ++last_stats_.confirmed_static;
         }
-        else
+        else if (t.motion_class == MotionClass::Dynamic)
         {
             ++last_stats_.confirmed_dynamic;
+        }
+        if (t.is_visible && t.relative_speed > p_.dyn_vel_enter &&
+            !t.dynamic_motion_reliable)
+        {
+            ++last_stats_.dynamic_motion_gated;
         }
     }
 }

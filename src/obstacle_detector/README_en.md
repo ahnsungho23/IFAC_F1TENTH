@@ -17,7 +17,7 @@ waypoints, or publish driving state.
   → size, viewing-window, track-boundary, and occupancy-map filters
   → range-, sparsity-, and yaw-rate-adaptive measurement covariance
   → constant-velocity Frenet Kalman tracking
-  → static/dynamic classification
+  → Pending / ProvisionalStatic / ConfirmedStatic / Dynamic classification
   → same-layer object merge
   → visible-track Cartesian AABB union, centre, and enclosing radius
   → one-second accumulated perception diagnostics
@@ -27,11 +27,16 @@ waypoints, or publish driving state.
 ```
 
 - Layer 1 removes walls and known map structure and is not published.
-- Layer 2 publishes every confirmed non-map stationary object on `/static_obs`.
+- Layer 2 publishes every provisional or confirmed non-map stationary object on `/static_obs`.
 - Layer 3 publishes at most one nearest-ahead confirmed dynamic object on `/opp_obs`.
 
 Both layer topics use `f110_msgs/msg/ObstacleArray` and are published on every scan, including
 empty arrays.
+
+With the defaults, hits 1-2 remain unpublished. Hit 3 publishes the track immediately as
+provisional static. After three additional consecutive low-relative-speed measurements it becomes
+confirmed static without changing ID. A track moves to `/opp_obs` only after 25 consecutive motion
+measurements also pass the velocity-uncertainty and ego-yaw reliability gates.
 
 Every visible object sets `has_cartesian=true` and provides its map-frame AABB, AABB centre, and
 enclosing-circle radius. A predicted-only object keeps its Frenet state but sets

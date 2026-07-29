@@ -15,7 +15,9 @@ missing ray; neither fragment reaches min_cluster_points alone. Then it checks t
   * every visible output has a finite Cartesian AABB, AABB centre, and enclosing-circle radius;
   * the layer-merged fragmented object publishes the union of both Cartesian AABBs;
   * a predicted-only track keeps its Frenet state but does not publish its stale Cartesian AABB;
-  * the stationary object NEVER leaks into /opp_obs (and the opponent never leaks into /static_obs);
+  * the moving object is first published provisionally on /static_obs, then moves to /opp_obs with
+    the same stable ID and never returns to /static_obs;
+  * the stationary object NEVER leaks into /opp_obs;
   * the per-layer merge folds the fragmented object into ONE /static_obs entry whose d-envelope
     covers BOTH fragments (never two simultaneous entries).
 
@@ -142,7 +144,10 @@ class Harness(Node):
         self.saw_static = False        # stationary obstacle present in /static_obs
         self.static_size = 0.0
         self.static_wrongly_dynamic = False   # stationary obstacle leaked into /opp_obs
-        self.opp_wrongly_static = False        # opponent leaked into /static_obs
+        self.saw_opp_provisional_static = False
+        self.opp_static_after_dynamic = False
+        self.provisional_opp_ids = set()
+        self.dynamic_id_continuity = False
         self.opp_populated = False             # /opp_obs carried at least one obstacle
         self.saw_frag_merged = False   # fragmented object seen as ONE entry covering both facets
         self.max_frag_entries = 0      # max SIMULTANEOUS /static_obs entries in the fragment region
@@ -303,8 +308,11 @@ class Harness(Node):
                 self.saw_pretracking_merge = True
                 self.premerge_position_var = ob.s_var + ob.d_var
             elif abs(ob.d_center) < 0.5:
-                # the opponent's lane (near d=0) must NOT appear in the static layer
-                self.opp_wrongly_static = True
+                # At hit 3 every detected object is intentionally published as provisional static.
+                self.saw_opp_provisional_static = True
+                self.provisional_opp_ids.add(ob.id)
+                if self.saw_dynamic:
+                    self.opp_static_after_dynamic = True
         self.max_frag_entries = max(self.max_frag_entries, frag_entries)
         self.max_premerge_entries = max(self.max_premerge_entries, premerge_entries)
 
@@ -335,6 +343,8 @@ class Harness(Node):
             elif not ob.is_static and abs(ob.vs) > 0.3:
                 self.saw_dynamic = True
                 self.max_dyn_vs = max(self.max_dyn_vs, abs(ob.vs))
+                if ob.id in self.provisional_opp_ids:
+                    self.dynamic_id_continuity = True
 
     def finish(self):
         print("\n================ SYNTHETIC OBSTACLE TEST RESULT ================", flush=True)
@@ -343,7 +353,12 @@ class Harness(Node):
         print(f"  car-sized static obstacle on /static_obs:                 {self.saw_static}", flush=True)
         print(f"  static obstacle box size (AABB diag) [m]:                 {self.static_size:.2f}  (0.5x0.5 -> ~0.71)", flush=True)
         print(f"  static obstacle NEVER leaked into /opp_obs:               {not self.static_wrongly_dynamic}", flush=True)
-        print(f"  opponent NEVER leaked into /static_obs:                   {not self.opp_wrongly_static}", flush=True)
+        print(f"  opponent first appeared as provisional /static_obs:       "
+              f"{self.saw_opp_provisional_static}", flush=True)
+        print(f"  provisional -> dynamic kept the same ID:                  "
+              f"{self.dynamic_id_continuity}", flush=True)
+        print(f"  dynamic opponent NEVER returned to /static_obs:           "
+              f"{not self.opp_static_after_dynamic}", flush=True)
         print(f"  /opp_obs populated at least once:                         {self.opp_populated}", flush=True)
         print(f"  one-frame 0.45 m outlier injected:                        {self.outlier_injected}", flush=True)
         print(f"  max confirmed static-track s deviation [m]:               "
@@ -366,7 +381,8 @@ class Harness(Node):
         print(f"  fragmented object merged into ONE /static_obs entry:      {self.saw_frag_merged} "
               f"(max simultaneous entries in region: {self.max_frag_entries})", flush=True)
         self.ok = (self.saw_dynamic and self.saw_static and not self.static_wrongly_dynamic
-                   and not self.opp_wrongly_static and self.static_size > 0.5
+                   and self.saw_opp_provisional_static and self.dynamic_id_continuity
+                   and not self.opp_static_after_dynamic and self.static_size > 0.5
                    and self.opp_populated and abs(self.max_dyn_vs - OPP_SPEED) < 0.6
                    and self.outlier_injected and self.static_baseline_s is not None
                    and self.max_static_s_deviation < 0.10

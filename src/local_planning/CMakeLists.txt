@@ -23,6 +23,7 @@ include_directories(
 )
 
 add_library(local_planner_core STATIC
+  src/aabb_frenet_projector.cpp
   src/local_planner_node.cpp
   src/raceline_spline_planner.cpp
 )
@@ -70,6 +71,14 @@ if(BUILD_TESTING)
       f110_msgs
     )
     target_link_libraries(test_raceline_spline local_planner_core)
+  endif()
+
+  ament_add_gtest(test_aabb_frenet_projector test/test_aabb_frenet_projector.cpp)
+  if(TARGET test_aabb_frenet_projector)
+    ament_target_dependencies(test_aabb_frenet_projector
+      global_planning
+    )
+    target_link_libraries(test_aabb_frenet_projector local_planner_core)
   endif()
 endif()
 

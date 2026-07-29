@@ -27,7 +27,13 @@ State machine package rules. These instructions apply to `src/state_machine`.
     local path (default 3-of-5); stale freshness is not an entry gate. AVOID has priority.
   - `enter_to_global()` (+ `evaluate_enter_to_global()` entry point): AVOID/OVERTAKE→GLOBAL graceful merge-back judgment.
   - `resolve_requested_state()`: the FSM 1-step. It reads/updates `committed_state_` and returns the state to publish. No dwell, no separate safety fallback — the state changes only when an entry or merge-back condition fires.
-- `enter_to_global()` assumes the **segment publishing convention**: local paths (`/avoid_waypoints`, `/overtake_waypoints`) are ego→merge segments in global-raceline frenet coordinates (`s_m`/`d_m`), tail converging to d→0. As of 2026-07-13 `local_planning` still publishes a full-loop copy — until it is converted, the avoid-side merge judgment is inaccurate.
+- `enter_to_global()` normally uses the local-path tail in global-raceline Frenet coordinates.
+  For static avoidance, `ot_line=raceline_global_handoff` explicitly confirms that local planning
+  reached its merge geometry, so global re-entry waits only for the existing continuous `d≈0`
+  confirmation instead of waiting to encounter a frozen full-loop tail again.
+- `ot_line=raceline_static_prepare` and `ot_line=raceline_static_safe_stop` are braking/stop
+  contracts, not completed merges. Reset the global re-entry timer and keep `STATE_AVOID` while
+  either line is active.
 - Keep refinements (dynamic obstacle prediction, score-based hysteresis) as TODOs.
 
 ## Parameters, Launch, Docs

@@ -55,6 +55,14 @@ enum class ClassifierMode
     Both
 };
 
+enum class MotionClass
+{
+    Pending,
+    ProvisionalStatic,
+    ConfirmedStatic,
+    Dynamic
+};
+
 struct TrackerParams
 {
     // Kalman noise
@@ -69,14 +77,16 @@ struct TrackerParams
     double assoc_mahalanobis_gate{9.21};  // chi-square gate, 2 DoF (99%)
     // track lifetime
     int ttl_dynamic{40};
-    int ttl_static{3};
+    int ttl_static{25};
     int min_hits_confirm{3};      // measurements before a track is reported
     // classification
     ClassifierMode classifier_mode{ClassifierMode::Velocity};
     double dyn_vel_enter{0.5};    // [m/s] flow deviation from the map-flow ref to become dynamic
     double dyn_vel_exit{0.25};    // [m/s] flow deviation to fall back to static (hysteresis)
-    int dyn_min_frames{3};        // sustained frames before flipping the label
-    double vs_reset{0.1};         // [m/s] flow-deviation backstop -> force static
+    int static_confirm_frames{3};   // extra low-speed observations after provisional publication
+    int dynamic_confirm_frames{25}; // consecutive reliable moving observations before promotion
+    double dyn_velocity_mahalanobis_gate{9.21};  // 2-DoF velocity-confidence threshold
+    double dyn_max_abs_yaw_rate{1.5};  // [rad/s] freeze dynamic evidence above this ego yaw rate
     // map-flow reference velocity: walls and stationary obstacles all stream past the ego at one
     // shared apparent velocity (the "map flow"; -v_ego in the ego frame, ~0 in world Frenet plus
     // any ego-localization drift). Each track is classified by its flow RELATIVE to this reference,
@@ -100,13 +110,16 @@ struct Track
     int ttl{0};
     bool is_static{true};
     bool is_visible{false};
-    // A fresh track defaults to is_static=true BEFORE any classification vote has confirmed a
-    // label. `classified` gates layer reporting so a not-yet-confirmed dynamic opponent does not
-    // leak into the static layer during its first frames — it is reported only once a static OR a
-    // dynamic vote has been confirmed (a streak reached dyn_min_frames).
+    // `classified` means the track has passed min_hits_confirm and may be published. It first
+    // enters ProvisionalStatic so a physical obstacle is available to local planning immediately;
+    // motion_class records the separate static/dynamic confidence state.
     bool classified{false};
+    MotionClass motion_class{MotionClass::Pending};
     int dyn_streak{0};
     int static_streak{0};
+    double relative_speed{0.0};
+    double velocity_mahalanobis_sq{0.0};
+    bool dynamic_motion_reliable{false};
     double size{0.0};
     // Last measured map-frame Cartesian AABB. It is retained for the next matched update, but
     // consumers must use it only while is_visible=true; prediction updates Frenet state, not this
@@ -138,8 +151,10 @@ struct TrackerUpdateStats
     std::size_t visible_tracks{0};
     std::size_t hit_confirmation_pending{0};
     std::size_t classification_pending{0};
+    std::size_t provisional_static{0};
     std::size_t confirmed_static{0};
     std::size_t confirmed_dynamic{0};
+    std::size_t dynamic_motion_gated{0};
 };
 
 class ObstacleTracker
@@ -150,7 +165,8 @@ class ObstacleTracker
     void configure(const TrackerParams &params, const FrenetProjector *frenet);
 
     // Predict all tracks to `stamp`, associate detections, update, spawn/retire, classify.
-    void update(const std::vector<Detection> &detections, double stamp);
+    void update(const std::vector<Detection> &detections, double stamp,
+                double ego_yaw_rate = 0.0, bool yaw_rate_fresh = true);
 
     const std::vector<Track> &tracks() const { return tracks_; }
     const TrackerUpdateStats &lastStats() const { return last_stats_; }
@@ -164,9 +180,10 @@ class ObstacleTracker
     void predict(Track &t, double dt) const;
     Eigen::Matrix2d measurementCovariance(const Detection &detection) const;
     double innovationDistanceSquared(const Track &t, const Detection &detection) const;
+    double velocityMahalanobisSquared(const Track &t, double rel_vs, double rel_vd) const;
     void kalmanUpdate(Track &t, const Detection &detection) const;
     void updateStaticReference();
-    void classify(Track &t) const;
+    void classify(Track &t, double ego_yaw_rate, bool yaw_rate_fresh) const;
     double frenetDistSquared(double s1, double d1, double s2, double d2) const;
 
     TrackerParams p_;

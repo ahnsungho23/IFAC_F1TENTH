@@ -13,6 +13,10 @@ namespace state_machine
 namespace
 {
 
+constexpr char kGlobalHandoffLine[] = "raceline_global_handoff";
+constexpr char kStaticPrepareLine[] = "raceline_static_prepare";
+constexpr char kStaticSafeStopLine[] = "raceline_static_safe_stop";
+
 //닫힌 트랙에서의 순환 s 거리(전방/후방 중 짧은 쪽). NaN 입력 시 NaN 반환 -> 비교에서 안전하게 false.
 double circular_s_distance(double a, double b, double track_length)
 {
@@ -281,6 +285,14 @@ bool StateMachineNode::enter_to_global(
     enter_global_ok_since_.reset();
     return false;
   }
+  // A safe-stop path intentionally ends on d=0 before a still-blocking obstacle. Its tail must
+  // never be mistaken for a completed avoidance merge, or waypoint selection falls back to global.
+  if (local_wpnts->ot_line == kStaticPrepareLine ||
+    local_wpnts->ot_line == kStaticSafeStopLine)
+  {
+    enter_global_ok_since_.reset();
+    return false;
+  }
   const double track_length = track_length_from(*global_wpnts);
   if (!(track_length > 0.0)) {
     enter_global_ok_since_.reset();
@@ -314,12 +326,14 @@ bool StateMachineNode::enter_to_global(
 
   //3) s-gap 게이트: ego가 실제로 tail 구간에 도달했을 때만 판정. (F2/F3: 조기 복귀 방지)
   const bool reached_tail = best_gap <= enter_global_s_gap_tol_m_;
+  //local planner가 실제 merge를 확인한 handoff 단계에서는 고정 tail 재진입을 기다리지 않는다.
+  const bool planner_handoff = local_wpnts->ot_line == kGlobalHandoffLine;
   //4) local tail의 d와 ego d 일치 (원안 조건 1).
   const bool matches_local_tail = std::abs(best_d - ego_d) <= enter_global_threshold_;
   //5) ego가 global 라인 위 (원안 조건 2; global d_m이 0이므로 |ego_d| 비교와 동치).
   const bool on_global_line = std::abs(ego_d) <= enter_global_threshold_;
 
-  if (!(reached_tail && matches_local_tail && on_global_line)) {
+  if (!((planner_handoff || reached_tail) && matches_local_tail && on_global_line)) {
     enter_global_ok_since_.reset();
     return false;
   }

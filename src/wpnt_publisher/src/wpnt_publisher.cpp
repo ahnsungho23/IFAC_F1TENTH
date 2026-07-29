@@ -233,9 +233,6 @@ void onOTWpnts(const f110_msgs::msg::OTWpntArray::SharedPtr msg)
     local.header = ot.header;
     local.header.stamp = this->now(); // 퍼블리시 시각으로 갱신(선택)
     local.wpnts = ot.wpnts;
-    for (auto &w : local.wpnts) {
-      w.vx_mps *= 1.0;
-    }
     local_pub_->publish(local);
     nav_msgs::msg::Path local_path = buildPathFromWpnts(local);
     local_path_pub_->publish(local_path);

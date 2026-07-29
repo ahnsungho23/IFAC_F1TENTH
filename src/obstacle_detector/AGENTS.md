@@ -8,8 +8,8 @@ must not weaken the repository-root `AGENTS.md`.
 This package contains one C++ ROS 2 Humble runtime node:
 
 - `obstacle_detector_node` (ROS node name `obstacle_detector`) consumes 2D LiDAR, the occupancy
-  map, global waypoints, ego odometry, and TF. It publishes confirmed stationary objects on
-  `/static_obs` and the nearest confirmed dynamic opponent on `/opp_obs`.
+  map, global waypoints, ego odometry, and TF. It publishes provisional/confirmed stationary
+  objects on `/static_obs` and the nearest confirmed dynamic opponent on `/opp_obs`.
 
 Path planning, overtaking, avoidance-waypoint generation, and driving-state arbitration are
 explicitly outside this package. Do not add an overtake planner, `/state`, `/avoid_waypoints`,
@@ -46,7 +46,10 @@ Keep the scan-driven pipeline ordered as follows:
     `[s, vs, d, vd]`. Associate with the existing physical Frenet hard gate, then the
     detection-specific Mahalanobis gate, then deterministic Frenet-distance-ordered greedy 1:1
     assignment. Mahalanobis is a gate, not the sorting cost.
-11. Classify tracks relative to the measured static-field velocity.
+11. Keep hits below `min_hits_confirm` in `Pending` and out of both obstacle topics. At the
+    confirming hit, publish the same track/ID immediately as `ProvisionalStatic`. Promote it to
+    `ConfirmedStatic` after consecutive low-relative-speed observations, or to `Dynamic` only
+    after consecutive velocity-confident motion observations with fresh, bounded ego yaw rate.
 12. Merge confirmed tracks only within the same static/dynamic layer.
 13. Preserve each measured cluster's map-frame Cartesian AABB through Detection and Track. For
     each same-layer component, union only currently visible member AABBs and publish the union's
@@ -69,11 +72,13 @@ Cartesian-to-Frenet projection must use the exported `global_planning` CLCS conv
 ## Layer semantics
 
 - Layer 1 is the `/map` and corridor filter. It is never published.
-- Layer 2 is every confirmed non-map stationary object, published with `is_static=true`.
+- Layer 2 is every provisional or confirmed non-map stationary object, published with
+  `is_static=true`.
 - Layer 3 is the nearest confirmed dynamic object ahead of the ego, published with
   `is_static=false`.
-- A fresh track defaults to static internally but must not be published until its `classified`
-  flag is true.
+- A fresh track must not be published until `min_hits_confirm` sets its `classified` flag. The
+  first publishable state is `ProvisionalStatic`; promotion to `ConfirmedStatic` preserves the
+  track ID and must not interrupt `/static_obs`.
 - Merge tracks only within one layer. Never merge static and dynamic tracks together.
 - Cartesian AABB union affects the output footprint and markers, not the existing wrap-aware
   Frenet merge decision or Frenet envelope.
@@ -112,6 +117,7 @@ Cartesian-to-Frenet projection must use the exported `global_planning` CLCS conv
 - `docs/obstacle_detector_node.md` — Korean operation documentation.
 - `docs/sim_test_commands.md` — Korean detector test procedure.
 - `test/synthetic_opponent_test.py` — synthetic layer-classification and merge harness.
+- `test/test_obstacle_tracker.cpp` — motion-state transition and ID-continuity unit tests.
 
 ## Verification
 
@@ -119,6 +125,7 @@ Cartesian-to-Frenet projection must use the exported `global_planning` CLCS conv
 - Confirm that only `obstacle_detector_node` is installed by this package.
 - Launch in an isolated `ROS_DOMAIN_ID` and verify clean startup and shutdown.
 - Run `test/synthetic_opponent_test.py` against a fresh detector process.
-- Confirm `/static_obs` contains stationary objects, `/opp_obs` contains at most one dynamic
-  object, and neither layer leaks into the other.
+- Confirm `/static_obs` contains provisional/confirmed stationary objects, a moving provisional
+  object moves to `/opp_obs` with the same ID, and confirmed stationary objects never leak into
+  `/opp_obs`.
 - Keep the Korean node document, README pair, configuration comments, and launch examples in sync.
