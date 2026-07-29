@@ -132,6 +132,38 @@ class ParticleFilter : public rclcpp::Node
     double SMOOTHING_ALPHA_GAIN;          // 최대 속도에서 base alpha에 더해지는 폭
     double SMOOTHING_ALPHA_MAX;           // 속도 적응 alpha 상한
 
+    // ------------------------- POSE FUSION EKF (odom 예측 + MCL 보정) -------------------------
+    // 복도처럼 진행방향 관측성이 없는 구간에서 파티클 기대값이 종방향으로 표류하는 문제를
+    // 출력단에서 해결한다: odom(주행거리 대비 ~0.3% 오차)으로 매 주기 예측하고, MCL 기대
+    // 포즈를 측정으로 보정하되 측정 노이즈 R에 "파티클 가중 공분산"을 그대로 사용 —
+    // 복도에선 종방향 분산이 커져 자동으로 odom을 더 믿고, 코너에선 분산이 줄어 MCL을 믿는다.
+    bool USE_POSE_EKF;
+    double EKF_TRANS_ERROR_RATE;      // 주행거리 대비 병진 오차율 (실차 실측 ~0.003)
+    double EKF_TRANS_FLOOR_MPS;       // 병진 프로세스 노이즈 시간 하한 [m/s]
+    double EKF_LAT_ERROR_RATIO;       // 종방향 시그마 대비 횡방향 비율
+    double EKF_ROT_ERROR_RATE;        // 회전량 대비 요 오차율
+    double EKF_ROT_FLOOR_RADPS;       // 요 프로세스 노이즈 시간 하한 [rad/s]
+    double EKF_MEAS_VAR_INFLATION;    // 파티클 공분산 → R 배율
+    double EKF_MEAS_LONG_INFLATION;   // 차체 종방향(진행방향) R 추가 배율 — 복도 표류 차단
+    double EKF_MEAS_POS_STD_FLOOR;    // 측정 위치 표준편차 하한 [m]
+    double EKF_MEAS_YAW_STD_FLOOR;    // 측정 요 표준편차 하한 [rad]
+    double EKF_GATE_CHI2;             // 마할라노비스 게이트 (0=비활성)
+    int EKF_GATE_FORCE_ACCEPT;        // 연속 기각 이 횟수 도달 시 강제 수용(재고정)
+
+    bool ekf_initialized_;
+    Eigen::Vector3d ekf_state_;
+    Eigen::Matrix3d ekf_cov_;
+    int ekf_reject_count_;
+    bool ekf_prev_odom_valid_;
+    Eigen::Vector3d ekf_prev_odom_;   // 직전 예측 시점의 원시 odom 포즈 (델타 계산용)
+    double lidar_offset_x_ = 0.27;    // base_link→laser 오프셋 (TF에서 갱신, apply_tf_offset 공유)
+    double lidar_offset_y_ = 0.0;
+
+    void ekf_reset(const Eigen::Vector3d &pose);
+    void ekf_predict_from_odom(const Eigen::Vector3d &odom_now);
+    void ekf_update(const Eigen::Vector3d &z, const Eigen::Matrix3d &R);
+    Eigen::Matrix3d particle_covariance(const Eigen::Vector3d &mean);
+
     // --------------------------------- SENSOR MODEL PARAMETERS ---------------------------------
     double Z_SHORT, Z_MAX, Z_RAND, Z_HIT, SIGMA_HIT;
 

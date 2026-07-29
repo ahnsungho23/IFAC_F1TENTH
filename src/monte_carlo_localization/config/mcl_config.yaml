@@ -37,6 +37,30 @@ particle_filter:
     smoothing_alpha_gain: 0.4          # 최대 속도에서 base에 더해지는 폭 (0.3→0.7)
     smoothing_alpha_max: 0.8           # 유효 alpha 상한
 
+    # ── Pose fusion EKF (odom 예측 + MCL 보정, 2026-07-29) ─────────────────────
+    # 장복도(평행벽)에서 라이다가 진행방향을 관측하지 못해 파티클 기대값이 종방향으로
+    # 표류하는 문제의 해법: 휠 odom(주행거리 대비 ~0.3% 오차)으로 매 주기 예측하고 MCL
+    # 기대 포즈로 보정하되, 측정 노이즈 R = 파티클 가중 공분산 — 복도에선 종방향 분산이
+    # 커서 자동으로 odom 유지, 코너에선 분산이 작아 MCL로 재고정된다.
+    # true면 EMA 스무딩 대신 EKF 출력이 /pf/pose/odom이 된다 (false = 구 EMA 거동).
+    use_pose_ekf: true
+    # 병진 오차율: 실차 휠 odom 고유 오차는 ~0.3%지만, 30Hz 델타 적용·헤딩 결합 오차를
+    # 포함한 유효값으로 1%를 쓴다(과소하면 게인이 죽어 사실상 데드레커닝이 됨).
+    ekf_trans_error_rate: 0.01         # 주행거리 대비 병진 오차율
+    ekf_trans_floor_mps: 0.01          # 병진 프로세스 노이즈 시간 하한 [m/s]
+    ekf_lat_error_ratio: 0.3           # 종방향 시그마 대비 횡방향 비율
+    ekf_rot_error_rate: 0.05           # 회전량 대비 요 오차율
+    ekf_rot_floor_radps: 0.02          # 요 프로세스 노이즈 시간 하한 [rad/s]
+    ekf_meas_var_inflation: 1.0        # 파티클 공분산 → R 전역 배율
+    # 평행벽 복도에서 MCL이 진행방향 위치를 관측 못 해 "틀린 곳에 좁게" 수렴하므로
+    # (공분산이 모호성 과소평가), 차체 종방향 R만 항상 크게 부풀린다. 복도 표류는 무시되고
+    # 코너를 돌면 이전 종방향 오차가 횡방향으로 회전돼 고게인으로 보정된다.
+    ekf_meas_long_inflation: 25.0      # 종방향(진행방향) R 배율 (= 표준편차 5배)
+    ekf_meas_pos_std_floor: 0.02       # 측정 위치 표준편차 하한 [m] (과신 방지)
+    ekf_meas_yaw_std_floor: 0.02       # 측정 요 표준편차 하한 [rad]
+    ekf_gate_chi2: 25.0                # 마할라노비스 게이트(3자유도), 0=비활성
+    ekf_gate_force_accept: 40          # 연속 기각 이 횟수 도달 시 MCL로 재고정
+
     # === ROBOT GEOMETRY ===
     # Real hardware values (overridden in sim_mode)
     # lidar_offset_x: 0.28             # Use TF transform instead

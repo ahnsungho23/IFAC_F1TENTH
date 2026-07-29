@@ -17,7 +17,15 @@
    - `/global_waypoints` 토픽 수신 시 첫 번째 웨이포인트(Start Line Pose)를 차량 출발 위치로 자동 인식하여 파티클 분포를 시작 포즈로 초기화하고 빠른 수렴(Fast Convergence) 모드를 활성화합니다.
    - 이로 인해 RViz 기동 후 수동으로 2D Pose Estimate를 클릭하지 않아도 라이다 스캔 위치가 맵/글로벌 패스 시작점에 자동으로 맞춰집니다.
 
-3. **TF 및 Odometry 발행**:
+3. **Pose Fusion EKF (출력단 융합, 2026-07-29 추가)**:
+   - 휠 odom 포즈 델타(laser 프레임 변환 포함)로 매 주기(30 Hz) 포즈를 예측하고, MCL 기대
+     포즈를 측정으로 보정합니다. 측정 노이즈 R은 파티클 가중 공분산에 **차체 종방향만
+     25배 불신**을 더한 값 — 평행벽 복도에서 라이다가 진행방향을 관측하지 못해 생기던
+     종방향 표류(0.8~1.7 m/랩)를 차단하고, 코너에서 회전된 잔여 오차를 고게인으로 잡습니다.
+   - 마할라노비스 게이트로 MCL 순간 글리치를 걸러내고, 연속 기각이 길어지면 MCL로
+     재고정하는 안전망이 있습니다. `use_pose_ekf: false`면 구 EMA 스무딩으로 돌아갑니다.
+
+4. **TF 및 Odometry 발행**:
    - 추정된 포즈를 바탕으로 `map -> odom` TF 트랜스폼을 브로드캐스팅합니다.
 
 ---
@@ -47,6 +55,10 @@
   - `scan_topic` (`string`, 기본값: `/scan`): 라이다 스캔 토픽 이름
   - `odom_topic` (`string`, 기본값: `/odom`): 오도메트리 토픽 이름
   - `publish_map_odom_tf` (`bool`, 기본값: `true`): `map -> odom` TF 발행 여부
+  - `use_pose_ekf` (`bool`, 기본값: `true`): 출력단 pose fusion EKF 활성화 (false = 구 EMA)
+  - `ekf_trans_error_rate` (`double`, 기본값: `0.01`): 주행거리 대비 휠 odom 병진 오차율
+  - `ekf_meas_long_inflation` (`double`, 기본값: `25.0`): 차체 종방향 측정 불신 배율
+  - 나머지 EKF/스무딩 파라미터는 `mcl_config.yaml`의 주석 참고
 
 ---
 
