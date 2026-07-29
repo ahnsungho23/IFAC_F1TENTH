@@ -41,6 +41,12 @@
   publish a full global loop with `ot_line=raceline_global_handoff`. Continue that non-empty
   handoff path until `/state` has entered `STATE_AVOID` for the commitment and subsequently
   confirms `STATE_GLOBAL`.
+- Treat a blocking cluster whose expanded front face begins after the active merge as the next
+  maneuver, so it cannot invalidate the active spline merely through its post-merge controller
+  tail. At merge completion or during global handoff, preempt handoff when such a cluster is
+  present, retire the completed cluster IDs, release its side lock, and run the normal preparation
+  stabilization before committing the next maneuver. Keep `/avoid_waypoints` non-empty throughout
+  the chain and hand off to GLOBAL only when no uncompleted blocking cluster remains.
 - If neither side is safe, publish only a collision-checked gradual-stop prefix before the obstacle.
   Latch safe-stop immediately and release it only after the configured number of consecutive safe
   plans. If no forward stop prefix exists, publish a zero-speed hold path rather than an empty path
@@ -90,6 +96,9 @@
 - Safe-stop/state harness: `test/safe_stop_latch_pipeline_test.py`; run it with
   `local_planner_node`, `state_machine_node`, and `wpnt_publisher` to verify the same-ID
   avoidance-to-stop latch, delayed release, and `/local_waypoints` forwarding contract.
+- Sequential-obstacle harness: `test/sequential_obstacle_handoff_pipeline_test.py`; run it against
+  a fresh `local_planner_node` to verify left-to-right maneuver chaining without an intermediate
+  empty path or global handoff. Run it again with `--during-handoff` to verify handoff preemption.
 - Keep all runtime values configurable in YAML and load that YAML from the launch file.
 - Update this file and the Korean documentation when behavior, topics, parameters, or launch usage
   changes.

@@ -107,6 +107,9 @@ public:
   bool ready() const;
   double trackLength() const;
   double forwardDistance(double from_s, double to_s) const;
+  std::vector<int> blockingClusterIds(
+    const EgoFrenetState & ego,
+    const std::vector<f110_msgs::msg::Obstacle> & obstacles) const;
   f110_msgs::msg::WpntArray buildGlobalHandoffPath(
     double ego_s, double state_tail_ratio, double speed_cap_mps) const;
   f110_msgs::msg::WpntArray buildEmergencyStopPath(const EgoFrenetState & ego) const;

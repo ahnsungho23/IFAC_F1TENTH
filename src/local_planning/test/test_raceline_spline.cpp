@@ -324,6 +324,21 @@ TEST(RacelineSplinePlanner, ReportsWholeBlockingClusterInAvoidanceResult)
   EXPECT_EQ(result.obstacle_ids, (std::vector<int>{5, 6}));
 }
 
+TEST(RacelineSplinePlanner, ReportsNearestBlockingClusterIdsForManeuverChaining)
+{
+  RacelineSplinePlanner planner(testParameters());
+  ASSERT_TRUE(planner.setReference(makeStraightReference()));
+  const auto cluster_ids = planner.blockingClusterIds(
+    EgoFrenetState{0.0, 0.0, 2.0},
+      {
+        makeObstacle(5, 7.0),
+        makeObstacle(6, 7.6),
+        makeObstacle(9, 10.0),
+      });
+
+  EXPECT_EQ(cluster_ids, (std::vector<int>{5, 6}));
+}
+
 TEST(RacelineSplinePlanner, RefusesPreparationDelayInsideSafeStopBuffer)
 {
   RacelineSplinePlanner planner(testParameters());

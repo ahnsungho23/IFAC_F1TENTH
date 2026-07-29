@@ -18,6 +18,7 @@
 #include <map>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -63,6 +64,14 @@ private:
     const std::vector<int> & cluster_ids,
     const std::vector<f110_msgs::msg::Obstacle> & conservative_obstacles,
     const rclcpp::Time & update_time);
+  std::vector<f110_msgs::msg::Obstacle> buildNextManeuverInput() const;
+  std::vector<f110_msgs::msg::Obstacle> buildCurrentManeuverInput(
+    const EgoFrenetState & ego) const;
+  bool beginChainedManeuverIfNeeded(
+    const EgoFrenetState & ego,
+    std::vector<f110_msgs::msg::Obstacle> & next_obstacles,
+    const std::string & phase);
+  void resetForChainedManeuver();
   bool commitmentSideLocked(const EgoFrenetState & ego) const;
   bool activateGlobalHandoff(const EgoFrenetState & ego);
   void latchSafeStop(RacelineSplineResult result, const EgoFrenetState & ego);
@@ -127,6 +136,7 @@ private:
   uint8_t current_state_{f110_msgs::msg::StateMachine::STATE_GLOBAL};
   std::optional<bool> last_published_side_;
   std::map<int, f110_msgs::msg::Obstacle> initial_cluster_union_;
+  std::set<int> completed_obstacle_ids_;
 
   bool require_obstacles_message_{true};
   bool static_obstacles_only_{true};

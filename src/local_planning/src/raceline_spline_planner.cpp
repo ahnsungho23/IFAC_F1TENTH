@@ -254,6 +254,24 @@ double RacelineSplinePlanner::forwardDistance(double from_s, double to_s) const
   return wrapS(to_s - from_s);
 }
 
+std::vector<int> RacelineSplinePlanner::blockingClusterIds(
+  const EgoFrenetState & ego,
+  const std::vector<f110_msgs::msg::Obstacle> & obstacles) const
+{
+  if (!ready() || !std::isfinite(ego.s) || !std::isfinite(ego.d) ||
+    !std::isfinite(ego.speed))
+  {
+    return {};
+  }
+  const auto cluster = nearestCluster(expandVisibleObstacles(ego, obstacles));
+  std::vector<int> ids;
+  ids.reserve(cluster.size());
+  for (const auto & obstacle : cluster) {
+    ids.push_back(obstacle.id);
+  }
+  return ids;
+}
+
 std::size_t RacelineSplinePlanner::nextReferenceIndex(double s) const
 {
   const double wrapped_s = wrapS(s);

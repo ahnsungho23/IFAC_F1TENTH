@@ -58,6 +58,7 @@ class SafeStopLatchProbe(Node):
         self.safe_stop_started = None
         self.safe_outputs_after_clear = 0
         self.state = StateMachine.STATE_GLOBAL
+        self.committed_left = None
         self.saw_local_safe_stop = False
         self.passed = False
         self.failure = ''
@@ -98,8 +99,10 @@ class SafeStopLatchProbe(Node):
         obstacle.y_center = 0.0
         obstacle.x_min = 6.8
         obstacle.x_max = 7.2
-        obstacle.y_min = -0.2
-        obstacle.y_max = 1.0 if self.stage == 'blocked' else 0.2
+        obstacle.y_min = (
+            -1.0 if self.stage == 'blocked' and not self.committed_left else -0.2)
+        obstacle.y_max = (
+            1.0 if self.stage == 'blocked' and self.committed_left else 0.2)
         obstacle.radius = 0.5 * math.hypot(
             obstacle.x_max - obstacle.x_min,
             obstacle.y_max - obstacle.y_min)
@@ -115,9 +118,12 @@ class SafeStopLatchProbe(Node):
         odometry.header.frame_id = 'map'
         odometry.child_frame_id = '0'
         odometry.pose.pose.position.x = 0.0
-        # Enter the committed left maneuver before widening the AABB. This verifies that the
+        # Enter the selected maneuver before widening its side of the AABB. This verifies that the
         # planner locks direction after engagement and therefore safe-stops instead of reversing.
-        odometry.pose.pose.position.y = 0.0 if self.stage == 'initial' else 0.15
+        if self.stage == 'initial':
+            odometry.pose.pose.position.y = 0.0
+        else:
+            odometry.pose.pose.position.y = 0.15 if self.committed_left else -0.15
         odometry.twist.twist.linear.x = 1.0
         self.odom_pub.publish(odometry)
 
@@ -144,6 +150,9 @@ class SafeStopLatchProbe(Node):
             if (
                     message.ot_line == 'raceline_local_d_offset_spline' and
                     self.state == StateMachine.STATE_AVOID):
+                positive = max(point.d_m for point in message.wpnts)
+                negative = min(point.d_m for point in message.wpnts)
+                self.committed_left = positive >= abs(negative)
                 self.stage = 'blocked'
                 self.stage_started = now
             return

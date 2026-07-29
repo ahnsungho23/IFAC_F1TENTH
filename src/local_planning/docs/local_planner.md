@@ -166,6 +166,30 @@ ego가 마지막 `state_handoff_tail_ratio` 구간의 첫 부분에 위치하도
 기하 확인 시간은 0.375초입니다. handoff 중 waypoint 속도는
 `state_handoff_speed_cap_mps` 이하로 제한합니다.
 
+### 3.8 연속 장애물 maneuver 연결
+
+현재 commitment에 포함되지 않은 장애물의 팽창된 앞면이 현재 spline의 merge 뒤에서 시작하면
+그 장애물은 **다음 maneuver 군집**으로 보류합니다. 따라서 첫 경로에 controller용 global tail이
+길게 붙어 있어도, 그 tail과 두 번째 장애물이 겹친다는 이유만으로 첫 maneuver가 조기
+safe-stop으로 바뀌지 않습니다. 반대로 장애물 앞면이 merge 전까지 들어오면 현재 maneuver의
+안전 검사에 계속 포함하므로 실제 겹침을 무시하지 않습니다.
+
+첫 spline이 `d=0`으로 합류하고 `merge_confirm_cycles` 조건을 만족하면 다음 blocking 군집을
+즉시 다시 확인합니다. 존재하면 중간 `raceline_global_handoff`를 발행하지 않고 다음 순서로
+연결합니다.
+
+1. 완료한 군집 ID를 이번 연속 회피가 끝날 때까지 제외 목록에 넣습니다.
+2. 이전 maneuver의 좌우 방향 잠금과 경로 commitment를 해제합니다.
+3. `raceline_static_prepare`를 non-empty 상태로 발행하며 동일한
+   `initial_cluster_stabilization_sec=0.20초`, 최대 `0.35초` 안정화를 적용합니다.
+4. 너무 가까워 준비 감속 prefix를 만들 수 없으면 기다리지 않고 즉시 safe-stop합니다.
+5. 안정화 뒤 좌우를 모두 새로 평가해 다음 회피 spline을 commitment합니다.
+
+이미 `raceline_global_handoff`를 발행 중이어도 새 blocking 군집이 들어오면 같은 절차로 handoff를
+선점합니다. 따라서 `/state`가 아직 `STATE_AVOID`라면 그대로 유지되고, `/avoid_waypoints`도
+`이전 회피 → 다음 준비 → 다음 회피 → 최종 handoff` 동안 비지 않습니다. 모든 미완료 blocking
+군집이 사라진 뒤에만 최종 global handoff를 완료합니다.
+
 ## 4. 토픽과 메시지
 
 | 구분 | 기본 토픽 | 메시지 | 설명 |
@@ -258,6 +282,10 @@ colcon test-result --verbose --test-result-base build/local_planning
 방향을 막아 반대편 경로로 직접 교체되는지 확인합니다. `test/safe_stop_latch_pipeline_test.py`는
 `local_planner_node`, `state_machine_node`, `wpnt_publisher` 사이에서 safe-stop이
 `STATE_AVOID`/`local_waypoints`에 유지되고 연속 안전 판정 뒤에만 회피로 복귀하는지 확인합니다.
+`test/sequential_obstacle_handoff_pipeline_test.py`는 첫 장애물은 왼쪽, 두 번째 장애물은 오른쪽만
+통과할 수 있게 만들어 두 maneuver 사이에 global handoff나 빈 경로가 없고, 두 번째 계획에서
+첫 번째 방향 잠금이 해제되는지 확인합니다. 같은 스크립트에 `--during-handoff`를 주면 두 번째
+장애물을 global handoff 발행 뒤에 투입해 handoff 선점도 확인합니다.
 
 ## 7. 실행 방법
 

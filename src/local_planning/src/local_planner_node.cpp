@@ -412,6 +412,7 @@ void LocalPlannerNode::onState(const f110_msgs::msg::StateMachine::SharedPtr mes
 void LocalPlannerNode::clearCommitment()
 {
   resetInitialStabilization();
+  completed_obstacle_ids_.clear();
   has_commitment_ = false;
   committed_result_ = RacelineSplineResult();
   safe_stop_latched_ = false;
@@ -435,6 +436,9 @@ LocalPlannerNode::buildInitialStabilizationInput() const
 {
   std::map<int, f110_msgs::msg::Obstacle> conservative;
   for (const auto & obstacle : static_obstacles_) {
+    if (completed_obstacle_ids_.count(obstacle.id) > 0U) {
+      continue;
+    }
     conservative[obstacle.id] = obstacle;
   }
   for (const auto & entry : initial_cluster_union_) {
@@ -549,6 +553,118 @@ bool LocalPlannerNode::updateInitialStabilization(
          total_duration >= initial_cluster_max_wait_sec_;
 }
 
+std::vector<f110_msgs::msg::Obstacle> LocalPlannerNode::buildNextManeuverInput() const
+{
+  std::set<int> excluded = completed_obstacle_ids_;
+  if (has_commitment_) {
+    excluded.insert(
+      committed_result_.obstacle_ids.begin(), committed_result_.obstacle_ids.end());
+    if (committed_result_.obstacle_id >= 0) {
+      excluded.insert(committed_result_.obstacle_id);
+    }
+  }
+
+  std::vector<f110_msgs::msg::Obstacle> result;
+  result.reserve(static_obstacles_.size());
+  for (const auto & obstacle : static_obstacles_) {
+    if (excluded.count(obstacle.id) == 0U) {
+      result.push_back(obstacle);
+    }
+  }
+  return result;
+}
+
+std::vector<f110_msgs::msg::Obstacle> LocalPlannerNode::buildCurrentManeuverInput(
+  const EgoFrenetState & ego) const
+{
+  if (!has_commitment_ || committed_result_.kind != SplinePlanKind::kAvoidance) {
+    return buildInitialStabilizationInput();
+  }
+
+  std::set<int> active_ids(
+    committed_result_.obstacle_ids.begin(), committed_result_.obstacle_ids.end());
+  if (committed_result_.obstacle_id >= 0) {
+    active_ids.insert(committed_result_.obstacle_id);
+  }
+  const double merge_forward = planner_.forwardDistance(ego.s, committed_result_.merge_s);
+  const bool merge_is_ahead = merge_forward < 0.5 * planner_.trackLength();
+
+  std::vector<f110_msgs::msg::Obstacle> result;
+  result.reserve(static_obstacles_.size());
+  for (const auto & obstacle : static_obstacles_) {
+    if (completed_obstacle_ids_.count(obstacle.id) > 0U) {
+      continue;
+    }
+    if (!merge_is_ahead || active_ids.count(obstacle.id) > 0U) {
+      result.push_back(obstacle);
+      continue;
+    }
+
+    const double center_forward = planner_.forwardDistance(ego.s, obstacle.s_center);
+    const double span_forward = planner_.forwardDistance(obstacle.s_start, obstacle.s_end);
+    const double span_reverse = planner_.forwardDistance(obstacle.s_end, obstacle.s_start);
+    double span = std::min(span_forward, span_reverse);
+    if (!(span > 1.0e-6)) {
+      span = std::max(0.05, std::abs(obstacle.size));
+    }
+    const double start_forward = center_forward - 0.5 * span -
+      planner_parameters_.obstacle_longitudinal_padding_m;
+    if (start_forward <= merge_forward + 1.0e-6) {
+      result.push_back(obstacle);
+    }
+  }
+  return result;
+}
+
+void LocalPlannerNode::resetForChainedManeuver()
+{
+  completed_obstacle_ids_.insert(
+    committed_result_.obstacle_ids.begin(), committed_result_.obstacle_ids.end());
+  if (committed_result_.obstacle_id >= 0) {
+    completed_obstacle_ids_.insert(committed_result_.obstacle_id);
+  }
+  const bool avoid_was_observed = has_state_ ?
+    current_state_ == f110_msgs::msg::StateMachine::STATE_AVOID :
+    avoid_state_observed_;
+  resetInitialStabilization();
+  has_commitment_ = false;
+  committed_result_ = RacelineSplineResult();
+  safe_stop_latched_ = false;
+  safe_stop_result_ = RacelineSplineResult();
+  safe_stop_release_count_ = 0;
+  merge_complete_count_ = 0;
+  merge_geometry_confirmed_ = false;
+  handoff_active_ = false;
+  avoid_state_observed_ = avoid_was_observed;
+}
+
+bool LocalPlannerNode::beginChainedManeuverIfNeeded(
+  const EgoFrenetState & ego,
+  std::vector<f110_msgs::msg::Obstacle> & next_obstacles,
+  const std::string & phase)
+{
+  if (!has_commitment_) {
+    return false;
+  }
+  next_obstacles = buildNextManeuverInput();
+  const auto next_cluster_ids = planner_.blockingClusterIds(ego, next_obstacles);
+  if (next_cluster_ids.empty()) {
+    return false;
+  }
+
+  std::string ids;
+  for (const int id : next_cluster_ids) {
+    ids += ids.empty() ? std::to_string(id) : "," + std::to_string(id);
+  }
+  RCLCPP_INFO(
+    get_logger(),
+    "Chaining static avoidance during %s for new blocking cluster [%s]; "
+    "releasing the completed maneuver's side lock.",
+    phase.c_str(), ids.c_str());
+  resetForChainedManeuver();
+  return true;
+}
+
 bool LocalPlannerNode::commitmentSideLocked(const EgoFrenetState & ego) const
 {
   if (!has_commitment_ || committed_result_.kind != SplinePlanKind::kAvoidance) {
@@ -637,13 +753,15 @@ void LocalPlannerNode::latchSafeStop(
 
 void LocalPlannerNode::handleSafeStopLatch(const EgoFrenetState & ego)
 {
+  const auto planning_obstacles = has_commitment_ ?
+    buildCurrentManeuverInput(ego) : buildInitialStabilizationInput();
   const std::optional<bool> locked_side =
     has_commitment_ && committed_result_.kind == SplinePlanKind::kAvoidance ?
     std::optional<bool>(committed_result_.go_left) : std::nullopt;
   const bool allow_side_switch =
     !locked_side.has_value() || !commitmentSideLocked(ego);
   RacelineSplineResult result = planner_.plan(
-    ego, static_obstacles_, locked_side, allow_side_switch);
+    ego, planning_obstacles, locked_side, allow_side_switch);
 
   if (result.kind == SplinePlanKind::kAvoidance) {
     ++safe_stop_release_count_;
@@ -735,25 +853,42 @@ void LocalPlannerNode::onPlanningTimer()
   ego.d = odometry.pose.pose.position.y;
   ego.speed = std::abs(odometry.twist.twist.linear.x);
 
+  std::vector<f110_msgs::msg::Obstacle> planning_obstacles = static_obstacles_;
+  bool chained_maneuver_started = false;
+
   // local planner가 먼저 빈 경로를 보내면 state_machine은 merge 판단에 사용할 tail을 잃는다.
   // 이번 commitment에서 STATE_AVOID를 실제로 관측했고, spline 합류가 확인된 뒤
   // state_machine이 STATE_GLOBAL을 발행한 경우에만 non-empty 경로 발행을 종료한다.
-  if (has_commitment_ && merge_geometry_confirmed_ && avoid_state_observed_ && has_state_ &&
-    current_state_ == f110_msgs::msg::StateMachine::STATE_GLOBAL)
-  {
-    RCLCPP_INFO(
-      get_logger(),
-      "State machine confirmed GLOBAL after static avoidance; releasing committed tail.");
-    clearCommitment();
-    publishEmpty("state machine confirmed global handoff");
-    return;
+  if (has_commitment_ && merge_geometry_confirmed_) {
+    chained_maneuver_started = beginChainedManeuverIfNeeded(
+      ego, planning_obstacles, "global handoff");
+    if (!chained_maneuver_started) {
+      if (avoid_state_observed_ && has_state_ &&
+        current_state_ == f110_msgs::msg::StateMachine::STATE_GLOBAL)
+      {
+        RCLCPP_INFO(
+          get_logger(),
+          "State machine confirmed GLOBAL after all static obstacles cleared; "
+          "releasing committed tail.");
+        clearCommitment();
+        publishEmpty("state machine confirmed global handoff");
+        return;
+      }
+      publishResult(committed_result_, ego, static_obstacles_);
+      return;
+    }
   }
   if (safe_stop_latched_) {
     handleSafeStopLatch(ego);
     return;
   }
   if (has_commitment_ && !merge_geometry_confirmed_ && commitmentComplete(ego)) {
-    if (!activateGlobalHandoff(ego)) {
+    chained_maneuver_started = beginChainedManeuverIfNeeded(
+      ego, planning_obstacles, "merge completion");
+    if (chained_maneuver_started) {
+      // Fall through to the ordinary initial-stabilization path. This deliberately starts the
+      // next obstacle with no preferred side, while the non-empty preparation path keeps AVOID.
+    } else if (!activateGlobalHandoff(ego)) {
       RCLCPP_ERROR(
         get_logger(),
         "Failed to build the global handoff loop; retaining the validated avoidance tail.");
@@ -769,9 +904,10 @@ void LocalPlannerNode::onPlanningTimer()
     return;
   }
 
-  std::vector<f110_msgs::msg::Obstacle> planning_obstacles = static_obstacles_;
   if (!has_commitment_) {
-    planning_obstacles = buildInitialStabilizationInput();
+    if (!chained_maneuver_started) {
+      planning_obstacles = buildInitialStabilizationInput();
+    }
     auto preparation = planner_.buildPreparationStop(ego, planning_obstacles);
     if (preparation.kind == SplinePlanKind::kNoObstacle) {
       const bool published_preparation = initial_prepare_published_;
@@ -797,12 +933,17 @@ void LocalPlannerNode::onPlanningTimer()
       planning_obstacles = buildInitialStabilizationInput();
       resetInitialStabilization();
     }
+  } else {
+    // Obstacles whose expanded front face starts after this maneuver's merge belong to the next
+    // maneuver. They must not invalidate the current path merely because its controller tail
+    // extends beyond the merge point.
+    planning_obstacles = buildCurrentManeuverInput(ego);
   }
 
   std::string commitment_error;
   if (has_commitment_ &&
     planner_.validatePath(
-      ego, committed_result_.path, static_obstacles_, &commitment_error))
+      ego, committed_result_.path, planning_obstacles, &commitment_error))
   {
     // The committed geometry is still safe. Rebuilding six spline candidates here only makes
     // perception jitter visible downstream and repeats all geometry/curvature work.
