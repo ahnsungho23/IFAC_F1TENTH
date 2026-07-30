@@ -13,8 +13,8 @@
 #include <f110_msgs/msg/obstacle.hpp>
 #include <geometry_msgs/msg/quaternion.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
-#include <tf2/exceptions.hpp>
-#include <tf2/time.hpp>
+#include <tf2/exceptions.h>
+#include <tf2/time.h>
 #include <visualization_msgs/msg/marker.hpp>
 
 namespace obstacle_detector
@@ -151,13 +151,15 @@ void ObstacleDetectorNode::declareParameters()
     this->declare_parameter<bool>("assoc_use_mahalanobis", true);
     this->declare_parameter<double>("assoc_mahalanobis_gate", 9.21);
     this->declare_parameter<int>("ttl_dynamic", 40);
-    this->declare_parameter<int>("ttl_static", 3);
+    this->declare_parameter<int>("ttl_static", 25);
     this->declare_parameter<int>("min_hits_confirm", 3);
     this->declare_parameter<std::string>("classifier_mode", "velocity");
     this->declare_parameter<double>("dyn_vel_enter", 0.5);
     this->declare_parameter<double>("dyn_vel_exit", 0.25);
-    this->declare_parameter<int>("dyn_min_frames", 3);
-    this->declare_parameter<double>("vs_reset", 0.1);
+    this->declare_parameter<int>("static_confirm_frames", 3);
+    this->declare_parameter<int>("dynamic_confirm_frames", 25);
+    this->declare_parameter<double>("dyn_velocity_mahalanobis_gate", 9.21);
+    this->declare_parameter<double>("dyn_max_abs_yaw_rate", 1.5);
     this->declare_parameter<double>("static_ref_gate", 0.3);
     this->declare_parameter<int>("std_window", 30);
     this->declare_parameter<int>("min_nb_meas", 5);
@@ -237,8 +239,16 @@ void ObstacleDetectorNode::loadParameters()
     tracker_params_.min_hits_confirm = this->get_parameter("min_hits_confirm").as_int();
     tracker_params_.dyn_vel_enter = this->get_parameter("dyn_vel_enter").as_double();
     tracker_params_.dyn_vel_exit = this->get_parameter("dyn_vel_exit").as_double();
-    tracker_params_.dyn_min_frames = this->get_parameter("dyn_min_frames").as_int();
-    tracker_params_.vs_reset = this->get_parameter("vs_reset").as_double();
+    tracker_params_.static_confirm_frames =
+        std::max(1, static_cast<int>(
+            this->get_parameter("static_confirm_frames").as_int()));
+    tracker_params_.dynamic_confirm_frames =
+        std::max(1, static_cast<int>(
+            this->get_parameter("dynamic_confirm_frames").as_int()));
+    tracker_params_.dyn_velocity_mahalanobis_gate =
+        std::max(0.0, this->get_parameter("dyn_velocity_mahalanobis_gate").as_double());
+    tracker_params_.dyn_max_abs_yaw_rate =
+        std::max(0.0, this->get_parameter("dyn_max_abs_yaw_rate").as_double());
     tracker_params_.static_ref_gate = this->get_parameter("static_ref_gate").as_double();
     tracker_params_.std_window = this->get_parameter("std_window").as_int();
     tracker_params_.min_nb_meas = this->get_parameter("min_nb_meas").as_int();
@@ -887,7 +897,8 @@ void ObstacleDetectorNode::updateDiagnostics(const ScanProcessingStats &scan_sta
         "beam(valid=%zu/%zu nonfinite=%zu below_min=%zu at_or_above_max=%zu) "
         "cluster=%zu->%zu fragment_drop=%zu detections=%zu "
         "reject(size=%zu clcs_projection=%zu view=%zu boundary=%zu map=%zu) "
-        "track(total=%zu visible=%zu hit_pending=%zu class_pending=%zu static=%zu dynamic=%zu) "
+        "track(total=%zu visible=%zu hit_pending=%zu class_pending=%zu "
+        "provisional=%zu static=%zu dynamic=%zu motion_gated=%zu) "
         "assoc(pairs=%zu match=%zu spawn=%zu retire=%zu euclid_reject=%zu maha_reject=%zu) "
         "motion(yaw_used=%.3f fresh=%s ref_vs=%.3f ref_vd=%.3f)",
         elapsed, total.scans_processed, total.scans_received, total.clcs_unavailable,
@@ -898,8 +909,9 @@ void ObstacleDetectorNode::updateDiagnostics(const ScanProcessingStats &scan_sta
         total.size_rejected, total.projection_rejected, total.viewing_window_rejected,
         total.track_boundary_rejected, total.map_rejected, snapshot.total_tracks,
         snapshot.visible_tracks, snapshot.hit_confirmation_pending,
-        snapshot.classification_pending, snapshot.confirmed_static,
-        snapshot.confirmed_dynamic, events.candidate_pairs, events.matched, events.spawned,
+        snapshot.classification_pending, snapshot.provisional_static,
+        snapshot.confirmed_static, snapshot.confirmed_dynamic,
+        snapshot.dynamic_motion_gated, events.candidate_pairs, events.matched, events.spawned,
         events.retired, events.euclidean_pair_rejected,
         events.mahalanobis_pair_rejected, measurement_yaw_rate,
         yaw_rate_fresh ? "true" : "false", tracker_.staticRefVs(), tracker_.staticRefVd());
@@ -1072,12 +1084,12 @@ void ObstacleDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
 
     // ---- tracking: gives every surviving cluster its Frenet flow velocity + a static/dynamic
     //      label (flow vs the map-flow reference; see obstacle_tracker.hpp) ----
-    tracker_.update(detections, stamp);
+    tracker_.update(detections, stamp, measurement_yaw_rate, yaw_rate_fresh);
     stats.scans_processed = 1;
     updateDiagnostics(stats, &tracker_.lastStats(), measurement_yaw_rate, yaw_rate_fresh);
 
     // ============================================================================================
-    // Layer assembly: gather each layer's confirmed tracks, merge same-object fragments inside the
+    // Layer assembly: gather each layer's publishable tracks, merge same-object fragments inside the
     // layer (2nd-stage clustering, mergeLayer), then publish object-level obstacles.
     // LAYER 2 [static] -> /static_obs   : every merged static object.
     // LAYER 3 [dynamic] -> /opp_obs      : the single merged opponent (nearest ahead of ego).
@@ -1089,23 +1101,19 @@ void ObstacleDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
     dynamic_members.reserve(tracker_.tracks().size());
     for (const Track &t : tracker_.tracks())
     {
-        if (t.hits < tracker_params_.min_hits_confirm)
+        if (!t.classified || t.motion_class == MotionClass::Pending)
         {
             continue;
         }
-        if (t.is_static)
+        if (t.motion_class == MotionClass::Dynamic)
         {
-            // Layer 2 = confirmed static only. `classified` excludes a fresh track that still
-            // carries the default is_static=true before its first classification vote — so a
-            // not-yet-confirmed opponent never flickers into the static layer.
-            if (t.classified)
-            {
-                static_members.push_back(&t);
-            }
+            dynamic_members.push_back(&t);
         }
         else
         {
-            dynamic_members.push_back(&t);
+            // Provisional and confirmed static share the same track and ID. Promotion therefore
+            // never creates a one-scan gap in /static_obs.
+            static_members.push_back(&t);
         }
     }
     const auto static_objs = mergeLayer(static_members, true);

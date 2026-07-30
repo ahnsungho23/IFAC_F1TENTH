@@ -183,6 +183,11 @@ class StaticObstaclePipelineProbe(Node):
             if (
                     obstacle.is_static and obstacle.is_visible and
                     obstacle.has_cartesian and obstacle.radius > 0.0 and
+                    obstacle.x_min <= obstacle.x_max and
+                    obstacle.y_min <= obstacle.y_max and
+                    math.hypot(
+                        obstacle.x_max - obstacle.x_min,
+                        obstacle.y_max - obstacle.y_min) > 0.0 and
                     all(math.isfinite(value) for value in values)):
                 self.saw_valid_static = True
 
@@ -195,6 +200,8 @@ class StaticObstaclePipelineProbe(Node):
                 math.isfinite(point.s_m) and math.isfinite(point.d_m)
                 for point in message.wpnts):
             self.failure = 'avoidance path contains a non-finite value'
+            return
+        if message.ot_line == 'raceline_static_prepare':
             return
         if max(abs(point.d_m) for point in message.wpnts) <= 0.05:
             self.failure = 'local planner did not move laterally around /static_obs'

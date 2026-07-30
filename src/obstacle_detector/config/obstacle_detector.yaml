@@ -84,7 +84,7 @@ obstacle_detector:
     assoc_use_mahalanobis: true                # second gate after the physical Frenet hard gate
     assoc_mahalanobis_gate: 9.21               # chi-square threshold, 2 DoF, approximately 99%
     ttl_dynamic: 40                            # frames to keep a lost dynamic track
-    ttl_static: 3                              # frames to keep a lost static track
+    ttl_static: 25                             # keep a lost static track for ~0.1 s at 250 Hz
     min_hits_confirm: 3                        # measurements before a track is reported
 
     # === LAYER 2 / LAYER 3 CLASSIFICATION (flow vs the map-flow reference) ===
@@ -94,8 +94,10 @@ obstacle_detector:
     classifier_mode: "velocity"                # "velocity" | "std" | "both"
     dyn_vel_enter: 0.5                         # flow deviation from the map-flow ref -> dynamic (m/s)
     dyn_vel_exit: 0.25                         # flow deviation -> back to static (m/s, hysteresis)
-    dyn_min_frames: 3                          # sustained frames before flipping the label
-    vs_reset: 0.1                              # flow-deviation backstop -> force static (m/s)
+    static_confirm_frames: 3                   # extra consecutive low-speed observations after provisional
+    dynamic_confirm_frames: 25                 # consecutive reliable moving observations -> dynamic
+    dyn_velocity_mahalanobis_gate: 9.21        # velocity confidence, chi-square 2 DoF, ~99%
+    dyn_max_abs_yaw_rate: 1.5                  # do not accumulate moving evidence above this (rad/s)
     static_ref_gate: 0.3                       # tracks slower than this define the map-flow velocity
                                                #   (walls + stationary obstacles); opponent excluded (m/s)
     std_window: 30                             # history window for the std classifier

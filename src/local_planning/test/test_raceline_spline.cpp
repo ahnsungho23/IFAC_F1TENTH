@@ -221,6 +221,53 @@ TEST(RacelineSplinePlanner, HonorsCommittedSideWhenItRemainsFeasible)
   EXPECT_TRUE(result.go_left);
 }
 
+TEST(RacelineSplinePlanner, AddsReserveOutsideValidatedObstacleClearance)
+{
+  auto parameters = testParameters();
+  parameters.commitment_clearance_reserve_m = 0.05;
+  RacelineSplinePlanner planner(parameters);
+  ASSERT_TRUE(planner.setReference(makeStraightReference()));
+  const auto result = planner.plan(
+    EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(2, 7.0)}, true, false);
+  ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
+  EXPECT_NEAR(result.target_d, 0.50, 1.0e-9);
+}
+
+TEST(RacelineSplinePlanner, KeepsCommittedPathValidAcrossSmallAabbJitter)
+{
+  auto parameters = testParameters();
+  parameters.commitment_clearance_reserve_m = 0.05;
+  RacelineSplinePlanner planner(parameters);
+  ASSERT_TRUE(planner.setReference(makeStraightReference()));
+  const EgoFrenetState ego{0.0, 0.0, 2.0};
+  const auto committed = planner.plan(ego, {makeObstacle(2, 7.0)}, true, false);
+  ASSERT_EQ(committed.kind, SplinePlanKind::kAvoidance) << committed.reason;
+
+  std::string reason;
+  EXPECT_TRUE(
+    planner.validatePath(
+      EgoFrenetState{0.2, 0.0, 2.0}, committed.path,
+      {makeObstacle(2, 7.0, -0.22, 0.22)}, &reason)) << reason;
+  EXPECT_FALSE(
+    planner.validatePath(
+      EgoFrenetState{0.2, 0.0, 2.0}, committed.path,
+      {makeObstacle(2, 7.0, -0.35, 0.35)}, &reason));
+}
+
+TEST(RacelineSplinePlanner, DoesNotReverseCommittedSideWhenItBecomesBlocked)
+{
+  auto reference = makeStraightReference(300, 0.1, 0.55, 1.5);
+  RacelineSplinePlanner planner(testParameters());
+  ASSERT_TRUE(planner.setReference(reference));
+  const EgoFrenetState ego{0.0, 0.0, 2.0};
+  const auto unlocked = planner.plan(ego, {makeObstacle(3, 7.0)}, true, true);
+  ASSERT_EQ(unlocked.kind, SplinePlanKind::kAvoidance) << unlocked.reason;
+  EXPECT_FALSE(unlocked.go_left);
+
+  const auto locked = planner.plan(ego, {makeObstacle(3, 7.0)}, true, false);
+  EXPECT_EQ(locked.kind, SplinePlanKind::kSafeStop) << locked.reason;
+}
+
 TEST(RacelineSplinePlanner, IgnoresObstacleWithEnoughRawRacelineClearance)
 {
   RacelineSplinePlanner planner(testParameters());
@@ -244,6 +291,90 @@ TEST(RacelineSplinePlanner, BuildsCollisionFreeStopWhenBothSidesAreClosed)
   EXPECT_NEAR(result.path.wpnts.back().vx_mps, 0.0, 1.0e-9);
   for (const auto & waypoint : result.path.wpnts) {
     EXPECT_DOUBLE_EQ(waypoint.d_m, 0.0);
+  }
+}
+
+TEST(RacelineSplinePlanner, BuildsPreparationStopForInitialBlockingCluster)
+{
+  RacelineSplinePlanner planner(testParameters());
+  ASSERT_TRUE(planner.setReference(makeStraightReference()));
+  const auto result = planner.buildPreparationStop(
+    EgoFrenetState{0.0, 0.0, 2.0},
+    {makeObstacle(5, 7.0), makeObstacle(6, 7.6)});
+
+  ASSERT_EQ(result.kind, SplinePlanKind::kPreparation) << result.reason;
+  ASSERT_GE(result.path.wpnts.size(), 2U);
+  EXPECT_EQ(result.obstacle_id, 5);
+  EXPECT_EQ(result.obstacle_ids, (std::vector<int>{5, 6}));
+  EXPECT_NEAR(result.path.wpnts.back().vx_mps, 0.0, 1.0e-9);
+  for (const auto & waypoint : result.path.wpnts) {
+    EXPECT_DOUBLE_EQ(waypoint.d_m, 0.0);
+  }
+}
+
+TEST(RacelineSplinePlanner, ReportsWholeBlockingClusterInAvoidanceResult)
+{
+  RacelineSplinePlanner planner(testParameters());
+  ASSERT_TRUE(planner.setReference(makeStraightReference()));
+  const auto result = planner.plan(
+    EgoFrenetState{0.0, 0.0, 2.0},
+    {makeObstacle(5, 7.0), makeObstacle(6, 7.6)});
+
+  ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
+  EXPECT_EQ(result.obstacle_ids, (std::vector<int>{5, 6}));
+}
+
+TEST(RacelineSplinePlanner, ReportsNearestBlockingClusterIdsForManeuverChaining)
+{
+  RacelineSplinePlanner planner(testParameters());
+  ASSERT_TRUE(planner.setReference(makeStraightReference()));
+  const auto cluster_ids = planner.blockingClusterIds(
+    EgoFrenetState{0.0, 0.0, 2.0},
+      {
+        makeObstacle(5, 7.0),
+        makeObstacle(6, 7.6),
+        makeObstacle(9, 10.0),
+      });
+
+  EXPECT_EQ(cluster_ids, (std::vector<int>{5, 6}));
+}
+
+TEST(RacelineSplinePlanner, RefusesPreparationDelayInsideSafeStopBuffer)
+{
+  RacelineSplinePlanner planner(testParameters());
+  ASSERT_TRUE(planner.setReference(makeStraightReference()));
+  const auto result = planner.buildPreparationStop(
+    EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(5, 1.0)});
+
+  EXPECT_EQ(result.kind, SplinePlanKind::kNoSafePath);
+  EXPECT_TRUE(result.path.wpnts.empty());
+  EXPECT_NE(result.reason.find("inside the safe-stop buffer"), std::string::npos);
+}
+
+TEST(RacelineSplinePlanner, AllowsShortValidatedSafeStopPrefix)
+{
+  auto parameters = testParameters();
+  parameters.maximum_target_offset_m = 0.45;
+  parameters.minimum_path_points = 8;
+  RacelineSplinePlanner planner(parameters);
+  ASSERT_TRUE(planner.setReference(makeStraightReference()));
+  const auto result = planner.plan(
+    EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(5, 1.65, -0.40, 0.40)});
+  ASSERT_EQ(result.kind, SplinePlanKind::kSafeStop) << result.reason;
+  EXPECT_GE(result.path.wpnts.size(), 2U);
+  EXPECT_LT(result.path.wpnts.size(), 8U);
+}
+
+TEST(RacelineSplinePlanner, BuildsZeroSpeedEmergencyHold)
+{
+  RacelineSplinePlanner planner(testParameters());
+  ASSERT_TRUE(planner.setReference(makeStraightReference()));
+  const auto path = planner.buildEmergencyStopPath(EgoFrenetState{2.05, 0.18, 2.0});
+  ASSERT_EQ(path.wpnts.size(), 8U);
+  for (const auto & waypoint : path.wpnts) {
+    EXPECT_DOUBLE_EQ(waypoint.d_m, 0.18);
+    EXPECT_DOUBLE_EQ(waypoint.vx_mps, 0.0);
+    EXPECT_DOUBLE_EQ(waypoint.ax_mps2, 0.0);
   }
 }
 
