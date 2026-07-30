@@ -293,9 +293,9 @@ $$a_{\max} = a_{\text{base}} \cdot \Bigl(1 - \text{clip}\!\left(\frac{|\phi|}{\p
 
 | 파라미터 | 기본값 | 설명 |
 |---|---|---|
-| `max_speed` | 7.0(real)/12.0(sim) | 직선 최고속도 캡 [m/s]. 곡률 제한은 코너에서만 걸리므로 직선 상한은 이 값이 유일하다. control_mppi_node의 `v_max`로도 전달됨 |
+| `max_speed` | 8.0(real)/12.0(sim) | 직선 최고속도 캡 [m/s]. 곡률 제한은 코너에서만 걸리므로 직선 상한은 이 값이 유일하다. control_mppi_node의 `v_max`로도 전달됨. 실차 8.0은 ERPM 상한(바퀴 ~9 m/s)의 89% (2026-07-30 상향) |
 | `min_speed` | 2.5(real·sim 공통) | 최저 순항 속도 [m/s] (곡률 감속 하한). 2026-07-23 `declare_common_args()`로 승격 — 이제 터미널 인자. ⚠️ 장애물 정지 경로는 이 하한을 무시하고 0까지 내려감(안전 우선) |
-| `max_lateral_accel` | 6.5(real)/10.0(sim) | 코너 그립 클램프 a_lat [m/s²]. 실차 기본을 LUT 실그립 피크(~6.7) 이내인 6.5로 보수화(2026-07-23). sim은 랩타임 튜닝 기준 유지차 10.0 낙관치 그대로 |
+| `max_lateral_accel` | 6.0(real)/10.0(sim) | 코너 그립 클램프 a_lat [m/s²]. LUT 실그립 피크(~6.7) 이내, 구 실측 마찰한계(~3.1)보다는 낙관치 (2026-07-30 상향). sim은 랩타임 튜닝 기준 유지차 10.0 낙관치 그대로 |
 | `yaw_rate_gain` | 0.08 | 요레이트 카운터스티어 게인 (낮게 시작해 채터링 보며 상향) |
 | `use_imu` | true | IMU 보정 전체 on/off (요레이트 카운터스티어 + 롤 인지 ESC). 조향 채터링 시 false로 순수 L1+LUT 회귀 |
 | `odom_topic` | `/pf/pose/odom` | 위치추정 odom 소스 (real만 인자, sim은 `/ego_racecar/odom` 고정) |
@@ -316,7 +316,7 @@ $$a_{\max} = a_{\text{base}} \cdot \Bigl(1 - \text{clip}\!\left(\frac{|\phi|}{\p
 | `stall_hold_speed` | 1.5 | 탈조 판정 시 명령을 묶어둘 값 [m/s] |
 | `stall_hold_delay` | 1.0 | 이 시간[s] 이상 안 움직이면 발동 |
 | `base_max_decel` | 8.0 | **명령 속도 하강 rate limit** [m/s²]. 낮추면 감속 명령이 늦게 도달 → 높게 유지 (2026-07-25 역할 분리) |
-| `prebrake_decel` | 1.5 | **곡률 사전감속 제동거리 산출용 실측 감속 권한** [m/s²]. 낮을수록 코너를 일찍 봄. 실측은 ~0.4라 1.5도 아직 낙관 (2026-07-25 신설) |
+| `prebrake_decel` | 2.5 | **곡률 사전감속 제동거리 산출용 감속 권한** [m/s²]. 낮을수록 코너를 일찍 봄. 실측 coast는 ~0.4라 2.5는 상당한 낙관치 — 코너 진입 언더스티어 시 하향 (2026-07-30 상향) |
 | `curvature_lookahead_count` | 60 | 곡률 룩어헤드 스캔 거리 하한 (×0.1m → 6m). 20(=2m)은 4 m/s에서 0.5초 앞밖에 못 봄 (2026-07-25 승격·상향) |
 | `understeer_gradient` | 0.019 | **조향 권한 속도 캡**의 K_us [rad/(m/s²)]. 0이면 캡 비활성(구 거동). 아래 ②-b 참고 (2026-07-26 신설) |
 | `steer_authority_ratio` | 0.85 | δ_max(0.41) 중 곡률 추종에 배정할 비율. 나머지는 횡오차·요레이트 보정 여유 (2026-07-26 신설) |
