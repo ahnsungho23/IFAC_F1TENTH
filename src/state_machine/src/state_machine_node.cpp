@@ -55,6 +55,10 @@ StateMachineNode::StateMachineNode()
   //state를 몇 Hz로 publish할지 정함.
   declare_parameter<double>("overtake_stale_timeout_sec", 0.5);
   //overtake_waypoints가 얼마나 오래되면 stale로 볼지 정함.
+  declare_parameter<bool>("allow_avoid_transition", true);
+  //false면 GLOBAL->AVOID 진입을 완전히 차단한다. M-of-N 조건은 아예 평가하지 않는다.
+  declare_parameter<bool>("allow_overtake_transition", true);
+  //false면 GLOBAL->OVERTAKE 진입을 완전히 차단한다. 둘 다 false면 GLOBAL 고정 운용이 된다.
   declare_parameter<int64_t>("local_path_confirmation_window_size", 5);
   //상태 진입 판정에 사용할 최근 local path 메시지 개수.
   declare_parameter<int64_t>("local_path_confirmation_min_hits", 3);
@@ -77,6 +81,8 @@ StateMachineNode::StateMachineNode()
   frame_id_ = get_parameter("frame_id").as_string();
   default_state_name_ = get_parameter("default_state").as_string();
   overtake_stale_timeout_sec_ = get_parameter("overtake_stale_timeout_sec").as_double();
+  allow_avoid_transition_ = get_parameter("allow_avoid_transition").as_bool();
+  allow_overtake_transition_ = get_parameter("allow_overtake_transition").as_bool();
   local_path_confirmation_window_size_ = std::max<int64_t>(
     1, get_parameter("local_path_confirmation_window_size").as_int());
   local_path_confirmation_min_hits_ = std::clamp<int64_t>(
@@ -134,9 +140,17 @@ StateMachineNode::StateMachineNode()
 
   RCLCPP_INFO(
     get_logger(),
-    "state_machine_node started. Publishing %s with default_state='%s'.",
+    "state_machine_node started. Publishing %s with default_state='%s' "
+    "(allow_avoid_transition=%s, allow_overtake_transition=%s).",
     state_topic_.c_str(),
-    default_state_name_.c_str());
+    default_state_name_.c_str(),
+    allow_avoid_transition_ ? "true" : "false",
+    allow_overtake_transition_ ? "true" : "false");
+  if (!allow_avoid_transition_ && !allow_overtake_transition_) {
+    RCLCPP_WARN(
+      get_logger(),
+      "Both local-path transitions are disabled. The FSM will stay in its default state.");
+  }
 }
 
 std::optional<uint8_t> StateMachineNode::parse_state(const std::string & state_name) const
@@ -191,12 +205,18 @@ bool StateMachineNode::has_fresh_overtake_wpnts() const
 
 bool StateMachineNode::can_enter_avoid() const
 {
+  if (!allow_avoid_transition_) {
+    return false;
+  }
   return local_path_confirmed(
     avoid_path_history_, avoid_wpnts_msg_);
 }
 
 bool StateMachineNode::can_enter_overtake() const
 {
+  if (!allow_overtake_transition_) {
+    return false;
+  }
   return local_path_confirmed(
     overtake_path_history_, overtake_wpnts_msg_);
 }
@@ -354,6 +374,7 @@ bool StateMachineNode::evaluate_enter_to_global(
 //committed_state_ 기반 FSM 1-step. dwell/안전 fallback 없이 조건 만족 즉시 전이한다.
 //- GLOBAL: 최근 N회 중 M회 이상 확인된 avoid path면 AVOID(우선), 아니면 overtake path면 OVERTAKE로 진입.
 //- AVOID/OVERTAKE: enter_to_global 합류 조건을 만족하면 GLOBAL로 복귀.
+//allow_*_transition_은 GLOBAL에서의 진입만 차단하며 GLOBAL 복귀는 항상 허용한다.
 uint8_t StateMachineNode::resolve_requested_state()
 {
   switch (committed_state_) {
@@ -410,7 +431,14 @@ void StateMachineNode::publish_state()
   const bool frenet_ready = has_fresh_frenet();
   const bool avoid_ready = has_avoid_wpnts();
   const bool overtake_ready = has_fresh_overtake_wpnts();
-  if (!global_ready || !frenet_ready || !avoid_ready || !overtake_ready) {
+  //진입이 꺼진 소스는 경고 대상에서 제외한다. 안 쓰는 입력 때문에 로그가 묻히지 않게 한다.
+  const bool avoid_required = allow_avoid_transition_ ||
+    committed_state_ == f110_msgs::msg::StateMachine::STATE_AVOID;
+  const bool overtake_required = allow_overtake_transition_ ||
+    committed_state_ == f110_msgs::msg::StateMachine::STATE_OVERTAKE;
+  if (!global_ready || !frenet_ready || (avoid_required && !avoid_ready) ||
+    (overtake_required && !overtake_ready))
+  {
     RCLCPP_WARN_THROTTLE(
       get_logger(),
       *get_clock(),

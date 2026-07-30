@@ -31,6 +31,7 @@ private:
 
   // --- Transition gates ---
   //최근 N회 중 M회 이상 non-empty 경로가 수신되면 상태 진입 허용.
+  //단, allow_*_transition_이 false면 M-of-N 평가 전에 즉시 차단한다.
   bool can_enter_avoid() const;
   bool can_enter_overtake() const;
 
@@ -61,6 +62,9 @@ private:
   std::string frame_id_;
   std::string default_state_name_;
   double overtake_stale_timeout_sec_{0.5};
+  //상태 진입 기능 토글. false면 해당 상태로 절대 전이하지 않는다(복귀는 항상 허용).
+  bool allow_avoid_transition_{true};
+  bool allow_overtake_transition_{true};
   int64_t local_path_confirmation_window_size_{5};
   int64_t local_path_confirmation_min_hits_{3};
   double global_stale_timeout_sec_{2.0};

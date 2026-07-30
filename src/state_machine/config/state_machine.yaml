@@ -9,6 +9,12 @@ state_machine_node:
     publish_rate_hz: 10.0
     default_state: "global"
 
+    # 상태 진입 기능 토글. false면 해당 상태로 절대 전이하지 않습니다(GLOBAL 고정 운용).
+    # 진입(GLOBAL->AVOID/OVERTAKE)만 차단하며, GLOBAL 복귀는 토글과 무관하게 항상 허용됩니다.
+    # 회피/추월을 다시 쓰려면 true로 되돌리세요(노드 재시작 필요).
+    allow_avoid_transition: false
+    allow_overtake_transition: false
+
     # AVOID 경로는 timeout 없이 최신 non-empty 경로 수신 여부로 유지합니다.
     # 상태 진입은 아래 M-of-N 수신 확인으로 판정합니다.
     overtake_stale_timeout_sec: 100.0

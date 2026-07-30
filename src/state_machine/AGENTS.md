@@ -15,7 +15,7 @@ State machine package rules. These instructions apply to `src/state_machine`.
 - C++ node implementations live in `src/`.
 - Runtime parameters live in `config/state_machine.yaml`.
 - Launch entrypoints live in `launch/`.
-- Node documentation currently lives in the repo `README.md` and this `AGENTS.md` (the package `docs/` was removed 2026-07-13).
+- Node documentation lives in `docs/state_machine_node.md`, the repo `README.md`, and this `AGENTS.md`.
 
 ## Runtime Code
 
@@ -25,6 +25,10 @@ State machine package rules. These instructions apply to `src/state_machine`.
   - `local_path_confirmed()` / `can_enter_avoid()` / `can_enter_overtake()`: GLOBAL→AVOID /
     GLOBAL→OVERTAKE entry gate. At least M of the latest N messages must contain a non-empty
     local path (default 3-of-5); stale freshness is not an entry gate. AVOID has priority.
+    `allow_avoid_transition` / `allow_overtake_transition` (code default true, YAML currently false)
+    short-circuit these gates before the M-of-N check, so entry is fully blocked. They gate
+    entry only — AVOID/OVERTAKE→GLOBAL merge-back ignores them. Read once at startup (no dynamic
+    reconfigure callback); `publish_state()` also drops disabled sources from the input warning.
   - `enter_to_global()` (+ `evaluate_enter_to_global()` entry point): AVOID/OVERTAKE→GLOBAL graceful merge-back judgment.
   - `resolve_requested_state()`: the FSM 1-step. It reads/updates `committed_state_` and returns the state to publish. No dwell, no separate safety fallback — the state changes only when an entry or merge-back condition fires.
 - `enter_to_global()` assumes the **segment publishing convention**: local paths (`/avoid_waypoints`, `/overtake_waypoints`) are ego→merge segments in global-raceline frenet coordinates (`s_m`/`d_m`), tail converging to d→0. As of 2026-07-13 `local_planning` still publishes a full-loop copy — until it is converted, the avoid-side merge judgment is inaccurate.
