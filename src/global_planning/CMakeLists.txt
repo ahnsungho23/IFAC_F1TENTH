@@ -80,10 +80,11 @@ install(TARGETS
 
 install(DIRECTORY launch config docs
   DESTINATION share/${PROJECT_NAME}
+  PATTERN "__pycache__" EXCLUDE
 )
 
 # --- Export the Frenet conversion library + headers for downstream packages ---
-# opponent_detector #includes "global_planning/clcs_frenet_converter.hpp" (which
+# obstacle_detector #includes "global_planning/clcs_frenet_converter.hpp" (which
 # transitively includes the vendored "geometry/..." headers) and links this lib.
 install(DIRECTORY include/
   DESTINATION include

@@ -22,7 +22,7 @@ blocking 판정에 사용합니다. 그 사각형의 종·횡 범위로 트랙 �
 
 ```zsh
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 ros2 launch local_planning local_planning.launch.py
 ```

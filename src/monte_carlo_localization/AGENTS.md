@@ -23,7 +23,7 @@ This document defines package-specific developer rules and guidelines for `monte
 ## Launch Policy
 
 - Launch file: `launch/mcl_launch.py`
-- Command example: `ros2 launch particle_filter_cpp mcl_launch.py mod:=real map_name:=map`
+- Command example: `ros2 launch particle_filter_cpp mcl_launch.py mod:=real map_name:=ifac_track`
 - Ensure `CMakeLists.txt` installs `launch`, `config`, `maps`, and documentation directories.
 
 ## Documentation Expectations

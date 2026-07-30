@@ -55,7 +55,7 @@ set(dependencies
   # rclcpp_parameters
 )
 
-# Create particle filter library 
+# Create particle filter library
 add_library(${PROJECT_NAME}_lib SHARED
   src/particle_filter.cpp
   src/utils.cpp
@@ -64,7 +64,7 @@ add_library(${PROJECT_NAME}_lib SHARED
 ament_target_dependencies(${PROJECT_NAME}_lib ${dependencies})
 
 # Create executable for particle filter
-add_executable(particle_filter_node 
+add_executable(particle_filter_node
   src/particle_filter_main.cpp
 )
 
@@ -100,6 +100,7 @@ install(DIRECTORY include/
 install(DIRECTORY launch/
   DESTINATION share/${PROJECT_NAME}/launch/
   FILES_MATCHING PATTERN "*.py" PATTERN "*.xml" PATTERN "*.yaml"
+  PATTERN "__pycache__" EXCLUDE
 )
 
 # Install config files
@@ -120,6 +121,12 @@ install(DIRECTORY rviz/
   FILES_MATCHING PATTERN "*.rviz"
 )
 
+# Install operator documentation
+install(DIRECTORY docs/
+  DESTINATION share/${PROJECT_NAME}/docs/
+  FILES_MATCHING PATTERN "*.md"
+)
+
 # Export dependencies - Fixed the export call
 ament_export_dependencies(${dependencies})
 ament_export_include_directories(include)
@@ -127,10 +134,11 @@ ament_export_libraries(${PROJECT_NAME}_lib)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
-  
-  # Linting only (no unit tests for now) 
+
+  # Keep this distro port focused; reformatting the legacy MCL implementation is a separate change.
   set(ament_cmake_copyright_FOUND TRUE)
   set(ament_cmake_cpplint_FOUND TRUE)
+  set(ament_cmake_uncrustify_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
 endif()
 

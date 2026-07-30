@@ -5,7 +5,7 @@ must not weaken the repository-root `AGENTS.md`.
 
 ## Scope
 
-This package contains one C++ ROS 2 Humble runtime node:
+This package contains one C++ ROS 2 Jazzy runtime node:
 
 - `obstacle_detector_node` (ROS node name `obstacle_detector`) consumes 2D LiDAR, the occupancy
   map, global waypoints, ego odometry, and TF. It publishes provisional/confirmed stationary

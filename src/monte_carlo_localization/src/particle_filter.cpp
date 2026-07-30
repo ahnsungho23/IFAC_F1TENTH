@@ -187,9 +187,6 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
         odom_pub_ = this->create_publisher<nav_msgs::msg::Odometry>("/pf/pose/odom", 1);
     }
 
-    // Map publisher
-    map_pub_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>("/map", rclcpp::QoS(1).transient_local());
-
     // TF broadcaster and listener
     pub_tf_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
     tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
@@ -233,12 +230,6 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
     );
     startup_timer_interval_ = timer_interval_ms;
     full_timer_interval_ = static_cast<int>(1000.0 / TIMER_FREQUENCY);
-
-    // Map publisher timer
-    map_timer_ = this->create_wall_timer(
-        std::chrono::milliseconds(200),
-        std::bind(&ParticleFilter::publish_map_periodically, this)
-    );
 
 
     RCLCPP_INFO(this->get_logger(), "Particle filter initialized - %.1fHz, %s threading (%d threads)", 

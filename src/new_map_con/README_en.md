@@ -1,6 +1,6 @@
 # new_map_con
 
-> Archived package. `COLCON_IGNORE` disconnects it from the active workspace build and runtime path.
+This package is part of the default colcon build on Ubuntu 24.04 with ROS 2 Jazzy.
 
 > 🌐 [한국어](README.md) · **English**
 
@@ -39,7 +39,8 @@ For a detailed explanation of the node operation, see [`docs/map_controller_node
                                         └──▶ steering/lookahead markers (viz)
 ```
 
-At startup the node loads the raceline CSV and publishes it as a latched `/global_waypoints` topic. This topic is consumed by global_planning, wpnt_publisher, and opponent_detector.
+At startup the node loads the raceline CSV and publishes it as a latched `/global_waypoints`
+topic. This topic is consumed by global_planning, wpnt_publisher, and obstacle_detector.
 
 ## 2. Subscribed / Published Topics
 

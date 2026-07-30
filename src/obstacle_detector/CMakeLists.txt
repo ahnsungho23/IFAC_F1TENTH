@@ -65,6 +65,7 @@ install(DIRECTORY
   rviz
   docs
   DESTINATION share/${PROJECT_NAME}
+  PATTERN "__pycache__" EXCLUDE
 )
 
 if(BUILD_TESTING)

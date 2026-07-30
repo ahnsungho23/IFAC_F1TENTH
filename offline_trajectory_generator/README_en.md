@@ -177,7 +177,7 @@ The CSV format uses the same 10-column structure as `src/new_map_con/maps/fuck_f
 - `distance`: distance-transform based. Fast, but returns a single nearest-wall value so `d_left == d_right` (no left/right distinction).
 - `raycast`: directional raycast only (with the robust gate); no gap-leak correction.
 
-`d_left`/`d_right` feed directly into the `opponent_detector` avoidance safety-margin computation and the `new_map_con` path-boundary check, so avoidance logic that needs left/right asymmetry must use `hybrid`. `--max-width-distance` is the raycast upper bound; set it to the track width (3.0 m recommended for indoor F1TENTH tracks). The remaining ROS waypoint fields `d_m`, `s_m`, etc. are kept inside `global_waypoints.json`.
+`d_left`/`d_right` feed the `obstacle_detector` and `local_planning` avoidance calculations as well as the `new_map_con` path-boundary check, so avoidance logic that needs left/right asymmetry must use `hybrid`. `--max-width-distance` is the raycast upper bound; set it to the track width (3.0 m recommended for indoor F1TENTH tracks). The remaining ROS waypoint fields `d_m`, `s_m`, etc. are kept inside `global_waypoints.json`.
 
 The CSV's `x_m` and `y_m` are map frame coordinates with the `resolution` and `origin` of the selected ROS map YAML applied. If the map and path are misaligned in RViz, first check whether the map YAML put into the generator and the map YAML loaded by f1sim/map server are the same file.
 

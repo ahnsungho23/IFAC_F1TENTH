@@ -36,6 +36,7 @@ install(DIRECTORY config/
 install(DIRECTORY launch/
   DESTINATION share/${PROJECT_NAME}/launch
   FILES_MATCHING PATTERN "*.py"
+  PATTERN "__pycache__" EXCLUDE
 )
 
 install(DIRECTORY docs/

@@ -13,13 +13,13 @@ a·D ≥ v²−v_corner² 를 만족해야 하므로 가감속 2.23 m/s² 이상
 
 의존성 주의: `/sensors/core`(vesc_msgs/VescStateStamped)는 **랩탑에 vesc_msgs가 없어도**
 읽을 수 있도록 자체 CDR 파서를 쓴다. 필드 레이아웃은 vesc_msgs 버전마다 다르고
-**voltage_input이 선두일 거라는 흔한 가정이 틀리다** — 실차(Humble) 실제 순서는
+**voltage_input이 선두일 거라는 흔한 가정이 틀리다** — 기존 실차 bag의 실제 순서는
 temp_fet, temp_motor, current_motor, current_input, avg_id, avg_iq, duty_cycle, speed,
 voltage_input 이다(2026-07-26 젯슨 echo로 확인·검증). 여러 후보를 시도해 전압/듀티
 타당성과 **odom 속도 대비 ERPM 비**(speed_to_erpm_gain 4232 부근)로 자동 판별한다.
 
 사용법:
-  source /opt/ros/humble/setup.bash
+  source /opt/ros/jazzy/setup.bash
   python3 analyze_longitudinal.py <bag폴더 | .db3> [--odom /odom] [--erpm-gain 4232]
 """
 import sys, os, glob, sqlite3, struct, math, argparse

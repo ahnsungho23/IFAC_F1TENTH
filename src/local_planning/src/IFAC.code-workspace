@@ -14,24 +14,22 @@
 		}
 	],
 	"settings": {
-		"ROS2.distro": "humble",
+		"ROS2.distro": "jazzy",
 		"python.autoComplete.extraPaths": [
-			"/home/sunghosub/2026_IFAC/build/steering_lookup",
-			"/home/sunghosub/2026_IFAC/install/steering_lookup/lib/python3.10/site-packages",
-			"/home/sunghosub/2026_IFAC/build/lap_timer",
-			"/home/sunghosub/2026_IFAC/install/lap_timer/lib/python3.10/site-packages",
-			"/home/sunghosub/2026_IFAC/install/f110_msgs/local/lib/python3.10/dist-packages",
-			"/opt/ros/humble/lib/python3.10/site-packages",
-			"/opt/ros/humble/local/lib/python3.10/dist-packages"
+			"${workspaceFolder:2026_IFAC}/build/steering_lookup",
+			"${workspaceFolder:2026_IFAC}/install/steering_lookup/lib/python3.12/site-packages",
+			"${workspaceFolder:2026_IFAC}/build/lap_timer",
+			"${workspaceFolder:2026_IFAC}/install/lap_timer/lib/python3.12/site-packages",
+			"${workspaceFolder:2026_IFAC}/install/f110_msgs/lib/python3.12/site-packages",
+			"/opt/ros/jazzy/lib/python3.12/site-packages"
 		],
 		"python.analysis.extraPaths": [
-			"/home/sunghosub/2026_IFAC/build/steering_lookup",
-			"/home/sunghosub/2026_IFAC/install/steering_lookup/lib/python3.10/site-packages",
-			"/home/sunghosub/2026_IFAC/build/lap_timer",
-			"/home/sunghosub/2026_IFAC/install/lap_timer/lib/python3.10/site-packages",
-			"/home/sunghosub/2026_IFAC/install/f110_msgs/local/lib/python3.10/dist-packages",
-			"/opt/ros/humble/lib/python3.10/site-packages",
-			"/opt/ros/humble/local/lib/python3.10/dist-packages"
+			"${workspaceFolder:2026_IFAC}/build/steering_lookup",
+			"${workspaceFolder:2026_IFAC}/install/steering_lookup/lib/python3.12/site-packages",
+			"${workspaceFolder:2026_IFAC}/build/lap_timer",
+			"${workspaceFolder:2026_IFAC}/install/lap_timer/lib/python3.12/site-packages",
+			"${workspaceFolder:2026_IFAC}/install/f110_msgs/lib/python3.12/site-packages",
+			"/opt/ros/jazzy/lib/python3.12/site-packages"
 		]
 	}
 }

@@ -15,7 +15,7 @@ F1TENTH 실차/시뮬 주행 rosbag 하나를 넣으면 **자체 실행형 `repo
 
 ## 사용법
 ```bash
-source /opt/ros/humble/setup.bash          # rclpy 디시리얼라이즈에 필요
+source /opt/ros/jazzy/setup.bash           # rclpy 디시리얼라이즈에 필요
 python3 analyze_bag.py <bag폴더 | .db3> [옵션]
 xdg-open <name>_report.html
 ```
@@ -25,7 +25,7 @@ xdg-open <name>_report.html
 - `--grip 5.0` 목표 그립 a_lat [m/s²] (BEXCO 저마찰 기준 5.0 권장)
 
 ## 전제 / 한계
-- ROS 2(Humble) 소싱 + `matplotlib`, `numpy` 필요.
+- ROS 2 Jazzy 소싱 + `matplotlib`, `numpy` 필요.
 - bag에 **`/global_waypoints`·`/drive`가 있으면** 명령 vs 실측 비교(플래너 프로파일·명령 조향)까지,
   없으면 실측(odom·imu) 기반 분석만. 둘 다 자동 판별.
 - map 프레임 pose는 `/tf`의 `map→odom→base_link` 합성으로 복원. TF가 없으면 odom pose로 폴백.

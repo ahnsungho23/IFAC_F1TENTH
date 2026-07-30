@@ -29,7 +29,7 @@ ROS 2 패키지 `f1tenth_control` 하나로 구성되며, 플래닝 팀이 발�
 ├── src/
 │   ├── f1tenth_control/      ← 이 저장소의 동기화 사본 (실제 빌드 대상)
 │   ├── local_planning/ , global_planning/ , state_machine/   ← 플래닝 팀
-│   ├── opponent_detector/ , wpnt_publisher/ , monte_carlo_localization/
+│   ├── obstacle_detector/ , wpnt_publisher/ , monte_carlo_localization/
 ├── offline_trajectory_generator/ , wpnt_publisher/
 ├── frenet_conversion/        ← Frenet 좌표 변환 (f110 스택)
 └── ...                       ← steering_lookup 패키지(LUT cfg) 포함
@@ -56,7 +56,7 @@ source install/setup.bash
 
 # 시뮬레이션 실행 (gym_bridge·global_planner는 별도 기동 필요)
 ros2 launch f1tenth_control control_sim.launch.py
-ros2 launch f1tenth_control control_sim.launch.py force_autonomous:=true yaw_rate_gain:=0.1
+ros2 launch f1tenth_control control_sim.launch.py force_autonomous:=true launch_joy:=false yaw_rate_gain:=0.1
 
 # 실차 실행 (하드웨어 브링업·planning이 먼저 떠 있어야 함)
 # ⚠️ 실차는 f1tenth_stack(별도 워크스페이스 ~/f1tenth_ws)이 라이다·조이스틱·VESC 드라이버와
@@ -209,6 +209,7 @@ f1tenth_gym(gym_bridge)은 `/imu/data`를 발행하지 않으므로, `control_ma
 직접 포함한다(2026-07-17) — `ifac_sim` 같은 터미널 1~7 일괄 실행 스크립트에서 별도 8번째
 터미널 없이 조이스틱 수동 개입/오버라이드를 바로 쓸 수 있게 하기 위함. 실차는 f1tenth_stack이
 `joy_node`를 별도로 띄우므로 `control_real.launch.py`엔 포함하지 않는다(중복 방지, 위 참고).
+GUI/입력 장치가 없는 환경에서는 `launch_joy:=false`로 드라이버만 생략할 수 있다.
 
 ## 토픽 데이터 흐름
 

@@ -1408,7 +1408,7 @@ E-stop 상태나 딥맨 미입력 상태에서는 오프셋이 **적용될 기�
 VESC 조향 오도메트리는 비선형 링키지 + 서보 클리핑 + 속도 데드밴드가 겹쳐 있어, 매핑용
 요 소스로는 구조적으로 불리하다. 맵 작성은 일회성 작업이므로 우회가 합리적.
 
-- [ ] `sudo apt install ros-humble-rf2o-laser-odometry`
+- [ ] `sudo apt install ros-jazzy-rf2o-laser-odometry`
 - [ ] `vesc_to_odom`의 `publish_tf: false`로 두고 rf2o가 `odom→base_link` 발행
 - [ ] 매핑 후 원복(주행 중 위치추정은 MCL 담당이므로 rf2o 불필요)
 

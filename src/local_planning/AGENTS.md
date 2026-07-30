@@ -13,7 +13,7 @@
 
 ## Algorithm rules
 
-- Runtime code is C++17 for ROS 2 Humble.
+- Runtime code is C++17 for ROS 2 Jazzy.
 - Use `f110_msgs/msg/ObstacleArray`, `WpntArray`, and `OTWpntArray`; do not create a new message.
 - Consume map-frame Cartesian AABBs from `obstacle_detector` Layer 2 on `/static_obs`. Project each
   AABB center through the shared CLCS converter to lock the correct track branch. Compute the exact

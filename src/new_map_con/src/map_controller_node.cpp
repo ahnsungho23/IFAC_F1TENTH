@@ -350,7 +350,7 @@ private:
         return columns.find(name) != columns.end();
       };
     auto read = [&columns](const std::vector<std::string> & row, const std::string & name,
-        double fallback) {
+      double fallback) {
         const auto it = columns.find(name);
         if (it == columns.end() || it->second >= row.size() || row[it->second].empty()) {
           return fallback;

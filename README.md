@@ -8,7 +8,7 @@ F1TENTH 자율주행 스택입니다. 위치추정(MCL), 글로벌 플래닝, �
 slam launch방법 로컬에서
 ```bash
 cd ~/slam_toolbox
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 ros2 launch slam_toolbox online_async_launch.py use_sim_time:=false
 ```
@@ -16,7 +16,7 @@ ros2 launch slam_toolbox online_async_launch.py use_sim_time:=false
 slam 저장방법 로컬에서
 ```bash
 cd ~/slam_toolbox
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 ros2 run nav2_map_server map_saver_cli \
     -f /home/sungho/slam_toolbox/map
@@ -37,7 +37,7 @@ scp -r ~/2026_IFAC/offline_trajectory_generator/output/map \
 터미널1
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 ros2 launch particle_filter_cpp mcl_launch.py mod:=real map_name:=map
 ```
@@ -45,31 +45,31 @@ ros2 launch particle_filter_cpp mcl_launch.py mod:=real map_name:=map
 터미널2
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
-ros2 launch global_planning global_planning.launch.py
+ros2 launch global_planning global_planning.launch.py map_name:=map
 ```
 
 터미널3
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
-ros2 launch local_planning local_planning.launch.py
+ros2 launch obstacle_detector obstacle_detector.launch.py
 ```
 
 터미널4
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
-ros2 launch state_machine state_machine.launch.py
+ros2 launch local_planning local_planning.launch.py
 ```
 
 터미널5
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 ros2 launch state_machine state_machine.launch.py
 ```
@@ -77,15 +77,15 @@ ros2 launch state_machine state_machine.launch.py
 터미널6
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
-ros2 run wpnt_publisher wpnt_publisher
+ros2 launch wpnt_publisher wpnt_publisher.launch.py
 ```
 
 터미널7
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source ~/f1tenth_ws/install/setup.zsh
 source install/setup.zsh
 ros2 launch f1tenth_control control_real.launch.py
@@ -96,7 +96,7 @@ rosbag
 ```
 cd ~/miru/2026_IFAC
 
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 
 ros2 bag record \
@@ -117,7 +117,7 @@ ros2 bag record \
 
 ## 프로젝트 구조
 
-ROS 2 Humble workspace for the 2026 IFAC F1TENTH stack. ROS packages live under `src/`.
+Ubuntu 24.04 / ROS 2 Jazzy workspace for the 2026 IFAC F1TENTH stack. ROS packages live under `src/`.
 
 ```text
 2026_IFAC/
@@ -183,13 +183,13 @@ ROS 2 Humble workspace for the 2026 IFAC F1TENTH stack. ROS packages live under 
 │   │   ├── src/local_planner_node.cpp
 │   │   ├── AGENTS.md, CMakeLists.txt, package.xml
 │   │
-│   ├── opponent_detector/        # opponent detection + tracking + overtake planner
-│   │   ├── config/opponent_detector.yaml
-│   │   ├── docs/                 # opponent_detector_node.md, sim_test_commands.md
-│   │   ├── include/opponent_detector/  # frenet_projector, obstacle_tracker, opponent_detector_node, overtake_planner
-│   │   ├── src/                        # frenet_projector, obstacle_tracker, opponent_detector_node, overtake_planner
-│   │   ├── rviz/opponent_detector.rviz
-│   │   ├── test/                       # commit_lock, offpath_recovery, synthetic_opponent, trail_to_overtake
+│   ├── obstacle_detector/        # 2D LiDAR obstacle detection and Frenet tracking
+│   │   ├── config/obstacle_detector.yaml
+│   │   ├── docs/                 # obstacle_detector_node.md, sim_test_commands.md
+│   │   ├── include/obstacle_detector/  # frenet_projector, obstacle_tracker, detector node
+│   │   ├── src/                        # frenet_projector, obstacle_tracker, detector node
+│   │   ├── rviz/obstacle_detector.rviz
+│   │   ├── test/test_obstacle_tracker.cpp
 │   │   ├── AGENTS.md, CMakeLists.txt, package.xml, README(.en).md
 │   │
 │   ├── state_machine/            # driving-mode state machine (GLOBAL / AVOID / OVERTAKE)
@@ -200,24 +200,25 @@ ROS 2 Humble workspace for the 2026 IFAC F1TENTH stack. ROS packages live under 
 │   │   ├── AGENTS.md, CMakeLists.txt, package.xml
 │   │
 │   ├── wpnt_publisher/           # /state-driven local waypoint selection/publisher
+│   │   ├── config/wpnt_publisher.yaml
+│   │   ├── docs/wpnt_publisher.md
+│   │   ├── launch/wpnt_publisher.launch.py
 │   │   ├── src/wpnt_publisher.cpp
-│   │   ├── config/ docs/ launch/ (empty)
-│   │   ├── CMakeLists.txt, package.xml, LICENSE
+│   │   ├── AGENTS.md, CMakeLists.txt, package.xml, LICENSE
 │   │
-│   ├── new_map_con/              # map controller + opponent simulator/drive controller
+│   ├── new_map_con/              # CSV waypoint publisher + pure-pursuit controller
 │   │   ├── config/config.yaml
 │   │   ├── docs/map_controller_node.md
-│   │   ├── launch/               # new_map_con, opponent_simulator
+│   │   ├── launch/new_map_con.launch.py
 │   │   ├── maps/                 # 6 files: fuck_f1.{csv,yaml,pgm}, oct28.csv, ...
-│   │   ├── src/                  # map_controller_node, opponent_drive_controller, opponent_simulator_node
-│   │   ├── test/                 # copyright / flake8 / pep257
-│   │   ├── AGENTS.md, CMakeLists.txt, setup.py, setup.cfg, package.xml, README(.en).md
+│   │   ├── src/map_controller_node.cpp
+│   │   ├── AGENTS.md, CMakeLists.txt, package.xml, README(.en).md
 │   │
 │   ├── monte_carlo_localization/ # particle-filter localization (C++)
 │   │   ├── config/mcl_config.yaml
 │   │   ├── include/particle_filter_cpp/  # particle_filter.hpp, utils.hpp
 │   │   ├── launch/mcl_launch.py
-│   │   ├── maps/                 # 2 files (e.g. fuck_f1.{pgm,yaml})
+│   │   ├── maps/                 # ifac_track.{png,yaml}
 │   │   ├── rviz/particle_filter.rviz
 │   │   ├── src/                  # particle_filter.cpp, utils.cpp
 │   │   ├── CMakeLists.txt, package.xml, README.md
@@ -259,7 +260,8 @@ ROS 2 Humble workspace for the 2026 IFAC F1TENTH stack. ROS packages live under 
 
 ## 1. 사전 요구사항
 
-- ROS 2 Humble
+- Ubuntu 24.04
+- ROS 2 Jazzy
 - 시뮬레이터 워크스페이스 `~/sim_ws` (`f1tenth_gym_ros` 빌드 완료)
 - 이 저장소가 `~/2026_IFAC`에 위치
 
@@ -269,7 +271,9 @@ ROS 2 Humble workspace for the 2026 IFAC F1TENTH stack. ROS packages live under 
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
+rosdep install --from-paths src f110_msgs third_party/python_libs \
+  --ignore-src -r -y --rosdistro jazzy
 colcon build --symlink-install
 ```
 
@@ -284,13 +288,12 @@ symlink-install 덕분에 `config/*.yaml`과 `launch/*.launch.py`는 수정 후 
 
 ## 3. 실행 순서
 
-기본 주행은 터미널 7개를 아래 순서대로 띄웁니다. 순서가 중요합니다 — 4장의 주의사항을 먼저 읽어보세요.
-상대차 검출·추월까지 보려면 §3-1의 터미널 8·9를 **추가로** 띄웁니다(터미널 7은 유지).
+기본 주행은 터미널 8개를 아래 순서대로 띄웁니다. 순서가 중요합니다. 4장의 주의사항을 먼저 읽어보세요.
 
 각 터미널 공통 준비:
 
 ```bash
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh   # bash 사용 시 setup.bash
 ```
 
@@ -298,7 +301,7 @@ source install/setup.zsh   # bash 사용 시 setup.bash
 
 ```bash
 cd ~/sim_ws
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 ros2 launch f1tenth_gym_ros gym_bridge_launch.py
 ```
@@ -309,15 +312,15 @@ ros2 launch f1tenth_gym_ros gym_bridge_launch.py
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
-ros2 launch particle_filter_cpp mcl_launch.py mod:=sim map_name:=fuck_f1 use_rviz:=true
+ros2 launch particle_filter_cpp mcl_launch.py mod:=sim map_name:=ifac_track use_rviz:=true
 ```
 
 | 인자 | 값 | 설명 |
 |---|---|---|
 | `mod` | `sim` | 시뮬레이션 모드 (`/ego_racecar/odom` 사용, sim time 활성) |
-| `map_name` | `fuck_f1` | `monte_carlo_localization/maps/fuck_f1.yaml` |
+| `map_name` | `ifac_track` | `monte_carlo_localization/maps/ifac_track.yaml` |
 | `use_rviz` | `true` | RViz 동시 실행 |
 
 ### 터미널 3 — 글로벌 플래너
@@ -326,78 +329,90 @@ ros2 launch particle_filter_cpp mcl_launch.py mod:=sim map_name:=fuck_f1 use_rvi
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 ros2 launch global_planning global_planning.launch.py
 ```
 
-### 터미널 4 — 로컬 플래너 (장애물 회피)
+### 터미널 4 — 장애물 검출기
 
-`/map`의 점유 격자에서 장애물을 찾아 최소자승 3차 스플라인 회피 경로를 만듭니다.
+`/scan`에서 지도에 없는 장애물을 검출해 `/static_obs`와 `/opp_obs`를 발행합니다.
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
+source install/setup.zsh
+ros2 launch obstacle_detector obstacle_detector.launch.py simulator:=true use_sim_time:=true
+```
+
+### 터미널 5 — 로컬 플래너 (장애물 회피)
+
+`/static_obs`를 받아 최소자승 3차 스플라인 회피 경로를 만듭니다.
+
+```bash
+cd ~/2026_IFAC
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 ros2 launch local_planning local_planning.launch.py
 ```
 
-### 터미널 5 — 상태 머신 (state machine)
+### 터미널 6 — 상태 머신 (state machine)
 
 `/car_state/frenet/odom`·`/avoid_waypoints`·`/overtake_waypoints`·`/global_waypoints`를 종합해 주행 상태(GLOBAL/AVOID/OVERTAKE)를 판정하고 `/state`로 발행합니다.
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 ros2 launch state_machine state_machine.launch.py
 ```
 
-### 터미널 6 — 웨이포인트 퍼블리셔
+### 터미널 7 — 웨이포인트 퍼블리셔
 
 회피 웨이포인트를 받아 `/local_waypoints`로 중계합니다.
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
-ros2 run wpnt_publisher wpnt_publisher
+ros2 launch wpnt_publisher wpnt_publisher.launch.py
 ```
 
-### 터미널 7 — 제어
+### 터미널 8 — 제어
 
 L1 Guidance + Steering LUT 기반 조향/속도 제어(MAP). 나란히 MPPI 컨트롤러도 항상 구동되며
-조이스틱 RB 버튼으로 즉시 전환됩니다. **실차와 시뮬은 launch 파일이 다릅니다** — `control_sim.launch.py`는
-`sim_imu_bridge_node`(gym이 IMU를 발행하지 않아 odom→IMU를 중계), `control_real.launch.py`는
-`ackermann_to_vesc_node`(최종 `/drive`→VESC 모터/서보 명령 변환)를 각각 갖고 있어 노드 구성 자체가
-다르기 때문입니다. 인자 하나로 합치면 환경을 잘못 고를 경우 안전 관련 노드가 조용히 빠진 채
-기동될 위험이 있어 의도적으로 분리해뒀습니다.
+조이스틱 RB 버튼으로 즉시 전환됩니다. **실차와 시뮬은 launch 파일이 다릅니다.**
+`control_sim.launch.py`는 gym이 IMU를 발행하지 않아 odom을 IMU로 중계하는
+`sim_imu_bridge_node`를 포함합니다. 실차에서는 외부 `f1tenth_stack`이 센서, VESC,
+`ackermann_mux`, `ackermann_to_vesc_node`를 담당하고 `control_real.launch.py`는 그 위에
+제어 노드만 올립니다.
 
 **시뮬 — `control_sim.launch.py`**
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
-ros2 launch f1tenth_control control_sim.launch.py force_autonomous:=true
+ros2 launch f1tenth_control control_sim.launch.py force_autonomous:=true launch_joy:=false
 ```
 
-`force_autonomous:=true`면 조이스틱 없이 즉시 자율주행합니다. 생략하면 MANUAL로 시작하며
+`force_autonomous:=true`면 조이스틱 없이 즉시 자율주행합니다. 이때
+`launch_joy:=false`를 함께 주면 조이스틱 드라이버도 실행하지 않아 헤드리스 환경에서
+사용할 수 있습니다. `force_autonomous`를 생략하면 MANUAL로 시작하며
 조이스틱 LB 버튼으로 AUTONOMOUS 전환이 필요합니다.
 
 **실차 — `control_real.launch.py`**
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source ~/f1tenth_ws/install/setup.zsh
 source install/setup.zsh
 ros2 launch f1tenth_control control_real.launch.py
 ```
 
-⚠️ `ackermann_to_vesc_node`가 `vesc_ackermann` 패키지(f1tenth_stack 소속, `2026_IFAC`가 아니라
-별도 워크스페이스 `~/f1tenth_ws`에 설치됨)에 의존합니다 — `~/f1tenth_ws/install/setup.zsh`를
-같이 소싱하지 않으면 `Package 'vesc_ackermann' not found`로 실행이 실패합니다.
+외부 `f1tenth_stack`은 별도 워크스페이스 `~/f1tenth_ws`에서 Jazzy로 빌드하고 함께 소싱해야
+합니다. 이 스택이 `/scan`, `/joy`, VESC IMU와 최종 모터/서보 명령 변환을 제공합니다.
 
 전제: **f110 단축어(`f1tenth_stack`)로 라이다·조이스틱·VESC 드라이버가 먼저 떠 있어야 합니다**
 (`/scan`, `/joy`, VESC IMU 등). 이 launch는 그 위에서 제어 로직(MAP+MPPI) + Mux
@@ -406,41 +421,18 @@ ros2 launch f1tenth_control control_real.launch.py
 
 ---
 
-## 3-1. (선택) 상대차 검출·추월 시나리오 — 터미널 8·9
+## 3-1. (선택) `new_map_con` 단독 컨트롤러
 
-> 아래 두 터미널은 **상대차 검출/추월을 볼 때만** 추가로 띄웁니다. 기본 주행에는 필요 없습니다.
->
-> **전제 2가지**
-> 1. 터미널 1의 gym 시뮬을 **`num_agent: 2`** (sim_ws의 `config/sim.yaml`)로 띄워야 상대차량이 스폰됩니다. 1-agent면 상대차가 아예 없어 RViz에도 안 보이고 검출도 안 됩니다. (sim.yaml 수정 후 gym 브리지를 **재실행**해야 반영됨)
-> 2. 이 2-agent 브리지는 **에고·상대 둘 다 `drive`를 발행해야 물리 스텝**을 돕니다. 따라서 **터미널 7(에고 제어)을 그대로 유지**해야 하며, 8·9는 교체가 아니라 **추가**입니다.
-
-### 터미널 8 — 상대차 주행 (opponent simulator)
-
-global 라인을 0.8배속으로 따라가도록 f1sim 상대차량에 `/opp_drive`를 발행합니다.
+`new_map_con`은 CSV에서 `/global_waypoints`를 발행하고 pure-pursuit로 `/drive`를 직접 만듭니다.
+글로벌 플래너와 기본 제어기와 동시에 실행하면 토픽 발행자가 중복되므로 터미널 3과 터미널 8을
+종료한 뒤 대안 컨트롤러로 실행합니다.
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
-ros2 launch new_map_con opponent_simulator.launch.py
+ros2 launch new_map_con new_map_con.launch.py simulator:=true
 ```
-
-### 터미널 9 — 상대차 검출기 (opponent detector)
-
-에고 `/scan`으로 장애물·상대차를 검출해 `/perception/obstacles`,
-`/perception/static_obstacles/cartesian`, `/proj_opponent_trajectory`를 발행합니다.
-정적 장애물은 Cartesian `(x,y)`, Frenet `(s,d)`, 최대 반지름 `radius`로 로컬 플래너에 전달합니다. IMU/odom 기반 스캔
-deskew와 불확실성 기반 추적을 사용하며, 정적 장애물의 장기 기억과
-회피 판단은 로컬 플래너가 담당합니다.
-
-```bash
-cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
-source install/setup.zsh
-ros2 launch opponent_detector opponent_detector.launch.py simulator:=true
-```
-
-RViz에서 `/perception/obstacles/markers`(빨강=동적 상대차, 파랑=정적)를 Add 하면 검출 결과가 보입니다.
 
 ---
 
@@ -499,7 +491,7 @@ ros2 launch f1tenth_control control_real.launch.py \
 ```yaml
 # global_trajectory_publisher_node: JSON을 <output_base_dir>/<map_name>/global_waypoints.json 에서 읽음
 output_base_dir: "offline_trajectory_generator/output"
-map_name: "fuck_f1"
+map_name: "ifac_track"
 ```
 
 따라서 워크스페이스 루트가 아닌 곳에서 터미널 3을 실행하면 파일을 찾지 못합니다.
@@ -509,7 +501,7 @@ map_name: "fuck_f1"
 `global_trajectory_publisher_node`는 시작할 때 JSON을 **딱 한 번만** 읽습니다. 파일이 없거나 파싱에 실패하면
 `/global_waypoints`를 아예 발행하지 않고, 그 뒤의 로컬 플래너와 제어가 전부 대기 상태로 멈춥니다.
 
-읽는 위치는 `<output_base_dir>/<map_name>/global_waypoints.json`(기본 `offline_trajectory_generator/output/fuck_f1/`)입니다.
+읽는 위치는 `<output_base_dir>/<map_name>/global_waypoints.json`(기본 `offline_trajectory_generator/output/ifac_track/`)입니다.
 **맵을 바꾸려면** yaml의 `map_name`만 그 맵 이름(= `offline_trajectory_generator/output/` 하위 폴더명)으로 바꾸면 됩니다.
 새 맵을 생성했거나 파일을 교체했다면 터미널 3을 재시작해야 반영됩니다.
 
@@ -546,19 +538,21 @@ ros2 launch local_planning local_planning.launch.py \
                                         │
      ┌──────────────────────────────────┘
      ▼
-[터미널 4] local_planning
-     ├──► /local_path, /local_planning/path, /local_planning/markers
-     ├──► /local_waypoints            ◄── 4.3 참고 (중복)
-     └──► /planner/avoidance/otwpnts
+[터미널 4] obstacle_detector ──► /static_obs, /opp_obs, /perception/obstacles/markers
                     │
-                    ├──► [터미널 5] state_machine
+                    ▼
+[터미널 5] local_planning
+     ├──► /local_path, /local_planning/path, /local_planning/markers
+     └──► /avoid_waypoints
+                    │
+                    ├──► [터미널 6] state_machine
                     │        /car_state/frenet/odom·/global_waypoints·/avoid_waypoints·/overtake_waypoints 구독
                     │        ──► /state (GLOBAL / AVOID / OVERTAKE)
                     ▼
-[터미널 6] wpnt_publisher ──► /local_waypoints, /local_waypoints/path
+[터미널 7] wpnt_publisher ──► /local_waypoints, /local_waypoints/path
                     │
                     ▼
-[터미널 7] f1tenth_control
+[터미널 8] f1tenth_control
      /global_waypoints, /local_waypoints 구독 (실차: f110 스택이 /scan, /joy, VESC IMU 별도 공급)
      ├─ control_map_node  (MAP: L1 Guidance+Steering LUT)  ──► /drive_autonomous ─┐
      └─ control_mppi_node (MPPI: 샘플링 기반, 나란히 상시구동) ──► /drive_mppi ───┤

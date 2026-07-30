@@ -1,6 +1,8 @@
 # Jetson 및 로컬 실행 안내
 
 이 문서는 `/home/sungho/2026_IFAC` 자율주행 스택을 실차에서 실행할 때의 터미널 구성을 정리한 문서입니다.
+Jetson과 로컬 PC 모두 Ubuntu 24.04와 ROS 2 Jazzy를 사용해야 하며, 외부
+`f1tenth_ws`도 Jazzy에서 다시 빌드되어 있어야 합니다.
 
 ## 1. 실행 위치 구분
 
@@ -22,11 +24,11 @@ Jetson의 각 터미널에서 공통으로 실행합니다.
 
 ```zsh
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 ```
 
-터미널 7의 실차 제어는 추가로 VESC 패키지 워크스페이스를 소싱해야 합니다.
+터미널 8의 실차 제어는 추가로 VESC 패키지 워크스페이스를 소싱해야 합니다.
 
 ```zsh
 source ~/f1tenth_ws/install/setup.zsh
@@ -45,7 +47,7 @@ source ~/f1tenth_ws/install/setup.zsh
 로컬 PC가 Jetson의 ROS 2 토픽을 보려면 양쪽 장비의 ROS 환경과 네트워크 설정이 일치해야 합니다.
 
 ```zsh
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 export ROS_DOMAIN_ID=67
 export ROS_LOCALHOST_ONLY=0
 ```
@@ -84,7 +86,7 @@ ros2 run tf2_ros tf2_echo base_link laser
 
 ```zsh
 cd ~/slam_toolbox
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 export ROS_DOMAIN_ID=67
 export ROS_LOCALHOST_ONLY=0
@@ -99,7 +101,7 @@ RViz에서 LaserScan이 보이지 않으면 `/scan` 토픽 이름과 SLAM 설정
 
 ```zsh
 cd ~/slam_toolbox
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 ros2 run nav2_map_server map_saver_cli \
   -f ~/slam_toolbox/map
@@ -143,7 +145,7 @@ ros2 topic echo /joy --once
 ros2 run tf2_tools view_frames
 ```
 
-## 4. 실차 구동 터미널 1~7 — 모두 Jetson SSH에서 실행
+## 4. 실차 구동 터미널 1~8 - 모두 Jetson SSH에서 실행
 
 아래 명령은 모두 Jetson에 SSH로 접속한 각각의 터미널에서 실행합니다. 터미널 1의 센서 드라이버는 별도 f110 단축어/launch로 먼저 실행되어 있어야 합니다.
 
@@ -159,7 +161,7 @@ ros2 run tf2_tools view_frames
 
 ```zsh
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 ros2 launch particle_filter_cpp mcl_launch.py mod:=real map_name:=map
 ```
@@ -168,43 +170,52 @@ ros2 launch particle_filter_cpp mcl_launch.py mod:=real map_name:=map
 
 ```zsh
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
-ros2 launch global_planning global_planning.launch.py
+ros2 launch global_planning global_planning.launch.py map_name:=map
 ```
 
-### 터미널 4 — Local planning
+### 터미널 4 - Obstacle detector
 
 ```zsh
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
+source install/setup.zsh
+ros2 launch obstacle_detector obstacle_detector.launch.py
+```
+
+### 터미널 5 - Local planning
+
+```zsh
+cd ~/2026_IFAC
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 ros2 launch local_planning local_planning.launch.py
 ```
 
-### 터미널 5 — State machine
+### 터미널 6 - State machine
 
 ```zsh
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 ros2 launch state_machine state_machine.launch.py
 ```
 
-### 터미널 6 — Waypoint publisher
+### 터미널 7 - Waypoint publisher
 
 ```zsh
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
-ros2 run wpnt_publisher wpnt_publisher
+ros2 launch wpnt_publisher wpnt_publisher.launch.py
 ```
 
-### 터미널 7 — 실차 제어
+### 터미널 8 - 실차 제어
 
 ```zsh
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source ~/f1tenth_ws/install/setup.zsh
 source install/setup.zsh
 ros2 launch f1tenth_control control_real.launch.py
@@ -221,6 +232,7 @@ ros2 launch f1tenth_control control_real.launch.py
   -> /scan, odom, IMU, /joy, TF 확인
   -> MCL
   -> global planning
+  -> obstacle detector
   -> local planning
   -> state machine
   -> waypoint publisher

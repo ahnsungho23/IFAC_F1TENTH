@@ -2,7 +2,7 @@
 
 Package-specific rules for `src/wpnt_publisher`.
 
-- Runtime code is C++17 on ROS 2 Humble.
+- Runtime code is C++17 on ROS 2 Jazzy.
 - `wpnt_publisher` is the single selector that publishes `/local_waypoints` and its Path mirror.
 - Preserve the dynamic-opponent contract: `STATE_OVERTAKE` selects `/overtake_waypoints` without
   changing the opponent planner's semantics.

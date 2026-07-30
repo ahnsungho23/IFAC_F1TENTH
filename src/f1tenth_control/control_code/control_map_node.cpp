@@ -469,7 +469,7 @@ public:
         obstacle_margin_ = this->declare_parameter<double>("obstacle_margin", 0.3);
         obstacle_avoid_hold_cycles_ = this->declare_parameter<int>("obstacle_avoid_hold_cycles", 15);
 
-        // 장애물 종방향 감속 (2026-07-23) — opponent_detector의 raw 클러스터(추적 확정 전, 벽
+        // 장애물 종방향 감속 (2026-07-23) — obstacle_detector의 raw 클러스터(추적 확정 전, 벽
         // 필터 끝난 Frenet 장애물)를 받아, 내 통로 전방에 물체가 있으면 그 앞에서 멈출 수 있는
         // 속도로 target_speed를 캡한다. 첫 바퀴 직선 강가속 중 장애물을 늦게 인지해 회피경로를
         // 못 따라가고 박던 문제 대응 — 감속으로 회피 기동을 실행 가능한 속도까지 낮춰준다.
@@ -624,7 +624,7 @@ private:
         return (this->now() - drive_mode_last_recv_time_).seconds() < drive_mode_timeout_;
     }
 
-    // opponent_detector의 raw 장애물(추적 확정 전, 벽 제거+Frenet 투영 완료)을 그대로 보관.
+    // obstacle_detector의 raw 장애물(추적 확정 전, 벽 제거+Frenet 투영 완료)을 그대로 보관.
     void obstacle_callback(const f110_msgs::msg::ObstacleArray::ConstSharedPtr msg) {
         latest_obstacles_ = msg;
         obstacle_last_recv_time_ = this->now();
@@ -1758,7 +1758,7 @@ private:
     int obstacle_avoid_hold_cycles_ = 15;      // 회피 유지 사이클(50Hz→0.3s), 채터링 방지
     int avoid_hold_counter_ = 0;
 
-    // 장애물 종방향 감속 (opponent_detector raw 장애물 → target_speed 캡)
+    // 장애물 종방향 감속 (obstacle_detector raw 장애물 → target_speed 캡)
     bool obstacle_brake_enable_ = true;
     std::string obstacle_raw_topic_ = "/perception/detection/raw_obstacles";
     double obstacle_brake_decel_ = 6.0;        // v_cap 산출용 감속도 [m/s²]

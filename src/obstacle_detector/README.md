@@ -3,7 +3,7 @@
 > 한국어 · [English](README_en.md)
 
 2D LiDAR만으로 트랙 위의 비지도 장애물을 검출하고, Frenet 프레임에서 추적하여 정적 장애물과 동적
-상대차로 분리하는 ROS 2 Humble C++ 패키지다.
+상대차로 분리하는 ROS 2 Jazzy C++ 패키지다.
 
 이 패키지는 **검출만 담당**한다. 경로 계획, 회피·추월 waypoint 생성, `/state` 발행은 포함하지 않는다.
 
@@ -61,7 +61,7 @@
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 colcon build --symlink-install --packages-up-to obstacle_detector
 source install/setup.zsh
 ```

@@ -26,7 +26,7 @@ ros2 launch particle_filter_cpp mcl_launch.py mod:=bag
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `mod` | `real` | Launch mode: `real`, `sim`, or `bag` |
-| `map_name` | `sibal1` | Map file to load |
+| `map_name` | `ifac_track` | Map file to load |
 | `use_rviz` | `true` | Launch RViz visualization |
 
 ## Topics
@@ -84,10 +84,10 @@ max_pose_range: 10000.0       # Map coordinate limits (m)
 ## Available Maps
 
 Place map files in `maps/` directory:
-- `sibal1` (default racing circuit)
-- `Spielberg_map` (F1 Austria GP)
-- `levine` (multi-floor building)
-- `map_1753950572` (real sensor data)
+- `ifac_track` (packaged default)
+
+When adding another map, place both its image and YAML file in `maps/`, rebuild the package, and pass
+the YAML stem with `map_name:=<name>`.
 
 ## Algorithm
 

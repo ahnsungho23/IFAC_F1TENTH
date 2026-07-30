@@ -3,6 +3,7 @@ import sys
 sys.path.insert(0, os.path.dirname(__file__))
 
 from launch import LaunchDescription
+from launch.conditions import IfCondition
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from launch.actions import DeclareLaunchArgument
@@ -18,6 +19,11 @@ def generate_launch_description():
         'device_id',
         default_value='0',
         description='조이스틱 디바이스 번호 (/dev/input/js<device_id>)'
+    )
+    launch_joy_arg = DeclareLaunchArgument(
+        'launch_joy',
+        default_value='true',
+        description='조이스틱 드라이버 실행 여부 (헤드리스 자율주행은 false)'
     )
 
     # 종방향 최대 가속도 한계 [m/s^2] — real과 값이 갈릴 수 있어 진입점 파일에 각자 둔다.
@@ -93,12 +99,14 @@ def generate_launch_description():
             'device_id': ParameterValue(LaunchConfiguration('device_id'), value_type=int),
             'deadzone': 0.05,
             'autorepeat_rate': 20.0,   # 트리거를 계속 당기고 있어도 /joy·/drive 명령 지속되게 재발행
-        }]
+        }],
+        condition=IfCondition(LaunchConfiguration('launch_joy')),
     )
 
     return LaunchDescription([
         *common.declare_common_args(),
         device_id_arg,
+        launch_joy_arg,
         base_max_accel_arg,
         max_lateral_accel_arg,
         max_speed_arg,

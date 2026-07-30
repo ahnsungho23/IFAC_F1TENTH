@@ -52,6 +52,7 @@ install(DIRECTORY include/
 
 install(DIRECTORY launch config docs
   DESTINATION share/${PROJECT_NAME}
+  PATTERN "__pycache__" EXCLUDE
 )
 
 install(FILES README.md

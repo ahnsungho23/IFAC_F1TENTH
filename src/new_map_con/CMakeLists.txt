@@ -19,8 +19,6 @@ find_package(sensor_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(ackermann_msgs REQUIRED)
 find_package(f110_msgs REQUIRED)
-find_package(tf2 REQUIRED)
-find_package(tf2_ros REQUIRED)
 
 add_executable(map_controller src/map_controller_node.cpp)
 ament_target_dependencies(map_controller
@@ -48,6 +46,7 @@ install(DIRECTORY config/
 install(DIRECTORY launch/
   DESTINATION share/${PROJECT_NAME}/launch
   FILES_MATCHING PATTERN "*.py"
+  PATTERN "__pycache__" EXCLUDE
 )
 
 install(DIRECTORY maps/

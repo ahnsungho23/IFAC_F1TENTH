@@ -1,6 +1,6 @@
 map_controller:
   ros__parameters:
-    global_waypoints_csv: /home/sungho/2026_IFAC/dl_speed_optimizer/output/fuck_f1/optimized_global_waypoints.csv
+    global_waypoints_csv: maps/fuck_f1.csv
     package_resource_root: ''
     frame_id: map
     base_frame_id: base_link

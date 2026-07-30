@@ -1,7 +1,6 @@
 # new_map_con
 
-> 보관용 패키지입니다. 현재 워크스페이스에서는 `COLCON_IGNORE`로 빌드·검색 대상에서 제외되어
-> 실행 경로에 연결되지 않습니다.
+Ubuntu 24.04 / ROS 2 Jazzy 워크스페이스에서 기본 colcon 빌드 대상으로 설치되는 패키지입니다.
 
 > 🌐 **한국어** · [English](README_en.md)
 
@@ -40,7 +39,8 @@ waypoint 추종 컨트롤러 패키지. `map_controller`(C++) 노드가 global/l
                                         └──▶ steering/lookahead markers (viz)
 ```
 
-시작 시 CSV 경로 파일을 로드하여 `/global_waypoints`를 latch(유지) 발행하며, 이 토픽은 global_planning, wpnt_publisher, opponent_detector가 소비합니다.
+시작 시 CSV 경로 파일을 로드하여 `/global_waypoints`를 latch(유지) 발행하며, 이 토픽은
+`global_planning`, `wpnt_publisher`, `obstacle_detector`가 소비합니다.
 
 ## 2. 구독 / 발행 토픽
 

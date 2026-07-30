@@ -9,7 +9,7 @@ This file defines the working rules for Claude in this repository. These rules a
 
 ## Target Environment
 
-- Target platform: ROS 2 Humble.
+- Target platform: Ubuntu 24.04 with ROS 2 Jazzy.
 - New ROS 2 runtime code must be written in C++.
 - Use Python only where ROS 2 conventionally requires it, such as `launch.py` files or build/config helper scripts.
 - Actively check and use relevant aliases from `~/.zshrc` when running build, test, launch, or debugging commands.
@@ -72,14 +72,13 @@ Before finishing any ROS 2 node change, verify:
 
 ## Simulation Run Order (실행 순서)
 
-기본 주행은 터미널 7개를 아래 순서대로 띄웁니다. 순서가 중요합니다.
-상대차 검출·추월까지 보려면 터미널 8·9를 **추가로** 띄웁니다(터미널 7은 유지).
+기본 주행은 터미널 8개를 아래 순서대로 띄웁니다. 순서가 중요합니다.
 
 ### 터미널 1 — 시뮬레이터 (gym bridge)
 
 ```bash
 cd ~/sim_ws
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 ros2 launch f1tenth_gym_ros gym_bridge_launch.py
 ```
@@ -90,15 +89,15 @@ ros2 launch f1tenth_gym_ros gym_bridge_launch.py
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
-ros2 launch particle_filter_cpp mcl_launch.py mod:=sim map_name:=fuck_f1 use_rviz:=true
+ros2 launch particle_filter_cpp mcl_launch.py mod:=sim map_name:=ifac_track use_rviz:=true
 ```
 
 | 인자 | 값 | 설명 |
 |---|---|---|
 | `mod` | `sim` | 시뮬레이션 모드 (`/ego_racecar/odom` 사용, sim time 활성) |
-| `map_name` | `fuck_f1` | `monte_carlo_localization/maps/fuck_f1.yaml` |
+| `map_name` | `ifac_track` | `monte_carlo_localization/maps/ifac_track.yaml` |
 | `use_rviz` | `true` | RViz 동시 실행 |
 
 ### 터미널 3 — 글로벌 플래너
@@ -107,88 +106,74 @@ ros2 launch particle_filter_cpp mcl_launch.py mod:=sim map_name:=fuck_f1 use_rvi
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 ros2 launch global_planning global_planning.launch.py
 ```
 
-### 터미널 4 — 로컬 플래너 (장애물 회피)
+### 터미널 4 — 장애물 검출기
+
+```bash
+cd ~/2026_IFAC
+source /opt/ros/jazzy/setup.zsh
+source install/setup.zsh
+ros2 launch obstacle_detector obstacle_detector.launch.py simulator:=true use_sim_time:=true
+```
+
+### 터미널 5 — 로컬 플래너 (장애물 회피)
 
 `/map`의 점유 격자에서 장애물을 찾아 최소자승 3차 스플라인 회피 경로를 만듭니다.
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 ros2 launch local_planning local_planning.launch.py
 ```
 
-### 터미널 5 — 상태 머신 (state machine)
+### 터미널 6 — 상태 머신 (state machine)
 
 `/car_state/frenet/odom`·`/avoid_waypoints`·`/overtake_waypoints`·`/global_waypoints`를 종합해 주행 상태(GLOBAL/AVOID/OVERTAKE)를 판정하고 `/state`로 발행합니다.
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 ros2 launch state_machine state_machine.launch.py
 ```
 
-### 터미널 6 — 웨이포인트 퍼블리셔
+### 터미널 7 — 웨이포인트 퍼블리셔
 
 회피 웨이포인트를 받아 `/local_waypoints`로 중계합니다.
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
-ros2 run wpnt_publisher wpnt_publisher
+ros2 launch wpnt_publisher wpnt_publisher.launch.py
 ```
 
-### 터미널 7 — 제어
+### 터미널 8 — 제어
 
 L1 Guidance + Steering LUT 기반 조향/속도 제어. `force_autonomous:=true`면 조이스틱 없이 즉시 자율주행합니다.
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 ros2 launch f1tenth_control control_sim.launch.py force_autonomous:=true
 ```
 
 ---
 
-### (선택) 상대차 검출·추월 시나리오 — 터미널 8·9
+### (선택) `new_map_con` 단독 컨트롤러
 
-> 아래 두 터미널은 **상대차 검출/추월을 볼 때만** 추가로 띄웁니다. 기본 주행에는 필요 없습니다.
->
-> **전제 2가지**
-> 1. 터미널 1의 gym 시뮬을 **`num_agent: 2`** (sim_ws의 `config/sim.yaml`)로 띄워야 상대차량이 스폰됩니다. 1-agent면 상대차가 아예 없어 RViz에도 안 보이고 검출도 안 됩니다. (sim.yaml 수정 후 gym 브리지를 **재실행**해야 반영됨)
-> 2. 이 2-agent 브리지는 **에고·상대 둘 다 `drive`를 발행해야 물리 스텝**을 돕니다. 따라서 **터미널 7(에고 제어)을 그대로 유지**해야 하며, 8·9는 교체가 아니라 **추가**입니다.
-
-### 터미널 8 — 상대차 주행 (opponent simulator)
-
-global 라인을 0.8배속으로 따라가도록 f1sim 상대차량에 `/opp_drive`를 발행합니다.
+글로벌 플래너와 기본 제어기를 종료한 뒤 CSV waypoint 발행과 pure-pursuit 제어를 한 노드로
+시험할 때 사용합니다.
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
-ros2 launch new_map_con opponent_simulator.launch.py
+ros2 launch new_map_con new_map_con.launch.py simulator:=true
 ```
-
-### 터미널 9 — 상대차 검출기 (opponent detector)
-
-에고 `/scan`으로 상대차와 정적 장애물을 검출해 `/perception/obstacles`,
-`/perception/static_obstacles/cartesian`, `/proj_opponent_trajectory`를 발행합니다. 로컬
-플래너는 정적 장애물의 Cartesian `(x,y)`와 최대 반지름을 받아 CLCS로 트랙 위상을 보존해 투영한 뒤
-Cartesian `x_m/y_m` 회피 경로를 생성합니다.
-
-```bash
-cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
-source install/setup.zsh
-ros2 launch opponent_detector opponent_detector.launch.py simulator:=true
-```
-
-RViz에서 `/perception/obstacles/markers`(빨강=동적 상대차, 파랑=정적)를 Add 하면 검출 결과가 보입니다.

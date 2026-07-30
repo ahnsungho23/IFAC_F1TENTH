@@ -249,7 +249,7 @@ motion(yaw_used=... fresh=... ref_vs=... ref_vd=...)
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 colcon build --symlink-install --packages-up-to obstacle_detector
 source install/setup.zsh
 ```
@@ -300,7 +300,7 @@ ros2 launch obstacle_detector obstacle_detector_node.launch.py
 ```bash
 export ROS_LOCALHOST_ONLY=1
 export ROS_DOMAIN_ID=87
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source ~/2026_IFAC/install/setup.zsh
 python3 ~/2026_IFAC/src/obstacle_detector/test/synthetic_opponent_test.py
 ```

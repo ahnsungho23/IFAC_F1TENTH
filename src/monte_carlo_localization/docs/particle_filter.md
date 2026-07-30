@@ -60,10 +60,12 @@ colcon build --packages-select particle_filter_cpp
 ### 실행 명령어 (ros2 launch)
 - **실차 모드**:
   ```bash
-  export F1_MAP=map
-  ros2 launch particle_filter_cpp mcl_launch.py mod:=real map_name:=map
+  ros2 launch particle_filter_cpp mcl_launch.py mod:=real map_name:=ifac_track
   ```
 - **시뮬레이션 모드**:
   ```bash
-  ros2 launch particle_filter_cpp mcl_launch.py mod:=sim map_name:=map use_rviz:=true
+  ros2 launch particle_filter_cpp mcl_launch.py mod:=sim map_name:=ifac_track use_rviz:=true
   ```
+
+`map_name`의 기본값은 패키지에 포함된 `maps/ifac_track.yaml`의 파일명입니다. 새 지도를 쓸 때는
+이미지와 YAML을 `maps/`에 함께 추가하고 다시 빌드한 다음 YAML 확장자를 뺀 이름을 전달합니다.

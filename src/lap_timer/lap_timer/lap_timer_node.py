@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 import math
+
+from builtin_interfaces.msg import Duration
+from nav_msgs.msg import Odometry
 import rclpy
 from rclpy.node import Node
-from nav_msgs.msg import Odometry
-from std_msgs.msg import Float64, Float32, ColorRGBA
-from visualization_msgs.msg import Marker
-from builtin_interfaces.msg import Duration
-from std_srvs.srv import Empty
 from rviz_2d_overlay_msgs.msg import OverlayText
+from std_msgs.msg import ColorRGBA, Float32, Float64
+from std_srvs.srv import Empty
+from visualization_msgs.msg import Marker
 
 # 선택적 import (파라미터에 따라 사용)
 try:
@@ -66,20 +67,33 @@ class FrenetLapTimer(Node):
         self.sub_drive = None
         if self.drive_msg_type == 'ackermann':
             if AckermannDriveStamped is None:
-                self.get_logger().warn('ackermann_msgs not found. Install or set drive_msg_type:=accel')
+                self.get_logger().warn(
+                    'ackermann_msgs not found. Install or set drive_msg_type:=accel'
+                )
             else:
-                self.sub_drive = self.create_subscription(AckermannDriveStamped, self.drive_topic, self.cb_drive_ack, 20)
+                self.sub_drive = self.create_subscription(
+                    AckermannDriveStamped, self.drive_topic, self.cb_drive_ack, 20
+                )
         elif self.drive_msg_type in ('accel', 'accelstamped'):
             if AccelStamped is None:
                 self.get_logger().warn('geometry_msgs AccelStamped not importable.')
             else:
-                self.sub_drive = self.create_subscription(AccelStamped, self.drive_topic, self.cb_drive_accel, 20)
+                self.sub_drive = self.create_subscription(
+                    AccelStamped, self.drive_topic, self.cb_drive_accel, 20
+                )
         else:
-            self.get_logger().warn(f'Unknown drive_msg_type: {self.drive_msg_type}. Supported: ackermann | accel')
+            self.get_logger().warn(
+                f'Unknown drive_msg_type: {self.drive_msg_type}. '
+                'Supported: ackermann | accel'
+            )
 
         self.pub_lap = self.create_publisher(Float64, 'lap_time', 10)
         self.pub_best = self.create_publisher(Float64, 'best_lap_time', 10)
-        self.pub_marker = self.create_publisher(Marker, 'lap_time_text', 10) if self.show_rviz_text else None
+        self.pub_marker = (
+            self.create_publisher(Marker, 'lap_time_text', 10)
+            if self.show_rviz_text
+            else None
+        )
         self.pub_overlay = self.create_publisher(OverlayText, 'lap_hud', 10)
 
         self.pub_speed = self.create_publisher(Float32, 'speed', 10)
@@ -103,9 +117,11 @@ class FrenetLapTimer(Node):
         self.hud_timer = self.create_timer(period, self.tick_hud)
 
         self.get_logger().info(
-            f'LapTimer running: odom={self.odom_topic}, drive={self.drive_topic} ({self.drive_msg_type}), '
+            f'LapTimer running: odom={self.odom_topic}, drive={self.drive_topic} '
+            f'({self.drive_msg_type}), '
             f'mode={"exact-zero" if self.exact_zero_mode else "wrap"}, '
-            f'hud_rate={self.hud_rate} Hz, speed_unit={self.speed_unit}, steer_in_deg={self.steer_in_deg}'
+            f'hud_rate={self.hud_rate} Hz, speed_unit={self.speed_unit}, '
+            f'steer_in_deg={self.steer_in_deg}'
         )
 
     # ---------- helpers ----------
@@ -116,23 +132,24 @@ class FrenetLapTimer(Node):
 
     def fmt_speed(self, v_mps: float) -> str:
         if not math.isfinite(v_mps):
-            return "-"
+            return '-'
         if self.speed_unit == 'kmh':
-            return f"{v_mps :.2f} km/h"
-        return f"{v_mps:.2f} m/s"
+            return f'{v_mps:.2f} km/h'
+        return f'{v_mps:.2f} m/s'
 
     def fmt_steer(self, steer_rad: float) -> str:
         if not math.isfinite(steer_rad):
-            return "-"
+            return '-'
         if self.steer_in_deg:
-            return f"{math.degrees(steer_rad):.2f} deg"
-        return f"{steer_rad:.3f} rad"
+            return f'{math.degrees(steer_rad):.2f} deg'
+        return f'{steer_rad:.3f} rad'
 
     # ---------- services ----------
     def on_reset_best(self, req, res):
         self.best_lap = math.inf
         self.get_logger().info('Best lap reset.')
-        msg = Float64(); msg.data = float('nan')
+        msg = Float64()
+        msg.data = float('nan')
         self.pub_best.publish(msg)
         return res
 
@@ -162,7 +179,12 @@ class FrenetLapTimer(Node):
         triggered = False
 
         if self.exact_zero_mode:
-            if abs(s) <= self.exact_zero_eps and abs(self.prev_s) > self.exact_zero_eps and elapsed >= self.min_lap_time:
+            crossed_exact_zero = (
+                abs(s) <= self.exact_zero_eps
+                and abs(self.prev_s) > self.exact_zero_eps
+                and elapsed >= self.min_lap_time
+            )
+            if crossed_exact_zero:
                 triggered = True
         else:
             crossed_start = (self.prev_s >= self.wrap_threshold and s <= self.start_window)
@@ -180,24 +202,28 @@ class FrenetLapTimer(Node):
 
     # ---------- periodic HUD ----------
     def tick_hud(self):
-        """랩이 끝나지 않아도 현재 speed/steer와 마지막/베스트 랩을 계속 HUD로 표시"""
+        """랩 진행 중에도 현재 상태와 랩 기록을 HUD로 표시합니다."""
         hud = OverlayText()
-        hud.action = getattr(OverlayText, "ACTION_ADD", 0)
+        hud.action = getattr(OverlayText, 'ACTION_ADD', 0)
 
-        best_txt = f"{self.best_lap:.3f} s" if math.isfinite(self.best_lap) else "-"
-        last_txt = f"{self.last_lap_time:.3f} s" if math.isfinite(self.last_lap_time) else "-"
+        best_txt = f'{self.best_lap:.3f} s' if math.isfinite(self.best_lap) else '-'
+        last_txt = (
+            f'{self.last_lap_time:.3f} s'
+            if math.isfinite(self.last_lap_time)
+            else '-'
+        )
 
         sp_txt = self.fmt_speed(self.last_speed)
         st_txt = self.fmt_steer(self.last_steer)
 
         hud.text = (
-            f"LAP #{self.lap_count}  last: {last_txt}\n"
-            f"BEST: {best_txt}\n"
-            f"SPEED: {sp_txt}   STEER: {st_txt}"
+            f'LAP #{self.lap_count}  last: {last_txt}\n'
+            f'BEST: {best_txt}\n'
+            f'SPEED: {sp_txt}   STEER: {st_txt}'
         )
         hud.text_size = 20.0
         hud.line_width = 2
-        hud.font = "DejaVu Sans"
+        hud.font = 'DejaVu Sans'
         hud.fg_color = ColorRGBA(r=1.0, g=1.0, b=1.0, a=1.0)
         hud.bg_color = ColorRGBA(r=0.0, g=0.0, b=0.0, a=0.0)  # 배경 투명 (RViz에서 바꿀 수 있음)
 
@@ -253,7 +279,7 @@ class FrenetLapTimer(Node):
             m2.color = ColorRGBA(r=0.6, g=1.0, b=0.6, a=1.0)
             txt = f'BEST: {self.best_lap:.3f} s' if math.isfinite(self.best_lap) else 'BEST: -'
             if is_new_best:
-                txt += '  🚀'
+                txt += '  NEW BEST'
             m2.text = txt
             m2.lifetime = Duration(sec=3, nanosec=0)
             self.pub_marker.publish(m2)
@@ -272,4 +298,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

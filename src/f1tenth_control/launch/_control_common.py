@@ -138,10 +138,10 @@ def declare_common_args():
             description='회피 폴백 유지 사이클 수(50Hz 기준, 채터링 방지)'
         ),
 
-        # ── 장애물 종방향 감속 (opponent_detector raw 장애물 → 속도 캡) ──
+        # ── 장애물 종방향 감속 (obstacle_detector raw 장애물 → 속도 캡) ──
         DeclareLaunchArgument(
             'obstacle_brake_enable', default_value='true',
-            description='통로 전방 장애물(opponent_detector raw)에 대해 정지 가능 속도로 감속. '
+            description='통로 전방 장애물(obstacle_detector raw)에 대해 정지 가능 속도로 감속. '
                         '조향 미개입 종방향 soft 감속 — 최종 e-stop은 planning 소관. false로 비활성.'
         ),
         DeclareLaunchArgument(

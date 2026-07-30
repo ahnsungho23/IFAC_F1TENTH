@@ -6,7 +6,7 @@
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 colcon build --symlink-install --packages-up-to obstacle_detector
 source install/setup.zsh
 ```
@@ -26,7 +26,7 @@ export ROS_DOMAIN_ID=87
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 export ROS_LOCALHOST_ONLY=1
 export ROS_DOMAIN_ID=87
@@ -43,7 +43,7 @@ synthetic harness가 `/global_waypoints`, `/map`, ego odom, TF, `/scan`을 직�
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 export ROS_LOCALHOST_ONLY=1
 export ROS_DOMAIN_ID=87

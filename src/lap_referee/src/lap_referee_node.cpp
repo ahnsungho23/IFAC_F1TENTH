@@ -444,9 +444,10 @@ private:
       }
     }
 
-    const double mean_speed = speed_count_ > 0 ? speed_sum_ / static_cast<double>(speed_count_) : 0.0;
-    const double clearance = (min_clearance_ == std::numeric_limits<double>::max())
-      ? -1.0 : min_clearance_;
+    const double mean_speed = speed_count_ >
+      0 ? speed_sum_ / static_cast<double>(speed_count_) : 0.0;
+    const double clearance = (min_clearance_ == std::numeric_limits<double>::max()) ?
+      -1.0 : min_clearance_;
 
     std::ostringstream json;
     json.setf(std::ios::fixed);

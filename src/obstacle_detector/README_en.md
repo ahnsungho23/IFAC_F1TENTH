@@ -2,7 +2,7 @@
 
 > [한국어](README.md) · English
 
-A ROS 2 Humble C++ package that detects non-map obstacles from 2D LiDAR, tracks them in the
+A ROS 2 Jazzy C++ package that detects non-map obstacles from 2D LiDAR, tracks them in the
 raceline Frenet frame, and separates stationary objects from the nearest dynamic opponent.
 
 This package is **perception only**. It does not plan paths, generate avoidance/overtake
@@ -56,7 +56,7 @@ priority merely from their larger covariance.
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 colcon build --symlink-install --packages-up-to obstacle_detector
 source install/setup.zsh
 ```

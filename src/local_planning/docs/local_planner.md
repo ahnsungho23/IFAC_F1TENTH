@@ -245,7 +245,7 @@ safe-stop으로 바뀌지 않습니다. 반대로 장애물 앞면이 merge 전�
 
 ```zsh
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 cb --packages-select local_planning
 source install/setup.zsh
 colcon test --packages-select local_planning --event-handlers console_direct+
@@ -297,7 +297,7 @@ colcon test-result --verbose --test-result-base build/local_planning
 
 ```zsh
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 ros2 launch particle_filter_cpp mcl_launch.py mod:=sim map_name:=ifac_track use_rviz:=false
 ```
@@ -306,7 +306,7 @@ ros2 launch particle_filter_cpp mcl_launch.py mod:=sim map_name:=ifac_track use_
 
 ```zsh
 cd ~/2026_IFAC
-source /opt/ros/humble/setup.zsh
+source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 ros2 launch local_planning local_planning.launch.py
 ```
