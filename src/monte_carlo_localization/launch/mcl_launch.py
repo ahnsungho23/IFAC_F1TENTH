@@ -204,7 +204,7 @@ def generate_launch_description():
             "0.04 if '", LaunchConfiguration('mod'), "' == 'sim' else 0.25"
         ]),
         'smoothing_alpha': PythonExpression([
-            "0.5 if '", LaunchConfiguration('mod'), "' == 'sim' else 0.05"
+            "0.5 if '", LaunchConfiguration('mod'), "' == 'sim' else 0.3"
         ])
     }
     
