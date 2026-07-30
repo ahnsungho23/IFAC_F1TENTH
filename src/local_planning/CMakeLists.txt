@@ -23,22 +23,23 @@ include_directories(
 )
 
 add_library(local_planner_core STATIC
+  src/aabb_frenet_projector.cpp
   src/local_planner_node.cpp
   src/raceline_spline_planner.cpp
 )
-target_link_libraries(local_planner_core PUBLIC
-  rclcpp::rclcpp
-  ${std_msgs_TARGETS}
-  ${nav_msgs_TARGETS}
-  ${geometry_msgs_TARGETS}
-  ${visualization_msgs_TARGETS}
-  ${f110_msgs_TARGETS}
-  # CLCS Frenet converter lib exported by global_planning (ament_export_targets)
-  global_planning::global_planning_frenet_conversion
+ament_target_dependencies(local_planner_core
+  rclcpp
+  std_msgs
+  nav_msgs
+  geometry_msgs
+  visualization_msgs
+  f110_msgs
+  global_planning
 )
 
 add_executable(local_planner_node src/local_planner_main.cpp)
-target_link_libraries(local_planner_node PUBLIC local_planner_core rclcpp::rclcpp)
+ament_target_dependencies(local_planner_node rclcpp)
+target_link_libraries(local_planner_node local_planner_core)
 
 install(TARGETS
   local_planner_node
@@ -51,6 +52,7 @@ install(DIRECTORY include/
 
 install(DIRECTORY launch config docs
   DESTINATION share/${PROJECT_NAME}
+  PATTERN "__pycache__" EXCLUDE
 )
 
 install(FILES README.md
@@ -64,12 +66,20 @@ if(BUILD_TESTING)
 
   ament_add_gtest(test_raceline_spline test/test_raceline_spline.cpp)
   if(TARGET test_raceline_spline)
-    target_link_libraries(test_raceline_spline
-      local_planner_core
-      rclcpp::rclcpp
-      ${nav_msgs_TARGETS}
-      ${f110_msgs_TARGETS}
+    ament_target_dependencies(test_raceline_spline
+      rclcpp
+      nav_msgs
+      f110_msgs
     )
+    target_link_libraries(test_raceline_spline local_planner_core)
+  endif()
+
+  ament_add_gtest(test_aabb_frenet_projector test/test_aabb_frenet_projector.cpp)
+  if(TARGET test_aabb_frenet_projector)
+    ament_target_dependencies(test_aabb_frenet_projector
+      global_planning
+    )
+    target_link_libraries(test_aabb_frenet_projector local_planner_core)
   endif()
 endif()
 

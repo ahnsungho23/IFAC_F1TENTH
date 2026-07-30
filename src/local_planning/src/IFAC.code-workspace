@@ -1,0 +1,35 @@
+{
+	"folders": [
+		{
+			"name": "2026_IFAC",
+			"path": "../../.."
+		},
+		{
+			"name": "f1sim_C",
+			"path": "../../../../f1sim_C"
+		},
+		{
+			"name": "Desktop",
+			"path": "../../../../Desktop"
+		}
+	],
+	"settings": {
+		"ROS2.distro": "jazzy",
+		"python.autoComplete.extraPaths": [
+			"${workspaceFolder:2026_IFAC}/build/steering_lookup",
+			"${workspaceFolder:2026_IFAC}/install/steering_lookup/lib/python3.12/site-packages",
+			"${workspaceFolder:2026_IFAC}/build/lap_timer",
+			"${workspaceFolder:2026_IFAC}/install/lap_timer/lib/python3.12/site-packages",
+			"${workspaceFolder:2026_IFAC}/install/f110_msgs/lib/python3.12/site-packages",
+			"/opt/ros/jazzy/lib/python3.12/site-packages"
+		],
+		"python.analysis.extraPaths": [
+			"${workspaceFolder:2026_IFAC}/build/steering_lookup",
+			"${workspaceFolder:2026_IFAC}/install/steering_lookup/lib/python3.12/site-packages",
+			"${workspaceFolder:2026_IFAC}/build/lap_timer",
+			"${workspaceFolder:2026_IFAC}/install/lap_timer/lib/python3.12/site-packages",
+			"${workspaceFolder:2026_IFAC}/install/f110_msgs/lib/python3.12/site-packages",
+			"/opt/ros/jazzy/lib/python3.12/site-packages"
+		]
+	}
+}

@@ -16,7 +16,7 @@
   → 크기·관측거리·트랙경계·점유지도 필터
   → 거리·희소도·회전량 기반 adaptive 측정 공분산
   → Frenet 등속 Kalman tracking
-  → static/dynamic 분류
+  → PENDING / PROVISIONAL_STATIC / CONFIRMED_STATIC / DYNAMIC 분류
   → 레이어 내부 객체 병합
   → visible track의 Cartesian AABB 합집합·중심·반지름
   → 1초 누적 perception 진단 로그
@@ -28,11 +28,16 @@
 ### 레이어
 
 - Layer 1: `/map`에 등록된 벽과 알려진 구조물을 제거하는 필터. 발행하지 않는다.
-- Layer 2: 지도에는 없지만 정지해 있는 확정 장애물 전체를 `/static_obs`로 발행한다.
+- Layer 2: 3회 관측된 장애물을 우선 provisional static으로, 저속이 확정되면 confirmed static으로
+  같은 ID를 유지하며 `/static_obs`에 발행한다.
 - Layer 3: 확정 동적 물체 중 에고 전방에서 가장 가까운 하나를 `/opp_obs`로 발행한다.
 
 두 출력은 `f110_msgs/msg/ObstacleArray`이며 매 scan마다 발행된다. 해당 레이어가 비어 있으면 빈 배열을
 발행한다.
+
+기본값에서 hits 1~2인 track은 두 토픽 모두에 나오지 않는다. hits 3부터 `/static_obs`에 바로 나오고,
+상대속도·속도 불확실성·에고 회전율을 모두 통과한 이동 증거가 25회 연속 쌓이면 같은 ID로
+`/opp_obs`로 이동한다.
 
 각 visible 객체는 `has_cartesian=true`와 map-frame AABB, AABB 중심, AABB를 감싸는 원의 반지름을
 함께 제공한다. Detection이 끊겨 Kalman 예측만 남은 객체는 Frenet 상태는 유지하지만 stale raw AABB를
@@ -105,7 +110,9 @@ ros2 launch obstacle_detector obstacle_detector.launch.py \
   `meas_yaw_rate_var_scale`, `meas_reference_points`
 - 추적: `meas_var_s/d`, `process_var_vs/vd`, `assoc_gate`,
   `assoc_use_mahalanobis`, `assoc_mahalanobis_gate`, `ttl_dynamic/static`
-- 분류: `classifier_mode`, `dyn_vel_enter/exit`, `static_ref_gate`
+- 분류: `classifier_mode`, `dyn_vel_enter/exit`, `static_confirm_frames`,
+  `dynamic_confirm_frames`, `dyn_velocity_mahalanobis_gate`, `dyn_max_abs_yaw_rate`,
+  `static_ref_gate`
 - 레이어 출력 병합: `layer_merge_enable`, `layer_merge_gap_s/d`
 - 진단: `diagnostics_enable`, `diagnostics_period_sec`
 

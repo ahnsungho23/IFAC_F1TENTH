@@ -29,7 +29,7 @@ def generate_launch_description():
     default_reference_map = os.path.join(
         get_package_share_directory('particle_filter_cpp'),
         'maps',
-        os.environ.get('F1_MAP', 'map') + '.yaml',
+        os.environ.get('F1_MAP', 'ifac_track') + '.yaml',
     )
     obstacle_detector_launch = os.path.join(
         get_package_share_directory('obstacle_detector'),

@@ -56,7 +56,8 @@ python3 src/obstacle_detector/test/synthetic_opponent_test.py
 1. 움직이는 상대차가 `/opp_obs`에 `is_static=false`로 나타난다.
 2. 정지 장애물이 `/static_obs`에 나타난다.
 3. 정지 장애물이 `/opp_obs`로 새지 않는다.
-4. 상대차가 `/static_obs`로 새지 않는다.
+4. 상대차가 먼저 `/static_obs`에 provisional로 나타난 뒤 같은 ID로 `/opp_obs`에 이동하고,
+   dynamic 확정 후에는 `/static_obs`로 돌아오지 않는다.
 5. 각각 5포인트 미만인 3+2 beam 파편이 tracking 전에 하나의 detection으로 복원된다.
 6. 두 track으로 관측된 정적 객체가 layer merge를 거쳐 `/static_obs`의 한 객체로 병합된다.
 7. Hard gate 안의 1프레임 0.45 m outlier가 Mahalanobis gate에서 거부되어 확정 track이 뛰지 않는다.
@@ -109,7 +110,7 @@ ros2 topic echo /perception/obstacles/markers --no-arr
 | 아무 출력도 없음 | `/global_waypoints`, scan→map TF, `/scan` publisher 확인 |
 | 벽이 장애물로 나옴 | `/map`, `use_map_filter`, `map_occupied_thresh`, `map_point_reject_ratio` 확인 |
 | 장애물이 전부 사라짐 | live map에 장애물이 baked-in 되었는지 확인하고 `detector_map_yaml`에 clean map 지정 |
-| 상대차가 static으로 나옴 | `dyn_vel_enter/exit`, `dyn_min_frames`, `static_ref_gate` 확인 |
+| 상대차가 계속 static으로 남음 | `dyn_vel_enter/exit`, `dynamic_confirm_frames`, `dyn_velocity_mahalanobis_gate`, `dyn_max_abs_yaw_rate`, `static_ref_gate`와 `motion_gated` 진단 확인 |
 | 원거리 중심 변화에 track이 끌림 | adaptive covariance 파라미터와 `assoc_use_mahalanobis` 확인 |
 | 정상 detection이 자주 새 track이 됨 | timestamp, `assoc_mahalanobis_gate`, `meas_var_s/d`, process noise 확인 |
 | 작은 파편이 통째로 사라짐 | `cluster_merge_enable`, `cluster_merge_distance`, `cluster_merge_min_fragment_points` 확인 |

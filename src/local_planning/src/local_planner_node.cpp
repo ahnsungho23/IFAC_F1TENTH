@@ -26,6 +26,8 @@
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <visualization_msgs/msg/marker.hpp>
 
+#include "local_planning/aabb_frenet_projector.hpp"
+
 namespace local_planning
 {
 namespace
@@ -70,7 +72,7 @@ void LocalPlannerNode::initializeParameters()
   planner_parameters_.obstacle_longitudinal_padding_m =
     declare_parameter<double>("obstacle_longitudinal_padding_m", 0.35);
   planner_parameters_.obstacle_clearance_m =
-    declare_parameter<double>("obstacle_clearance_m", 0.30);
+    declare_parameter<double>("obstacle_clearance_m", 0.35);
   planner_parameters_.blocking_margin_m =
     declare_parameter<double>("blocking_margin_m", 0.10);
   planner_parameters_.vehicle_half_width_m =
@@ -98,6 +100,8 @@ void LocalPlannerNode::initializeParameters()
     declare_parameter<double>("minimum_target_offset_m", 0.20);
   planner_parameters_.maximum_target_offset_m =
     declare_parameter<double>("maximum_target_offset_m", 1.50);
+  planner_parameters_.commitment_clearance_reserve_m =
+    declare_parameter<double>("commitment_clearance_reserve_m", 0.05);
   planner_parameters_.maximum_lateral_slope =
     declare_parameter<double>("maximum_lateral_slope", 0.65);
   planner_parameters_.maximum_curvature_radpm =
@@ -126,10 +130,21 @@ void LocalPlannerNode::initializeParameters()
   odometry_stale_timeout_sec_ = declare_parameter<double>("odometry_stale_timeout_sec", 0.50);
   merge_lateral_tolerance_m_ = declare_parameter<double>("merge_lateral_tolerance_m", 0.15);
   merge_confirm_cycles_ = declare_parameter<int>("merge_confirm_cycles", 15);
+  safe_stop_release_cycles_ = declare_parameter<int>("safe_stop_release_cycles", 8);
   planning_period_ms_ = declare_parameter<int>("planning_period_ms", 50);
   state_handoff_tail_ratio_ = declare_parameter<double>("state_handoff_tail_ratio", 0.10);
   state_handoff_speed_cap_mps_ =
     declare_parameter<double>("state_handoff_speed_cap_mps", 6.0);
+  initial_cluster_stabilization_sec_ =
+    declare_parameter<double>("initial_cluster_stabilization_sec", 0.20);
+  initial_cluster_max_wait_sec_ =
+    declare_parameter<double>("initial_cluster_max_wait_sec", 0.35);
+  cluster_envelope_change_threshold_m_ =
+    declare_parameter<double>("cluster_envelope_change_threshold_m", 0.03);
+  commitment_lock_lateral_threshold_m_ =
+    declare_parameter<double>("commitment_lock_lateral_threshold_m", 0.10);
+  commitment_lock_longitudinal_m_ =
+    declare_parameter<double>("commitment_lock_longitudinal_m", 0.50);
   publish_standalone_local_ = declare_parameter<bool>("publish_standalone_local", false);
   obstacle_marker_scale_m_ = declare_parameter<double>("obstacle_marker_scale_m", 0.35);
   path_marker_width_m_ = declare_parameter<double>("path_marker_width_m", 0.06);
@@ -169,21 +184,33 @@ void LocalPlannerNode::initializeParameters()
     std::all_of(
     planner_parameters_.transition_distance_scales.begin(),
     planner_parameters_.transition_distance_scales.end(),
-    [](double scale) {return std::isfinite(scale) && scale > 0.0;});
+    [](double scale) {return std::isfinite(scale) && scale > 0.0;}) &&
+    std::adjacent_find(
+    planner_parameters_.transition_distance_scales.begin(),
+    planner_parameters_.transition_distance_scales.end(),
+    std::greater_equal<double>()) == planner_parameters_.transition_distance_scales.end();
   if (!control_points_valid || !scales_valid) {
     throw std::invalid_argument(
             "pre/post apex arrays must contain three ordered positive values and transition "
             "scales must be positive");
   }
   if (planning_period_ms_ <= 0 || merge_confirm_cycles_ <= 0 ||
+    safe_stop_release_cycles_ <= 0 ||
+    planner_parameters_.commitment_clearance_reserve_m < 0.0 ||
     planner_parameters_.post_merge_lookahead_m < 0.0 ||
     planner_parameters_.post_merge_min_time_sec < 0.0 ||
     !(state_handoff_tail_ratio_ > 0.0) || state_handoff_tail_ratio_ > 1.0 ||
     !(state_handoff_speed_cap_mps_ > 0.0) ||
+    initial_cluster_stabilization_sec_ < 0.0 ||
+    initial_cluster_max_wait_sec_ < initial_cluster_stabilization_sec_ ||
+    cluster_envelope_change_threshold_m_ < 0.0 ||
+    commitment_lock_lateral_threshold_m_ < 0.0 ||
+    commitment_lock_longitudinal_m_ < 0.0 ||
     planner_parameters_.minimum_path_points < 2)
   {
     throw std::invalid_argument(
-            "planning periods, confirmation counts, handoff settings, and point counts "
+            "planning periods, confirmation counts, clearance reserve, handoff settings, "
+            "initial stabilization/commitment lock settings, and point counts "
             "must be valid");
   }
 }
@@ -299,42 +326,29 @@ std::optional<f110_msgs::msg::Obstacle> LocalPlannerNode::projectCartesianObstac
   const f110_msgs::msg::Obstacle & obstacle) const
 {
   if (!clcs_converter_ || !obstacle.has_cartesian ||
-    !std::isfinite(obstacle.x_center) || !std::isfinite(obstacle.y_center) ||
-    !std::isfinite(obstacle.radius) || obstacle.radius <= 0.0)
+    !std::isfinite(obstacle.x_min) || !std::isfinite(obstacle.x_max) ||
+    !std::isfinite(obstacle.y_min) || !std::isfinite(obstacle.y_max))
   {
     return std::nullopt;
   }
 
-  global_planning::ClcsConversionInput input;
-  input.x = obstacle.x_center;
-  input.y = obstacle.y_center;
-  const auto projection = clcs_converter_->convert(input);
-  if (!projection.valid) {
+  const auto bounds = projectCartesianAabb(
+    *clcs_converter_, planner_.trackLength(),
+    obstacle.x_min, obstacle.x_max, obstacle.y_min, obstacle.y_max);
+  if (!bounds.has_value()) {
     return std::nullopt;
   }
 
-  // Every static obstacle is conservatively represented by a circle. Its radius is invariant
-  // under Cartesian-to-Frenet rotation, so both local longitudinal and lateral extents are r.
-  const double longitudinal_half_extent = obstacle.radius;
-  const double lateral_half_extent = obstacle.radius;
-
-  const double track_length = planner_.trackLength();
-  const auto wrap_s = [track_length](double s) {
-      if (track_length <= 0.0) {
-        return s;
-      }
-      s = std::fmod(s, track_length);
-      return s < 0.0 ? s + track_length : s;
-    };
-
   auto projected = obstacle;
-  projected.s_center = projection.s;
-  projected.d_center = projection.d;
-  projected.s_start = wrap_s(projection.s - longitudinal_half_extent);
-  projected.s_end = wrap_s(projection.s + longitudinal_half_extent);
-  projected.d_right = projection.d - lateral_half_extent;
-  projected.d_left = projection.d + lateral_half_extent;
-  projected.size = 2.0 * obstacle.radius;
+  projected.x_center = bounds->x_center;
+  projected.y_center = bounds->y_center;
+  projected.s_center = bounds->s_center;
+  projected.d_center = bounds->d_center;
+  projected.s_start = bounds->s_start;
+  projected.s_end = bounds->s_end;
+  projected.d_right = bounds->d_right;
+  projected.d_left = bounds->d_left;
+  projected.size = bounds->diagonal;
   return projected;
 }
 
@@ -364,7 +378,7 @@ void LocalPlannerNode::onObstacles(const f110_msgs::msg::ObstacleArray::SharedPt
   if (rejected > 0U) {
     RCLCPP_WARN_THROTTLE(
       get_logger(), *get_clock(), 2000,
-      "Rejected %zu static obstacles with invalid x/y/radius or CLCS projection.",
+      "Rejected %zu static obstacles with an invalid Cartesian AABB or CLCS projection.",
       rejected);
   }
   has_obstacles_message_ = true;
@@ -397,12 +411,391 @@ void LocalPlannerNode::onState(const f110_msgs::msg::StateMachine::SharedPtr mes
 
 void LocalPlannerNode::clearCommitment()
 {
+  resetInitialStabilization();
+  completed_obstacle_ids_.clear();
   has_commitment_ = false;
   committed_result_ = RacelineSplineResult();
+  safe_stop_latched_ = false;
+  safe_stop_result_ = RacelineSplineResult();
+  safe_stop_release_count_ = 0;
   merge_complete_count_ = 0;
   merge_geometry_confirmed_ = false;
   handoff_active_ = false;
   avoid_state_observed_ = false;
+}
+
+void LocalPlannerNode::resetInitialStabilization()
+{
+  initial_stabilization_active_ = false;
+  initial_prepare_published_ = false;
+  initial_cluster_union_.clear();
+}
+
+std::vector<f110_msgs::msg::Obstacle>
+LocalPlannerNode::buildInitialStabilizationInput() const
+{
+  std::map<int, f110_msgs::msg::Obstacle> conservative;
+  for (const auto & obstacle : static_obstacles_) {
+    if (completed_obstacle_ids_.count(obstacle.id) > 0U) {
+      continue;
+    }
+    conservative[obstacle.id] = obstacle;
+  }
+  for (const auto & entry : initial_cluster_union_) {
+    const int id = entry.first;
+    const auto current = conservative.find(id);
+    if (current == conservative.end()) {
+      conservative[id] = entry.second;
+      continue;
+    }
+
+    const bool current_inside_retained =
+      current->second.x_min >= entry.second.x_min &&
+      current->second.x_max <= entry.second.x_max &&
+      current->second.y_min >= entry.second.y_min &&
+      current->second.y_max <= entry.second.y_max;
+    if (current_inside_retained) {
+      conservative[id] = entry.second;
+      continue;
+    }
+    const bool retained_inside_current =
+      entry.second.x_min >= current->second.x_min &&
+      entry.second.x_max <= current->second.x_max &&
+      entry.second.y_min >= current->second.y_min &&
+      entry.second.y_max <= current->second.y_max;
+    if (retained_inside_current) {
+      continue;
+    }
+
+    // Only partially overlapping envelopes need a new CLCS projection. If either AABB contains
+    // the other, its already-projected Frenet bounds are the conservative result.
+    auto merged = current->second;
+    merged.x_min = std::min(merged.x_min, entry.second.x_min);
+    merged.x_max = std::max(merged.x_max, entry.second.x_max);
+    merged.y_min = std::min(merged.y_min, entry.second.y_min);
+    merged.y_max = std::max(merged.y_max, entry.second.y_max);
+    merged.x_center = 0.5 * (merged.x_min + merged.x_max);
+    merged.y_center = 0.5 * (merged.y_min + merged.y_max);
+    merged.radius = 0.5 * std::hypot(
+      merged.x_max - merged.x_min, merged.y_max - merged.y_min);
+    merged.size = 2.0 * merged.radius;
+    const auto projected = projectCartesianObstacle(merged);
+    conservative[id] = projected.value_or(current->second);
+  }
+
+  std::vector<f110_msgs::msg::Obstacle> result;
+  result.reserve(conservative.size());
+  for (const auto & entry : conservative) {
+    result.push_back(entry.second);
+  }
+  return result;
+}
+
+bool LocalPlannerNode::updateInitialStabilization(
+  const std::vector<int> & cluster_ids,
+  const std::vector<f110_msgs::msg::Obstacle> & conservative_obstacles,
+  const rclcpp::Time & update_time)
+{
+  if (cluster_ids.empty()) {
+    resetInitialStabilization();
+    return false;
+  }
+
+  const auto contains_id = [](const std::vector<int> & ids, int id) {
+      return std::find(ids.begin(), ids.end(), id) != ids.end();
+    };
+  bool restart = !initial_stabilization_active_;
+  if (!restart && !initial_cluster_union_.empty()) {
+    restart = std::none_of(
+      initial_cluster_union_.begin(), initial_cluster_union_.end(),
+      [&cluster_ids, &contains_id](const auto & entry) {
+        return contains_id(cluster_ids, entry.first);
+      });
+  }
+  if (restart) {
+    initial_stabilization_active_ = true;
+    initial_stabilization_start_ = update_time;
+    initial_last_change_time_ = update_time;
+    initial_cluster_union_.clear();
+  }
+
+  bool meaningful_change = false;
+  for (const int id : cluster_ids) {
+    const auto obstacle = std::find_if(
+      conservative_obstacles.begin(), conservative_obstacles.end(),
+      [id](const auto & candidate) {return candidate.id == id;});
+    if (obstacle == conservative_obstacles.end()) {
+      continue;
+    }
+    const auto previous = initial_cluster_union_.find(id);
+    if (previous == initial_cluster_union_.end()) {
+      initial_cluster_union_[id] = *obstacle;
+      meaningful_change = true;
+      continue;
+    }
+    const double expansion = std::max(
+      {0.0,
+        previous->second.x_min - obstacle->x_min,
+        obstacle->x_max - previous->second.x_max,
+        previous->second.y_min - obstacle->y_min,
+        obstacle->y_max - previous->second.y_max});
+    previous->second = *obstacle;
+    meaningful_change =
+      meaningful_change || expansion >= cluster_envelope_change_threshold_m_;
+  }
+  if (meaningful_change) {
+    initial_last_change_time_ = update_time;
+  }
+
+  const double stable_duration = (update_time - initial_last_change_time_).seconds();
+  const double total_duration = (update_time - initial_stabilization_start_).seconds();
+  return stable_duration >= initial_cluster_stabilization_sec_ ||
+         total_duration >= initial_cluster_max_wait_sec_;
+}
+
+std::vector<f110_msgs::msg::Obstacle> LocalPlannerNode::buildNextManeuverInput() const
+{
+  std::set<int> excluded = completed_obstacle_ids_;
+  if (has_commitment_) {
+    excluded.insert(
+      committed_result_.obstacle_ids.begin(), committed_result_.obstacle_ids.end());
+    if (committed_result_.obstacle_id >= 0) {
+      excluded.insert(committed_result_.obstacle_id);
+    }
+  }
+
+  std::vector<f110_msgs::msg::Obstacle> result;
+  result.reserve(static_obstacles_.size());
+  for (const auto & obstacle : static_obstacles_) {
+    if (excluded.count(obstacle.id) == 0U) {
+      result.push_back(obstacle);
+    }
+  }
+  return result;
+}
+
+std::vector<f110_msgs::msg::Obstacle> LocalPlannerNode::buildCurrentManeuverInput(
+  const EgoFrenetState & ego) const
+{
+  if (!has_commitment_ || committed_result_.kind != SplinePlanKind::kAvoidance) {
+    return buildInitialStabilizationInput();
+  }
+
+  std::set<int> active_ids(
+    committed_result_.obstacle_ids.begin(), committed_result_.obstacle_ids.end());
+  if (committed_result_.obstacle_id >= 0) {
+    active_ids.insert(committed_result_.obstacle_id);
+  }
+  const double merge_forward = planner_.forwardDistance(ego.s, committed_result_.merge_s);
+  const bool merge_is_ahead = merge_forward < 0.5 * planner_.trackLength();
+
+  std::vector<f110_msgs::msg::Obstacle> result;
+  result.reserve(static_obstacles_.size());
+  for (const auto & obstacle : static_obstacles_) {
+    if (completed_obstacle_ids_.count(obstacle.id) > 0U) {
+      continue;
+    }
+    if (!merge_is_ahead || active_ids.count(obstacle.id) > 0U) {
+      result.push_back(obstacle);
+      continue;
+    }
+
+    const double center_forward = planner_.forwardDistance(ego.s, obstacle.s_center);
+    const double span_forward = planner_.forwardDistance(obstacle.s_start, obstacle.s_end);
+    const double span_reverse = planner_.forwardDistance(obstacle.s_end, obstacle.s_start);
+    double span = std::min(span_forward, span_reverse);
+    if (!(span > 1.0e-6)) {
+      span = std::max(0.05, std::abs(obstacle.size));
+    }
+    const double start_forward = center_forward - 0.5 * span -
+      planner_parameters_.obstacle_longitudinal_padding_m;
+    if (start_forward <= merge_forward + 1.0e-6) {
+      result.push_back(obstacle);
+    }
+  }
+  return result;
+}
+
+void LocalPlannerNode::resetForChainedManeuver()
+{
+  completed_obstacle_ids_.insert(
+    committed_result_.obstacle_ids.begin(), committed_result_.obstacle_ids.end());
+  if (committed_result_.obstacle_id >= 0) {
+    completed_obstacle_ids_.insert(committed_result_.obstacle_id);
+  }
+  const bool avoid_was_observed = has_state_ ?
+    current_state_ == f110_msgs::msg::StateMachine::STATE_AVOID :
+    avoid_state_observed_;
+  resetInitialStabilization();
+  has_commitment_ = false;
+  committed_result_ = RacelineSplineResult();
+  safe_stop_latched_ = false;
+  safe_stop_result_ = RacelineSplineResult();
+  safe_stop_release_count_ = 0;
+  merge_complete_count_ = 0;
+  merge_geometry_confirmed_ = false;
+  handoff_active_ = false;
+  avoid_state_observed_ = avoid_was_observed;
+}
+
+bool LocalPlannerNode::beginChainedManeuverIfNeeded(
+  const EgoFrenetState & ego,
+  std::vector<f110_msgs::msg::Obstacle> & next_obstacles,
+  const std::string & phase)
+{
+  if (!has_commitment_) {
+    return false;
+  }
+  next_obstacles = buildNextManeuverInput();
+  const auto next_cluster_ids = planner_.blockingClusterIds(ego, next_obstacles);
+  if (next_cluster_ids.empty()) {
+    return false;
+  }
+
+  std::string ids;
+  for (const int id : next_cluster_ids) {
+    ids += ids.empty() ? std::to_string(id) : "," + std::to_string(id);
+  }
+  RCLCPP_INFO(
+    get_logger(),
+    "Chaining static avoidance during %s for new blocking cluster [%s]; "
+    "releasing the completed maneuver's side lock.",
+    phase.c_str(), ids.c_str());
+  resetForChainedManeuver();
+  return true;
+}
+
+bool LocalPlannerNode::commitmentSideLocked(const EgoFrenetState & ego) const
+{
+  if (!has_commitment_ || committed_result_.kind != SplinePlanKind::kAvoidance) {
+    return false;
+  }
+  const bool lateral_engaged = committed_result_.go_left ?
+    ego.d >= commitment_lock_lateral_threshold_m_ :
+    ego.d <= -commitment_lock_lateral_threshold_m_;
+  const double driven_distance = planner_.forwardDistance(commitment_start_s_, ego.s);
+  const bool longitudinal_engaged =
+    driven_distance >= commitment_lock_longitudinal_m_ &&
+    driven_distance < 0.5 * planner_.trackLength();
+  return lateral_engaged || longitudinal_engaged;
+}
+
+void LocalPlannerNode::commitAvoidance(
+  RacelineSplineResult result,
+  const EgoFrenetState & ego)
+{
+  resetInitialStabilization();
+  const bool replacing = has_commitment_;
+  const bool avoid_was_observed = avoid_state_observed_;
+  committed_result_ = std::move(result);
+  has_commitment_ = true;
+  safe_stop_latched_ = false;
+  safe_stop_result_ = RacelineSplineResult();
+  safe_stop_release_count_ = 0;
+  commitment_start_s_ = ego.s;
+  merge_complete_count_ = 0;
+  merge_geometry_confirmed_ = false;
+  handoff_active_ = false;
+  avoid_state_observed_ = avoid_was_observed ||
+    (has_state_ && current_state_ == f110_msgs::msg::StateMachine::STATE_AVOID);
+  RCLCPP_INFO(
+    get_logger(), "%s %s d-offset spline around static obstacle %d (target d=%.2f).",
+    replacing ? "Replaced commitment with" : "Committed",
+    committed_result_.go_left ? "left" : "right",
+    committed_result_.obstacle_id, committed_result_.target_d);
+}
+
+bool LocalPlannerNode::activateGlobalHandoff(const EgoFrenetState & ego)
+{
+  auto handoff_path = planner_.buildGlobalHandoffPath(
+    ego.s, state_handoff_tail_ratio_, state_handoff_speed_cap_mps_);
+  if (handoff_path.wpnts.empty()) {
+    return false;
+  }
+  if (!has_commitment_) {
+    committed_result_ = RacelineSplineResult();
+    committed_result_.kind = SplinePlanKind::kAvoidance;
+    has_commitment_ = true;
+    commitment_start_s_ = ego.s;
+  }
+  committed_result_.path = std::move(handoff_path);
+  committed_result_.merge_s = ego.s;
+  committed_result_.control_points.clear();
+  safe_stop_latched_ = false;
+  safe_stop_result_ = RacelineSplineResult();
+  safe_stop_release_count_ = 0;
+  merge_geometry_confirmed_ = true;
+  handoff_active_ = true;
+  avoid_state_observed_ = avoid_state_observed_ ||
+    (has_state_ && current_state_ == f110_msgs::msg::StateMachine::STATE_AVOID);
+  return true;
+}
+
+void LocalPlannerNode::latchSafeStop(
+  RacelineSplineResult result,
+  const EgoFrenetState & ego)
+{
+  if (result.path.wpnts.empty()) {
+    result.kind = SplinePlanKind::kSafeStop;
+    result.path = planner_.buildEmergencyStopPath(ego);
+    result.reason = "no collision-free stop prefix; publishing a zero-speed emergency hold";
+  }
+  safe_stop_result_ = std::move(result);
+  safe_stop_latched_ = true;
+  safe_stop_release_count_ = 0;
+  merge_complete_count_ = 0;
+  merge_geometry_confirmed_ = false;
+  handoff_active_ = false;
+  RCLCPP_WARN_THROTTLE(
+    get_logger(), *get_clock(), 2000,
+    "Static safe-stop latched: %s", safe_stop_result_.reason.c_str());
+}
+
+void LocalPlannerNode::handleSafeStopLatch(const EgoFrenetState & ego)
+{
+  const auto planning_obstacles = has_commitment_ ?
+    buildCurrentManeuverInput(ego) : buildInitialStabilizationInput();
+  const std::optional<bool> locked_side =
+    has_commitment_ && committed_result_.kind == SplinePlanKind::kAvoidance ?
+    std::optional<bool>(committed_result_.go_left) : std::nullopt;
+  const bool allow_side_switch =
+    !locked_side.has_value() || !commitmentSideLocked(ego);
+  RacelineSplineResult result = planner_.plan(
+    ego, planning_obstacles, locked_side, allow_side_switch);
+
+  if (result.kind == SplinePlanKind::kAvoidance) {
+    ++safe_stop_release_count_;
+    if (safe_stop_release_count_ >= safe_stop_release_cycles_) {
+      RCLCPP_INFO(
+        get_logger(),
+        "Safe-stop released after %d consecutive feasible avoidance plans.",
+        safe_stop_release_count_);
+      commitAvoidance(std::move(result), ego);
+      publishResult(committed_result_, ego, static_obstacles_);
+      return;
+    }
+  } else if (result.kind == SplinePlanKind::kNoObstacle) {
+    ++safe_stop_release_count_;
+    if (safe_stop_release_count_ >= safe_stop_release_cycles_) {
+      if (activateGlobalHandoff(ego)) {
+        RCLCPP_INFO(
+          get_logger(),
+          "Safe-stop released after %d clear cycles; publishing global handoff.",
+          safe_stop_release_count_);
+        publishResult(committed_result_, ego, static_obstacles_);
+        return;
+      }
+      safe_stop_release_count_ = 0;
+      RCLCPP_ERROR(
+        get_logger(), "Failed to build global handoff while releasing safe-stop.");
+    }
+  } else if (result.kind == SplinePlanKind::kSafeStop) {
+    latchSafeStop(std::move(result), ego);
+  } else {
+    safe_stop_release_count_ = 0;
+  }
+
+  publishResult(safe_stop_result_, ego, static_obstacles_);
 }
 
 bool LocalPlannerNode::commitmentComplete(const EgoFrenetState & ego)
@@ -460,67 +853,120 @@ void LocalPlannerNode::onPlanningTimer()
   ego.d = odometry.pose.pose.position.y;
   ego.speed = std::abs(odometry.twist.twist.linear.x);
 
+  std::vector<f110_msgs::msg::Obstacle> planning_obstacles = static_obstacles_;
+  bool chained_maneuver_started = false;
+
   // local planner가 먼저 빈 경로를 보내면 state_machine은 merge 판단에 사용할 tail을 잃는다.
   // 이번 commitment에서 STATE_AVOID를 실제로 관측했고, spline 합류가 확인된 뒤
   // state_machine이 STATE_GLOBAL을 발행한 경우에만 non-empty 경로 발행을 종료한다.
-  if (has_commitment_ && merge_geometry_confirmed_ && avoid_state_observed_ && has_state_ &&
-    current_state_ == f110_msgs::msg::StateMachine::STATE_GLOBAL)
-  {
-    RCLCPP_INFO(
-      get_logger(),
-      "State machine confirmed GLOBAL after static avoidance; releasing committed tail.");
-    clearCommitment();
-    publishEmpty("state machine confirmed global handoff");
+  if (has_commitment_ && merge_geometry_confirmed_) {
+    chained_maneuver_started = beginChainedManeuverIfNeeded(
+      ego, planning_obstacles, "global handoff");
+    if (!chained_maneuver_started) {
+      if (avoid_state_observed_ && has_state_ &&
+        current_state_ == f110_msgs::msg::StateMachine::STATE_GLOBAL)
+      {
+        RCLCPP_INFO(
+          get_logger(),
+          "State machine confirmed GLOBAL after all static obstacles cleared; "
+          "releasing committed tail.");
+        clearCommitment();
+        publishEmpty("state machine confirmed global handoff");
+        return;
+      }
+      publishResult(committed_result_, ego, static_obstacles_);
+      return;
+    }
+  }
+  if (safe_stop_latched_) {
+    handleSafeStopLatch(ego);
     return;
   }
   if (has_commitment_ && !merge_geometry_confirmed_ && commitmentComplete(ego)) {
-    merge_geometry_confirmed_ = true;
-    auto handoff_path = planner_.buildGlobalHandoffPath(
-      ego.s, state_handoff_tail_ratio_, state_handoff_speed_cap_mps_);
-    if (!handoff_path.wpnts.empty()) {
-      committed_result_.path = std::move(handoff_path);
-      committed_result_.merge_s = ego.s;
-      committed_result_.control_points.clear();
-      handoff_active_ = true;
-    } else {
+    chained_maneuver_started = beginChainedManeuverIfNeeded(
+      ego, planning_obstacles, "merge completion");
+    if (chained_maneuver_started) {
+      // Fall through to the ordinary initial-stabilization path. This deliberately starts the
+      // next obstacle with no preferred side, while the non-empty preparation path keeps AVOID.
+    } else if (!activateGlobalHandoff(ego)) {
       RCLCPP_ERROR(
         get_logger(),
         "Failed to build the global handoff loop; retaining the validated avoidance tail.");
+    } else {
+      RCLCPP_INFO(
+        get_logger(),
+        "Static avoidance geometry merged; publishing a closed global handoff loop until "
+        "STATE_GLOBAL confirmation.");
     }
-    RCLCPP_INFO(
-      get_logger(),
-      "Static avoidance geometry merged; publishing a closed global handoff loop until "
-      "STATE_GLOBAL confirmation.");
   }
   if (has_commitment_ && merge_geometry_confirmed_) {
     publishResult(committed_result_, ego, static_obstacles_);
     return;
   }
 
+  if (!has_commitment_) {
+    if (!chained_maneuver_started) {
+      planning_obstacles = buildInitialStabilizationInput();
+    }
+    auto preparation = planner_.buildPreparationStop(ego, planning_obstacles);
+    if (preparation.kind == SplinePlanKind::kNoObstacle) {
+      const bool published_preparation = initial_prepare_published_;
+      resetInitialStabilization();
+      if (published_preparation && activateGlobalHandoff(ego)) {
+        publishResult(committed_result_, ego, static_obstacles_);
+        return;
+      }
+    } else if (preparation.kind == SplinePlanKind::kNoSafePath) {
+      resetInitialStabilization();
+      latchSafeStop(std::move(preparation), ego);
+      publishResult(safe_stop_result_, ego, planning_obstacles);
+      return;
+    } else {
+      const bool stable = updateInitialStabilization(
+        preparation.obstacle_ids, planning_obstacles, now());
+      if (!stable) {
+        initial_prepare_published_ = true;
+        publishResult(preparation, ego, planning_obstacles);
+        return;
+      }
+      // updateInitialStabilization() may have enlarged the retained union in this cycle.
+      planning_obstacles = buildInitialStabilizationInput();
+      resetInitialStabilization();
+    }
+  } else {
+    // Obstacles whose expanded front face starts after this maneuver's merge belong to the next
+    // maneuver. They must not invalidate the current path merely because its controller tail
+    // extends beyond the merge point.
+    planning_obstacles = buildCurrentManeuverInput(ego);
+  }
+
+  std::string commitment_error;
+  if (has_commitment_ &&
+    planner_.validatePath(
+      ego, committed_result_.path, planning_obstacles, &commitment_error))
+  {
+    // The committed geometry is still safe. Rebuilding six spline candidates here only makes
+    // perception jitter visible downstream and repeats all geometry/curvature work.
+    publishResult(committed_result_, ego, static_obstacles_);
+    return;
+  }
+  if (has_commitment_) {
+    RCLCPP_WARN_THROTTLE(
+      get_logger(), *get_clock(), 2000,
+      "Committed path needs replacement: %s", commitment_error.c_str());
+  }
+
   const std::optional<bool> preferred_side =
     has_commitment_ && committed_result_.kind == SplinePlanKind::kAvoidance ?
     std::optional<bool>(committed_result_.go_left) : std::nullopt;
-  RacelineSplineResult result = planner_.plan(ego, static_obstacles_, preferred_side);
+  const bool allow_side_switch =
+    !preferred_side.has_value() || !commitmentSideLocked(ego);
+  RacelineSplineResult result = planner_.plan(
+    ego, planning_obstacles, preferred_side, allow_side_switch);
 
   if (result.kind == SplinePlanKind::kAvoidance) {
-    const bool new_commitment = !has_commitment_;
-    const bool side_changed = has_commitment_ &&
-      committed_result_.kind == SplinePlanKind::kAvoidance &&
-      committed_result_.go_left != result.go_left;
-    committed_result_ = result;
-    has_commitment_ = true;
-    if (new_commitment || side_changed) {
-      commitment_start_s_ = ego.s;
-      merge_complete_count_ = 0;
-      merge_geometry_confirmed_ = false;
-      handoff_active_ = false;
-      avoid_state_observed_ =
-        has_state_ && current_state_ == f110_msgs::msg::StateMachine::STATE_AVOID;
-      RCLCPP_INFO(
-        get_logger(), "Committed %s d-offset spline around static obstacle %d (target d=%.2f).",
-        result.go_left ? "left" : "right", result.obstacle_id, result.target_d);
-    }
-    publishResult(committed_result_, ego, static_obstacles_);
+    commitAvoidance(std::move(result), ego);
+    publishResult(committed_result_, ego, planning_obstacles);
     return;
   }
 
@@ -531,8 +977,18 @@ void LocalPlannerNode::onPlanningTimer()
     return;
   }
   if (result.kind == SplinePlanKind::kSafeStop) {
-    clearCommitment();
-    publishResult(result, ego, static_obstacles_);
+    latchSafeStop(std::move(result), ego);
+    publishResult(safe_stop_result_, ego, planning_obstacles);
+    return;
+  }
+  if (has_commitment_) {
+    latchSafeStop(std::move(result), ego);
+    publishResult(safe_stop_result_, ego, static_obstacles_);
+    return;
+  }
+  if (result.kind == SplinePlanKind::kNoSafePath && result.obstacle_id >= 0) {
+    latchSafeStop(std::move(result), ego);
+    publishResult(safe_stop_result_, ego, planning_obstacles);
     return;
   }
   clearCommitment();
@@ -540,12 +996,13 @@ void LocalPlannerNode::onPlanningTimer()
 }
 
 nav_msgs::msg::Path LocalPlannerNode::makePath(
-  const f110_msgs::msg::WpntArray & waypoints) const
+  const std::vector<f110_msgs::msg::Wpnt> & waypoints,
+  const std_msgs::msg::Header & header) const
 {
   nav_msgs::msg::Path path;
-  path.header = waypoints.header;
-  path.poses.reserve(waypoints.wpnts.size());
-  for (const auto & waypoint : waypoints.wpnts) {
+  path.header = header;
+  path.poses.reserve(waypoints.size());
+  for (const auto & waypoint : waypoints) {
     geometry_msgs::msg::PoseStamped pose;
     pose.header = path.header;
     pose.pose.position.x = waypoint.x_m;
@@ -578,8 +1035,11 @@ visualization_msgs::msg::MarkerArray LocalPlannerNode::makeMarkers(
   path.pose.orientation.w = 1.0;
   path.scale.x = path_marker_width_m_;
   path.color.a = 1.0F;
-  path.color.g = result.kind == SplinePlanKind::kSafeStop ? 0.55F : 1.0F;
-  path.color.r = result.kind == SplinePlanKind::kSafeStop ? 1.0F : 0.05F;
+  const bool stop_like =
+    result.kind == SplinePlanKind::kSafeStop ||
+    result.kind == SplinePlanKind::kPreparation;
+  path.color.g = stop_like ? 0.55F : 1.0F;
+  path.color.r = stop_like ? 1.0F : 0.05F;
   for (const auto & waypoint : result.path.wpnts) {
     geometry_msgs::msg::Point point;
     point.x = waypoint.x_m;
@@ -617,17 +1077,15 @@ visualization_msgs::msg::MarkerArray LocalPlannerNode::makeMarkers(
     marker.header = clear.header;
     marker.ns = "static_obstacles";
     marker.id = marker_id++;
-    marker.type = Marker::SPHERE;
+    marker.type = Marker::CUBE;
     marker.action = Marker::ADD;
-    double yaw = 0.0;
-    planner_.toCartesian(
-      obstacle.s_center, obstacle.d_center,
-      marker.pose.position.x, marker.pose.position.y, yaw);
-    marker.pose.position.z = 0.12;
+    marker.pose.position.x = obstacle.x_center;
+    marker.pose.position.y = obstacle.y_center;
+    marker.scale.x = std::max(0.02, obstacle.x_max - obstacle.x_min);
+    marker.scale.y = std::max(0.02, obstacle.y_max - obstacle.y_min);
+    marker.scale.z = std::max(0.02, obstacle_marker_scale_m_);
+    marker.pose.position.z = 0.5 * marker.scale.z;
     marker.pose.orientation.w = 1.0;
-    marker.scale.x = obstacle_marker_scale_m_;
-    marker.scale.y = obstacle_marker_scale_m_;
-    marker.scale.z = obstacle_marker_scale_m_;
     marker.color.a = 0.85F;
     marker.color.r = 1.0F;
     marker.color.g = 0.1F;
@@ -645,11 +1103,15 @@ void LocalPlannerNode::publishResult(
   output.header.stamp = now();
   output.header.frame_id = frame_id_;
   output.wpnts = result.path.wpnts;
-  output.ot_side = result.kind == SplinePlanKind::kSafeStop ?
+  const bool stop_like =
+    result.kind == SplinePlanKind::kSafeStop ||
+    result.kind == SplinePlanKind::kPreparation;
+  output.ot_side = stop_like ?
     "stop" : (result.go_left ? "left" : "right");
-  output.ot_line = result.kind == SplinePlanKind::kSafeStop ?
-    "raceline_static_safe_stop" :
-    (handoff_active_ ? "raceline_global_handoff" : "raceline_local_d_offset_spline");
+  output.ot_line =
+    result.kind == SplinePlanKind::kPreparation ? "raceline_static_prepare" :
+    (result.kind == SplinePlanKind::kSafeStop ? "raceline_static_safe_stop" :
+    (handoff_active_ ? "raceline_global_handoff" : "raceline_local_d_offset_spline"));
   const std::optional<bool> current_side = result.kind == SplinePlanKind::kAvoidance ?
     std::optional<bool>(result.go_left) : std::nullopt;
   output.side_switch = current_side.has_value() &&
@@ -661,16 +1123,27 @@ void LocalPlannerNode::publishResult(
   last_published_side_ = current_side;
   avoid_waypoints_pub_->publish(output);
 
-  f110_msgs::msg::WpntArray waypoints;
-  waypoints.header = output.header;
-  waypoints.wpnts = output.wpnts;
   if (publish_standalone_local_) {
+    f110_msgs::msg::WpntArray waypoints;
+    waypoints.header = output.header;
+    waypoints.wpnts = result.path.wpnts;
     standalone_waypoints_pub_->publish(waypoints);
   }
-  const auto path = makePath(waypoints);
-  local_path_pub_->publish(path);
-  compatibility_path_pub_->publish(path);
-  markers_pub_->publish(makeMarkers(result, ego, obstacles));
+  const bool publish_local_path = local_path_pub_->get_subscription_count() > 0U;
+  const bool publish_compatibility_path =
+    compatibility_path_pub_->get_subscription_count() > 0U;
+  if (publish_local_path || publish_compatibility_path) {
+    const auto path = makePath(result.path.wpnts, output.header);
+    if (publish_local_path) {
+      local_path_pub_->publish(path);
+    }
+    if (publish_compatibility_path) {
+      compatibility_path_pub_->publish(path);
+    }
+  }
+  if (markers_pub_->get_subscription_count() > 0U) {
+    markers_pub_->publish(makeMarkers(result, ego, obstacles));
+  }
 }
 
 void LocalPlannerNode::publishEmpty(const std::string & reason)
@@ -682,13 +1155,23 @@ void LocalPlannerNode::publishEmpty(const std::string & reason)
   output.ot_line = reason;
   avoid_waypoints_pub_->publish(output);
 
-  f110_msgs::msg::WpntArray empty_waypoints;
-  empty_waypoints.header = output.header;
-  const auto empty_path = makePath(empty_waypoints);
-  local_path_pub_->publish(empty_path);
-  compatibility_path_pub_->publish(empty_path);
-  RacelineSplineResult empty_result;
-  markers_pub_->publish(makeMarkers(empty_result, EgoFrenetState(), {}));
+  const bool publish_local_path = local_path_pub_->get_subscription_count() > 0U;
+  const bool publish_compatibility_path =
+    compatibility_path_pub_->get_subscription_count() > 0U;
+  if (publish_local_path || publish_compatibility_path) {
+    nav_msgs::msg::Path empty_path;
+    empty_path.header = output.header;
+    if (publish_local_path) {
+      local_path_pub_->publish(empty_path);
+    }
+    if (publish_compatibility_path) {
+      compatibility_path_pub_->publish(empty_path);
+    }
+  }
+  if (markers_pub_->get_subscription_count() > 0U) {
+    RacelineSplineResult empty_result;
+    markers_pub_->publish(makeMarkers(empty_result, EgoFrenetState(), {}));
+  }
   RCLCPP_DEBUG_THROTTLE(get_logger(), *get_clock(), 2000, "%s", reason.c_str());
 }
 

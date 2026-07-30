@@ -254,33 +254,46 @@ double RacelineSplinePlanner::forwardDistance(double from_s, double to_s) const
   return wrapS(to_s - from_s);
 }
 
+std::vector<int> RacelineSplinePlanner::blockingClusterIds(
+  const EgoFrenetState & ego,
+  const std::vector<f110_msgs::msg::Obstacle> & obstacles) const
+{
+  if (!ready() || !std::isfinite(ego.s) || !std::isfinite(ego.d) ||
+    !std::isfinite(ego.speed))
+  {
+    return {};
+  }
+  const auto cluster = nearestCluster(expandVisibleObstacles(ego, obstacles));
+  std::vector<int> ids;
+  ids.reserve(cluster.size());
+  for (const auto & obstacle : cluster) {
+    ids.push_back(obstacle.id);
+  }
+  return ids;
+}
+
 std::size_t RacelineSplinePlanner::nextReferenceIndex(double s) const
 {
-  std::size_t best = 0U;
-  double best_forward = std::numeric_limits<double>::infinity();
-  for (std::size_t i = 0; i < reference_.wpnts.size(); ++i) {
-    const double distance = forwardDistance(s, reference_.wpnts[i].s_m);
-    if (distance < best_forward) {
-      best_forward = distance;
-      best = i;
-    }
-  }
-  return best;
+  const double wrapped_s = wrapS(s);
+  const auto iterator = std::lower_bound(
+    reference_.wpnts.begin(), reference_.wpnts.end(), wrapped_s,
+    [](const f110_msgs::msg::Wpnt & waypoint, double value) {
+      return waypoint.s_m < value;
+    });
+  return iterator == reference_.wpnts.end() ?
+         0U : static_cast<std::size_t>(std::distance(reference_.wpnts.begin(), iterator));
 }
 
 std::size_t RacelineSplinePlanner::nearestReferenceIndex(double s) const
 {
-  std::size_t best = 0U;
-  double best_distance = std::numeric_limits<double>::infinity();
-  for (std::size_t i = 0; i < reference_.wpnts.size(); ++i) {
-    const double forward = forwardDistance(s, reference_.wpnts[i].s_m);
-    const double distance = std::min(forward, track_length_ - forward);
-    if (distance < best_distance) {
-      best_distance = distance;
-      best = i;
-    }
-  }
-  return best;
+  const std::size_t next = nextReferenceIndex(s);
+  const std::size_t previous =
+    next == 0U ? reference_.wpnts.size() - 1U : next - 1U;
+  const auto circular_distance = [this, s](std::size_t index) {
+      const double forward = forwardDistance(s, reference_.wpnts[index].s_m);
+      return std::min(forward, track_length_ - forward);
+    };
+  return circular_distance(next) < circular_distance(previous) ? next : previous;
 }
 
 std::vector<RacelineSplinePlanner::ExpandedObstacle>
@@ -360,6 +373,34 @@ RacelineSplinePlanner::nearestCluster(
   return cluster;
 }
 
+bool RacelineSplinePlanner::outsideIsLeft(
+  const EgoFrenetState & ego,
+  const std::vector<ExpandedObstacle> & cluster) const
+{
+  if (cluster.empty()) {
+    return false;
+  }
+  double cluster_start = cluster.front().start;
+  double cluster_end = cluster.front().end;
+  for (const auto & obstacle : cluster) {
+    cluster_start = std::min(cluster_start, obstacle.start);
+    cluster_end = std::max(cluster_end, obstacle.end);
+  }
+  double curvature_sum = 0.0;
+  const std::size_t obstacle_index = nearestReferenceIndex(
+    wrapS(ego.s + 0.5 * (cluster_start + cluster_end)));
+  for (std::size_t k = 0; k < reference_.wpnts.size(); ++k) {
+    const std::size_t index = (obstacle_index + k) % reference_.wpnts.size();
+    const double forward = forwardDistance(
+      reference_.wpnts[obstacle_index].s_m, reference_.wpnts[index].s_m);
+    if (forward > 2.0) {
+      break;
+    }
+    curvature_sum += reference_.wpnts[index].kappa_radpm;
+  }
+  return curvature_sum < 0.0;
+}
+
 f110_msgs::msg::WpntArray RacelineSplinePlanner::buildGlobalHandoffPath(
   double ego_s, double state_tail_ratio, double speed_cap_mps) const
 {
@@ -379,10 +420,9 @@ f110_msgs::msg::WpntArray RacelineSplinePlanner::buildGlobalHandoffPath(
   const std::size_t tail_begin = total - std::min(tail_count, total);
   const std::size_t ego_index = nearestReferenceIndex(ego_s);
 
-  // 기존 state_machine은 배열 마지막 tail_ratio 구간에서 merge를 평가한다. 코드를 바꾸지
-  // 않고 충분한 전방 경로를 주기 위해 전체 global loop를 회전시켜 현재 ego가 그 tail의
-  // 첫 점에 놓이게 한다. 배열은 모든 global 표본을 원래 순서로 정확히 한 번 포함하므로
-  // controller는 이를 정상적인 닫힌 경로로 판정한다.
+  // controller에 충분한 전방 경로를 주기 위해 전체 global loop를 회전시켜 현재 ego를
+  // 마지막 tail_ratio 구간의 첫 점에 놓는다. state_machine은 명시적인 handoff 표식을
+  // 우선 사용하며, tail 배치는 기존 합류 판정과의 호환성을 유지한다.
   const std::size_t first_index = (ego_index + total - tail_begin) % total;
   path.wpnts.reserve(total);
   for (std::size_t k = 0; k < total; ++k) {
@@ -395,12 +435,41 @@ f110_msgs::msg::WpntArray RacelineSplinePlanner::buildGlobalHandoffPath(
   return path;
 }
 
+f110_msgs::msg::WpntArray RacelineSplinePlanner::buildEmergencyStopPath(
+  const EgoFrenetState & ego) const
+{
+  f110_msgs::msg::WpntArray path;
+  path.header = reference_.header;
+  if (!ready() || !std::isfinite(ego.s) || !std::isfinite(ego.d)) {
+    return path;
+  }
+  const std::size_t count = std::min(
+    reference_.wpnts.size(),
+    std::max<std::size_t>(
+      2U, static_cast<std::size_t>(parameters_.minimum_path_points)));
+  const std::size_t first_index = nextReferenceIndex(ego.s);
+  path.wpnts.reserve(count);
+  for (std::size_t k = 0; k < count; ++k) {
+    const auto & global = reference_.wpnts[(first_index + k) % reference_.wpnts.size()];
+    auto waypoint = global;
+    waypoint.id = static_cast<int32_t>(k);
+    waypoint.d_m = ego.d;
+    waypoint.x_m = global.x_m - ego.d * std::sin(global.psi_rad);
+    waypoint.y_m = global.y_m + ego.d * std::cos(global.psi_rad);
+    waypoint.vx_mps = 0.0;
+    waypoint.ax_mps2 = 0.0;
+    path.wpnts.push_back(waypoint);
+  }
+  return path;
+}
+
 RacelineSplinePlanner::Candidate RacelineSplinePlanner::buildCandidate(
   const EgoFrenetState & ego,
   const std::vector<ExpandedObstacle> & visible,
   const std::vector<ExpandedObstacle> & cluster,
   bool go_left,
-  double transition_scale) const
+  double transition_scale,
+  bool outside_is_left) const
 {
   Candidate candidate;
   candidate.go_left = go_left;
@@ -419,28 +488,19 @@ RacelineSplinePlanner::Candidate RacelineSplinePlanner::buildCandidate(
       std::min(target_d, obstacle.d_right);
   }
   if (go_left) {
-    target_d = std::max(target_d, parameters_.minimum_target_offset_m);
+    target_d = std::max(
+      target_d + parameters_.commitment_clearance_reserve_m,
+      parameters_.minimum_target_offset_m);
   } else {
-    target_d = std::min(target_d, -parameters_.minimum_target_offset_m);
+    target_d = std::min(
+      target_d - parameters_.commitment_clearance_reserve_m,
+      -parameters_.minimum_target_offset_m);
   }
   if (std::abs(target_d) > parameters_.maximum_target_offset_m) {
     candidate.reason = "required d-offset exceeds maximum_target_offset_m";
     return candidate;
   }
 
-  double curvature_sum = 0.0;
-  const std::size_t obstacle_index = nearestReferenceIndex(
-    wrapS(ego.s + 0.5 * (cluster_start + cluster_end)));
-  for (std::size_t k = 0; k < reference_.wpnts.size(); ++k) {
-    const std::size_t index = (obstacle_index + k) % reference_.wpnts.size();
-    const double forward = forwardDistance(
-      reference_.wpnts[obstacle_index].s_m, reference_.wpnts[index].s_m);
-    if (forward > 2.0) {
-      break;
-    }
-    curvature_sum += reference_.wpnts[index].kappa_radpm;
-  }
-  const bool outside_is_left = curvature_sum < 0.0;
   if (go_left == outside_is_left) {
     transition_scale *= parameters_.outside_line_transition_scale;
   }
@@ -617,18 +677,27 @@ bool RacelineSplinePlanner::validateCandidate(
   const EgoFrenetState & ego,
   const f110_msgs::msg::WpntArray & path,
   const std::vector<ExpandedObstacle> & visible,
-  std::string & reason) const
+  std::string & reason,
+  std::size_t start_index,
+  std::size_t minimum_points) const
 {
-  if (path.wpnts.size() < static_cast<std::size_t>(parameters_.minimum_path_points)) {
+  if (start_index >= path.wpnts.size()) {
+    reason = "path has no waypoint ahead of ego";
+    return false;
+  }
+  if (minimum_points == 0U) {
+    minimum_points = static_cast<std::size_t>(parameters_.minimum_path_points);
+  }
+  if (path.wpnts.size() - start_index < minimum_points) {
     reason = "path does not meet minimum_path_points";
     return false;
   }
   const double center_boundary_clearance =
     parameters_.vehicle_half_width_m + parameters_.boundary_margin_m;
-  double previous_d = path.wpnts.front().d_m;
+  double previous_d = path.wpnts[start_index].d_m;
   double previous_s = 0.0;
-  double previous_curvature = path.wpnts.front().kappa_radpm;
-  for (std::size_t i = 0; i < path.wpnts.size(); ++i) {
+  double previous_curvature = path.wpnts[start_index].kappa_radpm;
+  for (std::size_t i = start_index; i < path.wpnts.size(); ++i) {
     const auto & waypoint = path.wpnts[i];
     const double forward_s = forwardDistance(ego.s, waypoint.s_m);
     const std::size_t reference_index = nearestReferenceIndex(waypoint.s_m);
@@ -652,7 +721,7 @@ bool RacelineSplinePlanner::validateCandidate(
         return false;
       }
     }
-    if (i > 0U) {
+    if (i > start_index) {
       const double ds = forward_s - previous_s;
       if (!(ds > kEpsilon)) {
         reason = "candidate no longer follows increasing global race-line order";
@@ -677,6 +746,49 @@ bool RacelineSplinePlanner::validateCandidate(
     previous_d = waypoint.d_m;
     previous_s = forward_s;
     previous_curvature = waypoint.kappa_radpm;
+  }
+  return true;
+}
+
+bool RacelineSplinePlanner::validatePath(
+  const EgoFrenetState & ego,
+  const f110_msgs::msg::WpntArray & path,
+  const std::vector<f110_msgs::msg::Obstacle> & obstacles,
+  std::string * error) const
+{
+  auto reject = [error](const std::string & reason) {
+      if (error != nullptr) {
+        *error = reason;
+      }
+      return false;
+    };
+  if (!ready()) {
+    return reject("global race-line reference is not ready");
+  }
+  if (!std::isfinite(ego.s) || !std::isfinite(ego.d) || !std::isfinite(ego.speed)) {
+    return reject("ego Frenet state is non-finite");
+  }
+  if (path.wpnts.empty()) {
+    return reject("path is empty");
+  }
+
+  std::size_t start_index = 0U;
+  double nearest_forward = std::numeric_limits<double>::infinity();
+  for (std::size_t i = 0; i < path.wpnts.size(); ++i) {
+    const double forward = forwardDistance(ego.s, path.wpnts[i].s_m);
+    if (forward < nearest_forward) {
+      nearest_forward = forward;
+      start_index = i;
+    }
+  }
+  if (nearest_forward > 0.5 * track_length_) {
+    return reject("committed path has no remaining waypoint ahead of ego");
+  }
+
+  const auto visible = expandVisibleObstacles(ego, obstacles);
+  std::string reason;
+  if (!validateCandidate(ego, path, visible, reason, start_index, 1U)) {
+    return reject(reason);
   }
   return true;
 }
@@ -726,7 +838,7 @@ RacelineSplineResult RacelineSplinePlanner::buildSafeStop(
   }
 
   std::string validation_reason;
-  if (!validateCandidate(ego, result.path, visible, validation_reason)) {
+  if (!validateCandidate(ego, result.path, visible, validation_reason, 0U, 2U)) {
     result.path.wpnts.clear();
     result.reason = "safe-stop path rejected: " + validation_reason;
     return result;
@@ -737,10 +849,9 @@ RacelineSplineResult RacelineSplinePlanner::buildSafeStop(
   return result;
 }
 
-RacelineSplineResult RacelineSplinePlanner::plan(
+RacelineSplineResult RacelineSplinePlanner::buildPreparationStop(
   const EgoFrenetState & ego,
-  const std::vector<f110_msgs::msg::Obstacle> & obstacles,
-  const std::optional<bool> & preferred_left) const
+  const std::vector<f110_msgs::msg::Obstacle> & obstacles) const
 {
   RacelineSplineResult result;
   if (!ready()) {
@@ -762,51 +873,134 @@ RacelineSplineResult RacelineSplinePlanner::plan(
     return result;
   }
 
-  std::vector<Candidate> left_candidates;
-  std::vector<Candidate> right_candidates;
-  for (const double scale : parameters_.transition_distance_scales) {
-    left_candidates.push_back(buildCandidate(ego, visible, cluster, true, scale));
-    right_candidates.push_back(buildCandidate(ego, visible, cluster, false, scale));
+  result = buildSafeStop(ego, visible, cluster.front());
+  result.obstacle_ids.reserve(cluster.size());
+  for (const auto & obstacle : cluster) {
+    result.obstacle_ids.push_back(obstacle.id);
   }
-  auto best_valid = [](const std::vector<Candidate> & candidates) -> const Candidate * {
-      const Candidate * best = nullptr;
-      for (const auto & candidate : candidates) {
-        if (candidate.valid && (best == nullptr || candidate.score < best->score)) {
-          best = &candidate;
-        }
-      }
-      return best;
-    };
-  const Candidate * left = best_valid(left_candidates);
-  const Candidate * right = best_valid(right_candidates);
-  const Candidate * selected = nullptr;
-  if (preferred_left.has_value()) {
-    selected = preferred_left.value() ? left : right;
-    if (selected == nullptr) {
-      selected = preferred_left.value() ? right : left;
-    }
-  } else if (left != nullptr && right != nullptr) {
-    selected = (left->score <= right->score) ? left : right;
-  } else {
-    selected = left != nullptr ? left : right;
+  if (result.kind == SplinePlanKind::kSafeStop) {
+    result.kind = SplinePlanKind::kPreparation;
+    result.reason =
+      "waiting for initial obstacle-cluster stabilization; braking before commitment";
+  }
+  return result;
+}
+
+RacelineSplineResult RacelineSplinePlanner::plan(
+  const EgoFrenetState & ego,
+  const std::vector<f110_msgs::msg::Obstacle> & obstacles,
+  const std::optional<bool> & preferred_left,
+  bool allow_side_switch) const
+{
+  RacelineSplineResult result;
+  if (!ready()) {
+    result.kind = SplinePlanKind::kNoSafePath;
+    result.reason = "global race-line reference is not ready";
+    return result;
+  }
+  if (!std::isfinite(ego.s) || !std::isfinite(ego.d) || !std::isfinite(ego.speed)) {
+    result.kind = SplinePlanKind::kNoSafePath;
+    result.reason = "ego Frenet state is non-finite";
+    return result;
   }
 
-  if (selected == nullptr) {
+  const auto visible = expandVisibleObstacles(ego, obstacles);
+  const auto cluster = nearestCluster(visible);
+  if (cluster.empty()) {
+    result.kind = SplinePlanKind::kNoObstacle;
+    result.reason = "no static obstacle blocks the global race line";
+    return result;
+  }
+
+  const bool outside_is_left = outsideIsLeft(ego, cluster);
+  auto evaluate_side = [&](bool go_left) {
+      Candidate last;
+      last.go_left = go_left;
+      // transition_distance_scales is validated as strictly increasing. The first valid
+      // candidate therefore has the minimum score and later, longer splines are redundant.
+      for (const double scale : parameters_.transition_distance_scales) {
+        last = buildCandidate(ego, visible, cluster, go_left, scale, outside_is_left);
+        if (last.valid) {
+          break;
+        }
+      }
+      return last;
+    };
+
+  Candidate left;
+  Candidate right;
+  bool left_evaluated = false;
+  bool right_evaluated = false;
+  Candidate selected;
+  if (preferred_left.has_value()) {
+    if (preferred_left.value()) {
+      left = evaluate_side(true);
+      left_evaluated = true;
+      if (left.valid) {
+        selected = std::move(left);
+      } else if (allow_side_switch) {
+        right = evaluate_side(false);
+        right_evaluated = true;
+        if (right.valid) {
+          selected = std::move(right);
+        }
+      }
+    } else {
+      right = evaluate_side(false);
+      right_evaluated = true;
+      if (right.valid) {
+        selected = std::move(right);
+      } else if (allow_side_switch) {
+        left = evaluate_side(true);
+        left_evaluated = true;
+        if (left.valid) {
+          selected = std::move(left);
+        }
+      }
+    }
+  } else {
+    left = evaluate_side(true);
+    right = evaluate_side(false);
+    left_evaluated = true;
+    right_evaluated = true;
+    if (left.valid && right.valid) {
+      selected = left.score <= right.score ? std::move(left) : std::move(right);
+    } else if (left.valid) {
+      selected = std::move(left);
+    } else if (right.valid) {
+      selected = std::move(right);
+    }
+  }
+
+  if (!selected.valid) {
     auto safe_stop = buildSafeStop(ego, visible, cluster.front());
-    const std::string left_reason = left_candidates.empty() ?
-      "not evaluated" : left_candidates.back().reason;
-    const std::string right_reason = right_candidates.empty() ?
-      "not evaluated" : right_candidates.back().reason;
+    safe_stop.obstacle_ids.reserve(cluster.size());
+    for (const auto & obstacle : cluster) {
+      safe_stop.obstacle_ids.push_back(obstacle.id);
+    }
+    const std::string left_reason = left_evaluated ?
+      left.reason : "not evaluated: side locked by active commitment";
+    const std::string right_reason = right_evaluated ?
+      right.reason : "not evaluated: side locked by active commitment";
+    safe_stop.reason =
+      left_evaluated && right_evaluated ?
+      "both spline sides rejected; braking before the static obstacle" :
+      "committed side rejected; alternate side locked after lateral engagement; braking before "
+      "the static obstacle";
     safe_stop.reason += "; left: " + left_reason + "; right: " + right_reason;
     return safe_stop;
   }
   result.kind = SplinePlanKind::kAvoidance;
-  result.path = selected->path;
-  result.go_left = selected->go_left;
-  result.target_d = selected->target_d;
-  result.merge_s = selected->merge_s;
+  result.path = std::move(selected.path);
+  result.go_left = selected.go_left;
+  result.target_d = selected.target_d;
+  result.merge_s = selected.merge_s;
   result.obstacle_id = cluster.front().id;
-  result.control_points = selected->control_points;
+  result.obstacle_ids.reserve(cluster.size());
+  for (const auto & obstacle : cluster) {
+    result.obstacle_ids.push_back(obstacle.id);
+  }
+  result.control_points = std::move(selected.control_points);
   result.reason = "global race-line waypoints shifted by a local cubic d-offset";
   return result;
 }
