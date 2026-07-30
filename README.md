@@ -599,7 +599,7 @@ ros2 launch local_planning local_planning.launch.py \
 
 ## 6. ROS 2 Jazzy 포트 검증
 
-이 브랜치(`ros_jazzy_backup`)는 `backup/jetson-20260725`의 Humble 기반 스택을
+이 브랜치(`jazzy_main`)는 `backup/jetson-20260725`의 Humble 기반 스택을
 **ROS 2 Jazzy (Ubuntu 24.04)** 로 포팅하고 실제 빌드·주행으로 검증한 결과에,
 2026-07-29의 obstacle_detector 교체·teleop 제거·MCL 개선(아래 참고)을 반영한 것입니다.
 (검증일: 2026-07-29, x86_64 데스크톱 / 포트 커밋은 `jazzy-port-test`·`jazzy_port_main`과 공유)
