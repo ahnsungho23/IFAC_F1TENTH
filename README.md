@@ -19,7 +19,7 @@ cd ~/slam_toolbox
 source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 ros2 run nav2_map_server map_saver_cli \
-    -f /home/haejun/slam_toolbox/map
+    -f ~/slam_toolbox/map
     
 딴 맵을 로컬에서 젯슨으로 맵 전송
 scp ~/slam_toolbox/map.png ~/slam_toolbox/map.yaml \
@@ -281,7 +281,7 @@ source install/setup.zsh   # bash 사용 시 setup.bash
 ### 터미널 1 — 시뮬레이터 (gym bridge)
 
 먼저 `~/f1sim_C/f1tenth_gym_ros/config/sim.yaml`의 `map_path`가 스택과 같은 맵을 가리키는지 확인하세요
-(확장자 없는 절대경로, 예: `/home/<user>/2026_IFAC/src/monte_carlo_localization/maps/ifac_track`).
+(확장자 없는 절대경로, 예: `$HOME/2026_IFAC/src/monte_carlo_localization/maps/ifac_track` — gym의 YAML은 `$HOME`을 펼치지 않으므로 실제 값은 펼쳐서 적습니다).
 
 ```bash
 cd ~/f1sim_C

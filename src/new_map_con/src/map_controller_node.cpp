@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <cstdlib>
 #include <deque>
 #include <fstream>
 #include <chrono>
@@ -63,6 +64,23 @@ bool fileExists(const std::string & path)
 {
   std::ifstream file(path);
   return file.good();
+}
+
+// 선행 `~` 또는 `$HOME`을 $HOME으로 치환한다. ROS 2 파라미터 YAML은 셸이 아니라서
+// 이 확장을 해주지 않으므로, 설정 파일에 홈 기준 경로를 쓰려면 노드가 직접 펼쳐야 한다.
+std::string expandHome(const std::string & path)
+{
+  const char * home = std::getenv("HOME");
+  if (home == nullptr) {
+    return path;
+  }
+  if (path.rfind("~/", 0) == 0) {
+    return std::string(home) + path.substr(1);
+  }
+  if (path.rfind("$HOME/", 0) == 0) {
+    return std::string(home) + path.substr(5);
+  }
+  return path;
 }
 
 std::string joinPath(const std::string & root, const std::string & path)
@@ -311,8 +329,10 @@ private:
     return get_parameter(simulator_ ? simulator_parameter : vehicle_parameter).as_string();
   }
 
-  std::string resolvePackagePath(const std::string & path) const
+  std::string resolvePackagePath(const std::string & raw_path) const
   {
+    // ROS 2 파라미터 YAML은 `~`/`$HOME`을 펼치지 않으므로 여기서 직접 펼친다.
+    const auto path = expandHome(raw_path);
     if (path.empty() || isAbsolutePath(path)) {
       return path;
     }
