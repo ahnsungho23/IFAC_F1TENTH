@@ -15,7 +15,9 @@
 // realcar_dashboard_node — 실차(젯슨) 원격 모니터링 대시보드 (우리 컴에서 실행)
 // ============================================================================
 // 젯슨은 자기 원시 토픽만 내보내고, 이 노드가 그것들을 구독해 "자기 터미널"에서
-// 조립·렌더링한다 → 젯슨 렌더 연산 0.
+// 조립·렌더링한다 → 젯슨 렌더 연산 0. teleop_dashboard_node(시뮬용, 완성된
+// /teleop_dashboard 문자열을 그대로 그리는 뷰어)와 달리, 실차엔 그 문자열을 만드는
+// joy_teleop_monitor가 없으므로(시뮬 전용) 이 노드가 원시 토픽에서 직접 대시보드를 만든다.
 //
 // 우리 컴↔젯슨은 같은 ROS_DOMAIN_ID + DDS 디스커버리(무선은 Fast DDS Discovery Server,
 // dashboard.launch.py mode:=real 참고)로 연결돼야 토픽이 넘어온다.
@@ -29,8 +31,8 @@
 //              vesc_msgs 의존이라 우리 컴 빌드에 없음 → 표시 전용 환산)
 //   - 종가속도 = d(vx)/dt (odom 미분, EMA 평활)
 //   - 횡가속도 = vx × yaw_rate (odom angular.z) : 원심가속, SI 단위 안전
-//   ※ 가속도를 IMU에서 직접 뽑을 수도 있으나 VESC IMU 축 방향이 미확정이라 odom 파생으로 둔다
-//     (각속도 단위는 deg/s로 확인됨 — _control_common.py IMU_ANGULAR_SCALE 참고).
+//   ※ 가속도는 odom 파생으로 둔다(단위 안전). IMU를 직접 쓸 거면 축·단위는 2026-07-29에
+//     확정됐다 — 전방=-a_x / 좌측=-a_y, 가속도계는 g, 자이로는 deg/s(_control_common.py 참고).
 //   ⚠️ 횡가속도는 odom twist.angular.z에서 오는데 particle_filter가 이 필드를 채우지 않아
 //     실차에서는 항상 0으로 표시된다. 제대로 보려면 IMU에서 받아와야 한다(미해결).
 // 발행: 없음(표시 전용). 원격 wifi 뷰라 각 토픽의 마지막 수신 경과(age)도 함께 표시.

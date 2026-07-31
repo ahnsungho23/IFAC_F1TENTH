@@ -6,25 +6,16 @@ from launch.substitutions import LaunchConfiguration
 # ============================================================================
 # 시뮬/실차 런치파일 공용 헬퍼 (control_sim.launch.py / control_real.launch.py)
 # ============================================================================
-# 런치파일이 아니라 순수 헬퍼 모듈 — ros2 launch 진입점으로 직접 실행되지 않음.
-# 두 환경에서 100% 동일했던 파라미터/노드 정의를 여기 한 곳에만 두어, 파라미터
-# 추가/변경 시 두 파일에 수동으로 미러링해야 하는 드리프트 위험을 없앤다.
-# ============================================================================
-# IMU 각속도 단위 보정 계수 — 하드웨어 상수 (여기가 유일한 정의 위치)
-# ============================================================================
+# 런치파일이 아니라 순수 헬퍼 모듈 — ros2 launch 진입점으로 직접 실행되지 않는다.
+# 두 환경에서 100% 동일한 파라미터/노드 정의를 여기 한 곳에만 두어 드리프트를 막는다.
 #
-#   이 상수는 control_map_node(요레이트 카운터스티어)와 lut_calibrator_node(실측 횡가속도
-#   a_lat = v*yaw_rate) 양쪽이 공유한다. lut_calibration.launch.py도 이 값을 import 해서
-#   쓰므로, 두 곳이 어긋날 일이 구조적으로 없다.
+# IMU 단위 보정 계수 — 하드웨어 상수, 여기가 유일한 정의 위치.
+# control_map_node(카운터스티어)와 lut_calibrator_node(a_lat = v*yaw_rate)가 공유하며
+# lut_calibration.launch.py도 import 해서 쓰므로 두 곳이 어긋날 일이 구조적으로 없다.
 IMU_ANGULAR_SCALE_REAL = 0.0174533   # = pi/180. VESC가 deg/s로 발행(2026-07-19 확인)
-IMU_ANGULAR_SCALE_SIM  = 1.0         # sim_imu_bridge_node는 이미 rad/s로 중계 → 보정 불필요
-
-# ============================================================================
-# IMU 선형가속도 단위 보정 계수 — 하드웨어 상수 (여기가 유일한 정의 위치)
-# ============================================================================
-
+IMU_ANGULAR_SCALE_SIM  = 1.0         # sim_imu_bridge_node는 이미 rad/s로 중계
 IMU_LINEAR_SCALE_REAL = 9.80665      # g → m/s². VESC가 g로 발행(2026-07-19 소스 확인)
-IMU_LINEAR_SCALE_SIM  = 1.0          # sim_imu_bridge_node는 0 고정(향후 싣더라도 m/s²) → 보정 불필요
+IMU_LINEAR_SCALE_SIM  = 1.0          # sim_imu_bridge_node는 0 고정
 
 # ⚠️ 조이스틱 드라이버·sim_imu_bridge_node 포함 여부 등 안전 관련 구조 차이는
 # 일부러 여기로 옮기지 않고 각 진입점 파일에 그대로 둔다(환경을 잘못 골라 안전
@@ -34,8 +25,12 @@ IMU_LINEAR_SCALE_SIM  = 1.0          # sim_imu_bridge_node는 0 고정(향후 �
 def declare_common_args():
     """두 런치파일에서 동일하게 쓰는 인자 선언 목록."""
     return [
-        # 요레이트 피드백 카운터스티어 게인. 2026-07-11 시뮬 스윕(fuck_f1, 0.0/0.08/0.15) 결과
-        # 랩타임/속도는 게인 무관, 0.15부터 조향 채터링이 뚜렷(부호전환 0→3.32/s) → 보수값 0.08.
+        # ⚠️ force_autonomous·speed_to_erpm_gain 인자는 teleop 제거(2026-07-29)와 함께 폐지됐다 —
+        #    유일한 소비처가 joy_teleop_monitor였다. 시뮬은 drive_source_selector가 자율 명령을
+        #    /drive로 직결하므로 기동 즉시 자율주행이고, ERPM 표시는 realcar_dashboard_node의
+        #    자체 파라미터 기본값(4232.0)을 쓴다.
+        # 요레이트 카운터스티어 게인. 시뮬 스윕(0.0/0.08/0.15): 랩타임은 게인 무관, 0.15부터
+        # 조향 채터링이 뚜렷(부호전환 0→3.32/s). 실차 오버스티어 검증 데이터가 없어 현재 0.
         DeclareLaunchArgument(
             'yaw_rate_gain',
             default_value='0.00',
@@ -72,26 +67,22 @@ def declare_common_args():
             description='조향 계산용 속도 예측 룩어헤드 시간 [s]'
         ),
 
-        # ── 롤 인지형 ESC ──
-        DeclareLaunchArgument(
-            'max_roll_limit', default_value='0.15',
-            description='롤 각도 전복 위험 임계치 [rad] (약 8.6도)'
-        ),
-        DeclareLaunchArgument(
-            'decel_attenuation', default_value='0.6',
-            description='롤 비율에 따른 가감속 한계 축소 비율'
-        ),
-
-        # ── 경로 이탈 복구 가드 (2026-07-21) ──
+        # ── 경로 이탈 복구 가드 ──
         # 횡오차가 recovery_lat_error를 넘으면 L1 목표점을 차량 기준 직선거리로 재선정하고
-        # 속도를 recovery_speed로 낮춰 라인 복귀를 우선한다. 0이면 비활성(기존 거동).
-        # ⚠️ 기본 1.0m는 ifac_track 반폭(0.55~0.8m) 기준으로 "정상 추종 중엔 절대 안 걸리게"
-        #    잡은 값이다. **트랙 폭이 다른 맵에서는 반드시 재검토할 것** — 넓은 트랙에서
-        #    회피/추월 라인이 글로벌 대비 1m 넘게 벌어지면 정상 주행 중에 가드가 걸려
-        #    불필요하게 recovery_speed로 감속한다. 대략 트랙 반폭보다 조금 크게 잡으면 된다.
+        # 속도를 recovery_speed로 낮춰 라인 복귀를 우선한다. 0이면 비활성.
+        # ⚠️ 트랙 반폭보다 조금 크게 잡을 것 — 넓은 트랙에서 회피/추월 라인이 글로벌 대비
+        #    이 값 넘게 벌어지면 정상 주행 중에 가드가 걸려 불필요하게 감속한다.
+        # ⚠️ 2026-07-30: 0.0(비활성) → 1.2로 켰다. 이 가드가 막는 limit cycle(호 길이로 고른
+        #    목표점의 직선거리가 L1보다 짧아져 요구 선회반경이 최소 선회반경보다 작아지고,
+        #    목표점 주위를 계속 도는 상태 — 시뮬에서 헤딩 360° 연속 회전으로 재현됨)이
+        #    그동안 무방비였다. 같은 시기에 lat_err_scale(항상 1.0이던 죽은 감쇠)을 제거했으므로,
+        #    이제 큰 횡오차 상황의 보호는 이 가드 + heading 오차 감속 둘뿐이다.
+        #    값 근거: ifac_track_v2의 d_left/d_right = 0.6 → 트랙 반폭 0.6m. 1.2 = 그 2배로,
+        #    이미 트랙을 벗어난 상태에서만 발동한다(회피/추월 라인 오차로는 안 걸림).
         DeclareLaunchArgument(
-            'recovery_lat_error', default_value='0.0',
-            description='경로 이탈 복구 가드 발동 횡오차 [m] (0=비활성). 트랙 반폭보다 크게 잡을 것'
+            'recovery_lat_error', default_value='1.2',
+            description='경로 이탈 복구 가드 발동 횡오차 [m] (0=비활성). 트랙 반폭(0.6)의 2배 = '
+                        '트랙을 실제로 벗어났을 때만 발동'
         ),
         DeclareLaunchArgument(
             'recovery_speed', default_value='2.0',
@@ -174,14 +165,19 @@ def declare_common_args():
         ),
 
         # ── L1 Guidance 룩어헤드 거리 ──
-        # 공식: L1 = clamp(l1_gain + v*l1_distance, max(t_clip_min, sqrt2*lat_err), t_clip_max)
+        # 공식: L1 = clamp(l1_offset + v*l1_speed_gain, max(t_clip_min, sqrt2*lat_err), t_clip_max)
+        # ⚠️ 2026-07-30 개명: l1_gain → l1_offset, l1_distance → l1_speed_gain.
+        #    구 이름이 역할과 정반대였다(gain이 절편, distance가 기울기). 구 이름을 명령줄에
+        #    넘기면 노드가 경고와 함께 여전히 받아주지만(호환 shim), 새 이름을 쓸 것.
         DeclareLaunchArgument(
-            'l1_gain', default_value='0.5',
-            description='L1 룩어헤드 거리 베이스 오프셋 [m] (공식: l1_gain + v*l1_distance)'
+            'l1_offset', default_value='0.5',
+            description='L1 룩어헤드 거리의 **절편** [m] (공식: l1_offset + v*l1_speed_gain). '
+                        '구 이름 l1_gain'
         ),
         DeclareLaunchArgument(
-            'l1_distance', default_value='0.3',
-            description='L1 룩어헤드 거리 속도 게인 [s] (공식: l1_gain + v*l1_distance)'
+            'l1_speed_gain', default_value='0.3',
+            description='L1 룩어헤드 거리의 **속도 계수** [s] (공식: l1_offset + v*l1_speed_gain). '
+                        '구 이름 l1_distance'
         ),
         DeclareLaunchArgument(
             't_clip_min', default_value='0.6',
@@ -192,92 +188,113 @@ def declare_common_args():
             't_clip_max', default_value='5.0',
             description='L1 룩어헤드 거리 상한 [m]'
         ),
+        # ⚠️ 예전엔 t_clip_min을 횡가속 분모 하한으로 재사용했다 — t_clip_min은 룩어헤드
+        #    튜닝 노브라, 낮추면 조용히 횡가속 명령 상한이 올라갔다(0.6이면 6 m/s에서
+        #    최대 lat_acc 120 m/s²). 수치 발산 방지용 하한은 별도 파라미터로 분리했다.
+        DeclareLaunchArgument(
+            'l1_min_denom', default_value='0.6',
+            description='L1 횡가속 분모 하한 [m] (목표점이 차량에 붙었을 때 발산 방지). '
+                        't_clip_min과 무관하게 튜닝'
+        ),
 
-        # ── 종방향 감속: 두 개의 서로 다른 감속도 ──
-        # 2026-07-25 분리(그 전엔 base_max_decel 하나가 두 역할을 겸했다). 두 값은 튜닝 방향이
-        # 정반대라 한 노브로 묶으면 반드시 한쪽이 손해를 본다:
-        #   base_max_decel = "명령 속도를 초당 얼마나 빨리 떨어뜨릴 수 있나"(램프 rate limit).
-        #                    높을수록 감속 명령이 빨리 도달 → 높게 유지.
-        #   prebrake_decel = "차가 실제로 낼 수 있는 감속도"(곡률 사전감속 제동거리 v²/2a).
-        #                    낮을수록 코너를 더 멀리서 보고 일찍 감속 → 실측값에 맞춰야 함.
+        # ── 조향 체인 (2026-07-30 신설) ──
+        # 명령각 중 바퀴가 실제로 내는 비율. 0.41 명령 → 실측 ~0.30(74%, 07-28 3회 재현,
+        # 횡가속 1.09 m/s²라 슬립으론 설명 불가 = 기계적).
+        # ⚠️ 이 값 하나가 두 곳을 지배한다: 조향 명령 보상(×1/ratio)과 조향 권한 속도 캡의
+        #    δ_avail(×ratio). 예전엔 전자가 `clamp(1+v/10,1,1.4)` 하드코딩(≈1/0.74지만 속도
+        #    램프 모양), 후자는 보상을 아예 모르는 상태로 어긋나 있었다.
+        # 1.0 = 보상·캡 모두 구 낙관 거동. 각도기 실측 후 조정할 값.
+        DeclareLaunchArgument(
+            'steering_reach_ratio', default_value='0.74',
+            description='명령 조향각 중 바퀴가 실제 도달하는 비율. 보상(1/ratio)과 조향권한 캡을 '
+                        '동시 지배. 1.0이면 보상 없음(구 낙관 거동)'
+        ),
+        # 50Hz에서 20 rad/s = 사이클당 0.4 rad = 풀락까지 2 사이클 = 구 하드코딩과 동일(무제한).
+        # 서보 물리 속도(~7 rad/s 추정)로 낮추면 고주파 채터링을 막지만 실측 전이라 중립 유지.
+        DeclareLaunchArgument(
+            'max_steering_rate', default_value='20.0',
+            description='조향 rate limit [rad/s] (dt 비례). 20.0 = 구 거동(사이클당 0.4rad)'
+        ),
+        # 가감속 조향 스케일러가 완전히 적용되는 기준 |종가속| [m/s²]. 예전엔 ±1.0 하드 임계라
+        # 넘는 순간 조향이 5% 계단 점프했고, 실측 coast 감속 −0.4에선 감속측이 급제동
+        # 스파이크에서만 드물게 튀었다. 0~ref 선형 블렌딩으로 바꿨다(ref 이상은 구 거동).
+        DeclareLaunchArgument(
+            'steering_scaler_accel_ref', default_value='1.0',
+            description='가감속 조향 스케일러 완전 적용 기준 |a_x| [m/s²] (0~이 값 선형 블렌딩)'
+        ),
+
+        # ── odom 워치독 (2026-07-30 신설) ──
+        # /local_waypoints·/drive_mode·장애물엔 다 있던 신선도 검사가 odom만 없었다. 위치추정이
+        # 죽으면 pose·속도가 stale로 얼고 램프는 계속 감기며 노드는 정상처럼 발행한다.
+        # 0이면 비활성. NaN pose(MCL 붕괴)도 같은 경로로 안전 정지.
+        DeclareLaunchArgument(
+            'odom_timeout', default_value='0.5',
+            description='odom 신선도 타임아웃 [s]. 초과 시 안전 정지(0=비활성). '
+                        '미수신 상태에서는 아예 출발하지 않음'
+        ),
+
+        # ── 종방향 감속: 두 개의 서로 다른 감속도 (튜닝 방향이 정반대라 분리했다) ──
+        #   base_max_decel = 명령 속도를 초당 얼마나 빨리 떨어뜨릴 수 있나(램프 rate limit) → 높게
+        #   prebrake_decel = 차가 **실제로** 낼 수 있는 감속도(제동거리 v²/2a) → 실측값에 맞춤
+        # ⚠️ 07-25 실차 실측 감속은 -0.4 m/s²(VESC 속도모드는 회생제동이 거의 없어 사실상 coast).
+        #    8.0을 쓰면 4 m/s에서 제동거리를 1.0m로 착각(실제 ~8m)해 시케인 크래시로 이어졌다.
         DeclareLaunchArgument(
             'base_max_decel', default_value='8.0',
             description='명령 속도 하강 rate limit [m/s^2]. 낮추면 감속 명령이 늦게 도달하므로 높게 유지'
         ),
-        # ⚠️ prebrake_decel은 반드시 **실측 감속 권한**이어야 한다. 2026-07-25 실차 bag
-        # (rosbag2_2026_07_25-22_08_50): 명령을 4.00→3.11로 내렸는데 실속은 4.03→3.80(-0.4 m/s²).
-        # VESC 속도모드는 회생제동이 거의 없어 사실상 coast고, 주행 중 /commands/motor/brake는
-        # 0건이었다. 예전처럼 8.0을 쓰면 4 m/s에서 제동거리를 1.0m로 착각(실제 필요 ~8m)해
-        # 사전감속이 0.5초 앞만 보고 시작 → 시케인 언더스티어 크래시.
-        # 2026-07-30 1.0→2.5 상향(사용자 결정, 고속 주행 세팅) — 제동거리를 실측 coast보다
-        # 낙관적으로 보므로, 코너 진입이 늦게 느껴지면(언더스티어) 다시 낮출 것.
+        # ⚠️ 2026-07-30 1.0→2.5 상향(사용자 결정, 고속 주행 세팅). 실측 coast(-0.4)보다 제동거리를
+        #    낙관적으로 보므로, 코너 진입이 늦게 느껴지면(언더스티어) 가장 먼저 되돌릴 값이다.
         DeclareLaunchArgument(
             'prebrake_decel', default_value='2.5',
             description='곡률 사전감속 제동거리 산출용 감속 권한 [m/s^2]. 낮을수록 코너를 일찍 봄'
         ),
-        # ── 조향 권한 속도 캡 (2026-07-26 신설) ──
-        # 곡률 캡이 그동안 **그립만** 봤다(√(a_lat/κ)). 그립과 조향은 다른 물리다:
-        #   그립 = 타이어가 그 횡가속을 낼 수 있나 / 조향 = 바퀴가 그만큼 꺾일 수 있나.
-        # 정상상태 자전거 모델 δ = L·κ + K_us·κ·v² 을 δ_avail로 풀면
-        #   v ≤ √( (ratio·0.41 − L·κ) / (K_us·κ) )
-        # 2026-07-26 실차 bag(run_0726_181747)의 κ=1.190(R=0.84m) 헤어핀에서
-        #   그립 한계 2.11 m/s  vs  조향 한계 0.87 m/s  ← 조향이 먼저 걸린다.
-        # 그립만 보고 2배 빠르게 진입한 결과 풀락(0.410)에도 안 돌아가고 크로스트랙이
-        # 0.11 → 2.07m로 발산했다. understeer_gradient=0 이면 이 항 전체 비활성(구 거동).
+        # ── 조향 권한 속도 캡 ──
+        # 곡률 캡이 그립만 보던 구멍을 메운다. 그립("타이어가 그 횡가속을 낼 수 있나")과
+        # 조향("바퀴가 그만큼 꺾일 수 있나")은 다른 물리다: δ = L·κ + K_us·κ·v² ≤ δ_avail 이면
+        #   v ≤ √((ratio·δ_max − L·κ) / (K_us·κ))
+        # 07-26 실차 κ=1.190(R=0.84m) 헤어핀에서 그립 2.11 m/s vs 조향 0.87 m/s — 조향이 먼저 걸린다.
         DeclareLaunchArgument(
             'understeer_gradient', default_value='0.0',
             description='언더스티어 그래디언트 K_us [rad/(m/s^2)]. 0이면 조향 권한 캡 비활성'
         ),
-        # ⚠️ 1.0으로 두면 곡률 추종에 δ_max를 다 써버려 횡오차 보정·요레이트 피드백 여력이 0이 된다.
         DeclareLaunchArgument(
             'steer_authority_ratio', default_value='0.85',
-            description='조향 한계(0.41rad) 중 곡률 추종에 배정할 비율. 나머지는 보정 여유'
+            description='조향 한계 중 곡률 추종에 배정할 비율. 나머지는 횡오차·요레이트 보정 여유 '
+                        '(1.0이면 보정 여력이 0)'
         ),
-        # ── 곡률 사전감속 스캔 거리 하한 ──
-        # 전방 곡률 스캔 거리 = max(count*0.1, v²/(2·prebrake_decel)). count는 저속에서 제동거리가
-        # 짧아질 때의 하한. 80 = 8m 스캔.
+        # 전방 곡률 스캔 거리 = max(count*0.1, v²/(2·prebrake_decel)). count는 저속 하한.
         DeclareLaunchArgument(
             'curvature_lookahead_count', default_value='80',
             description='곡률 룩어헤드 스캔 거리 하한 (×0.1m). 80 = 8m'
         ),
-        # ── 최저 순항 속도 하한 ──
-        # 곡률 사전감속·헤어핀에서 목표속도가 이 값 밑으로 안 내려가게 하는 하한(sim/real 공용).
-        # ⚠️ 장애물 정지 경로는 이 하한을 무시하고 0까지 내려간다(안전 우선) — 순수 순항 프로파일에만 적용.
         DeclareLaunchArgument(
-            'min_speed', default_value='1.0',
+            'min_speed', default_value='2.0',
             description='최저 순항 속도 [m/s] (곡률 감속 하한). 장애물 정지엔 미적용(0까지 허용)'
         ),
 
-        # ── L1 횡가속 분모: 목표점까지의 실제 거리 (2026-07-28) ──
-        # pure pursuit 법칙은 a_lat = 2·v²·sin(eta)/L_실제 인데, L1 목표점은 경로 **호 길이**
-        # L1_distance만큼 전진해 고르므로 |목표점−차량| != L1_distance다. 차량이 경로 뒤/옆에
-        # 있으면 실제 거리가 더 길고, 07-27 실차 bag 실측 비율(|목표점−차량|/L1_distance)은
-        # 중앙 1.06~1.31 · p95 최대 1.72였다. 명목값을 분모로 쓰면 횡가속 명령이 그만큼
-        # 과대(최대 +70%)해지고 **경로에서 벗어날수록 = 복귀가 필요한 순간에 더 심해져**
-        # 오버슈트·조향 발진을 만든다. false면 구 거동(명목 L1_distance) — 즉시 롤백용.
+        # ── L1 횡가속 분모: 목표점까지의 실제 거리 ──
+        # pure pursuit는 a_lat = 2·v²·sin(eta)/L_실제 인데, 목표점은 **호 길이**로 고르므로
+        # |목표점−차량| != L1_distance다(07-27 bag 실측 비율 중앙 1.06~1.31 · p95 1.72).
+        # 명목값을 분모로 쓰면 횡가속이 최대 +70% 과대해지고, 경로에서 벗어날수록 = 복귀가
+        # 필요한 바로 그 순간에 더 심해진다. false면 구 거동(즉시 롤백용).
         DeclareLaunchArgument(
             'l1_use_actual_distance', default_value='true',
             description='L1 횡가속 분모로 목표점까지의 실제 직선거리 사용. false면 구 거동(명목 L1 거리)'
         ),
 
-        # ── 최근접 인덱스 견고화 (MCL pose 붕괴 대응, 2026-07-28) ──
-        # 07-27 실차 bag(run_0727_195937)에서 MCL pose가 깨진 직후 closest_idx가
-        # 86→27→31→89로 트랙 반대편을 오갔고, 경로 접선과 차량 헤딩의 오차가 +146.7°/-173.0°
-        # 까지 벌어졌다(주행 샘플의 9.5%가 |오차|>90°). 그 인덱스로 만든 L1 목표점이 차 뒤에
-        # 찍혀 조향 명령이 0.2초마다 부호를 뒤집었다 — "명령은 왼쪽인데 차는 오른쪽"의 정체.
-        #
-        # closest_idx_max_heading_err: 전역 재탐색에서 경로 접선이 차량 헤딩과 이 각도 이내인
-        #   후보만 고려한다. 0이면 게이트 비활성(구 거동). 기본 1.75rad(=100°)는 정상 추종에서
-        #   절대 안 걸리고 역주행 웨이포인트만 배제하는 값. 조건을 만족하는 후보가 하나도
-        #   없으면 게이트를 포기하고 무제한 스캔으로 폴백한다(재획득 불능 상황을 만들지 않음).
+        # ── 최근접 인덱스 견고화 (MCL pose 붕괴 대응) ──
+        # 07-27 실차 bag에서 MCL pose가 깨진 직후 closest_idx가 86→27→31→89로 트랙 반대편을
+        # 오갔고(샘플의 9.5%가 접선-헤딩 오차 >90°), 그 목표점이 차 뒤에 찍혀 조향 명령이
+        # 0.2초마다 부호를 뒤집었다 — "명령은 왼쪽인데 차는 오른쪽"의 정체.
+        #   heading_err : 전역 재탐색에서 접선이 헤딩과 이 각도 이내인 후보만 고려(0=비활성).
+        #                 후보가 전무하면 무제한 스캔으로 폴백한다(재획득 불능을 만들지 않음).
+        #   idx_jump_*  : 한 사이클(20ms)에 가능한 이동은 v·dt(8m/s에서 16cm)뿐이므로 그보다 먼
+        #                 점프는 confirm_cycles 연속 유지될 때만 채택. 보류 중엔 조향 홀드+감속.
+        #                 ⚠️ cycles를 키우면 진짜 이탈 후 재획득이 늦어진다(5 = 100ms).
         DeclareLaunchArgument(
             'closest_idx_max_heading_err', default_value='1.75',
             description='최근접 전역 재탐색 시 경로접선-차량헤딩 허용오차 [rad]. 0이면 비활성'
         ),
-        # 한 사이클(20ms)에 물리적으로 가능한 경로 이동은 v·dt(8m/s에서 16cm)뿐이다. 그보다 먼
-        # 점프는 즉시 채택하지 않고 confirm_cycles 동안 연속 유지될 때만 받아들인다(1회성 pose
-        # 튐 무시). 보류 중에는 조향을 직전값으로 홀드하고 pose_suspect_speed로 감속한다.
-        # ⚠️ cycles를 너무 키우면 진짜 이탈 후 재획득이 늦어진다. 5 = 100ms.
         DeclareLaunchArgument(
             'idx_jump_confirm_dist', default_value='2.0',
             description='이 거리[m]를 넘는 최근접 인덱스 점프는 확인 대기'
@@ -291,19 +308,13 @@ def declare_common_args():
             description='pose 튐 보류 중 속도 상한 [m/s]'
         ),
 
-        # ── 자율 미체결 중 속도 램프 고정 (bumpless transfer, 2026-07-28) ──
-        # control_map_node는 /drive_mode와 무관하게 상시 50Hz로 돌기 때문에, MANUAL/E-stop으로
-        # 서 있는 동안에도 속도 램프가 계속 감겨 올라간다. A를 눌러 ackermann_mux가 열리는 순간
-        # 그 값이 **계단으로** VESC에 꽂힌다. 07-27 실차 bag 8개 전부에서 확인:
-        #   정차 중 /drive_autonomous 1.50(최대 3.98) → engage 순간 commands/motor/speed가
-        #   0 → 6348 ERPM 한 스텝 → 모터전류 60~62A(l_current_max 포화) → 급발진
-        # 램프를 실측 속도로 눌러두면 engage 시점의 명령이 실측과 같아져 계단이 사라진다.
-        #
-        # ⚠️ 체결(autonomous) 중에는 아무 일도 하지 않는다 — 07-22에 금지한 일반 lead-clamp
-        #    ("명령이 실측보다 앞서지 못하게")와 다르다. VESC 속도 PID가 60A를 뽑는 데 필요한
-        #    명령 선행(~4.7 m/s)은 주행 중 그대로 보존된다.
-        # ⚠️ /drive_mode 미수신·끊김(timeout 초과) 시 게이트는 **자동 비활성**이다. 시뮬은
-        #    시뮬은 /drive_mode 발행자가 없으므로 기존 거동이 그대로 유지된다.
+        # ── 자율 미체결 중 속도 램프 고정 (bumpless transfer) ──
+        # 이 노드는 /drive_mode와 무관하게 상시 돌기 때문에 MANUAL/E-stop으로 서 있는 동안에도
+        # 램프가 감겨 올라가고, engage 순간 그 값이 계단으로 VESC에 꽂힌다(07-27 bag 8개 전부:
+        # 정차 중 명령 1.50~3.98 → 0→6348 ERPM 한 스텝 → 모터전류 60~62A 포화 → 급발진).
+        # ⚠️ 체결 중에는 아무 일도 하지 않는다 — 07-22에 금지한 일반 lead-clamp와 다르다.
+        #    VESC 속도 PID가 60A를 뽑는 데 필요한 명령 선행(~4.7 m/s)은 그대로 보존된다.
+        # ⚠️ /drive_mode 미수신·끊김 시 게이트 자동 비활성(시뮬 호환).
         DeclareLaunchArgument(
             'engage_gate_enable', default_value='true',
             description='자율 미체결(/drive_mode != autonomous) 중 속도 램프를 실측에 고정'
@@ -322,14 +333,15 @@ def declare_common_args():
         ),
 
         # ── 기동 실패(VESC 센서리스 탈조) 가드 ──
-        # 2026-07-22 실차: 출발 시 4초간 덜그럭거리다 출발하는 증상. 그동안 컨트롤러의 속도
-        # 램프는 실측과 무관하게 프로파일 속도까지 감겨 올라가, 모터가 물리는 순간 풀 명령이
-        # 걸린 채 튀어나간다. 근본 원인은 VESC mcconf(오픈루프 800 vs 옵저버 인수 2500 ERPM
-        # 갭)라 그쪽에서 고쳐야 하지만, 이 가드는 그와 무관하게 급발진만 막는 안전망이다.
-        # 시뮬에선 차가 명령을 즉시 따라가므로 발동하지 않는다(무회귀).
+        # 센서리스 FOC가 정지→출발 오픈루프 구간에서 탈조하는 동안에도 램프는 실측과 무관하게
+        # 감겨 올라가, 모터가 물리는 순간 풀 명령이 걸린 채 튀어나간다. 이 가드는 그 급발진만
+        # 막는 안전망이다(시뮬에선 차가 명령을 즉시 따라가 발동하지 않는다).
+        # ⚠️ 07-27부터 기본 false: 명령이 3.5초 내내 정확히 1.50(=stall_hold_speed)에 묶이는
+        #    증상이 나왔고, 데드존 자체는 VESC 오픈루프 전류 상향으로 근본 해결됐다.
+        #    다만 끄면 와인드업 급발진 보호가 사라진다 — 출발이 더듬거리면 즉시 true로 되돌릴 것.
         DeclareLaunchArgument(
-            'stall_guard_enable', default_value='true',
-            description='기동 실패(탈조) 시 속도 명령 와인드업 차단 가드 on/off'
+            'stall_guard_enable', default_value='false',
+            description='기동 실패(탈조) 시 속도 명령 와인드업 차단 가드 on/off. 07-27부터 기본 꺼짐'
         ),
         DeclareLaunchArgument(
             'stall_speed_threshold', default_value='0.7',
@@ -344,19 +356,13 @@ def declare_common_args():
             description='이 시간[s] 이상 안 움직이면 가드 발동. 4초 탈조는 잡고 정상 기동 지연(~0.3s)은 안 잡히게'
         ),
 
-        # ── 런치 킥(자율 정지출발 시 VESC 센서리스 데드존 관통) — 2026-07-27부터 기본 꺼짐 ──
-        # 매뉴얼은 초반 스로틀 펀치로 데드존을 때려 관통하는데 자율은 살살 램프해 걸터앉아 탈조한다.
-        # 정지 상태에서 짧게 높은 속도를 명령해 VESC 속도 PID가 큰 전류를 뽑게 만든다(매뉴얼 펀치 재현).
-        # 오픈루프 전류↑·HFI·Coupled HFI 모두 저돌극성 때문에 부하서 실패 확인(2026-07-25).
-        #
-        # ⚠️ 2026-07-27 기본값 true→false. 이유 둘:
-        #   ① 데드존을 **VESC 오픈루프 전류 상향으로 근본 해결**했다. 컨트롤 측 우회책은 이제 불필요.
-        #   ② `s_pid_ramp_erpms_s` 2000→21160 이후로는 이 킥이 훨씬 사납다. 램프 2000일 땐 3.0을
-        #      명령해도 VESC setpoint가 0.47 m/s²로 기어갔지만, 21160이면 즉시 큰 ERPM 오차 →
-        #      큰 전류 → 예측 불가능한 펀치가 된다.
-        # 출발 불능이 재발하면 `launch_boost_enable:=true`로 되살릴 것(파라미터는 그대로 보존).
+        # ── 런치 킥 (자율 정지출발 시 VESC 센서리스 데드존 관통) ──
+        # 매뉴얼은 초반 스로틀 펀치로 데드존을 때려 관통하는데, 자율은 살살 램프해 걸터앉아
+        # 탈조한다. 정지 상태에서 짧게 높은 속도를 명령해 속도 PID가 큰 전류를 뽑게 만든다.
+        # ⚠️ s_pid_ramp_erpms_s가 2000→21160으로 오른 뒤로는 이 킥이 훨씬 사납다(즉시 큰 ERPM
+        #    오차 → 큰 전류). 부스트 속도를 올릴 땐 반드시 잭업 상태에서 먼저 볼 것.
         DeclareLaunchArgument(
-            'launch_boost_enable', default_value='true',
+            'launch_boost_enable', default_value='false',
             description='런치 킥 on/off (자율 정지출발 데드존 관통 펀치)'
         ),
         DeclareLaunchArgument(
@@ -376,17 +382,13 @@ def declare_common_args():
             description='실측이 이 속도[m/s] 미만이면 정지 판정 → 킥 시작(exit보다 낮아 히스테리시스)'
         ),
 
-        # ── IMU 기반 보정 전체 on/off (요레이트 카운터스티어 + 롤 인지 ESC) ──
-        # 실차에서 조향 채터링이 보이면 즉시 끌 수 있도록 런치 인자로 노출. 끄면 순수
-        # L1+LUT(시뮬 검증 상태)로 돌아간다. 단위 문제는 imu_angular_scale로 해결됐으므로
-        # 평상시엔 true로 둘 것.
+        # IMU 보정 on/off. 끄면 순수 L1+LUT(시뮬 검증 상태)로 회귀한다. 단위 문제는
+        # imu_angular_scale로 해결됐으므로 평상시엔 true.
         DeclareLaunchArgument(
             'use_imu', default_value='true',
-            description='IMU 보정 사용 여부(요레이트 카운터스티어+롤 ESC). '
+            description='IMU 보정(요레이트 카운터스티어) 사용 여부. '
                         '조향 채터링 시 false로 순수 L1+LUT 주행'
         ),
-
-
 
         # ── MPPI 컨트롤러 튜너블 (control_mppi_node 전용) ──
         # 나머지 MPPI 파라미터(차량/타이어)는 노드 코드 기본값 사용.
@@ -483,7 +485,6 @@ def declare_common_args():
             description='MPPI 종가속 상한 [m/s^2] '
                         '(control_map_node의 base_max_accel과 정렬 — 기준궤적 램프 속도도 이 값을 쓴다)'
         ),
-
     ]
 
 
@@ -503,11 +504,13 @@ def build_control_map_node(*, odom_topic, max_speed, max_lateral_accel, base_max
         parameters=[{
             'odom_topic': odom_topic,
             'wheelbase': 0.33,
-            'l1_gain': LaunchConfiguration('l1_gain'),
-            'l1_distance': LaunchConfiguration('l1_distance'),
+            'l1_offset': LaunchConfiguration('l1_offset'),
+            'l1_speed_gain': LaunchConfiguration('l1_speed_gain'),
             't_clip_min': LaunchConfiguration('t_clip_min'),
             't_clip_max': LaunchConfiguration('t_clip_max'),
-            'lateral_error_coeff': 1.0,
+            'l1_min_denom': LaunchConfiguration('l1_min_denom'),
+            # ⚠️ lateral_error_coeff는 2026-07-30에 폐지됐다 — 소비처인 lat_err_scale이
+            #    항상 1.0인 죽은 코드였다(control_map_node.cpp control_loop 4 주석 참고).
             'max_speed': max_speed,
             'min_speed': LaunchConfiguration('min_speed'),
             'max_lateral_accel': max_lateral_accel,
@@ -530,22 +533,23 @@ def build_control_map_node(*, odom_topic, max_speed, max_lateral_accel, base_max
             'wall_safety_margin': 0.6,
             'recovery_lat_error': LaunchConfiguration('recovery_lat_error'),
             'recovery_speed': LaunchConfiguration('recovery_speed'),
-            # L1 횡가속 분모 (2026-07-28)
             'l1_use_actual_distance': ParameterValue(
                 LaunchConfiguration('l1_use_actual_distance'), value_type=bool),
-            # ── 좌우 조향 한계 (2026-07-28) — 진입점 런치가 환경별로 넘긴다 ──
-            # 실차는 vesc.yaml의 servo_min/max와 **반드시 한 쌍**으로 움직인다. 컨트롤러만
-            # 올리면 vesc_driver가 조용히 자르고 컨트롤러는 꺾었다고 착각한다. 경위와 값은
-            # control_real.launch.py 주석 참고(트림 0.4672 기준 ±0.42 → [0.2798, 0.6546]).
-            # ⚠️ 시뮬은 차량 모델이 대칭이라 ±0.41 — 실차 하드웨어 특성을 시뮬에 옮기지 않는다.
+            # ⚠️ 좌우 조향 한계는 진입점 런치가 환경별로 넘긴다. 실차는 젯슨 vesc.yaml의
+            #    servo_min/max와 **반드시 한 쌍** — 컨트롤러만 올리면 vesc_driver가 조용히
+            #    자르고 컨트롤러는 꺾었다고 착각한다. 시뮬은 차량 모델이 대칭이라 ±0.41.
             'max_steering_left': max_steering_left,
             'max_steering_right': max_steering_right,
-            # 최근접 인덱스 견고화 (2026-07-28)
             'closest_idx_max_heading_err': LaunchConfiguration('closest_idx_max_heading_err'),
             'idx_jump_confirm_dist': LaunchConfiguration('idx_jump_confirm_dist'),
             'idx_jump_confirm_cycles': ParameterValue(
                 LaunchConfiguration('idx_jump_confirm_cycles'), value_type=int),
             'pose_suspect_speed': LaunchConfiguration('pose_suspect_speed'),
+            'odom_timeout': LaunchConfiguration('odom_timeout'),
+            # 조향 체인 (2026-07-30)
+            'steering_reach_ratio': LaunchConfiguration('steering_reach_ratio'),
+            'max_steering_rate': LaunchConfiguration('max_steering_rate'),
+            'steering_scaler_accel_ref': LaunchConfiguration('steering_scaler_accel_ref'),
             # 자율 미체결 중 램프 고정 (2026-07-28)
             'engage_gate_enable': ParameterValue(
                 LaunchConfiguration('engage_gate_enable'), value_type=bool),
@@ -566,8 +570,6 @@ def build_control_map_node(*, odom_topic, max_speed, max_lateral_accel, base_max
             'downscale_factor': LaunchConfiguration('downscale_factor'),
             'speed_lookahead': LaunchConfiguration('speed_lookahead'),
             'speed_lookahead_for_steering': LaunchConfiguration('speed_lookahead_for_steering'),
-            'max_roll_limit': LaunchConfiguration('max_roll_limit'),
-            'decel_attenuation': LaunchConfiguration('decel_attenuation'),
             'local_fresh_timeout': LaunchConfiguration('local_fresh_timeout'),
             'gap_follower_failsafe': LaunchConfiguration('gap_follower_failsafe'),
             'obstacle_avoid_enable': LaunchConfiguration('obstacle_avoid_enable'),
@@ -627,3 +629,7 @@ def build_control_mppi_node(*, odom_topic, max_speed, remappings=None):
             'speed_cmd_horizon': LaunchConfiguration('mppi_speed_cmd_horizon'),
         }]
     )
+
+# ⚠️ build_joy_teleop_monitor()는 teleop 제거(2026-07-29)와 함께 삭제됐다. 수동/자율/E-stop
+#    Mux는 이 저장소 담당이 아니다 — 실차는 f1tenth_stack(drive_mode_manager + ackermann_mux),
+#    시뮬은 Mux 없이 drive_source_selector가 자율 명령을 /drive로 직결한다.

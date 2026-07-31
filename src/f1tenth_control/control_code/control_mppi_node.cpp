@@ -4,7 +4,8 @@
 // control_map_node.cpp(L1+LUT)와 동급의 상시 구동 컨트롤러 노드. 글로벌 경로를 추종하되
 // L1 대신 샘플링 기반 MPPI로 조향+종가속을 동시 최적화한다. 결과를 `/drive_mppi`로
 // 발행하고, RB 버튼 상태에 따라 `/drive_autonomous`(MAP) ↔ `/drive_mppi`(MPPI) 중 하나가
-// 최종 `/drive`로 라우팅된다. 라우터는 sim/real 공용 drive_source_selector다.
+// 최종 `/drive`로 라우팅된다. 라우터는 환경별로 다르다 — 시뮬은 joy_teleop_monitor,
+// 실차는 drive_source_selector(실차엔 joy_teleop_monitor가 없음).
 //
 // 솔버 = 컴파일 타임 자동선택:
 //   - CUDA 있으면(USE_MPPI_GPU) GPU 솔버(control_mppi_solver_gpu.cu, float32, 병렬 롤아웃)
@@ -141,8 +142,9 @@ class ControlMppiNode : public rclcpp::Node {
             "/imu/data", 10,
             std::bind(&ControlMppiNode::imu_callback, this, std::placeholders::_1));
 
-        // 라우터(drive_source_selector)가 RB 상태를 latched로 발행 — 이 노드가
-        // 나중에 떠도 최신 활성/비활성 상태를 즉시 수신한다.
+        // 라우터(시뮬 joy_teleop_monitor / 실차 drive_source_selector)가 RB 상태를
+        // latched로 발행 — 이 노드가 나중에 떠도
+        // 최신 활성/비활성 상태를 즉시 수신한다.
         mppi_active_sub_ = this->create_subscription<std_msgs::msg::Bool>(
             "/mppi_active", rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local(),
             [this](const std_msgs::msg::Bool::ConstSharedPtr msg) { mppi_active_ = msg->data; });

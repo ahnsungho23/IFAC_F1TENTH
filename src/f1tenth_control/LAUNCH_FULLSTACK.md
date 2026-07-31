@@ -1,0 +1,360 @@
+# 실차 풀스택 실행 가이드 (ROS 2 Jazzy)
+
+2026-07-29 젯슨 재설치 이후 **실제로 띄워보면서** 확인/수정한 절차.
+아래 코드블록은 전부 **터미널에 그대로 붙여넣으면 되는 형태**다(source·cd 포함).
+
+| | 값 |
+|---|---|
+| 젯슨 | `miru@10.1.1.3` (wifi `wlP1p1s0`), Ubuntu 24.04 / **ROS 2 Jazzy** |
+| 본체 PC | `10.1.1.24` (wifi `wlo1`), **ROS 2 Jazzy** |
+| 워크스페이스 | 젯슨 `~/f1tenth_ws`(하드웨어) + `~/2026_IFAC`(제어·플래닝·MCL) |
+| 지도 이름 | **`map`** (slam_toolbox 기본 저장명 그대로 씀) |
+
+젯슨 `~/.zshrc`에 `ROS_DOMAIN_ID=67`, `F1_MAP`, `RMW_IMPLEMENTATION=rmw_fastrtps_cpp`가
+이미 있으므로 **젯슨에서는 export가 필요 없다.** 본체에서만 맞춰준다.
+
+---
+
+## 0. 반드시 알고 있어야 할 함정 4개
+
+| # | 함정 | 대응 |
+|---|---|---|
+| 1 | **MCL만 `F1_MAP`을 안 읽는다** (기본값 `map` 고정) | MCL 런치에 `map_name:=` 명시. 안 하면 "경로 ≠ 위치추정" |
+| 2 | **지도를 넣었으면 재빌드** — MCL은 `src/`가 아니라 설치된 share에서 읽고, 지도는 심볼릭 링크가 아닌 실제 복사본 | §2 재빌드 |
+| 3 | 지도 yaml의 `image:`가 `.pgm`으로 써질 때가 있다 | `.png`로 고칠 것 |
+| 4 | `odom→base_link` TF 이중 발행 | `mcl_launch.py`의 `publish_odom_base_tf` 기본 false로 분리 (§6) |
+
+`global_planning`/`local_planning`은 `F1_MAP`을 자동으로 읽으므로 yaml 수정도 인자 전달도 불필요.
+
+### 2026-07-29 젯슨에서 바꾼 것
+- `vesc.yaml` `speed_min/max`: ±33856 → **±40000** (= 9.45 m/s). 허용 상한을 푼 것일 뿐
+  실제 속도는 컨트롤러 `max_speed`(실차 기본 5.0)가 정한다. 셰이크다운은 `max_speed`로 낮출 것.
+- `mcl_launch.py` `publish_odom_base_tf`: 항상 true → **런치 인자, 기본 false**.
+
+---
+
+## 1. 지도 만들기 / 옮기기 (새 트랙일 때만)
+
+### 매핑 (젯슨, f110 bringup이 떠 있는 상태에서)
+```bash
+cd ~/slam_toolbox && source /opt/ros/jazzy/setup.zsh && source install/setup.zsh
+ros2 launch slam_toolbox online_async_launch.py use_sim_time:=false
+```
+
+### 저장 (다른 터미널)
+```bash
+cd ~/slam_toolbox && source /opt/ros/jazzy/setup.zsh && source install/setup.zsh
+ros2 run nav2_map_server map_saver_cli -f ~/slam_toolbox \
+  --ros-args -p save_map_timeout:=30.0 -p map_subscribe_transient_local:=true
+```
+
+### 본체 → 젯슨 전송
+```bash
+scp ~/slam_toolbox/map.png ~/slam_toolbox/map.yaml \
+    miru@10.1.1.3:~/2026_IFAC/src/monte_carlo_localization/maps/
+
+ssh miru@10.1.1.3 'mkdir -p ~/2026_IFAC/offline_trajectory_generator/output/map'
+scp -r ~/2026_IFAC/offline_trajectory_generator/output/map \
+    miru@10.1.1.3:~/2026_IFAC/offline_trajectory_generator/output/
+```
+
+### yaml 확인 — `image:`를 `.png`로
+```yaml
+image: map.png            # ← .pgm 으로 써져 있으면 반드시 고친다
+mode: trinary
+resolution: 0.025
+origin: [-20.3043, -1.4273, 0.0]
+negate: 0
+occupied_thresh: 0.65
+free_thresh: 0.25
+```
+`origin`/`resolution`이 틀리면 **스캔은 벽에 맞는데 경로만 어긋난다.**
+
+### global path가 이 지도로 만들어졌는지 확인 (젯슨에 jq 없음)
+```bash
+cd ~/2026_IFAC && python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['map_info_str']['data'])" \
+  offline_trajectory_generator/output/map/global_waypoints.json
+```
+출력에 `map.yaml`(쓰는 지도 이름)이 보여야 한다.
+
+---
+
+## 2. 지도 넣었으면 재빌드 (젯슨)
+
+```bash
+cd ~/2026_IFAC && source /opt/ros/jazzy/setup.zsh
+MAKEFLAGS="-j4" colcon build --symlink-install --executor sequential \
+  --packages-select particle_filter_cpp global_planning local_planning
+source install/setup.zsh
+```
+⚠️ Orin Nano는 메모리가 좁다 — `-j4 --executor sequential` 빼면 OOM으로 죽는다(`cb` alias가 이 설정).
+
+확인:
+```bash
+ls -lh "$(ros2 pkg prefix particle_filter_cpp)/share/particle_filter_cpp/maps/map."{yaml,png}
+```
+
+---
+
+## 3. 실행 순서 (각 단계 검증 통과 후 다음으로. 제어기가 마지막)
+
+```
+젯슨 T1  f110 bringup     → /scan 40Hz, /odom 50Hz, /joy 20Hz
+젯슨 T2  MCL              → /map, /pf/pose/odom
+본체     RViz2            → 2D Pose Estimate → 스캔·벽 정합 확인
+젯슨 T3  global_planning  → 경로·지도 정합 확인
+젯슨 T4  local_planning
+젯슨 T5  state_machine    → /state
+젯슨 T6  wpnt_publisher   → /local_waypoints
+젯슨 T7  control_real     → 전부 통과한 뒤에만
+```
+
+### T1 (젯슨) — 하드웨어 bringup
+```bash
+f110
+```
+(= `cd ~/f1tenth_ws && source install/setup.zsh && ros2 launch f1tenth_stack bringup_launch.py`.
+다른 launch를 쓰면 VESC 파라미터가 달라진다)
+
+떠야 하는 노드: `/urg_node` `/vesc_driver_node` `/vesc_to_odom_node` `/ackermann_to_vesc_node`
+`/ackermann_mux` `/drive_mode_manager` `/joy` `/static_baselink_to_laser`
+
+검증:
+```bash
+ros2 topic hz /scan     # ≈40Hz, publisher 1개
+ros2 topic hz /odom     # ≈50Hz, publisher 1개
+ros2 topic hz /joy      # ≈20Hz
+ros2 topic echo /drive_mode --field data     # estop → (X) manual
+```
+- 기동 로그에 `yaw rate from MEASURED gyro`가 보여야 정상(07-28부터 실측 자이로 기반).
+  `IMU stale` 반복이면 IMU가 끊긴 것.
+- 조이스틱 F710은 **X 모드**(뒷면 스위치). 절전되면 로지텍 버튼으로 깨운다.
+
+
+
+### T2 (젯슨) — MCL
+```bash
+cd ~/2026_IFAC && source install/setup.zsh
+ros2 launch particle_filter_cpp mcl_launch.py mod:=real map_name:=map use_rviz:=false
+```
+`use_rviz:=false` — RViz는 본체에서 띄운다(젯슨 렌더 부하 0).
+
+검증:
+```bash
+ros2 param get /particle_filter_map_server yaml_filename   # .../maps/map.yaml
+ros2 topic hz /pf/pose/odom
+ros2 topic info /map --verbose                             # publisher = /particle_filter 1개
+```
+`/map` publisher가 2개면 중복 map_server를 내린다:
+```bash
+ros2 service call /lifecycle_manager_particle_filter/manage_nodes \
+    nav2_msgs/srv/ManageLifecycleNodes "{command: 3}"
+```
+
+
+
+### 본체 PC — RViz2
+```bash
+source /opt/ros/jazzy/setup.zsh
+source ~/2026_IFAC/install/setup.zsh
+export ROS_DOMAIN_ID=67
+ros2 daemon stop && ros2 daemon start
+rviz2 -d "$(ros2 pkg prefix particle_filter_cpp)/share/particle_filter_cpp/rviz/particle_filter.rviz"
+```
+Fixed Frame `map` / Map `/map` / LaserScan `/scan` / Odometry `/pf/pose/odom` / PoseArray `/pf/viz/particles` / TF.
+
+**초기 위치**: 차량 정지 → `2D Pose Estimate` → 실제 위치 클릭 → 드래그로 방향 → 스캔이 벽과 겹치는지 확인.
+- 스캔이 벽과 **안 맞음** → 지도 / initialpose / laser TF / MCL
+- 스캔은 맞는데 **경로만 어긋남** → `global_waypoints.json` 또는 지도 `origin`/`resolution`
+
+
+
+### T3 (젯슨) — global planning
+```bash
+cd ~/2026_IFAC && source install/setup.zsh
+ros2 launch global_planning global_planning.launch.py
+```
+⚠️ **반드시 `~/2026_IFAC`에서** — `output_base_dir`이 상대경로다.
+
+검증:
+```bash
+ros2 param get /global_trajectory_publisher_node map_name
+ros2 topic info /global_waypoints --verbose        # publisher 1개
+ros2 topic info /car_state/frenet/odom --verbose   # /frenet_odom_node
+```
+RViz MarkerArray 추가: `/global_waypoints/markers`, `/trackbounds/markers`, `/centerline_waypoints/markers` → 지도와 겹쳐야 한다.
+
+
+
+### T4 (젯슨) — local planning
+```bash
+cd ~/2026_IFAC && source install/setup.zsh
+ros2 launch local_planning local_planning.launch.py simulator:=false
+```
+`reference_map`은 `F1_MAP`에서 자동으로 풀린다(인자 불필요).
+```bash
+ros2 node list | grep -i map      # map_server 실제 노드 이름 확인
+```
+
+
+
+### T5 (젯슨) — state machine
+```bash
+cd ~/2026_IFAC && source install/setup.zsh
+ros2 launch state_machine state_machine.launch.py
+```
+```bash
+ros2 topic echo /state
+```
+
+
+
+### T6 (젯슨) — wpnt_publisher
+```bash
+cd ~/2026_IFAC && source install/setup.zsh
+ros2 run wpnt_publisher wpnt_publisher
+```
+```bash
+ros2 topic hz /local_waypoints          # publisher = /wpnt_publisher 하나
+```
+**안 나올 때** — 세 입력이 다 있어야 GLOBAL 상태에서 발행된다:
+```bash
+ros2 topic echo /global_waypoints --once
+ros2 topic echo /car_state/frenet/odom --once
+ros2 topic echo /state --once
+ros2 topic echo /car_state/frenet/odom --field child_frame_id   # '0','125' 같은 정수 문자열이어야 함
+```
+`child_frame_id`가 `''`/`'base_link'`면 `Invalid child_frame_id for index` 경고와 함께 발행이 멈춘다.
+
+
+
+### T7 (젯슨) — control (마지막)
+**실행 전**: 바퀴 들거나 스탠드 / E-stop 준비 / `/scan`·`/odom`·`/pf/pose/odom` 정상 /
+경로·지도 정합 / TF 정상(§6) / `/state` 정상.
+
+```bash
+source ~/f1tenth_ws/install/setup.zsh
+source ~/2026_IFAC/install/setup.zsh
+cd ~/2026_IFAC
+ros2 launch f1tenth_control control_real.launch.py
+```
+셰이크다운(캡 낮춰서):
+```bash
+source ~/f1tenth_ws/install/setup.zsh
+source ~/2026_IFAC/install/setup.zsh
+cd ~/2026_IFAC
+ros2 launch f1tenth_control control_real.launch.py max_speed:=2.5 min_speed:=0.5
+```
+```bash
+ros2 topic echo /drive
+```
+조이스틱: **A**=자율, **B**=E-stop, **X**=수동, **RB**=MAP↔MPPI.
+수동/자율/E-stop Mux는 `f1tenth_stack`의 `drive_mode_manager`+`ackermann_mux` 담당,
+우리 `drive_source_selector`는 MAP↔MPPI 선택만 한다.
+
+---
+
+## 4. rosbag 녹화 (control 실행 **전에**, 젯슨에서)
+
+```bash
+source ~/f1tenth_ws/install/setup.zsh
+source ~/2026_IFAC/install/setup.zsh
+mkdir -p ~/rosbags && cd ~
+ros2 bag record -s sqlite3 -o ~/rosbags/run_$(date +%m%d_%H%M%S) \
+  /drive_autonomous /drive_mppi /drive /joy /drive_mode /mppi_active /estop_lock \
+  /pf/pose/odom /odom /tf /tf_static /scan /sensors/imu/raw /imu/data \
+  /global_waypoints /local_waypoints \
+  /commands/motor/speed /commands/motor/brake /commands/servo/position /sensors/core
+```
+```bash
+ros2 bag info "$(ls -td ~/rosbags/run_* | head -1)"
+```
+⚠️ `-s sqlite3` 필수(`tools/bag_analyzer`는 `.db3`만 파싱). ⚠️ 녹화는 젯슨에서(무선이면 `/scan` 드롭).
+
+---
+
+## 5. 종료
+
+```bash
+ros2 node list | sort
+ps -ef | grep '[r]os2 launch'
+kill -SIGINT <정확한_PID>
+```
+⚠️ `pkill ros2` / `killall` / 광범위한 `pkill -f` 금지 — 필요한 노드까지 죽인다.
+
+**하드웨어 bringup 내릴 때 순서**: 차량 고정 → E-stop(B) → 자율 명령 중단 →
+`ros2 topic echo /commands/motor/speed --field data`로 0 확인 → bringup에 Ctrl+C.
+
+---
+
+## 6. TF 책임 구조
+
+```
+particle_filter     → map → odom
+vesc_to_odom_node   → odom → base_link
+static TF           → base_link → laser
+```
+`odom→base_link`를 MCL과 `vesc_to_odom`이 동시에 내던 것을 07-29에 해소
+(`publish_odom_base_tf` 런치 인자, 기본 false). odom을 믿는 근거는 07-28 검증
+(34 m 폐합 15.6 cm, 2바퀴 헤딩 +717.6°/720°, 자이로 스케일 오차 +0.06%).
+
+⚠️ `odom→base_link`를 내는 쪽이 **반드시 살아 있어야 한다** — 실차는 f110 bringup(`vesc.yaml`
+`publish_tf: true`), 시뮬은 gym_bridge. 둘 다 없는 bag 재생에서만 켠다:
+```bash
+ros2 launch particle_filter_cpp mcl_launch.py mod:=bag publish_odom_base_tf:=true
+```
+
+주행 전 확인:
+```bash
+ros2 topic info /tf --verbose
+ros2 run tf2_ros tf2_echo map odom
+ros2 run tf2_ros tf2_echo odom base_link
+ros2 run tf2_ros tf2_echo base_link laser
+```
+⚠️ MCL은 팀 공용 패키지다. 이 변경은 젯슨 `~/2026_IFAC`(`jazzy_port_backup`)에만 있고 팀 repo 미반영.
+
+---
+
+## 7. 통신이 안 될 때
+
+```bash
+# 양쪽에서
+printenv ROS_DOMAIN_ID          # 67
+printenv RMW_IMPLEMENTATION     # rmw_fastrtps_cpp
+date                            # 시각 차이 크면 TF가 안 보인다
+```
+테스트 — 젯슨:
+```bash
+ros2 topic pub /network_test std_msgs/msg/String "{data: 'hello from jetson'}" -r 1
+```
+본체:
+```bash
+source /opt/ros/jazzy/setup.zsh
+export ROS_DOMAIN_ID=67
+ros2 daemon stop && ros2 daemon start
+ros2 topic echo /network_test
+```
+⚠️ 젯슨은 멀티홈(`wlP1p1s0` 10.1.1.3 통신 / `enP8p1s0` 192.168.0.15 **라이다 전용** / `l4tbr0` USB).
+wifi AP가 멀티캐스트를 막으면 본체에서 Discovery Server를 쓴다:
+```bash
+export ROS_DISCOVERY_SERVER="10.1.1.3:11811"
+export ROS_SUPER_CLIENT=true     # ros2 topic list 열거까지 하려면
+```
+유선(피트)에서는 불필요. ⚠️ `ROS_LOCALHOST_ONLY`는 Jazzy에서 폐기 예정 — 실차에서는
+`ROS_LOCALHOST_ONLY`/`ROS_AUTOMATIC_DISCOVERY_RANGE` **둘 다 건드리지 않는 것**이 기본값(SUBNET)이라 안전.
+
+---
+
+## 8. 증상별 첫 확인 지점
+
+| 증상 | 먼저 볼 것 |
+|---|---|
+| 본체에서 젯슨 토픽이 안 보임 | `ROS_DOMAIN_ID` 양쪽 67 / 같은 서브넷 / `ros2 daemon stop && start` / AP client isolation / VPN·방화벽 |
+| 스캔이 벽과 안 맞음 | 지도, `2D Pose Estimate`, `base_link→laser` static TF, MCL |
+| 스캔은 맞는데 경로만 어긋남 | `global_waypoints.json`의 `map_info_str`, 지도 `origin`/`resolution` |
+| MCL만 다른 지도를 봄 | `map_name:=`을 안 넘겼다 (§0-1) |
+| 지도를 넣었는데 없다고 함 | 재빌드 안 함 (§2) |
+| `/local_waypoints` 무발행 | `child_frame_id`가 정수 문자열인지 (T6) |
+| `/joy` 무발행 | F710 절전 — 로지텍 버튼. `input` 그룹은 새 로그인 세션에만 적용 |
+| 자율 진입 시 급발진 | `engage_gate_enable`(기본 true), `/drive_mode`가 실제로 발행되는지 |
+| odom 헤딩 이상 | 기동 로그 `yaw rate from MEASURED gyro` 유무, `IMU stale` 반복 여부 |

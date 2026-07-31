@@ -26,7 +26,7 @@ def generate_launch_description():
     # 전제: 하드웨어 브링업(f1tenth_stack의 drive_mode_manager, ackermann_mux, vesc_driver,
     #       ackermann_to_vesc, LiDAR, joy_node)과 particle_filter, planning이 /scan, /joy,
     #       /pf/pose/odom, /global_waypoints 를 발행 중이어야 함.
-    # 공통 파라미터(wheelbase, l1_gain 등)는 _control_common.py 참고 — 시뮬과 겹치는 부분은
+    # 공통 파라미터(wheelbase, l1_offset 등)는 _control_common.py 참고 — 시뮬과 겹치는 부분은
     # 거기 한 곳만 고치면 됨. 아래는 실차 전용 인자/노드만.
 
     # 파티클필터 odom 토픽 (로컬라이제이션 스택에 맞춰 변경 가능)
@@ -39,6 +39,7 @@ def generate_launch_description():
     # 직선 최대 속도 [m/s] — 2026-07-30 5.0→8.0 상향(사용자 결정, 고속 주행 세팅).
     # ⚠️ 하드웨어 ERPM(40000) 상한 = 바퀴 ~9 m/s. 8.0은 그 약 89% 수준 — 여유가 작으므로
     #    직선 끝 제동 여력과 프로파일 vx가 실제 상한을 결정한다.
+    # ⚠️ base_max_accel이 2.5로 묶여 있어(아래) 짧은 직선에서는 8.0에 도달하지 못할 수 있다.
     max_speed_arg = DeclareLaunchArgument(
         'max_speed',
         default_value='8.0',

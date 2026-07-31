@@ -6,16 +6,16 @@
 #include "std_msgs/msg/bool.hpp"
 
 // ============================================================================
-// drive_source_selector — MAP/MPPI 알고리즘 셀렉터 (슬림, sim/real 공용)
+// drive_source_selector — 실차 전용 MAP/MPPI 알고리즘 셀렉터 (슬림 Mux)
 // ============================================================================
-// 수동 조종/E-stop/대시보드(teleop)는 이 저장소 담당이 아니다(2026-07-29 제거) — 실차는
-// 팀 공용 f1tenth_stack의 drive_mode_manager + ackermann_mux가 담당한다. 하지만
+// 실차는 조이스틱 수동/자율/E-stop Mux를 팀 공용 f1tenth_stack의 drive_mode_manager +
+// ackermann_mux가 담당한다(우리 joy_teleop_monitor는 실차 런치에서 제외됨). 하지만
 // 그 스택엔 MAP/MPPI 개념이 없어서(자율 입력은 mux의 navigation 채널 'drive' 하나뿐),
 // 두 컨트롤러(control_map_node→/drive_autonomous, control_mppi_node→/drive_mppi) 중
 // 하나를 골라 그 navigation 채널로 흘려보내는 역할이 필요하다. 이 노드가 딱 그것만 한다.
-// 시뮬은 Mux 없이 이 노드의 /drive를 gym_bridge가 직접 구독한다(/joy 없으면 항상 MAP).
 //
-// E-stop은 실차 drive_mode_manager가 estop_lock으로 mux 입력 전체를 마스킹하므로, 이
+// joy_teleop_monitor에서 알고리즘 선택(RB) 부분만 떼어낸 것 — 수동 조종/E-stop/대시보드는
+// 없다. E-stop은 drive_mode_manager가 estop_lock으로 mux 입력 전체를 마스킹하므로, 이
 // 노드가 계속 /drive를 발행해도 제동 중엔 mux에서 차단된다(별도 처리 불필요).
 //
 // 구독: /joy(RB 토글), /drive_autonomous(MAP), /drive_mppi(MPPI)

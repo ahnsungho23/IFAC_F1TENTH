@@ -41,8 +41,9 @@ find_package(ament_index_cpp REQUIRED)
 add_executable(control_map_node
   control_code/control_map_node.cpp
   control_code/gap_follower.cpp
-  control_code/imu_stability_controller.cpp
 )
+# ⚠️ StabilityController는 2026-07-29 롤 인지 ESC 제거와 함께 **헤더 전용**(.hpp)이 됐다 —
+#    imu_stability_controller.cpp는 삭제됐으므로 여기 다시 추가하지 말 것.
 target_include_directories(control_map_node PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
