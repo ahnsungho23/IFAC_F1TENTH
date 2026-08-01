@@ -45,8 +45,7 @@
 1. `/global_waypoints`의 모든 값이 유한하고 `s_m`이 엄격히 증가하는지 검사합니다.
 2. 마지막 `s_m`과 waypoint 중앙 간격으로 폐루프 트랙 길이를 구합니다.
 3. Frenet odometry의 `position.x`를 ego `s`, `position.y`를 ego `d`로 읽습니다.
-4. perception 장애물 중 `is_static=true`이거나 속도가 `static_speed_threshold_mps` 이하인 것만
-   남깁니다.
+4. `/static_obs`를 provisional/confirmed 정적 레이어 계약에 따라 그대로 입력받습니다.
 5. AABB 값이 유한하고 `x_min <= x_max`, `y_min <= y_max`이며 대각선 길이가 0보다 큰지
    검사합니다. 조건을 만족하지 않거나 중심의 CLCS 투영이 실패하면 해당 장애물을 제외합니다.
 
@@ -202,7 +201,6 @@ safe-stop으로 바뀌지 않습니다. 반대로 장애물 앞면이 merge 전�
 | 발행 | `/local_planning/path` | `nav_msgs/msg/Path` | RViz용 현재 안전 경로 |
 | 발행 | `/local_path` | `nav_msgs/msg/Path` | 기존 시각화 호환 토픽 |
 | 발행 | `/local_planning/markers` | `visualization_msgs/msg/MarkerArray` | 경로, spline 제어점, 입력 정적 장애물 AABB |
-| 선택 발행 | `/local_waypoints` | `f110_msgs/msg/WpntArray` | 단독 실행 옵션. 기본값은 꺼짐 |
 
 `/avoid_waypoints.ot_line`은 최초 군집 관측용 감속 경로일 때 `raceline_static_prepare`, 정상
 회피일 때 `raceline_local_d_offset_spline`, 허용된 회피 방향이 모두 막힌 감속 경로일 때
@@ -225,15 +223,12 @@ safe-stop으로 바뀌지 않습니다. 반대로 장애물 앞면이 merge 전�
 - 방향 잠금: `commitment_lock_lateral_threshold_m`, `commitment_lock_longitudinal_m`
 - 기하 제한: `maximum_lateral_slope`, `maximum_curvature_radpm`,
   `maximum_curvature_rate_radpm2`
-- 속도: `avoidance_speed_scale`, `maximum_lateral_accel_mps2`,
-  `maximum_longitudinal_accel_mps2`, `maximum_longitudinal_decel_mps2`
 - 실패 시 정지: `safe_stop_buffer_m`, `safe_stop_deceleration_mps2`,
   `safe_stop_release_cycles`
 
-현재 `config/local_planning.yaml`은 제어기 단독 감속 시험을 위해
-`avoidance_speed_scale=1.0`으로 설정하고, 횡·종가속도 한계를 `1000000.0`으로 높여
-회피 경로의 속도 배율, 곡률 기반 속도 캡, 종방향 속도 재프로파일을 실질적으로
-비활성화한다. 경로 형상의 곡률·곡률 변화율 검증과 안전정지 속도 프로파일은 그대로 유지된다.
+정상 회피 경로는 글로벌 waypoint의 `vx_mps`를 그대로 유지하고 변경된 경로의 heading,
+curvature와 `ax_mps2`만 다시 계산한다. 좌우 경로가 모두 안전하지 않을 때 생성하는 safe-stop
+경로만 `safe_stop_deceleration_mps2`에 따라 속도를 낮춘다.
 - 입력 freshness: `obstacle_stale_timeout_sec`, `odometry_stale_timeout_sec`
 - 합류 확인: `merge_lateral_tolerance_m`, `merge_confirm_cycles`, `state_topic`,
   `state_handoff_tail_ratio`, `state_handoff_speed_cap_mps`

@@ -52,7 +52,8 @@
   plans. If no forward stop prefix exists, publish a zero-speed hold path rather than an empty path
   that would fall back to global. Never publish an unvalidated moving avoidance path merely to keep
   `/avoid_waypoints` non-empty.
-- Recompute heading, curvature, velocity, and acceleration after applying `d(s)`.
+- Recompute heading, curvature, and longitudinal acceleration after applying `d(s)`. Preserve the
+  global waypoint velocity profile for moving avoidance; only safe-stop paths may reduce velocity.
 - Handle closed-track `s` wrap explicitly. Never encode a waypoint index in Frenet odometry fields.
 
 ## Interfaces
@@ -69,8 +70,8 @@
 - Publish: `/avoid_waypoints` (`f110_msgs/msg/OTWpntArray`) as an ego-to-merge segment with
   map-frame Cartesian `x_m/y_m` populated for every waypoint.
 - Publish debug: `/local_planning/path`, `/local_path`, `/local_planning/markers`.
-- Standalone `/local_waypoints` publication stays disabled by default because `wpnt_publisher`
-  selects `/avoid_waypoints` according to `/state`.
+- Never publish `/local_waypoints`; `wpnt_publisher` exclusively selects and publishes it according
+  to `/state`.
 
 ## Package layout and maintenance
 

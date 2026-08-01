@@ -108,14 +108,6 @@ void LocalPlannerNode::initializeParameters()
     declare_parameter<double>("maximum_curvature_radpm", 3.20);
   planner_parameters_.maximum_curvature_rate_radpm2 =
     declare_parameter<double>("maximum_curvature_rate_radpm2", 20.0);
-  planner_parameters_.avoidance_speed_scale =
-    declare_parameter<double>("avoidance_speed_scale", 0.80);
-  planner_parameters_.maximum_lateral_accel_mps2 =
-    declare_parameter<double>("maximum_lateral_accel_mps2", 5.5);
-  planner_parameters_.maximum_longitudinal_accel_mps2 =
-    declare_parameter<double>("maximum_longitudinal_accel_mps2", 3.0);
-  planner_parameters_.maximum_longitudinal_decel_mps2 =
-    declare_parameter<double>("maximum_longitudinal_decel_mps2", 5.0);
   planner_parameters_.safe_stop_buffer_m =
     declare_parameter<double>("safe_stop_buffer_m", 0.80);
   planner_parameters_.safe_stop_deceleration_mps2 =
@@ -124,8 +116,6 @@ void LocalPlannerNode::initializeParameters()
     declare_parameter<int>("minimum_path_points", 8);
 
   require_obstacles_message_ = declare_parameter<bool>("require_obstacles_message", true);
-  static_obstacles_only_ = declare_parameter<bool>("static_obstacles_only", true);
-  static_speed_threshold_mps_ = declare_parameter<double>("static_speed_threshold_mps", 0.25);
   obstacle_stale_timeout_sec_ = declare_parameter<double>("obstacle_stale_timeout_sec", 0.75);
   odometry_stale_timeout_sec_ = declare_parameter<double>("odometry_stale_timeout_sec", 0.50);
   merge_lateral_tolerance_m_ = declare_parameter<double>("merge_lateral_tolerance_m", 0.15);
@@ -145,7 +135,6 @@ void LocalPlannerNode::initializeParameters()
     declare_parameter<double>("commitment_lock_lateral_threshold_m", 0.10);
   commitment_lock_longitudinal_m_ =
     declare_parameter<double>("commitment_lock_longitudinal_m", 0.50);
-  publish_standalone_local_ = declare_parameter<bool>("publish_standalone_local", false);
   obstacle_marker_scale_m_ = declare_parameter<double>("obstacle_marker_scale_m", 0.35);
   path_marker_width_m_ = declare_parameter<double>("path_marker_width_m", 0.06);
 
@@ -160,8 +149,6 @@ void LocalPlannerNode::initializeParameters()
     declare_parameter<std::string>("state_topic", "/state");
   ot_waypoints_topic_ =
     declare_parameter<std::string>("ot_waypoints_topic", "/avoid_waypoints");
-  local_waypoints_topic_ =
-    declare_parameter<std::string>("local_waypoints_topic", "/local_waypoints");
   local_path_topic_ =
     declare_parameter<std::string>("local_path_topic", "/local_planning/path");
   compatibility_path_topic_ =
@@ -241,8 +228,6 @@ void LocalPlannerNode::initializeInterfaces()
 
   avoid_waypoints_pub_ =
     create_publisher<f110_msgs::msg::OTWpntArray>(ot_waypoints_topic_, volatile_qos);
-  standalone_waypoints_pub_ =
-    create_publisher<f110_msgs::msg::WpntArray>(local_waypoints_topic_, volatile_qos);
   local_path_pub_ = create_publisher<nav_msgs::msg::Path>(local_path_topic_, volatile_qos);
   compatibility_path_pub_ =
     create_publisher<nav_msgs::msg::Path>(compatibility_path_topic_, volatile_qos);
@@ -312,16 +297,6 @@ void LocalPlannerNode::onGlobalWaypoints(
     global_waypoints_.wpnts.size(), planner_.trackLength());
 }
 
-bool LocalPlannerNode::isStaticObstacle(const f110_msgs::msg::Obstacle & obstacle) const
-{
-  if (!static_obstacles_only_) {
-    return true;
-  }
-  return obstacle.is_static ||
-         (std::isfinite(obstacle.vs) && std::isfinite(obstacle.vd) &&
-         std::hypot(obstacle.vs, obstacle.vd) <= static_speed_threshold_mps_);
-}
-
 std::optional<f110_msgs::msg::Obstacle> LocalPlannerNode::projectCartesianObstacle(
   const f110_msgs::msg::Obstacle & obstacle) const
 {
@@ -366,13 +341,11 @@ void LocalPlannerNode::onObstacles(const f110_msgs::msg::ObstacleArray::SharedPt
   }
   std::size_t rejected = 0;
   for (const auto & obstacle : message->obstacles) {
-    if (isStaticObstacle(obstacle)) {
-      const auto projected = projectCartesianObstacle(obstacle);
-      if (projected.has_value()) {
-        static_obstacles_.push_back(projected.value());
-      } else {
-        ++rejected;
-      }
+    const auto projected = projectCartesianObstacle(obstacle);
+    if (projected.has_value()) {
+      static_obstacles_.push_back(projected.value());
+    } else {
+      ++rejected;
     }
   }
   if (rejected > 0U) {
@@ -1123,12 +1096,6 @@ void LocalPlannerNode::publishResult(
   last_published_side_ = current_side;
   avoid_waypoints_pub_->publish(output);
 
-  if (publish_standalone_local_) {
-    f110_msgs::msg::WpntArray waypoints;
-    waypoints.header = output.header;
-    waypoints.wpnts = result.path.wpnts;
-    standalone_waypoints_pub_->publish(waypoints);
-  }
   const bool publish_local_path = local_path_pub_->get_subscription_count() > 0U;
   const bool publish_compatibility_path =
     compatibility_path_pub_->get_subscription_count() > 0U;

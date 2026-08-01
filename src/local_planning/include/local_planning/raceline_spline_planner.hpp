@@ -49,10 +49,6 @@ struct RacelineSplineParameters
   double maximum_curvature_radpm{3.20};
   double maximum_curvature_rate_radpm2{20.0};
 
-  double avoidance_speed_scale{0.80};
-  double maximum_lateral_accel_mps2{5.5};
-  double maximum_longitudinal_accel_mps2{3.0};
-  double maximum_longitudinal_decel_mps2{5.0};
   double safe_stop_buffer_m{0.80};
   double safe_stop_deceleration_mps2{2.5};
   int minimum_path_points{8};
@@ -158,9 +154,7 @@ private:
     const EgoFrenetState & ego,
     const std::vector<ExpandedObstacle> & visible,
     const ExpandedObstacle & blocking) const;
-  void updateGeometryAndSpeed(
-    f110_msgs::msg::WpntArray & path,
-    double active_until_s) const;
+  void updateGeometryAndAcceleration(f110_msgs::msg::WpntArray & path) const;
   bool validateCandidate(
     const EgoFrenetState & ego,
     const f110_msgs::msg::WpntArray & path,

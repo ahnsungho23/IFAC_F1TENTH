@@ -52,7 +52,6 @@ private:
   void onState(const f110_msgs::msg::StateMachine::SharedPtr message);
   void onPlanningTimer();
 
-  bool isStaticObstacle(const f110_msgs::msg::Obstacle & obstacle) const;
   std::optional<f110_msgs::msg::Obstacle> projectCartesianObstacle(
     const f110_msgs::msg::Obstacle & obstacle) const;
   bool sameReference(const f110_msgs::msg::WpntArray & message) const;
@@ -97,7 +96,6 @@ private:
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr frenet_odometry_sub_;
   rclcpp::Subscription<f110_msgs::msg::StateMachine>::SharedPtr state_sub_;
   rclcpp::Publisher<f110_msgs::msg::OTWpntArray>::SharedPtr avoid_waypoints_pub_;
-  rclcpp::Publisher<f110_msgs::msg::WpntArray>::SharedPtr standalone_waypoints_pub_;
   rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr local_path_pub_;
   rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr compatibility_path_pub_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr markers_pub_;
@@ -139,8 +137,6 @@ private:
   std::set<int> completed_obstacle_ids_;
 
   bool require_obstacles_message_{true};
-  bool static_obstacles_only_{true};
-  double static_speed_threshold_mps_{0.25};
   double obstacle_stale_timeout_sec_{0.75};
   double odometry_stale_timeout_sec_{0.50};
   double merge_lateral_tolerance_m_{0.15};
@@ -154,7 +150,6 @@ private:
   double cluster_envelope_change_threshold_m_{0.03};
   double commitment_lock_lateral_threshold_m_{0.10};
   double commitment_lock_longitudinal_m_{0.50};
-  bool publish_standalone_local_{false};
   double obstacle_marker_scale_m_{0.35};
   double path_marker_width_m_{0.06};
 
@@ -163,7 +158,6 @@ private:
   std::string frenet_odom_topic_{"/car_state/frenet/odom"};
   std::string state_topic_{"/state"};
   std::string ot_waypoints_topic_{"/avoid_waypoints"};
-  std::string local_waypoints_topic_{"/local_waypoints"};
   std::string local_path_topic_{"/local_planning/path"};
   std::string compatibility_path_topic_{"/local_path"};
   std::string markers_topic_{"/local_planning/markers"};

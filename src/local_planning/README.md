@@ -27,5 +27,5 @@ source install/setup.zsh
 ros2 launch local_planning local_planning.launch.py
 ```
 
-기본 출력은 `/avoid_waypoints`입니다. 최종 `/local_waypoints` 선택은 `/state`를 구독하는
-`wpnt_publisher`가 담당하므로 `publish_standalone_local`의 기본값은 `false`입니다.
+출력은 `/avoid_waypoints`입니다. 최종 `/local_waypoints` 선택과 발행은 `/state`를 구독하는
+`wpnt_publisher`가 단독으로 담당합니다.

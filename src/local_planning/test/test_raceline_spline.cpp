@@ -134,6 +134,7 @@ TEST(RacelineSplinePlanner, ShiftsOnlyOrderedGlobalRaceLineSamples)
     EXPECT_NEAR(waypoint.x_m, global.x_m, 1.0e-9);
     EXPECT_NEAR(waypoint.y_m, waypoint.d_m, 1.0e-9);
     EXPECT_EQ(waypoint.s_m, global.s_m);
+    EXPECT_EQ(waypoint.vx_mps, global.vx_mps);
     saw_offset = saw_offset || std::abs(waypoint.d_m) > 0.20;
   }
   EXPECT_TRUE(saw_offset);

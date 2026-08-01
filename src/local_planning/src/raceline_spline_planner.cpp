@@ -585,7 +585,7 @@ RacelineSplinePlanner::Candidate RacelineSplinePlanner::buildCandidate(
     return candidate;
   }
 
-  updateGeometryAndSpeed(candidate.path, wrapS(ego.s + spline_end));
+  updateGeometryAndAcceleration(candidate.path);
   if (!validateCandidate(ego, candidate.path, visible, candidate.reason)) {
     return candidate;
   }
@@ -599,9 +599,8 @@ RacelineSplinePlanner::Candidate RacelineSplinePlanner::buildCandidate(
   return candidate;
 }
 
-void RacelineSplinePlanner::updateGeometryAndSpeed(
-  f110_msgs::msg::WpntArray & path,
-  double active_until_s) const
+void RacelineSplinePlanner::updateGeometryAndAcceleration(
+  f110_msgs::msg::WpntArray & path) const
 {
   auto & waypoints = path.wpnts;
   if (waypoints.size() < 2U) {
@@ -634,36 +633,8 @@ void RacelineSplinePlanner::updateGeometryAndSpeed(
   waypoints.front().kappa_radpm = waypoints[1].kappa_radpm;
   waypoints.back().kappa_radpm = waypoints[waypoints.size() - 2U].kappa_radpm;
 
-  const double start_s = waypoints.front().s_m;
-  const double active_distance = forwardDistance(start_s, active_until_s);
-  for (auto & waypoint : waypoints) {
-    const double forward_s = forwardDistance(start_s, waypoint.s_m);
-    double speed = std::max(0.0, waypoint.vx_mps);
-    if (forward_s <= active_distance || std::abs(waypoint.d_m) > 0.01) {
-      speed *= parameters_.avoidance_speed_scale;
-    }
-    const double curvature = std::abs(waypoint.kappa_radpm);
-    if (curvature > kEpsilon) {
-      speed = std::min(
-        speed, std::sqrt(parameters_.maximum_lateral_accel_mps2 / curvature));
-    }
-    waypoint.vx_mps = speed;
-  }
-
-  for (std::size_t reverse = waypoints.size() - 1U; reverse > 0U; --reverse) {
-    const std::size_t i = reverse - 1U;
-    const double distance = pointDistance(waypoints[i], waypoints[i + 1U]);
-    const double allowed = std::sqrt(
-      waypoints[i + 1U].vx_mps * waypoints[i + 1U].vx_mps +
-      2.0 * parameters_.maximum_longitudinal_decel_mps2 * distance);
-    waypoints[i].vx_mps = std::min(waypoints[i].vx_mps, allowed);
-  }
   for (std::size_t i = 1; i < waypoints.size(); ++i) {
     const double distance = pointDistance(waypoints[i - 1U], waypoints[i]);
-    const double allowed = std::sqrt(
-      waypoints[i - 1U].vx_mps * waypoints[i - 1U].vx_mps +
-      2.0 * parameters_.maximum_longitudinal_accel_mps2 * distance);
-    waypoints[i].vx_mps = std::min(waypoints[i].vx_mps, allowed);
     if (distance > kEpsilon) {
       waypoints[i - 1U].ax_mps2 =
         (waypoints[i].vx_mps * waypoints[i].vx_mps -

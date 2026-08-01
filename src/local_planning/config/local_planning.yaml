@@ -35,14 +35,6 @@ local_planner_node:
     maximum_curvature_radpm: 3.20
     maximum_curvature_rate_radpm2: 20.0
 
-    # 제어기 단독 감속 시험 설정입니다. 로컬플래너는 글로벌 속도 프로파일을 그대로 유지합니다.
-    # 큰 가속도 값은 곡률 속도 캡과 종방향 재프로파일을 실질적으로 비활성화합니다.
-    # 경로 형상 안전성 검사(maximum_curvature_radpm 등)와 safe-stop 감속은 계속 적용됩니다.
-    avoidance_speed_scale: 1.0
-    maximum_lateral_accel_mps2: 1000000.0
-    maximum_longitudinal_accel_mps2: 1000000.0
-    maximum_longitudinal_decel_mps2: 1000000.0
-
     # 좌우 spline이 모두 트랙 경계/장애물/기하 검사를 실패할 때 장애물 앞에서 정지합니다.
     safe_stop_buffer_m: 0.80
     safe_stop_deceleration_mps2: 2.5
@@ -50,8 +42,6 @@ local_planner_node:
 
     # map-frame Cartesian AABB를 CLCS로 내부 투영한 정적 물체만 담당합니다.
     require_obstacles_message: true
-    static_obstacles_only: true
-    static_speed_threshold_mps: 0.25
     obstacle_stale_timeout_sec: 0.75
     odometry_stale_timeout_sec: 0.50
 
@@ -79,18 +69,15 @@ local_planner_node:
     commitment_lock_lateral_threshold_m: 0.10
     commitment_lock_longitudinal_m: 0.50
 
-    # wpnt_publisher가 /avoid_waypoints를 /local_waypoints로 선택하므로 기본 중복 발행은 끕니다.
-    publish_standalone_local: false
     obstacle_marker_scale_m: 0.35
     path_marker_width_m: 0.06
 
     global_waypoints_topic: "/global_waypoints"
-    # obstacle_detector Layer 2 output. It contains only confirmed static objects.
+    # obstacle_detector Layer 2 output. It contains provisional/confirmed static objects.
     obstacles_topic: "/static_obs"
     frenet_odom_topic: "/car_state/frenet/odom"
     state_topic: "/state"
     ot_waypoints_topic: "/avoid_waypoints"
-    local_waypoints_topic: "/local_waypoints"
     local_path_topic: "/local_planning/path"
     compatibility_path_topic: "/local_path"
     markers_topic: "/local_planning/markers"
