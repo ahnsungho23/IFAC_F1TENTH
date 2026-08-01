@@ -25,6 +25,7 @@ include_directories(
 add_library(local_planner_core STATIC
   src/aabb_frenet_projector.cpp
   src/local_planner_node.cpp
+  src/obstacle_guard.cpp
   src/raceline_spline_planner.cpp
 )
 ament_target_dependencies(local_planner_core
@@ -80,6 +81,14 @@ if(BUILD_TESTING)
       global_planning
     )
     target_link_libraries(test_aabb_frenet_projector local_planner_core)
+  endif()
+
+  ament_add_gtest(test_obstacle_guard test/test_obstacle_guard.cpp)
+  if(TARGET test_obstacle_guard)
+    ament_target_dependencies(test_obstacle_guard
+      f110_msgs
+    )
+    target_link_libraries(test_obstacle_guard local_planner_core)
   endif()
 endif()
 

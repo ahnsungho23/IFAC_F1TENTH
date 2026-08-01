@@ -48,6 +48,7 @@ class InitialClusterProbe(Node):
             OTWpntArray, '/avoid_waypoints', self.on_path, 10)
         self.started = time.monotonic()
         self.second_started = None
+        self.second_publish_count = 0
         self.saw_preparation = False
         self.passed = False
         self.failure = ''
@@ -106,6 +107,7 @@ class InitialClusterProbe(Node):
         if time.monotonic() - self.started >= 0.10:
             if self.second_started is None:
                 self.second_started = time.monotonic()
+            self.second_publish_count += 1
             obstacles.obstacles.append(
                 self.obstacle(18, 7.3, 7.7, 0.2, 1.0))
         self.obstacle_pub.publish(obstacles)
@@ -132,10 +134,10 @@ class InitialClusterProbe(Node):
         if not self.saw_preparation or self.second_started is None:
             self.failure = 'avoidance committed before observing the complete cluster'
             return
-        elapsed = time.monotonic() - self.second_started
-        if elapsed < 0.16:
+        if self.second_publish_count < 3:
             self.failure = (
-                f'avoidance committed only {elapsed:.3f}s after the new cluster ID')
+                'avoidance committed after only '
+                f'{self.second_publish_count} topic observations of the new cluster ID')
             return
         peak = max(message.wpnts, key=lambda point: abs(point.d_m)).d_m
         if peak >= -0.05:
@@ -157,7 +159,7 @@ def main():
             rclpy.spin_once(node, timeout_sec=0.1)
         if node.passed:
             print(
-                'PASS: late cluster ID reset stabilization and the first '
+                'PASS: late cluster ID received three topic observations and the first '
                 'lateral commitment selected the safe right side')
             return 0
         print(f'FAIL: {node.failure or "no completed avoidance commitment"}')

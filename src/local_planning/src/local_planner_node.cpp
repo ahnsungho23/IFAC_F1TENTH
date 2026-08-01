@@ -48,6 +48,25 @@ bool finiteOdometry(const nav_msgs::msg::Odometry & odometry)
          std::isfinite(odometry.twist.twist.linear.x);
 }
 
+double conservativeVariance(double first, double second)
+{
+  const double finite_first = std::isfinite(first) && first >= 0.0 ? first : 0.0;
+  const double finite_second = std::isfinite(second) && second >= 0.0 ? second : 0.0;
+  return std::max(finite_first, finite_second);
+}
+
+void mergeObstacleVariances(
+  f110_msgs::msg::Obstacle & target,
+  const f110_msgs::msg::Obstacle & other)
+{
+  target.x_var = conservativeVariance(target.x_var, other.x_var);
+  target.y_var = conservativeVariance(target.y_var, other.y_var);
+  target.s_var = conservativeVariance(target.s_var, other.s_var);
+  target.d_var = conservativeVariance(target.d_var, other.d_var);
+  target.vs_var = conservativeVariance(target.vs_var, other.vs_var);
+  target.vd_var = conservativeVariance(target.vd_var, other.vd_var);
+}
+
 }  // namespace
 
 LocalPlannerNode::LocalPlannerNode(const rclcpp::NodeOptions & options)
@@ -78,7 +97,7 @@ void LocalPlannerNode::initializeParameters()
   planner_parameters_.vehicle_half_width_m =
     declare_parameter<double>("vehicle_half_width_m", 0.121);
   planner_parameters_.boundary_margin_m =
-    declare_parameter<double>("boundary_margin_m", 0.10);
+    declare_parameter<double>("boundary_margin_m", 0.13);
   planner_parameters_.fallback_track_half_width_m =
     declare_parameter<double>("fallback_track_half_width_m", 1.50);
   planner_parameters_.pre_apex_distances_m =
@@ -125,12 +144,16 @@ void LocalPlannerNode::initializeParameters()
   state_handoff_tail_ratio_ = declare_parameter<double>("state_handoff_tail_ratio", 0.10);
   state_handoff_speed_cap_mps_ =
     declare_parameter<double>("state_handoff_speed_cap_mps", 6.0);
-  initial_cluster_stabilization_sec_ =
-    declare_parameter<double>("initial_cluster_stabilization_sec", 0.20);
-  initial_cluster_max_wait_sec_ =
-    declare_parameter<double>("initial_cluster_max_wait_sec", 0.35);
-  cluster_envelope_change_threshold_m_ =
-    declare_parameter<double>("cluster_envelope_change_threshold_m", 0.03);
+  initial_observation_count_ =
+    declare_parameter<int>("initial_observation_count", 3);
+  initial_observation_max_wait_sec_ =
+    declare_parameter<double>("initial_observation_max_wait_sec", 0.35);
+  guard_parameters_.uncertainty_sigma_scale =
+    declare_parameter<double>("uncertainty_sigma_scale", 3.0);
+  guard_parameters_.minimum_longitudinal_margin_m =
+    declare_parameter<double>("uncertainty_min_longitudinal_margin_m", 0.05);
+  guard_parameters_.minimum_lateral_margin_m =
+    declare_parameter<double>("uncertainty_min_lateral_margin_m", 0.03);
   commitment_lock_lateral_threshold_m_ =
     declare_parameter<double>("commitment_lock_lateral_threshold_m", 0.10);
   commitment_lock_longitudinal_m_ =
@@ -188,16 +211,21 @@ void LocalPlannerNode::initializeParameters()
     planner_parameters_.post_merge_min_time_sec < 0.0 ||
     !(state_handoff_tail_ratio_ > 0.0) || state_handoff_tail_ratio_ > 1.0 ||
     !(state_handoff_speed_cap_mps_ > 0.0) ||
-    initial_cluster_stabilization_sec_ < 0.0 ||
-    initial_cluster_max_wait_sec_ < initial_cluster_stabilization_sec_ ||
-    cluster_envelope_change_threshold_m_ < 0.0 ||
+    initial_observation_count_ <= 0 ||
+    initial_observation_max_wait_sec_ < 0.0 ||
+    !std::isfinite(guard_parameters_.uncertainty_sigma_scale) ||
+    guard_parameters_.uncertainty_sigma_scale < 0.0 ||
+    !std::isfinite(guard_parameters_.minimum_longitudinal_margin_m) ||
+    guard_parameters_.minimum_longitudinal_margin_m < 0.0 ||
+    !std::isfinite(guard_parameters_.minimum_lateral_margin_m) ||
+    guard_parameters_.minimum_lateral_margin_m < 0.0 ||
     commitment_lock_lateral_threshold_m_ < 0.0 ||
     commitment_lock_longitudinal_m_ < 0.0 ||
     planner_parameters_.minimum_path_points < 2)
   {
     throw std::invalid_argument(
             "planning periods, confirmation counts, clearance reserve, handoff settings, "
-            "initial stabilization/commitment lock settings, and point counts "
+            "observation/uncertainty guard settings, commitment locks, and point counts "
             "must be valid");
   }
 }
@@ -356,6 +384,7 @@ void LocalPlannerNode::onObstacles(const f110_msgs::msg::ObstacleArray::SharedPt
   }
   has_obstacles_message_ = true;
   last_obstacles_time_ = now();
+  ++obstacles_message_sequence_;
 }
 
 void LocalPlannerNode::onFrenetOdometry(const nav_msgs::msg::Odometry::SharedPtr message)
@@ -395,13 +424,16 @@ void LocalPlannerNode::clearCommitment()
   merge_geometry_confirmed_ = false;
   handoff_active_ = false;
   avoid_state_observed_ = false;
+  committed_obstacle_guards_.clear();
 }
 
 void LocalPlannerNode::resetInitialStabilization()
 {
   initial_stabilization_active_ = false;
   initial_prepare_published_ = false;
+  initial_has_counted_sequence_ = false;
   initial_cluster_union_.clear();
+  initial_observation_counts_.clear();
 }
 
 std::vector<f110_msgs::msg::Obstacle>
@@ -429,6 +461,7 @@ LocalPlannerNode::buildInitialStabilizationInput() const
       current->second.y_max <= entry.second.y_max;
     if (current_inside_retained) {
       conservative[id] = entry.second;
+      mergeObstacleVariances(conservative[id], current->second);
       continue;
     }
     const bool retained_inside_current =
@@ -437,6 +470,7 @@ LocalPlannerNode::buildInitialStabilizationInput() const
       entry.second.y_min >= current->second.y_min &&
       entry.second.y_max <= current->second.y_max;
     if (retained_inside_current) {
+      mergeObstacleVariances(current->second, entry.second);
       continue;
     }
 
@@ -452,6 +486,7 @@ LocalPlannerNode::buildInitialStabilizationInput() const
     merged.radius = 0.5 * std::hypot(
       merged.x_max - merged.x_min, merged.y_max - merged.y_min);
     merged.size = 2.0 * merged.radius;
+    mergeObstacleVariances(merged, entry.second);
     const auto projected = projectCartesianObstacle(merged);
     conservative[id] = projected.value_or(current->second);
   }
@@ -462,6 +497,18 @@ LocalPlannerNode::buildInitialStabilizationInput() const
     result.push_back(entry.second);
   }
   return result;
+}
+
+std::vector<f110_msgs::msg::Obstacle> LocalPlannerNode::buildGuardedObstacles(
+  const std::vector<f110_msgs::msg::Obstacle> & obstacles) const
+{
+  std::vector<f110_msgs::msg::Obstacle> guarded;
+  guarded.reserve(obstacles.size());
+  for (const auto & obstacle : obstacles) {
+    guarded.push_back(
+      buildUncertaintyGuard(obstacle, planner_.trackLength(), guard_parameters_));
+  }
+  return guarded;
 }
 
 bool LocalPlannerNode::updateInitialStabilization(
@@ -488,42 +535,43 @@ bool LocalPlannerNode::updateInitialStabilization(
   if (restart) {
     initial_stabilization_active_ = true;
     initial_stabilization_start_ = update_time;
-    initial_last_change_time_ = update_time;
+    initial_has_counted_sequence_ = false;
     initial_cluster_union_.clear();
+    initial_observation_counts_.clear();
   }
 
-  bool meaningful_change = false;
-  for (const int id : cluster_ids) {
-    const auto obstacle = std::find_if(
-      conservative_obstacles.begin(), conservative_obstacles.end(),
-      [id](const auto & candidate) {return candidate.id == id;});
-    if (obstacle == conservative_obstacles.end()) {
-      continue;
+  const bool new_obstacle_message =
+    !initial_has_counted_sequence_ ||
+    initial_last_counted_sequence_ != obstacles_message_sequence_;
+  if (new_obstacle_message) {
+    initial_has_counted_sequence_ = true;
+    initial_last_counted_sequence_ = obstacles_message_sequence_;
+    for (const int id : cluster_ids) {
+      const auto current = std::find_if(
+        static_obstacles_.begin(), static_obstacles_.end(),
+        [id](const auto & candidate) {return candidate.id == id;});
+      if (current == static_obstacles_.end()) {
+        continue;
+      }
+      const auto conservative = std::find_if(
+        conservative_obstacles.begin(), conservative_obstacles.end(),
+        [id](const auto & candidate) {return candidate.id == id;});
+      initial_cluster_union_[id] =
+        conservative != conservative_obstacles.end() ? *conservative : *current;
+      ++initial_observation_counts_[id];
     }
-    const auto previous = initial_cluster_union_.find(id);
-    if (previous == initial_cluster_union_.end()) {
-      initial_cluster_union_[id] = *obstacle;
-      meaningful_change = true;
-      continue;
-    }
-    const double expansion = std::max(
-      {0.0,
-        previous->second.x_min - obstacle->x_min,
-        obstacle->x_max - previous->second.x_max,
-        previous->second.y_min - obstacle->y_min,
-        obstacle->y_max - previous->second.y_max});
-    previous->second = *obstacle;
-    meaningful_change =
-      meaningful_change || expansion >= cluster_envelope_change_threshold_m_;
-  }
-  if (meaningful_change) {
-    initial_last_change_time_ = update_time;
   }
 
-  const double stable_duration = (update_time - initial_last_change_time_).seconds();
+  const bool observation_count_reached = std::all_of(
+    cluster_ids.begin(), cluster_ids.end(),
+    [this](int id) {
+      const auto count = initial_observation_counts_.find(id);
+      return count != initial_observation_counts_.end() &&
+             count->second >= initial_observation_count_;
+    });
   const double total_duration = (update_time - initial_stabilization_start_).seconds();
-  return stable_duration >= initial_cluster_stabilization_sec_ ||
-         total_duration >= initial_cluster_max_wait_sec_;
+  return observation_count_reached ||
+         total_duration >= initial_observation_max_wait_sec_;
 }
 
 std::vector<f110_msgs::msg::Obstacle> LocalPlannerNode::buildNextManeuverInput() const
@@ -544,14 +592,14 @@ std::vector<f110_msgs::msg::Obstacle> LocalPlannerNode::buildNextManeuverInput()
       result.push_back(obstacle);
     }
   }
-  return result;
+  return buildGuardedObstacles(result);
 }
 
 std::vector<f110_msgs::msg::Obstacle> LocalPlannerNode::buildCurrentManeuverInput(
   const EgoFrenetState & ego) const
 {
   if (!has_commitment_ || committed_result_.kind != SplinePlanKind::kAvoidance) {
-    return buildInitialStabilizationInput();
+    return buildGuardedObstacles(buildInitialStabilizationInput());
   }
 
   std::set<int> active_ids(
@@ -563,27 +611,52 @@ std::vector<f110_msgs::msg::Obstacle> LocalPlannerNode::buildCurrentManeuverInpu
   const bool merge_is_ahead = merge_forward < 0.5 * planner_.trackLength();
 
   std::vector<f110_msgs::msg::Obstacle> result;
-  result.reserve(static_obstacles_.size());
+  result.reserve(static_obstacles_.size() + committed_obstacle_guards_.size());
+  std::set<int> observed_active_ids;
   for (const auto & obstacle : static_obstacles_) {
     if (completed_obstacle_ids_.count(obstacle.id) > 0U) {
       continue;
     }
+    auto validation_obstacle =
+      buildUncertaintyGuard(obstacle, planner_.trackLength(), guard_parameters_);
+    if (active_ids.count(obstacle.id) > 0U) {
+      observed_active_ids.insert(obstacle.id);
+      const auto committed_guard = committed_obstacle_guards_.find(obstacle.id);
+      if (committed_guard != committed_obstacle_guards_.end() &&
+        obstacleEnvelopeContained(
+          validation_obstacle, committed_guard->second, planner_.trackLength()))
+      {
+        validation_obstacle = committed_guard->second;
+      }
+    }
+
     if (!merge_is_ahead || active_ids.count(obstacle.id) > 0U) {
-      result.push_back(obstacle);
+      result.push_back(validation_obstacle);
       continue;
     }
 
-    const double center_forward = planner_.forwardDistance(ego.s, obstacle.s_center);
-    const double span_forward = planner_.forwardDistance(obstacle.s_start, obstacle.s_end);
-    const double span_reverse = planner_.forwardDistance(obstacle.s_end, obstacle.s_start);
+    const double center_forward = planner_.forwardDistance(ego.s, validation_obstacle.s_center);
+    const double span_forward =
+      planner_.forwardDistance(validation_obstacle.s_start, validation_obstacle.s_end);
+    const double span_reverse =
+      planner_.forwardDistance(validation_obstacle.s_end, validation_obstacle.s_start);
     double span = std::min(span_forward, span_reverse);
     if (!(span > 1.0e-6)) {
-      span = std::max(0.05, std::abs(obstacle.size));
+      span = std::max(0.05, std::abs(validation_obstacle.size));
     }
     const double start_forward = center_forward - 0.5 * span -
       planner_parameters_.obstacle_longitudinal_padding_m;
     if (start_forward <= merge_forward + 1.0e-6) {
-      result.push_back(obstacle);
+      result.push_back(validation_obstacle);
+    }
+  }
+  for (const int id : active_ids) {
+    if (observed_active_ids.count(id) > 0U) {
+      continue;
+    }
+    const auto committed_guard = committed_obstacle_guards_.find(id);
+    if (committed_guard != committed_obstacle_guards_.end()) {
+      result.push_back(committed_guard->second);
     }
   }
   return result;
@@ -609,6 +682,7 @@ void LocalPlannerNode::resetForChainedManeuver()
   merge_geometry_confirmed_ = false;
   handoff_active_ = false;
   avoid_state_observed_ = avoid_was_observed;
+  committed_obstacle_guards_.clear();
 }
 
 bool LocalPlannerNode::beginChainedManeuverIfNeeded(
@@ -655,11 +729,22 @@ bool LocalPlannerNode::commitmentSideLocked(const EgoFrenetState & ego) const
 
 void LocalPlannerNode::commitAvoidance(
   RacelineSplineResult result,
-  const EgoFrenetState & ego)
+  const EgoFrenetState & ego,
+  const std::vector<f110_msgs::msg::Obstacle> & planning_obstacles)
 {
-  resetInitialStabilization();
   const bool replacing = has_commitment_;
   const bool avoid_was_observed = avoid_state_observed_;
+  std::set<int> committed_ids(result.obstacle_ids.begin(), result.obstacle_ids.end());
+  if (result.obstacle_id >= 0) {
+    committed_ids.insert(result.obstacle_id);
+  }
+  committed_obstacle_guards_.clear();
+  for (const auto & obstacle : planning_obstacles) {
+    if (committed_ids.count(obstacle.id) > 0U) {
+      committed_obstacle_guards_[obstacle.id] = obstacle;
+    }
+  }
+  resetInitialStabilization();
   committed_result_ = std::move(result);
   has_commitment_ = true;
   safe_stop_latched_ = false;
@@ -727,7 +812,8 @@ void LocalPlannerNode::latchSafeStop(
 void LocalPlannerNode::handleSafeStopLatch(const EgoFrenetState & ego)
 {
   const auto planning_obstacles = has_commitment_ ?
-    buildCurrentManeuverInput(ego) : buildInitialStabilizationInput();
+    buildCurrentManeuverInput(ego) :
+    buildGuardedObstacles(buildInitialStabilizationInput());
   const std::optional<bool> locked_side =
     has_commitment_ && committed_result_.kind == SplinePlanKind::kAvoidance ?
     std::optional<bool>(committed_result_.go_left) : std::nullopt;
@@ -743,7 +829,7 @@ void LocalPlannerNode::handleSafeStopLatch(const EgoFrenetState & ego)
         get_logger(),
         "Safe-stop released after %d consecutive feasible avoidance plans.",
         safe_stop_release_count_);
-      commitAvoidance(std::move(result), ego);
+      commitAvoidance(std::move(result), ego, planning_obstacles);
       publishResult(committed_result_, ego, static_obstacles_);
       return;
     }
@@ -878,9 +964,8 @@ void LocalPlannerNode::onPlanningTimer()
   }
 
   if (!has_commitment_) {
-    if (!chained_maneuver_started) {
-      planning_obstacles = buildInitialStabilizationInput();
-    }
+    auto conservative_obstacles = buildInitialStabilizationInput();
+    planning_obstacles = buildGuardedObstacles(conservative_obstacles);
     auto preparation = planner_.buildPreparationStop(ego, planning_obstacles);
     if (preparation.kind == SplinePlanKind::kNoObstacle) {
       const bool published_preparation = initial_prepare_published_;
@@ -896,14 +981,16 @@ void LocalPlannerNode::onPlanningTimer()
       return;
     } else {
       const bool stable = updateInitialStabilization(
-        preparation.obstacle_ids, planning_obstacles, now());
+        preparation.obstacle_ids, conservative_obstacles, now());
       if (!stable) {
         initial_prepare_published_ = true;
         publishResult(preparation, ego, planning_obstacles);
         return;
       }
-      // updateInitialStabilization() may have enlarged the retained union in this cycle.
-      planning_obstacles = buildInitialStabilizationInput();
+      // The final guard is frozen from the conservative multi-message union and its worst
+      // positional variance. Subsequent same-ID observations inside it cannot move the path.
+      conservative_obstacles = buildInitialStabilizationInput();
+      planning_obstacles = buildGuardedObstacles(conservative_obstacles);
       resetInitialStabilization();
     }
   } else {
@@ -938,7 +1025,7 @@ void LocalPlannerNode::onPlanningTimer()
     ego, planning_obstacles, preferred_side, allow_side_switch);
 
   if (result.kind == SplinePlanKind::kAvoidance) {
-    commitAvoidance(std::move(result), ego);
+    commitAvoidance(std::move(result), ego, planning_obstacles);
     publishResult(committed_result_, ego, planning_obstacles);
     return;
   }

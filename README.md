@@ -347,7 +347,8 @@ ros2 launch obstacle_detector obstacle_detector.launch.py simulator:=true use_si
 
 ### 터미널 5 — 로컬 플래너 (장애물 회피)
 
-`/static_obs`를 받아 최소자승 3차 스플라인 회피 경로를 만듭니다.
+`/static_obs`의 동일 ID AABB와 `s_var/d_var`를 누적해 고정 uncertainty Guard를 만들고,
+글로벌 Race Line의 Frenet `d(s)`만 이동한 3차 스플라인 회피 경로를 만듭니다.
 
 ```bash
 cd ~/2026_IFAC

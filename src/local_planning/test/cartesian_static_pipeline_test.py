@@ -48,6 +48,24 @@ def load_waypoints(path):
     return result
 
 
+def make_straight_waypoints(count=300, spacing=0.2):
+    """Build a self-contained straight reference when no CSV is supplied."""
+    result = []
+    for index in range(count):
+        waypoint = Wpnt()
+        waypoint.id = index
+        waypoint.s_m = spacing * index
+        waypoint.x_m = waypoint.s_m
+        waypoint.y_m = 0.0
+        waypoint.psi_rad = 0.0
+        waypoint.kappa_radpm = 0.0
+        waypoint.vx_mps = 2.0
+        waypoint.d_left = 1.5
+        waypoint.d_right = 1.5
+        result.append(waypoint)
+    return result
+
+
 class CartesianPipelineProbe(Node):
     """Publish one Cartesian AABB and wait for a valid Cartesian path."""
 
@@ -95,6 +113,8 @@ class CartesianPipelineProbe(Node):
         obstacle.y_min = reference.y_m - 0.20
         obstacle.y_max = reference.y_m + 0.20
         obstacle.size = math.hypot(0.40, 0.40)
+        obstacle.s_var = 0.0004
+        obstacle.d_var = 0.0001
         obstacle.is_static = True
         obstacle.is_visible = True
         obstacle_message = ObstacleArray()
@@ -146,11 +166,13 @@ class CartesianPipelineProbe(Node):
 def main():
     """Run the probe against an already running local_planner_node."""
     parser = argparse.ArgumentParser()
-    parser.add_argument('--waypoints-csv', required=True)
+    parser.add_argument('--waypoints-csv')
     parser.add_argument('--timeout', type=float, default=8.0)
     arguments = parser.parse_args()
 
-    waypoints = load_waypoints(arguments.waypoints_csv)
+    waypoints = (
+        load_waypoints(arguments.waypoints_csv)
+        if arguments.waypoints_csv else make_straight_waypoints())
     if len(waypoints) < 30:
         print('FAIL: at least 30 waypoints are required')
         return 2
@@ -164,7 +186,7 @@ def main():
         if node.passed:
             print(
                 'PASS: preparation preceded a same-ID finite Cartesian commitment '
-                'for 10 output cycles')
+                'and the uncertainty Guard kept it fixed for 10 output cycles')
             return 0
         print(f'FAIL: {node.failure or "no non-empty avoidance path received"}')
         return 1

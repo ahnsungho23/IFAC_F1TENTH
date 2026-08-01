@@ -15,6 +15,7 @@
 #ifndef LOCAL_PLANNING__LOCAL_PLANNER_NODE_HPP_
 #define LOCAL_PLANNING__LOCAL_PLANNER_NODE_HPP_
 
+#include <cstdint>
 #include <map>
 #include <mutex>
 #include <optional>
@@ -33,6 +34,7 @@
 #include <visualization_msgs/msg/marker_array.hpp>
 
 #include "global_planning/clcs_frenet_converter.hpp"
+#include "local_planning/obstacle_guard.hpp"
 #include "local_planning/raceline_spline_planner.hpp"
 
 namespace local_planning
@@ -56,9 +58,14 @@ private:
     const f110_msgs::msg::Obstacle & obstacle) const;
   bool sameReference(const f110_msgs::msg::WpntArray & message) const;
   void clearCommitment();
-  void commitAvoidance(RacelineSplineResult result, const EgoFrenetState & ego);
+  void commitAvoidance(
+    RacelineSplineResult result,
+    const EgoFrenetState & ego,
+    const std::vector<f110_msgs::msg::Obstacle> & planning_obstacles);
   void resetInitialStabilization();
   std::vector<f110_msgs::msg::Obstacle> buildInitialStabilizationInput() const;
+  std::vector<f110_msgs::msg::Obstacle> buildGuardedObstacles(
+    const std::vector<f110_msgs::msg::Obstacle> & obstacles) const;
   bool updateInitialStabilization(
     const std::vector<int> & cluster_ids,
     const std::vector<f110_msgs::msg::Obstacle> & conservative_obstacles,
@@ -102,6 +109,7 @@ private:
   rclcpp::TimerBase::SharedPtr planning_timer_;
 
   RacelineSplineParameters planner_parameters_;
+  ObstacleGuardParameters guard_parameters_;
   RacelineSplinePlanner planner_;
   global_planning::ClcsFrenetConverter::Ptr clcs_converter_;
   std::uint64_t clcs_version_{0};
@@ -113,7 +121,8 @@ private:
   rclcpp::Time last_obstacles_time_{0, 0, RCL_ROS_TIME};
   rclcpp::Time last_side_switch_time_{0, 0, RCL_ROS_TIME};
   rclcpp::Time initial_stabilization_start_{0, 0, RCL_ROS_TIME};
-  rclcpp::Time initial_last_change_time_{0, 0, RCL_ROS_TIME};
+  std::uint64_t obstacles_message_sequence_{0};
+  std::uint64_t initial_last_counted_sequence_{0};
 
   bool has_global_waypoints_{false};
   bool has_obstacles_message_{false};
@@ -131,9 +140,12 @@ private:
   bool has_state_{false};
   bool initial_stabilization_active_{false};
   bool initial_prepare_published_{false};
+  bool initial_has_counted_sequence_{false};
   uint8_t current_state_{f110_msgs::msg::StateMachine::STATE_GLOBAL};
   std::optional<bool> last_published_side_;
   std::map<int, f110_msgs::msg::Obstacle> initial_cluster_union_;
+  std::map<int, int> initial_observation_counts_;
+  std::map<int, f110_msgs::msg::Obstacle> committed_obstacle_guards_;
   std::set<int> completed_obstacle_ids_;
 
   bool require_obstacles_message_{true};
@@ -145,9 +157,8 @@ private:
   int planning_period_ms_{50};
   double state_handoff_tail_ratio_{0.10};
   double state_handoff_speed_cap_mps_{6.0};
-  double initial_cluster_stabilization_sec_{0.20};
-  double initial_cluster_max_wait_sec_{0.35};
-  double cluster_envelope_change_threshold_m_{0.03};
+  int initial_observation_count_{3};
+  double initial_observation_max_wait_sec_{0.35};
   double commitment_lock_lateral_threshold_m_{0.10};
   double commitment_lock_longitudinal_m_{0.50};
   double obstacle_marker_scale_m_{0.35};

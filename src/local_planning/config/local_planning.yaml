@@ -10,7 +10,7 @@ local_planner_node:
     obstacle_clearance_m: 0.35
     blocking_margin_m: 0.10
     vehicle_half_width_m: 0.121
-    boundary_margin_m: 0.10
+    boundary_margin_m: 0.13
     fallback_track_half_width_m: 1.50
 
     # 참고 구현의 7개 pre/apex/post 제어점 개념을 정적 장애물 상자의 앞/뒤 경계로 확장했습니다.
@@ -27,7 +27,7 @@ local_planner_node:
     post_merge_min_time_sec: 1.0
     minimum_target_offset_m: 0.20
     maximum_target_offset_m: 1.50
-    # 최초 경로를 검증 AABB보다 더 바깥에 두어 작은 AABB 흔들림을 commitment가 흡수합니다.
+    # uncertainty Guard 바깥에 추가 기하 여유를 두어 spline 표본화/검증 경계 접촉을 피합니다.
     commitment_clearance_reserve_m: 0.05
 
     # 이동된 글로벌 점의 기하학적 주행 가능성 검사입니다.
@@ -59,11 +59,16 @@ local_planner_node:
     state_handoff_tail_ratio: 0.10
     state_handoff_speed_cap_mps: 6.0
 
-    # 첫 blocking cluster는 즉시 횡이동하지 않고 준비 감속 경로로 잠깐 관측합니다.
-    # 새 ID가 붙거나 AABB 합집합이 3 cm 이상 넓어지면 안정화 시간을 다시 셉니다.
-    initial_cluster_stabilization_sec: 0.20
-    initial_cluster_max_wait_sec: 0.35
-    cluster_envelope_change_threshold_m: 0.03
+    # 첫 blocking cluster는 실제 /static_obs 메시지에서 같은 ID를 3회 관측할 때까지
+    # 준비 감속합니다. planning tick 재사용 메시지는 중복 계수하지 않습니다.
+    initial_observation_count: 3
+    initial_observation_max_wait_sec: 0.35
+    # 최초 AABB 합집합을 Kalman 중심 위치의 kσ와 AABB 크기 오차 floor만큼 확장해
+    # commitment Guard로 고정합니다. 후속 같은-ID uncertainty envelope가 Guard 안이면
+    # 기존 경로 geometry를 그대로 유지합니다.
+    uncertainty_sigma_scale: 3.0
+    uncertainty_min_longitudinal_margin_m: 0.05
+    uncertainty_min_lateral_margin_m: 0.03
     # 아래 횡/종방향 조건 중 하나에 도달하기 전에는 새 장애물 때문에 기존 방향이
     # 불가능해졌을 때 반대편을 한 번 더 평가합니다. 실제 회피 진입 뒤에는 방향을 고정합니다.
     commitment_lock_lateral_threshold_m: 0.10

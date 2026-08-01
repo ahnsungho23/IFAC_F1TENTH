@@ -33,7 +33,7 @@ struct RacelineSplineParameters
   double obstacle_clearance_m{0.35};
   double blocking_margin_m{0.10};
   double vehicle_half_width_m{0.121};
-  double boundary_margin_m{0.10};
+  double boundary_margin_m{0.13};
   double fallback_track_half_width_m{1.50};
 
   std::vector<double> pre_apex_distances_m{4.0, 3.0, 1.5};

@@ -29,9 +29,16 @@
   track-bound clearance before publishing.
 - Before the first lateral commitment, publish `ot_line=raceline_static_prepare` with a validated
   braking prefix while collecting the nearest cluster's IDs and conservative Cartesian AABB union.
-  Reset the stabilization timer on a new cluster ID or meaningful envelope expansion, but use the
-  configured maximum wait as an upper bound. An obstacle already inside the stop buffer bypasses
-  this wait and enters safe-stop immediately.
+  Count distinct `/static_obs` messages, not planning ticks, and require the configured number of
+  observations for every cluster ID unless the maximum wait is reached. Expand the final union by
+  `k*sqrt(s_var/d_var)` plus fixed longitudinal/lateral extent-noise floors and freeze that
+  uncertainty Guard with the commitment. An obstacle already inside the stop buffer bypasses this
+  wait and enters safe-stop immediately.
+- For a committed same-ID obstacle, replace the live envelope with the frozen Guard whenever the
+  complete live uncertainty envelope remains contained in it. Never slide the Guard from one
+  measurement to the next. A Guard breach must still validate the frozen path against the live
+  envelope; rebuild only when that validation fails. Keep physical obstacle clearance separate
+  from the uncertainty and AABB-extent margins.
 - Freeze committed path geometry while its remaining forward portion is still valid against the
   latest AABBs. Replan only after that validation fails. A side may be reselected before the
   configured lateral/longitudinal engagement threshold, then it is locked for the rest of the
@@ -77,18 +84,22 @@
 
 - Node declaration: `include/local_planning/local_planner_node.hpp`.
 - Algorithm declaration: `include/local_planning/raceline_spline_planner.hpp`.
-- C++ sources: `src/local_planner_node.cpp`, `src/raceline_spline_planner.cpp`.
+- Uncertainty Guard declaration: `include/local_planning/obstacle_guard.hpp`.
+- C++ sources: `src/local_planner_node.cpp`, `src/obstacle_guard.cpp`,
+  `src/raceline_spline_planner.cpp`.
 - Runtime parameters: `config/local_planning.yaml`.
 - Launch entrypoint: `launch/local_planning.launch.py`.
 - Korean node documentation: `docs/local_planner.md`.
 - Algorithm tests: `test/test_raceline_spline.cpp`, including the wrong-branch snake regression.
+- Guard tests: `test/test_obstacle_guard.cpp`, including variance inflation, frozen-envelope
+  containment, accumulated drift rejection, invalid-variance fallback, and closed-track wrap.
 - AABB projection tests: `test/test_aabb_frenet_projector.cpp`, including independent longitudinal
   and lateral extents, a rotated track frame, and curved-race-line closest-face distance.
 - Manual Cartesian contract harness: `test/cartesian_static_pipeline_test.py`; run it against a
   fresh `local_planner_node` with a `global_waypoints.csv` path.
 - Initial-cluster harness: `test/initial_cluster_stabilization_pipeline_test.py`; run it against a
-  fresh `local_planner_node` to verify that a late adjacent ID resets stabilization and affects the
-  first committed side.
+  fresh `local_planner_node` to verify that each late adjacent ID receives the configured number of
+  real topic observations and affects the first committed side.
 - Pre-engagement switch harness: `test/pre_engagement_side_switch_pipeline_test.py`; keep ego before
   both lock thresholds and verify that an invalidated side is replaced directly by the other side.
 - End-to-end detector harness: `test/static_obs_pipeline_test.py`; run it while
