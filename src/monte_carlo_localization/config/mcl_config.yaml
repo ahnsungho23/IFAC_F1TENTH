@@ -21,9 +21,9 @@ particle_filter:
     auto_init_from_waypoints: true     # Auto-initialize particles from /global_waypoints start pose
     
     # === MOTION MODEL NOISE ===
-    motion_dispersion_x: 0.15          # Forward motion noise (m) - increased for simulation
+    motion_dispersion_x: 0.08          # Forward motion noise (m) - increased for simulation
     motion_dispersion_y: 0.02          # Lateral motion noise (m) - increased for simulation  
-    motion_dispersion_theta: 0.25      # Rotation noise (rad) - increased for simulation
+    motion_dispersion_theta: 0.08      # Rotation noise (rad) - increased for simulation
     
     # === POSE SMOOTHING ===
     # ── Pose EMA smoothing (0.0=max smooth, 1.0=no smooth) ─────────────────────
@@ -43,7 +43,7 @@ particle_filter:
     # 기대 포즈로 보정하되, 측정 노이즈 R = 파티클 가중 공분산 — 복도에선 종방향 분산이
     # 커서 자동으로 odom 유지, 코너에선 분산이 작아 MCL로 재고정된다.
     # true면 EMA 스무딩 대신 EKF 출력이 /pf/pose/odom이 된다 (false = 구 EMA 거동).
-    use_pose_ekf: true
+    use_pose_ekf: false
     # 병진 오차율: 실차 휠 odom 고유 오차는 ~0.3%지만, 30Hz 델타 적용·헤딩 결합 오차를
     # 포함한 유효값으로 1%를 쓴다(과소하면 게인이 죽어 사실상 데드레커닝이 됨).
     ekf_trans_error_rate: 0.01         # 주행거리 대비 병진 오차율
