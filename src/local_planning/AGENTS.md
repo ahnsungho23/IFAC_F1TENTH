@@ -15,12 +15,9 @@
 
 - Runtime code is C++17 for ROS 2 Jazzy.
 - Use `f110_msgs/msg/ObstacleArray`, `WpntArray`, and `OTWpntArray`; do not create a new message.
-- Consume map-frame Cartesian AABBs from `obstacle_detector` Layer 2 on `/static_obs`. Project each
-  AABB center through the shared CLCS converter to lock the correct track branch. Compute the exact
-  shortest distance from the AABB faces to the ordered global-race-line polyline only inside that
-  branch's local longitudinal window; use it for the race-line-facing Frenet bound and blocking
-  decision. Keep the centre-tangent four-corner envelope for the far bound and longitudinal extent
-  used by avoidance construction.
+- Consume the detector-owned Frenet footprint on `/static_obs` without any Cartesian-to-Frenet
+  conversion. Treat `s_start/s_end/d_right/d_left` as the authoritative obstacle geometry.
+  Cartesian AABB fields are optional current-observation metadata used only for RViz markers.
 - Derive each target `d` from the obstacle lateral bound plus configured clearance and the small
   commitment reserve. Reject targets outside the per-waypoint `d_left`/`d_right` track widths.
 - Fit the local offset in unwrapped global Frenet `s`, clip cubic overshoot to the control-point
@@ -28,7 +25,7 @@
 - Validate lateral slope, recomputed Cartesian curvature, curvature rate, obstacle clearance, and
   track-bound clearance before publishing.
 - Before the first lateral commitment, publish `ot_line=raceline_static_prepare` with a validated
-  braking prefix while collecting the nearest cluster's IDs and conservative Cartesian AABB union.
+  braking prefix while collecting the nearest cluster's IDs and conservative Frenet-envelope union.
   Count distinct `/static_obs` messages, not planning ticks, and require the configured number of
   observations for every cluster ID unless the maximum wait is reached. Expand the final union by
   `k*sqrt(s_var/d_var)` plus fixed longitudinal/lateral extent-noise floors and freeze that
@@ -40,7 +37,7 @@
   envelope; rebuild only when that validation fails. Keep physical obstacle clearance separate
   from the uncertainty and AABB-extent margins.
 - Freeze committed path geometry while its remaining forward portion is still valid against the
-  latest AABBs. Replan only after that validation fails. A side may be reselected before the
+  latest Frenet envelopes. Replan only after that validation fails. A side may be reselected before the
   configured lateral/longitudinal engagement threshold, then it is locked for the rest of the
   maneuver. Keep the commitment until its tail merges at `d=0`, even if perception drops the passed
   obstacle.
@@ -66,10 +63,10 @@
 ## Interfaces
 
 - Subscribe: `/global_waypoints` (`f110_msgs/msg/WpntArray`).
-- Subscribe: `/static_obs` (`f110_msgs/msg/ObstacleArray`); each obstacle
-  must set `has_cartesian=true` and provide finite, ordered `x_min`, `x_max`, `y_min`, and `y_max`
-  fields forming a non-point AABB. The enclosing `radius` remains message metadata and is not used
-  as the planner geometry.
+- Subscribe: `/static_obs` (`f110_msgs/msg/ObstacleArray`); each obstacle must provide finite
+  `s_start/s_end/d_right/d_left` fields forming a non-point Frenet footprint, with
+  `d_right <= d_left`. `s_start > s_end` is valid across the closed-track wrap. Cartesian fields
+  and `radius` are optional metadata and are not used as planner geometry.
 - Subscribe: `/car_state/frenet/odom` (`nav_msgs/msg/Odometry`), with `position.x=s` and
   `position.y=d`.
 - Subscribe: `/state` (`f110_msgs/msg/StateMachine`) for explicit AVOID-to-GLOBAL handoff
@@ -93,10 +90,9 @@
 - Algorithm tests: `test/test_raceline_spline.cpp`, including the wrong-branch snake regression.
 - Guard tests: `test/test_obstacle_guard.cpp`, including variance inflation, frozen-envelope
   containment, accumulated drift rejection, invalid-variance fallback, and closed-track wrap.
-- AABB projection tests: `test/test_aabb_frenet_projector.cpp`, including independent longitudinal
-  and lateral extents, a rotated track frame, and curved-race-line closest-face distance.
-- Manual Cartesian contract harness: `test/cartesian_static_pipeline_test.py`; run it against a
-  fresh `local_planner_node` with a `global_waypoints.csv` path.
+- AABB projection belongs to `obstacle_detector` and must not be reintroduced here.
+- Manual Frenet contract harness: `test/frenet_static_pipeline_test.py`; run it against a fresh
+  `local_planner_node` with a `global_waypoints.csv` path.
 - Initial-cluster harness: `test/initial_cluster_stabilization_pipeline_test.py`; run it against a
   fresh `local_planner_node` to verify that each late adjacent ID receives the configured number of
   real topic observations and affects the first committed side.

@@ -147,7 +147,8 @@ class ObstacleDetectorNode : public rclcpp::Node
     std::string ego_odom_topic_;
     std::string static_obs_topic_;   // Layer 2 output (/static_obs)
     std::string opp_obs_topic_;      // Layer 3 output (/opp_obs)
-    std::string markers_topic_;
+    std::string static_markers_topic_;
+    std::string opp_markers_topic_;
     std::string map_frame_;
 
     double max_range_;
@@ -189,8 +190,8 @@ class ObstacleDetectorNode : public rclcpp::Node
     TrackerParams tracker_params_;
 
     // ---- state ----
-    // CLCS does the accurate (x,y) -> (s,d) projection; the lightweight FrenetProjector is kept
-    // only for track-boundary lookup (d_left/d_right) and s-wrap, which CLCS does not provide.
+    // CLCS does the accurate (x,y) -> (s,d) projection. FrenetProjector provides track-boundary
+    // lookup, s-wrap, and map interpolation for visualization of the final Frenet envelopes.
     global_planning::ClcsFrenetConverter::Ptr converter_;
     std::uint64_t clcs_version_{0};
     FrenetProjector frenet_;
@@ -212,7 +213,8 @@ class ObstacleDetectorNode : public rclcpp::Node
 
     rclcpp::Publisher<f110_msgs::msg::ObstacleArray>::SharedPtr static_obs_pub_;  // Layer 2
     rclcpp::Publisher<f110_msgs::msg::ObstacleArray>::SharedPtr opp_obs_pub_;     // Layer 3
-    rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr markers_pub_;
+    rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr static_markers_pub_;
+    rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr opp_markers_pub_;
 
     std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
     std::shared_ptr<tf2_ros::TransformListener> tf_listener_;

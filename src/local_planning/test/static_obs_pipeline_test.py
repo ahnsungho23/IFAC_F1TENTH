@@ -27,6 +27,7 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import LaserScan
 from tf2_ros import StaticTransformBroadcaster
+from visualization_msgs.msg import Marker, MarkerArray
 
 
 TRACK_RADIUS = 8.0
@@ -64,7 +65,10 @@ class StaticObstaclePipelineProbe(Node):
             ObstacleArray, '/static_obs', self.on_static_obstacles, 10)
         self.path_sub = self.create_subscription(
             OTWpntArray, '/avoid_waypoints', self.on_avoidance_path, 10)
+        self.static_marker_sub = self.create_subscription(
+            MarkerArray, '/static_obs/markers', self.on_static_markers, 10)
         self.saw_valid_static = False
+        self.saw_valid_static_marker = False
         self.saw_valid_path = False
         self.failure = ''
 
@@ -169,9 +173,9 @@ class StaticObstaclePipelineProbe(Node):
         self.scan_pub.publish(scan)
 
     def on_static_obstacles(self, message):
-        """Require detector output with the Cartesian contract used by the planner."""
+        """Require detector output with valid Cartesian metadata and Frenet planning bounds."""
         for obstacle in message.obstacles:
-            values = (
+            cartesian_values = (
                 obstacle.x_center,
                 obstacle.y_center,
                 obstacle.radius,
@@ -180,16 +184,43 @@ class StaticObstaclePipelineProbe(Node):
                 obstacle.y_min,
                 obstacle.y_max,
             )
+            frenet_values = (
+                obstacle.s_center,
+                obstacle.s_start,
+                obstacle.s_end,
+                obstacle.d_center,
+                obstacle.d_right,
+                obstacle.d_left,
+            )
             if (
                     obstacle.is_static and obstacle.is_visible and
                     obstacle.has_cartesian and obstacle.radius > 0.0 and
                     obstacle.x_min <= obstacle.x_max and
                     obstacle.y_min <= obstacle.y_max and
+                    obstacle.d_right <= obstacle.d_left and
                     math.hypot(
                         obstacle.x_max - obstacle.x_min,
                         obstacle.y_max - obstacle.y_min) > 0.0 and
-                    all(math.isfinite(value) for value in values)):
+                    all(math.isfinite(value) for value in cartesian_values) and
+                    all(math.isfinite(value) for value in frenet_values)):
                 self.saw_valid_static = True
+
+    def on_static_markers(self, message):
+        """Require a map-frame Frenet boundary mirroring the static obstacle input."""
+        self.saw_valid_static_marker = (
+            self.saw_valid_static_marker
+            or any(
+                marker.action == Marker.ADD
+                and marker.type == Marker.LINE_STRIP
+                and marker.header.frame_id == 'map'
+                and len(marker.points) >= 5
+                and all(
+                    math.isfinite(point.x)
+                    and math.isfinite(point.y)
+                    and math.isfinite(point.z)
+                    for point in marker.points)
+                for marker in message.markers)
+        )
 
     def on_avoidance_path(self, message):
         """Require a finite path that actually moves off the global race line."""
@@ -217,13 +248,19 @@ def main():
     try:
         while (
                 rclpy.ok() and time.monotonic() < deadline and
-                not node.saw_valid_path):
+                not (node.saw_valid_path and node.saw_valid_static_marker)):
             rclpy.spin_once(node, timeout_sec=0.1)
-        if node.saw_valid_static and node.saw_valid_path:
-            print('PASS: /scan -> /static_obs -> /avoid_waypoints is valid')
+        if (
+                node.saw_valid_static and node.saw_valid_static_marker
+                and node.saw_valid_path):
+            print(
+                'PASS: /scan -> /static_obs + matching Frenet marker '
+                '-> /avoid_waypoints is valid')
             return 0
         if not node.saw_valid_static:
             print('FAIL: detector did not publish a valid Cartesian /static_obs')
+        elif not node.saw_valid_static_marker:
+            print('FAIL: detector did not publish a matching /static_obs/markers boundary')
         else:
             print(f'FAIL: {node.failure or "no lateral /avoid_waypoints received"}')
         return 1

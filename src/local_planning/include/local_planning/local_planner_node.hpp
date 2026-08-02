@@ -33,7 +33,6 @@
 #include <std_msgs/msg/header.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 
-#include "global_planning/clcs_frenet_converter.hpp"
 #include "local_planning/obstacle_guard.hpp"
 #include "local_planning/raceline_spline_planner.hpp"
 
@@ -54,8 +53,6 @@ private:
   void onState(const f110_msgs::msg::StateMachine::SharedPtr message);
   void onPlanningTimer();
 
-  std::optional<f110_msgs::msg::Obstacle> projectCartesianObstacle(
-    const f110_msgs::msg::Obstacle & obstacle) const;
   bool sameReference(const f110_msgs::msg::WpntArray & message) const;
   void clearCommitment();
   void commitAvoidance(
@@ -111,8 +108,6 @@ private:
   RacelineSplineParameters planner_parameters_;
   ObstacleGuardParameters guard_parameters_;
   RacelineSplinePlanner planner_;
-  global_planning::ClcsFrenetConverter::Ptr clcs_converter_;
-  std::uint64_t clcs_version_{0};
   f110_msgs::msg::WpntArray global_waypoints_;
   std::vector<f110_msgs::msg::Obstacle> static_obstacles_;
   nav_msgs::msg::Odometry latest_odometry_;

@@ -88,6 +88,12 @@ class PreEngagementSwitchProbe(Node):
         obstacle.y_max = 1.0 if self.stage == 'expanded' else 0.2
         obstacle.x_center = 0.5 * (obstacle.x_min + obstacle.x_max)
         obstacle.y_center = 0.5 * (obstacle.y_min + obstacle.y_max)
+        obstacle.s_start = obstacle.x_min
+        obstacle.s_end = obstacle.x_max
+        obstacle.s_center = obstacle.x_center
+        obstacle.d_right = obstacle.y_min
+        obstacle.d_left = obstacle.y_max
+        obstacle.d_center = obstacle.y_center
         obstacle.radius = 0.5 * math.hypot(
             obstacle.x_max - obstacle.x_min,
             obstacle.y_max - obstacle.y_min)

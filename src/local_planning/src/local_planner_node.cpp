@@ -19,19 +19,18 @@
 #include <cmath>
 #include <functional>
 #include <memory>
-#include <stdexcept>
 #include <utility>
 
 #include <geometry_msgs/msg/point.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <visualization_msgs/msg/marker.hpp>
 
-#include "local_planning/aabb_frenet_projector.hpp"
-
 namespace local_planning
 {
 namespace
 {
+
+constexpr double kGeometryEpsilon = 1.0e-9;
 
 geometry_msgs::msg::Quaternion yawQuaternion(double yaw)
 {
@@ -65,6 +64,127 @@ void mergeObstacleVariances(
   target.d_var = conservativeVariance(target.d_var, other.d_var);
   target.vs_var = conservativeVariance(target.vs_var, other.vs_var);
   target.vd_var = conservativeVariance(target.vd_var, other.vd_var);
+}
+
+double wrapS(double s, double track_length)
+{
+  if (!(track_length > kGeometryEpsilon) || !std::isfinite(s)) {
+    return s;
+  }
+  s = std::fmod(s, track_length);
+  return s < 0.0 ? s + track_length : s;
+}
+
+double forwardDistance(double from_s, double to_s, double track_length)
+{
+  return wrapS(to_s - from_s, track_length);
+}
+
+double obstacleLongitudinalSpan(
+  const f110_msgs::msg::Obstacle & obstacle,
+  double track_length)
+{
+  const double forward = forwardDistance(obstacle.s_start, obstacle.s_end, track_length);
+  const double reverse = forwardDistance(obstacle.s_end, obstacle.s_start, track_length);
+  const double span = std::min(forward, reverse);
+  if (std::isfinite(span) && span > kGeometryEpsilon) {
+    return span;
+  }
+  return std::max(0.0, std::abs(obstacle.size));
+}
+
+double signedTrackDelta(double from_s, double to_s, double track_length)
+{
+  double delta = forwardDistance(from_s, to_s, track_length);
+  if (delta > 0.5 * track_length) {
+    delta -= track_length;
+  }
+  return delta;
+}
+
+bool validFrenetObstacle(
+  const f110_msgs::msg::Obstacle & obstacle,
+  double track_length)
+{
+  if (!(track_length > kGeometryEpsilon) ||
+    !std::isfinite(obstacle.s_center) ||
+    !std::isfinite(obstacle.s_start) ||
+    !std::isfinite(obstacle.s_end) ||
+    !std::isfinite(obstacle.d_center) ||
+    !std::isfinite(obstacle.d_right) ||
+    !std::isfinite(obstacle.d_left) ||
+    !std::isfinite(obstacle.size) ||
+    obstacle.size < 0.0 ||
+    obstacle.d_right > obstacle.d_left + kGeometryEpsilon)
+  {
+    return false;
+  }
+  const double longitudinal_span = obstacleLongitudinalSpan(obstacle, track_length);
+  const double lateral_span = obstacle.d_left - obstacle.d_right;
+  return longitudinal_span > kGeometryEpsilon || lateral_span > kGeometryEpsilon;
+}
+
+bool validCartesianAabb(const f110_msgs::msg::Obstacle & obstacle)
+{
+  return obstacle.has_cartesian &&
+         std::isfinite(obstacle.x_min) &&
+         std::isfinite(obstacle.x_max) &&
+         std::isfinite(obstacle.y_min) &&
+         std::isfinite(obstacle.y_max) &&
+         obstacle.x_min <= obstacle.x_max &&
+         obstacle.y_min <= obstacle.y_max;
+}
+
+f110_msgs::msg::Obstacle mergeObstacleEnvelopes(
+  const f110_msgs::msg::Obstacle & first,
+  const f110_msgs::msg::Obstacle & second,
+  double track_length)
+{
+  auto merged = first;
+  const double first_half_span =
+    0.5 * obstacleLongitudinalSpan(first, track_length);
+  const double second_half_span =
+    0.5 * obstacleLongitudinalSpan(second, track_length);
+  const double second_center =
+    signedTrackDelta(first.s_center, second.s_center, track_length);
+  const double lower = std::min(
+    -first_half_span, second_center - second_half_span);
+  const double upper = std::max(
+    first_half_span, second_center + second_half_span);
+
+  merged.s_start = wrapS(first.s_center + lower, track_length);
+  merged.s_end = wrapS(first.s_center + upper, track_length);
+  merged.s_center = wrapS(
+    first.s_center + 0.5 * (lower + upper), track_length);
+  merged.d_right = std::min(first.d_right, second.d_right);
+  merged.d_left = std::max(first.d_left, second.d_left);
+  merged.d_center = 0.5 * (merged.d_right + merged.d_left);
+  merged.size = std::hypot(upper - lower, merged.d_left - merged.d_right);
+  mergeObstacleVariances(merged, second);
+
+  const bool first_has_aabb = validCartesianAabb(first);
+  const bool second_has_aabb = validCartesianAabb(second);
+  if (first_has_aabb || second_has_aabb) {
+    const auto & seed = first_has_aabb ? first : second;
+    merged.has_cartesian = true;
+    merged.x_min = seed.x_min;
+    merged.x_max = seed.x_max;
+    merged.y_min = seed.y_min;
+    merged.y_max = seed.y_max;
+    if (first_has_aabb && second_has_aabb) {
+      merged.x_min = std::min(first.x_min, second.x_min);
+      merged.x_max = std::max(first.x_max, second.x_max);
+      merged.y_min = std::min(first.y_min, second.y_min);
+      merged.y_max = std::max(first.y_max, second.y_max);
+    }
+    merged.x_center = 0.5 * (merged.x_min + merged.x_max);
+    merged.y_center = 0.5 * (merged.y_min + merged.y_max);
+    merged.radius = 0.5 * std::hypot(
+      merged.x_max - merged.x_min, merged.y_max - merged.y_min);
+  } else {
+    merged.has_cartesian = false;
+  }
+  return merged;
 }
 
 }  // namespace
@@ -298,61 +418,12 @@ void LocalPlannerNode::onGlobalWaypoints(
     RCLCPP_ERROR(get_logger(), "Rejected /global_waypoints: %s", error.c_str());
     return;
   }
-  std::vector<global_planning::ReferenceWaypoint> reference;
-  reference.reserve(message->wpnts.size());
-  for (const auto & waypoint : message->wpnts) {
-    reference.push_back({waypoint.x_m, waypoint.y_m, waypoint.s_m});
-  }
-  try {
-    global_planning::ClcsFrenetConfig config;
-    config.closed_loop = true;
-    clcs_converter_ = global_planning::ClcsFrenetConverter::create(
-      reference, config, ++clcs_version_);
-  } catch (const std::exception & exception) {
-    has_global_waypoints_ = false;
-    clcs_converter_.reset();
-    clearCommitment();
-    RCLCPP_ERROR(
-      get_logger(), "Failed to build CLCS converter for Cartesian obstacles: %s",
-      exception.what());
-    return;
-  }
   global_waypoints_ = *message;
   has_global_waypoints_ = true;
   clearCommitment();
   RCLCPP_INFO(
     get_logger(), "Loaded %zu ordered global race-line waypoints (track %.2f m).",
     global_waypoints_.wpnts.size(), planner_.trackLength());
-}
-
-std::optional<f110_msgs::msg::Obstacle> LocalPlannerNode::projectCartesianObstacle(
-  const f110_msgs::msg::Obstacle & obstacle) const
-{
-  if (!clcs_converter_ || !obstacle.has_cartesian ||
-    !std::isfinite(obstacle.x_min) || !std::isfinite(obstacle.x_max) ||
-    !std::isfinite(obstacle.y_min) || !std::isfinite(obstacle.y_max))
-  {
-    return std::nullopt;
-  }
-
-  const auto bounds = projectCartesianAabb(
-    *clcs_converter_, planner_.trackLength(),
-    obstacle.x_min, obstacle.x_max, obstacle.y_min, obstacle.y_max);
-  if (!bounds.has_value()) {
-    return std::nullopt;
-  }
-
-  auto projected = obstacle;
-  projected.x_center = bounds->x_center;
-  projected.y_center = bounds->y_center;
-  projected.s_center = bounds->s_center;
-  projected.d_center = bounds->d_center;
-  projected.s_start = bounds->s_start;
-  projected.s_end = bounds->s_end;
-  projected.d_right = bounds->d_right;
-  projected.d_left = bounds->d_left;
-  projected.size = bounds->diagonal;
-  return projected;
 }
 
 void LocalPlannerNode::onObstacles(const f110_msgs::msg::ObstacleArray::SharedPtr message)
@@ -362,16 +433,15 @@ void LocalPlannerNode::onObstacles(const f110_msgs::msg::ObstacleArray::SharedPt
   if (!message->header.frame_id.empty() && message->header.frame_id != frame_id_) {
     RCLCPP_WARN_THROTTLE(
       get_logger(), *get_clock(), 2000,
-      "Ignoring Cartesian obstacle array in frame '%s'; expected '%s'.",
+      "Ignoring obstacle array in frame '%s'; expected '%s'.",
       message->header.frame_id.c_str(), frame_id_.c_str());
     has_obstacles_message_ = false;
     return;
   }
   std::size_t rejected = 0;
   for (const auto & obstacle : message->obstacles) {
-    const auto projected = projectCartesianObstacle(obstacle);
-    if (projected.has_value()) {
-      static_obstacles_.push_back(projected.value());
+    if (validFrenetObstacle(obstacle, planner_.trackLength())) {
+      static_obstacles_.push_back(obstacle);
     } else {
       ++rejected;
     }
@@ -379,7 +449,7 @@ void LocalPlannerNode::onObstacles(const f110_msgs::msg::ObstacleArray::SharedPt
   if (rejected > 0U) {
     RCLCPP_WARN_THROTTLE(
       get_logger(), *get_clock(), 2000,
-      "Rejected %zu static obstacles with an invalid Cartesian AABB or CLCS projection.",
+      "Rejected %zu static obstacles with invalid detector-provided Frenet bounds.",
       rejected);
   }
   has_obstacles_message_ = true;
@@ -453,42 +523,8 @@ LocalPlannerNode::buildInitialStabilizationInput() const
       conservative[id] = entry.second;
       continue;
     }
-
-    const bool current_inside_retained =
-      current->second.x_min >= entry.second.x_min &&
-      current->second.x_max <= entry.second.x_max &&
-      current->second.y_min >= entry.second.y_min &&
-      current->second.y_max <= entry.second.y_max;
-    if (current_inside_retained) {
-      conservative[id] = entry.second;
-      mergeObstacleVariances(conservative[id], current->second);
-      continue;
-    }
-    const bool retained_inside_current =
-      entry.second.x_min >= current->second.x_min &&
-      entry.second.x_max <= current->second.x_max &&
-      entry.second.y_min >= current->second.y_min &&
-      entry.second.y_max <= current->second.y_max;
-    if (retained_inside_current) {
-      mergeObstacleVariances(current->second, entry.second);
-      continue;
-    }
-
-    // Only partially overlapping envelopes need a new CLCS projection. If either AABB contains
-    // the other, its already-projected Frenet bounds are the conservative result.
-    auto merged = current->second;
-    merged.x_min = std::min(merged.x_min, entry.second.x_min);
-    merged.x_max = std::max(merged.x_max, entry.second.x_max);
-    merged.y_min = std::min(merged.y_min, entry.second.y_min);
-    merged.y_max = std::max(merged.y_max, entry.second.y_max);
-    merged.x_center = 0.5 * (merged.x_min + merged.x_max);
-    merged.y_center = 0.5 * (merged.y_min + merged.y_max);
-    merged.radius = 0.5 * std::hypot(
-      merged.x_max - merged.x_min, merged.y_max - merged.y_min);
-    merged.size = 2.0 * merged.radius;
-    mergeObstacleVariances(merged, entry.second);
-    const auto projected = projectCartesianObstacle(merged);
-    conservative[id] = projected.value_or(current->second);
+    conservative[id] = mergeObstacleEnvelopes(
+      current->second, entry.second, planner_.trackLength());
   }
 
   std::vector<f110_msgs::msg::Obstacle> result;
@@ -1133,6 +1169,9 @@ visualization_msgs::msg::MarkerArray LocalPlannerNode::makeMarkers(
 
   int marker_id = 0;
   for (const auto & obstacle : obstacles) {
+    if (!validCartesianAabb(obstacle)) {
+      continue;
+    }
     Marker marker;
     marker.header = clear.header;
     marker.ns = "static_obstacles";

@@ -84,7 +84,7 @@ class SequentialObstacleProbe(Node):
 
     @staticmethod
     def obstacle(obstacle_id, center_s, d_right, d_left):
-        """Build a map-frame Cartesian AABB for the straight reference."""
+        """Build a detector-style Frenet obstacle for the straight reference."""
         obstacle = Obstacle()
         obstacle.id = obstacle_id
         obstacle.has_cartesian = True
@@ -96,6 +96,12 @@ class SequentialObstacleProbe(Node):
         obstacle.x_max = center_s + 0.2
         obstacle.y_min = d_right
         obstacle.y_max = d_left
+        obstacle.s_start = center_s - 0.2
+        obstacle.s_end = center_s + 0.2
+        obstacle.s_center = center_s
+        obstacle.d_right = d_right
+        obstacle.d_left = d_left
+        obstacle.d_center = 0.5 * (d_right + d_left)
         obstacle.radius = 0.5 * math.hypot(
             obstacle.x_max - obstacle.x_min,
             obstacle.y_max - obstacle.y_min)

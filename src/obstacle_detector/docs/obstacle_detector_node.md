@@ -45,12 +45,17 @@ detection으로 복원해 하나의 Kalman track이 생성되도록 하는 segme
 
 각 클러스터에 다음 필터를 순서대로 적용한다.
 
-1. Cartesian centroid와 AABB 대각선 `size`를 계산한다.
+1. map-frame Cartesian AABB와 대각선 `size`를 계산한다.
 2. `size > max_obs_size`인 큰 구조물을 제거한다.
-3. centroid를 CLCS로 Frenet `(s,d)`에 투영한다.
-4. 에고 기준 `view_behind_distance`부터 `max_viewing_distance`까지의 관측 창만 남긴다.
-5. waypoint의 `d_left/d_right` 안에 있는 클러스터만 남긴다.
-6. 클러스터 점 중 `/map` occupied cell 위의 비율이 `map_point_reject_ratio` 이상이면 제거한다.
+3. `aabb_frenet_projector`가 AABB 중심을 CLCS로 투영해 branch를 고정한다.
+4. 중심의 local tangent/normal에서 네 모서리 envelope를 계산해 종방향 반폭과 반대편 횡경계를
+   구한다. Race Line을 향한 횡경계는 그 branch 주변의 실제 waypoint 선분과 AABB 네 면 사이
+   최단거리로 보정한다.
+5. 투영된 AABB 중심을 detection `(s,d)`로 사용하고, 종방향 반폭 및 중심 기준 좌·우 offset을
+   함께 tracker에 전달한다.
+6. 에고 기준 `view_behind_distance`부터 `max_viewing_distance`까지의 관측 창만 남긴다.
+7. waypoint의 `d_left/d_right` 안에 있는 클러스터만 남긴다.
+8. 클러스터 점 중 `/map` occupied cell 위의 비율이 `map_point_reject_ratio` 이상이면 제거한다.
 
 Layer 1은 벽과 알려진 지도 구조물을 제거하는 필터이며 별도 토픽으로 발행하지 않는다.
 
@@ -134,8 +139,9 @@ velocity_m2 = v_relᵀ P_velocity⁻¹ v_rel
 
 ### 2.6 레이어 병합과 발행
 
-발행 가능한 track을 static과 dynamic으로 분리한다. 같은 레이어 안에서 Frenet 박스의 모서리 간격이
-`layer_merge_gap_s/d` 이내인 track들을 하나의 객체로 병합한다.
+발행 가능한 track을 static과 dynamic으로 분리한다. tracker가 보존한 독립적인 종·횡 Frenet
+extent로 박스 모서리 간격을 계산하고, 같은 레이어 안에서 그 간격이 `layer_merge_gap_s/d`
+이내인 track들을 하나의 객체로 병합한다.
 
 이 `layer_merge`는 tracking 전 `cluster_merge`와 역할이 다르다.
 
@@ -144,16 +150,20 @@ velocity_m2 = v_relᵀ P_velocity⁻¹ v_rel
 
 - 모든 병합 static 객체를 `/static_obs`로 발행한다.
 - 병합 dynamic 객체 중 에고 전방에서 가장 가까운 하나를 `/opp_obs`로 발행한다.
-- RViz 마커는 실제 Cartesian AABB 크기의 사각형으로 표시하며 static은 파란색, dynamic
-  opponent는 빨간색이다.
+- `/static_obs/markers`는 최종 `/static_obs`의 Frenet 경계를 파란 테두리로 표시한다.
+- `/opp_obs/markers`는 최종 `/opp_obs`의 Frenet 경계를 빨간 테두리로 표시한다.
+- 마커는 `s_start/s_end/d_right/d_left`에서 직접 만들어지므로 local planner 입력과 같은
+  영역을 나타낸다.
 
 두 ObstacleArray 토픽은 장애물이 없는 scan에서도 빈 배열로 발행된다.
 
-### 2.7 Cartesian AABB
+### 2.7 Cartesian AABB와 authoritative Frenet 경계
 
-각 cluster의 map-frame `x_min/x_max/y_min/y_max`를 Detection과 Track에 보존한다. 같은 레이어에서
-여러 track이 한 객체로 병합되면 현재 scan에서 실제로 측정된 `is_visible=true` 멤버들의 AABB 합집합을
-출력한다.
+각 cluster의 map-frame `x_min/x_max/y_min/y_max`와 투영된 독립 Frenet extent를 Detection과
+Track에 보존한다. 같은 레이어에서 여러 track이 한 객체로 병합되면 현재 scan에서 실제로 측정된
+`is_visible=true` 멤버들의 AABB 합집합을 만든 뒤 그 완전한 합집합을 한 번 다시 투영한다.
+따라서 visible 출력의 Cartesian AABB와 `s_start/s_end/d_right/d_left`는 같은 footprint를
+표현한다. 이 투영은 detector에서만 수행하며 downstream planner는 결과를 그대로 사용한다.
 
 ```text
 x_center = (x_min + x_max) / 2
@@ -161,16 +171,14 @@ y_center = (y_min + y_max) / 2
 radius   = 0.5 × hypot(x_max - x_min, y_max - y_min)
 ```
 
-유효한 합집합이 있으면 `has_cartesian=true`와 함께 중심, 경계, 반지름을 채운다. `x_var/y_var`는
-CLCS 접선으로 공분산을 완전히 회전하기 전까지 보수적으로 `max(s_var, d_var)`를 양축에 사용한다.
+유효한 합집합이 있으면 `has_cartesian=true`와 함께 중심, 경계, 반지름 및 재투영된 Frenet 경계를
+채운다. `x_var/y_var`는 CLCS 접선으로 공분산을 완전히 회전하기 전까지 보수적으로
+`max(s_var, d_var)`를 양축에 사용한다.
 
 Track이 이번 scan에서 detection과 연결되지 않으면 Kalman의 Frenet `(s,d)`는 예측되지만 마지막 raw
-Cartesian AABB는 움직이지 않는다. 따라서 component 전체가 predicted-only이면 Frenet 출력은 유지하되
-`has_cartesian=false`로 발행하고 RViz Cartesian marker도 만들지 않는다. 이는 dynamic TTL 동안 낡은
-AABB가 현재 충돌 위치로 해석되는 것을 방지한다.
-
-Cartesian AABB는 map 축에 정렬된 관측 footprint다. 기존 `size × size` Frenet merge 판정과
-`s_start/s_end/d_left/d_right` envelope는 바꾸지 않는다.
+Cartesian AABB는 움직이지 않는다. 따라서 component 전체가 predicted-only이면 마지막 측정
+Frenet 종·횡 크기를 예측 중심 주위에 유지하되 `has_cartesian=false`로 발행한다. RViz는 stale
+Cartesian AABB 대신 이 예측 Frenet 경계를 낮은 alpha의 테두리로 표시한다.
 
 ### 2.8 Perception 진단 통계
 
@@ -222,9 +230,10 @@ motion(yaw_used=... fresh=... ref_vs=... ref_vd=...)
 
 | 토픽 파라미터 | 기본 토픽 | 메시지 타입 | 내용 |
 |---|---|---|---|
-| `static_obs_topic` | `/static_obs` | `f110_msgs/msg/ObstacleArray` | provisional/confirmed 정적 객체 전체와 visible Cartesian AABB |
-| `opp_obs_topic` | `/opp_obs` | `f110_msgs/msg/ObstacleArray` | 최근접 동적 상대차 최대 1개와 visible Cartesian AABB |
-| `markers_topic` | `/perception/obstacles/markers` | `visualization_msgs/msg/MarkerArray` | RViz 표시 |
+| `static_obs_topic` | `/static_obs` | `f110_msgs/msg/ObstacleArray` | provisional/confirmed 정적 객체 전체의 Frenet 경계와 visible Cartesian AABB |
+| `opp_obs_topic` | `/opp_obs` | `f110_msgs/msg/ObstacleArray` | 최근접 동적 상대차 최대 1개의 Frenet 경계와 visible Cartesian AABB |
+| `static_markers_topic` | `/static_obs/markers` | `visualization_msgs/msg/MarkerArray` | 최종 `/static_obs` Frenet 경계의 RViz mirror |
+| `opp_markers_topic` | `/opp_obs/markers` | `visualization_msgs/msg/MarkerArray` | 최종 `/opp_obs` Frenet 경계의 RViz mirror |
 
 ## 5. 주요 파라미터
 
@@ -308,4 +317,5 @@ python3 ~/2026_IFAC/src/obstacle_detector/test/synthetic_opponent_test.py
 PASS 조건은 동적 상대차가 먼저 `/static_obs`에 provisional로 나타난 뒤 같은 ID로 `/opp_obs`에
 이동하고, 정적 장애물이 `/static_obs`에만 나타나며,
 5포인트 미만 LiDAR 파편들이 tracking 전에 하나의 detection으로 복원되고, 별도 track으로 남은
-조각난 정적 물체도 layer merge에서 하나의 출력 객체로 병합되는 것이다.
+조각난 정적 물체도 layer merge에서 하나의 출력 객체로 병합되며, 모든 출력 Frenet 경계가
+유한하고 `d_right <= d_left`인 것이다. 폐루프 경계를 넘는 객체의 `s_start > s_end`는 정상이다.

@@ -82,7 +82,7 @@ Visualization Manager:
       Value: true
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
-      Name: ObstacleMarkers
+      Name: StaticObstacleFrenetBounds
       Namespaces:
         {}
       Topic:
@@ -90,7 +90,19 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /perception/obstacles/markers
+        Value: /static_obs/markers
+      Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: OpponentFrenetBounds
+      Namespaces:
+        {}
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /opp_obs/markers
       Value: true
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true

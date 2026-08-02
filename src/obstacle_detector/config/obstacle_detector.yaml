@@ -19,7 +19,8 @@ obstacle_detector:
     ego_odom_topic: "/pf/pose/odom"            # ego pose in map frame (MCL). Sim: /ego_racecar/odom
     static_obs_topic: "/static_obs"            # Layer 2 output (ObstacleArray, is_static=true)
     opp_obs_topic: "/opp_obs"                  # Layer 3 output (ObstacleArray, <=1 opponent)
-    markers_topic: "/perception/obstacles/markers"   # RViz MarkerArray (blue=static, red=opponent)
+    static_markers_topic: "/static_obs/markers" # RViz mirror of the final /static_obs Frenet bounds
+    opp_markers_topic: "/opp_obs/markers"       # RViz mirror of the final /opp_obs Frenet bounds
     map_frame: "map"
 
     max_range: 14.0                            # ignore returns beyond this (m). Upper bound is the
@@ -70,7 +71,7 @@ obstacle_detector:
                                                #   (>= ~0.6 m) between distinct objects never merges
 
     # === OUTPUT ===
-    publish_markers: true                      # RViz MarkerArray
+    publish_markers: true                      # publish both Frenet-boundary MarkerArray mirrors
     diagnostics_enable: true                   # emit passive perception diagnostics
     diagnostics_period_sec: 1.0                # wall-clock accumulation window (s, minimum 0.1)
 

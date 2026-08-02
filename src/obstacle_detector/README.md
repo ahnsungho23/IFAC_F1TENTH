@@ -13,16 +13,18 @@
 /scan + /global_waypoints + /map + ego odom + TF
   → adaptive-breakpoint clustering
   → tracking 전 LiDAR 파편 병합
+  → Cartesian AABB 전체의 Frenet 경계 투영
   → 크기·관측거리·트랙경계·점유지도 필터
   → 거리·희소도·회전량 기반 adaptive 측정 공분산
   → Frenet 등속 Kalman tracking
   → PENDING / PROVISIONAL_STATIC / CONFIRMED_STATIC / DYNAMIC 분류
   → 레이어 내부 객체 병합
-  → visible track의 Cartesian AABB 합집합·중심·반지름
+  → visible track의 Cartesian AABB 합집합과 일치하는 Frenet 경계
   → 1초 누적 perception 진단 로그
   ├─ /static_obs
   ├─ /opp_obs
-  └─ /perception/obstacles/markers
+  ├─ /static_obs/markers
+  └─ /opp_obs/markers
 ```
 
 ### 레이어
@@ -39,9 +41,16 @@
 상대속도·속도 불확실성·에고 회전율을 모두 통과한 이동 증거가 25회 연속 쌓이면 같은 ID로
 `/opp_obs`로 이동한다.
 
-각 visible 객체는 `has_cartesian=true`와 map-frame AABB, AABB 중심, AABB를 감싸는 원의 반지름을
-함께 제공한다. Detection이 끊겨 Kalman 예측만 남은 객체는 Frenet 상태는 유지하지만 stale raw AABB를
+각 visible 객체는 map-frame AABB 전체를 CLCS에 투영한
+`s_start/s_end/d_right/d_left`를 authoritative geometry로 제공한다. 같은 footprint의
+`has_cartesian=true`, AABB 중심, AABB를 감싸는 원의 반지름도 함께 제공한다. Detection이 끊겨
+Kalman 예측만 남은 객체는 마지막 측정 Frenet 크기를 예측 중심에 유지하지만 stale raw AABB를
 현재 위치로 오해하지 않도록 `has_cartesian=false`로 발행한다.
+
+RViz용 `/static_obs/markers`와 `/opp_obs/markers`는 각각 최종 ObstacleArray의
+`s_start/s_end/d_right/d_left`를 map 좌표로 변환한 테두리다. 따라서 `/static_obs/markers`는
+local planner가 실제로 판단하는 정적 장애물 영역과 같다. Predicted-only 객체도 표시하며 현재
+관측 객체보다 옅게 그린다.
 
 ## 주요 입출력
 
@@ -53,7 +62,8 @@
 | 구독 | `/pf/pose/odom` | `nav_msgs/msg/Odometry` |
 | 발행 | `/static_obs` | `f110_msgs/msg/ObstacleArray` |
 | 발행 | `/opp_obs` | `f110_msgs/msg/ObstacleArray` |
-| 발행 | `/perception/obstacles/markers` | `visualization_msgs/msg/MarkerArray` |
+| 발행 | `/static_obs/markers` | `visualization_msgs/msg/MarkerArray` |
+| 발행 | `/opp_obs/markers` | `visualization_msgs/msg/MarkerArray` |
 
 `simulator:=true`에서는 ego odom 입력이 `/ego_racecar/odom`으로 바뀐다.
 

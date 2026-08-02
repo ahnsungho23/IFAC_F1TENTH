@@ -27,12 +27,11 @@
 현재 프로젝트에는 다음 차이를 반영해 C++17로 새로 구현했습니다.
 
 1. CSV 대신 `/global_waypoints`를 사용합니다.
-2. `/static_obs`의 map-frame Cartesian AABB인 `x_min/x_max/y_min/y_max`를 사용합니다.
-   AABB 중심을 CLCS로 투영해 현재 트랙 branch를 고정합니다. 종방향 범위와 장애물 반대편 경계는
-   중심 접선에서 회전한 네 꼭짓점으로 만들고, Race Line을 향한 경계는 해당 branch의 실제
-   글로벌 waypoint 선분들과 AABB 네 면 사이의 최단거리로 계산합니다. 따라서 코너에서도 중심
-   접선 하나의 근사값이 아니라 곡선을 따라 가장 가까운 면의 `|d|`가 blocking 판정에 들어갑니다.
-   enclosing-circle `radius`는 회피 형상에 사용하지 않습니다.
+2. `/static_obs`의 `s_start/s_end/d_right/d_left`를 장애물의 authoritative Frenet 경계로
+   사용합니다. `obstacle_detector`가 map-frame Cartesian AABB 전체를 CLCS로 투영하고, 가까운
+   Race Line 선분과 AABB 면 사이의 최단거리까지 반영합니다. local planner는 이 좌표변환을
+   반복하지 않습니다. Cartesian AABB와 enclosing-circle `radius`는 회피 형상에 사용하지
+   않으며, 유효한 현재 AABB가 있을 때 RViz 표시에만 사용합니다.
 3. 한 점 apex가 아니라 장애물 군집의 앞·뒤에서 목표 `d`를 유지해 긴 정적 장애물도 처리합니다.
 4. 글로벌 waypoint 자체를 출력 표본으로 사용해 Race Line의 위상 순서를 강제합니다.
 5. 좌우 모두 불가능하면 장애물 앞 감속 경로를 발행합니다.
@@ -46,13 +45,14 @@
 2. 마지막 `s_m`과 waypoint 중앙 간격으로 폐루프 트랙 길이를 구합니다.
 3. Frenet odometry의 `position.x`를 ego `s`, `position.y`를 ego `d`로 읽습니다.
 4. `/static_obs`를 provisional/confirmed 정적 레이어 계약에 따라 그대로 입력받습니다.
-5. AABB 값이 유한하고 `x_min <= x_max`, `y_min <= y_max`이며 대각선 길이가 0보다 큰지
-   검사합니다. 조건을 만족하지 않거나 중심의 CLCS 투영이 실패하면 해당 장애물을 제외합니다.
+5. detector가 채운 Frenet 값이 유한하고 `d_right <= d_left`이며 종·횡방향 중 하나 이상의
+   폭이 양수인지 검사합니다. 조건을 만족하지 않으면 해당 장애물을 제외합니다. Cartesian
+   AABB는 `has_cartesian=true`이고 값이 유효할 때만 marker metadata로 보존합니다.
 
 ### 3.2 가장 가까운 정적 장애물 군집
 
 1. ego 앞 `detection_lookahead_m` 안의 장애물 상자를 폐루프 `s`로 펼칩니다.
-2. 최초 commitment용 AABB 합집합에는 `uncertainty_sigma_scale * sqrt(s_var/d_var)`와
+2. 최초 commitment용 Frenet 경계 합집합에는 `uncertainty_sigma_scale * sqrt(s_var/d_var)`와
    `uncertainty_min_*_margin_m`을 더해 측정 불확실성 Guard를 만듭니다.
 3. 이 Guard를 다시 종방향 `obstacle_longitudinal_padding_m`, 횡방향
    `obstacle_clearance_m`만큼 팽창합니다. 현재 횡방향 clearance 기본값은 0.35 m이며,
@@ -66,21 +66,21 @@
 
 처음 blocking 장애물이 들어오면 곧바로 좌우 spline을 확정하지 않습니다. 먼저 글로벌 `d=0` 위의
 검증된 감속 prefix를 `ot_line=raceline_static_prepare`로 발행합니다. 가장 가까운 군집의 각
-ID가 서로 다른 `/static_obs` 메시지에서 `initial_observation_count`회 관측될 때까지 Cartesian
-AABB 합집합과 가장 큰 `s_var/d_var`를 누적합니다. planning timer가 같은 메시지를 여러 번
+ID가 서로 다른 `/static_obs` 메시지에서 `initial_observation_count`회 관측될 때까지 wrap-aware
+Frenet 경계 합집합과 가장 큰 `s_var/d_var`를 누적합니다. planning timer가 같은 메시지를 여러 번
 사용하더라도 관측 횟수는 한 번만 증가합니다.
 
 기본 3회 관측이 끝나면 다음 순서로 고정 Guard를 만듭니다.
 
-1. 같은 ID의 세 Cartesian AABB를 합집합으로 만듭니다.
-2. 합집합을 CLCS로 다시 투영해 Frenet 종·횡 경계를 구합니다.
+1. 같은 ID의 세 detector Frenet 경계를 폐루프 `s`를 고려해 합집합으로 만듭니다.
+2. 좌표변환 없이 이 종·횡 경계를 최초 obstacle envelope로 사용합니다.
 3. 종방향 양쪽에
    `uncertainty_min_longitudinal_margin_m + uncertainty_sigma_scale * sqrt(s_var)`를 더합니다.
 4. 횡방향 양쪽에
    `uncertainty_min_lateral_margin_m + uncertainty_sigma_scale * sqrt(d_var)`를 더합니다.
 5. 이 Guard 전체를 피하는 spline을 만들고 Guard와 경로를 함께 commitment에 저장합니다.
 
-분산은 Kalman 중심 위치 불확실성이고 AABB 크기 오차를 직접 포함하지 않으므로 고정 최소 마진을
+분산은 Kalman 중심 위치 불확실성이고 footprint 크기 오차를 직접 포함하지 않으므로 고정 최소 마진을
 별도로 더합니다. 분산이 음수이거나 유한하지 않으면 해당 sigma 항은 0으로 두고 최소 마진은
 항상 적용합니다. 입력이 누락되어 관측 횟수를 채우지 못해도
 `initial_observation_max_wait_sec`에 도달하면 그동안의 가장 보수적인 합집합과 분산으로 계획합니다.
@@ -148,8 +148,8 @@ y_local = y_global + d(s) * cos(psi_global)
 ### 3.7 commitment와 합류
 
 안전 경로가 선택되면 방향, 경로 geometry, ID별 uncertainty Guard를 고정합니다. 매
-`/static_obs`에서 같은 ID의 최신 AABB에도 동일한 uncertainty 확장을 적용합니다. 그 전체가
-저장된 Guard 안에 있으면 live AABB 대신 고정 Guard로 기존 경로를 재검증하므로 중심과 크기가
+`/static_obs`에서 같은 ID의 최신 Frenet 경계에도 동일한 uncertainty 확장을 적용합니다. 그 전체가
+저장된 Guard 안에 있으면 live envelope 대신 고정 Guard로 기존 경로를 재검증하므로 중심과 크기가
 조금 변해도 `target_d`와 출력 waypoint가 바뀌지 않습니다. Guard는 직전 관측을 따라 이동하지
 않으므로 작은 변화가 누적된 실제 이동은 결국 Guard 밖으로 나옵니다.
 
@@ -209,7 +209,7 @@ safe-stop으로 바뀌지 않습니다. 반대로 장애물 앞면이 merge 전�
 | 구분 | 기본 토픽 | 메시지 | 설명 |
 |---|---|---|---|
 | 구독 | `/global_waypoints` | `f110_msgs/msg/WpntArray` | 순서를 고정할 글로벌 Race Line |
-| 구독 | `/static_obs` | `f110_msgs/msg/ObstacleArray` | Layer 2 Cartesian AABB와 `s_var/d_var` 중심 위치 분산 |
+| 구독 | `/static_obs` | `f110_msgs/msg/ObstacleArray` | Layer 2 authoritative Frenet 경계와 `s_var/d_var` 중심 위치 분산 |
 | 구독 | `/car_state/frenet/odom` | `nav_msgs/msg/Odometry` | `x=s`, `y=d` ego 상태 |
 | 구독 | `/state` | `f110_msgs/msg/StateMachine` | AVOID 진입 및 GLOBAL handoff 완료 확인 |
 | 발행 | `/avoid_waypoints` | `f110_msgs/msg/OTWpntArray` | ego부터 글로벌 합류 뒤 lookahead까지의 회피 세그먼트 |
@@ -270,7 +270,7 @@ colcon test-result --verbose --test-result-base build/local_planning
 2. 글로벌 waypoint의 `s`와 순서를 보존한 d-offset
 3. 한쪽 트랙 폭이 부족할 때 반대쪽 선택
 4. 회피 진입 전 반대편 재평가와 진입 후 commitment 방향 고정
-5. reserve가 적용된 목표와 작은 AABB 흔들림에서 기존 경로 유지
+5. reserve가 적용된 목표와 작은 Frenet 경계 흔들림에서 기존 경로 유지
 6. 준비 감속 경로와 전체 blocking cluster ID 전달
 7. safe-stop buffer 안의 장애물에 준비 지연을 적용하지 않음
 8. 글로벌 라인과 원본 clearance가 충분한 옆 장애물 무시
@@ -279,18 +279,13 @@ colcon test-result --verbose --test-result-base build/local_planning
 11. 랩 경계 장애물 처리
 12. 가까운 반대편 스네이크 branch로 점프하지 않음
 
-`test/test_aabb_frenet_projector.cpp`는 다음을 검사합니다.
-
-1. 긴 직사각형의 종방향 길이와 좁은 횡방향 폭이 서로 독립적으로 보존됨
-2. 트랙 접선이 map 축과 회전된 경우 네 꼭짓점의 Frenet envelope가 올바름
-3. 곡선 구간에서 AABB 중심 접선이 아니라 실제 Race Line과 가장 가까운 면의 `|d|`가 사용됨
-4. 순서가 뒤집혔거나 점 크기인 잘못된 AABB가 거부됨
-
 `test/test_obstacle_guard.cpp`는 `s_var/d_var`의 표준편차 확장, 최소 크기 마진, 폐루프 `s` wrap,
 고정 Guard 안의 작은 중심 이동 허용, 누적 이동의 Guard 이탈, 잘못된 분산의 fallback을 검사합니다.
 
-`test/cartesian_static_pipeline_test.py`는 준비 감속 뒤 같은 ID의 Cartesian AABB를 ±1cm
-흔들고 `s_var/d_var`를 제공해도 10회 연속 동일 commitment가 발행되는지 확인합니다.
+`test/frenet_static_pipeline_test.py`는 준비 감속 뒤 같은 ID의 detector-style Frenet 경계를
+±1cm 흔들고 `s_var/d_var`를 제공해도 10회 연속 동일 commitment가 발행되는지 확인합니다.
+Cartesian AABB-to-Frenet 투영 단위 테스트는 좌표변환의 소유자인
+`obstacle_detector/test/test_aabb_frenet_projector.cpp`에 있습니다.
 `test/initial_cluster_stabilization_pipeline_test.py`는 첫 검출 0.1초 뒤 같은 군집에 ID를 하나
 추가해 그 ID가 실제 토픽에서 3회 관측되고, 넓어진 군집을 반영한 방향으로 최초 commitment가
 만들어지는지 확인합니다. `test/pre_engagement_side_switch_pipeline_test.py`는 ego가 회피 진입
@@ -353,18 +348,24 @@ ros2 topic hz /local_planning/markers
 ```
 
 RViz에서 `/local_planning/markers`를 추가하면 초록 선은 검증된 spline, 주황 선은 safe stop,
-보라색 점은 spline 제어점, 빨간 직육면체는 local planner가 입력으로 받은 정적 장애물
-Cartesian AABB입니다.
+보라색 점은 spline 제어점, 빨간 직육면체는 detector가 현재 관측 metadata로 제공한 정적 장애물
+Cartesian AABB입니다. `has_cartesian=false`인 predicted-only 객체는 marker를 만들지 않지만
+Frenet 경계는 계속 계획 입력으로 사용할 수 있습니다.
 
-Cartesian 입출력 통합 확인:
+local planner가 실제 사용하는 Frenet 장애물 영역을 그대로 확인하려면 detector의
+`/static_obs/markers`를 추가합니다. 이 토픽은 최종 `/static_obs`의
+`s_start/s_end/d_right/d_left`에서 생성되며 predicted-only 객체도 옅은 테두리로 표시합니다.
+
+Frenet 입력 계약 확인:
 
 ```bash
-python3 src/local_planning/test/cartesian_static_pipeline_test.py \
+python3 src/local_planning/test/frenet_static_pipeline_test.py \
   --waypoints-csv /path/to/global_waypoints.csv
 ```
 
-별도 터미널에서 `local_planner_node`가 실행 중이어야 합니다. 테스트는 map-frame AABB를 넣고
-`/avoid_waypoints`의 모든 `x_m/y_m`이 유한하며 횡방향 회피가 실제로 생성됐는지 확인합니다.
+별도 터미널에서 `local_planner_node`가 실행 중이어야 합니다. 테스트는 detector-style Frenet
+경계를 넣고 `/avoid_waypoints`의 모든 `x_m/y_m`이 유한하며 횡방향 회피가 실제로 생성됐는지
+확인합니다.
 
 실제 detector 연결을 포함한 전체 경로는 두 노드를 실행한 상태에서 다음으로 확인한다.
 
@@ -373,8 +374,8 @@ python3 src/local_planning/test/static_obs_pipeline_test.py
 ```
 
 이 테스트는 원형 글로벌 경로, free map, ego odometry, TF와 정적 장애물이 있는 LaserScan을 발행하고,
-`obstacle_detector`가 유효한 Cartesian `/static_obs`를 만든 뒤 `local_planning`이 횡방향
-`/avoid_waypoints`를 만드는지 확인한다.
+`obstacle_detector`가 유효한 Cartesian AABB와 이에 대응하는 Frenet 경계를 `/static_obs`에
+만든 뒤 `local_planning`이 그 Frenet 경계로 횡방향 `/avoid_waypoints`를 만드는지 확인한다.
 
 ## 9. 전체 파이프라인 영향
 
@@ -384,8 +385,9 @@ perception 메시지는 유지하고, local planner와 state machine 사이의 `
 - `state_machine`: `raceline_static_prepare`를 합류 완료로 해석하지 않고 AVOID를 유지합니다.
 - `wpnt_publisher`: `STATE_AVOID`일 때 기존처럼 `/avoid_waypoints`를 `/local_waypoints`로 중계합니다.
 - `obstacle_detector`: Layer 2 `/static_obs`의 `f110_msgs/msg/ObstacleArray`에
-  `has_cartesian=true`, Cartesian 중심/AABB/radius와 `is_static=true`를 채워 발행합니다.
-  local planner는 이 중 AABB를 실제 회피 형상으로 사용하고 radius는 사용하지 않습니다.
+  authoritative `s_start/s_end/d_right/d_left`와 `is_static=true`를 채워 발행합니다. 현재 visible
+  객체는 같은 footprint의 `has_cartesian=true`, Cartesian 중심/AABB/radius도 함께 제공합니다.
+  local planner는 Frenet 경계만 회피 형상으로 사용합니다.
 - 회피 결과: `/avoid_waypoints` 각 점의 `x_m/y_m`은 map-frame Cartesian 좌표입니다.
 
 `f110_msgs` 형식과 토픽은 변경하지 않았습니다.

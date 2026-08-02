@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef LOCAL_PLANNING__AABB_FRENET_PROJECTOR_HPP_
-#define LOCAL_PLANNING__AABB_FRENET_PROJECTOR_HPP_
+#ifndef OBSTACLE_DETECTOR__AABB_FRENET_PROJECTOR_HPP_
+#define OBSTACLE_DETECTOR__AABB_FRENET_PROJECTOR_HPP_
 
 #include <optional>
 
 #include "global_planning/clcs_frenet_converter.hpp"
 
-namespace local_planning
+namespace obstacle_detector
 {
 
 struct FrenetAabbBounds
@@ -34,16 +34,16 @@ struct FrenetAabbBounds
   double d_left{0.0};
   double closest_abs_d{0.0};
   double diagonal{0.0};
+  double longitudinal_half_extent{0.0};
 };
 
 std::optional<FrenetAabbBounds> projectCartesianAabb(
   const global_planning::ClcsFrenetConverter & converter,
-  double track_length,
   double x_min,
   double x_max,
   double y_min,
   double y_max);
 
-}  // namespace local_planning
+}  // namespace obstacle_detector
 
-#endif  // LOCAL_PLANNING__AABB_FRENET_PROJECTOR_HPP_
+#endif  // OBSTACLE_DETECTOR__AABB_FRENET_PROJECTOR_HPP_

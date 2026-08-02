@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Exercise the Cartesian-AABB-obstacle to Cartesian-avoidance-path contract."""
+"""Exercise the detector-provided Frenet-obstacle to Cartesian-path contract."""
 
 import argparse
 import csv
@@ -66,11 +66,11 @@ def make_straight_waypoints(count=300, spacing=0.2):
     return result
 
 
-class CartesianPipelineProbe(Node):
-    """Publish one Cartesian AABB and wait for a valid Cartesian path."""
+class FrenetPipelineProbe(Node):
+    """Publish one detector-style Frenet obstacle and wait for a Cartesian path."""
 
     def __init__(self, waypoints):
-        super().__init__('cartesian_static_pipeline_probe')
+        super().__init__('frenet_static_pipeline_probe')
         self.waypoints = waypoints
         latched = QoSProfile(depth=1)
         latched.reliability = ReliabilityPolicy.RELIABLE
@@ -104,14 +104,15 @@ class CartesianPipelineProbe(Node):
         self.publish_count += 1
         obstacle = Obstacle()
         obstacle.id = 1
-        obstacle.has_cartesian = True
-        obstacle.x_center = reference.x_m + jitter
-        obstacle.y_center = reference.y_m
-        obstacle.radius = 0.20 * math.sqrt(2.0)
-        obstacle.x_min = reference.x_m - 0.20 + jitter
-        obstacle.x_max = reference.x_m + 0.20 + jitter
-        obstacle.y_min = reference.y_m - 0.20
-        obstacle.y_max = reference.y_m + 0.20
+        # Deliberately omit Cartesian metadata. A valid plan proves that local_planning consumes
+        # the detector-owned Frenet footprint instead of reprojecting x/y.
+        obstacle.has_cartesian = False
+        obstacle.s_center = reference.s_m + jitter
+        obstacle.s_start = obstacle.s_center - 0.20
+        obstacle.s_end = obstacle.s_center + 0.20
+        obstacle.d_center = 0.0
+        obstacle.d_right = -0.20
+        obstacle.d_left = 0.20
         obstacle.size = math.hypot(0.40, 0.40)
         obstacle.s_var = 0.0004
         obstacle.d_var = 0.0001
@@ -149,14 +150,14 @@ class CartesianPipelineProbe(Node):
             self.failure = 'path did not move laterally around the obstacle'
             return
         if message.ot_line != 'raceline_local_d_offset_spline':
-            self.failure = f'unexpected path mode during AABB jitter: {message.ot_line}'
+            self.failure = f'unexpected path mode during Frenet jitter: {message.ot_line}'
             return
         peak_d = max(message.wpnts, key=lambda point: abs(point.d_m)).d_m
         if self.committed_peak_d is None:
             self.committed_peak_d = peak_d
         elif not math.isclose(peak_d, self.committed_peak_d, abs_tol=1.0e-9):
             self.failure = (
-                'committed path changed under 1 cm same-ID AABB jitter: '
+                'committed path changed under 1 cm same-ID Frenet jitter: '
                 f'{self.committed_peak_d:.6f} -> {peak_d:.6f}')
             return
         self.path_sample_count += 1
@@ -178,14 +179,14 @@ def main():
         return 2
 
     rclpy.init()
-    node = CartesianPipelineProbe(waypoints)
+    node = FrenetPipelineProbe(waypoints)
     deadline = time.monotonic() + arguments.timeout
     try:
         while rclpy.ok() and time.monotonic() < deadline and not node.passed:
             rclpy.spin_once(node, timeout_sec=0.1)
         if node.passed:
             print(
-                'PASS: preparation preceded a same-ID finite Cartesian commitment '
+                'PASS: preparation preceded a same-ID detector-Frenet commitment '
                 'and the uncertainty Guard kept it fixed for 10 output cycles')
             return 0
         print(f'FAIL: {node.failure or "no non-empty avoidance path received"}')

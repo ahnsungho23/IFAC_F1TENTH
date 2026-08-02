@@ -14,6 +14,9 @@ Detection makeDetection(double s, double d = 0.0)
     Detection detection;
     detection.s = s;
     detection.d = d;
+    detection.s_half_extent = 0.2;
+    detection.d_right_offset = -0.1;
+    detection.d_left_offset = 0.1;
     detection.size = 0.4;
     detection.x_min = s - 0.2;
     detection.x_max = s + 0.2;
@@ -69,6 +72,32 @@ TEST(ObstacleTrackerClassification, PublishesAtHitThreeAndKeepsIdThroughStaticPr
     EXPECT_TRUE(tracker.tracks().front().classified);
     EXPECT_EQ(tracker.tracks().front().motion_class, MotionClass::ConfirmedStatic);
     EXPECT_TRUE(tracker.tracks().front().is_static);
+}
+
+TEST(ObstacleTrackerGeometry, RetainsIndependentFrenetExtentsDuringPrediction)
+{
+    ObstacleTracker tracker;
+    tracker.configure(testParams(), nullptr);
+
+    auto detection = makeDetection(10.0, 0.4);
+    detection.s_half_extent = 0.30;
+    detection.d_right_offset = -0.08;
+    detection.d_left_offset = 0.12;
+    tracker.update({detection}, 0.0);
+
+    ASSERT_EQ(tracker.tracks().size(), 1U);
+    EXPECT_DOUBLE_EQ(tracker.tracks().front().s_half_extent, 0.30);
+    EXPECT_DOUBLE_EQ(tracker.tracks().front().d_right_offset, -0.08);
+    EXPECT_DOUBLE_EQ(tracker.tracks().front().d_left_offset, 0.12);
+    EXPECT_TRUE(tracker.tracks().front().is_visible);
+
+    tracker.update({}, 0.1);
+
+    ASSERT_EQ(tracker.tracks().size(), 1U);
+    EXPECT_DOUBLE_EQ(tracker.tracks().front().s_half_extent, 0.30);
+    EXPECT_DOUBLE_EQ(tracker.tracks().front().d_right_offset, -0.08);
+    EXPECT_DOUBLE_EQ(tracker.tracks().front().d_left_offset, 0.12);
+    EXPECT_FALSE(tracker.tracks().front().is_visible);
 }
 
 TEST(ObstacleTrackerClassification, RequiresConsecutiveReliableMotionBeforeDynamicPromotion)

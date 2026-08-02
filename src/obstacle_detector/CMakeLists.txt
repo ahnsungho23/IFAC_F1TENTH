@@ -44,6 +44,8 @@ set(detector_deps
   global_planning
 )
 add_executable(obstacle_detector_node
+  src/aabb_frenet_projector.cpp
+  src/frenet_marker_builder.cpp
   src/obstacle_detector_node.cpp
   src/frenet_projector.cpp
   src/obstacle_tracker.cpp
@@ -82,6 +84,29 @@ if(BUILD_TESTING)
   )
   target_link_libraries(test_obstacle_tracker Eigen3::Eigen)
   ament_target_dependencies(test_obstacle_tracker global_planning)
+
+  ament_add_gtest(test_aabb_frenet_projector
+    test/test_aabb_frenet_projector.cpp
+    src/aabb_frenet_projector.cpp
+  )
+  target_include_directories(test_aabb_frenet_projector PRIVATE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  )
+  ament_target_dependencies(test_aabb_frenet_projector global_planning)
+
+  ament_add_gtest(test_frenet_marker_builder
+    test/test_frenet_marker_builder.cpp
+    src/frenet_marker_builder.cpp
+    src/frenet_projector.cpp
+  )
+  target_include_directories(test_frenet_marker_builder PRIVATE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  )
+  ament_target_dependencies(test_frenet_marker_builder
+    f110_msgs
+    geometry_msgs
+    visualization_msgs
+  )
 
   ament_lint_auto_find_test_dependencies()
 endif()

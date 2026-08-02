@@ -75,7 +75,7 @@ class InitialClusterProbe(Node):
 
     @staticmethod
     def obstacle(obstacle_id, x_min, x_max, y_min, y_max):
-        """Create one finite map-frame Cartesian AABB."""
+        """Create one detector-style Frenet obstacle for the straight reference."""
         obstacle = Obstacle()
         obstacle.id = obstacle_id
         obstacle.has_cartesian = True
@@ -88,6 +88,12 @@ class InitialClusterProbe(Node):
         obstacle.x_center = 0.5 * (x_min + x_max)
         obstacle.y_center = 0.5 * (y_min + y_max)
         obstacle.radius = 0.5 * math.hypot(x_max - x_min, y_max - y_min)
+        obstacle.s_start = x_min
+        obstacle.s_end = x_max
+        obstacle.s_center = obstacle.x_center
+        obstacle.d_right = y_min
+        obstacle.d_left = y_max
+        obstacle.d_center = obstacle.y_center
         obstacle.size = 2.0 * obstacle.radius
         return obstacle
 

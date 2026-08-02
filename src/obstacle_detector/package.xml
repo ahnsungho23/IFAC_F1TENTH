@@ -5,9 +5,10 @@
   <version>0.0.1</version>
   <description>LiDAR-only layered obstacle detection for F1TENTH racing.
     obstacle_detector_node clusters the 2D LiDAR scan, safely rejoins fragmented surfaces,
-    removes walls with the known /map (Layer 1), projects detections into the raceline Frenet
-    frame, and tracks them with adaptive measurement covariance and gated one-to-one association.
-    It preserves visible map-frame Cartesian AABBs and publishes stationary obstacles on
+    removes walls with the known /map (Layer 1), projects complete Cartesian AABBs into
+    authoritative raceline Frenet bounds, and tracks them with adaptive measurement covariance
+    and gated one-to-one association. It preserves matching visible map-frame Cartesian AABBs and
+    publishes stationary obstacles on
     /static_obs (Layer 2) and the nearest moving opponent on /opp_obs (Layer 3).</description>
   <maintainer email="parkm04@hanyang.ac.kr">parkm04</maintainer>
   <license>Apache-2.0</license>
