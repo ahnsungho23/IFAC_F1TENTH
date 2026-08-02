@@ -3,13 +3,14 @@
 <package format="3">
   <name>state_machine</name>
   <version>0.0.0</version>
-  <description>Behavior state publisher skeleton for the F1TENTH planning pipeline.</description>
+  <description>Integrated behavior state and local waypoint selector for the F1TENTH pipeline.</description>
   <maintainer email="haejun@example.com">haejun</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <depend>rclcpp</depend>
+  <depend>geometry_msgs</depend>
   <depend>nav_msgs</depend>
   <depend>std_msgs</depend>
   <depend>f110_msgs</depend>

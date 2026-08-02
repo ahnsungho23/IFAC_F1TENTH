@@ -1,62 +1,115 @@
 # state_machine_node
 
-## 목적
+## 1. 노드 목적
 
-글로벌 주행, 정적 장애물 회피, 동적 장애물 추월 상태를 관리하고
-`f110_msgs/msg/StateMachine`을 발행합니다. 상태는 `global`, `avoid`,
-`overtake` 세 가지이며, `breake`/정지 상태와 관련된 로직은 포함하지 않습니다.
+`state_machine_node`는 주행 상태 결정과 최종 waypoint 선택을 한 프로세스에서 수행합니다.
+글로벌 주행(`GLOBAL`), 정적 장애물 회피(`AVOID`), 동적 상대차 추월(`OVERTAKE`) 상태를
+결정해 `/state`로 발행하고, 결정된 상태에 맞는 경로를 `/local_waypoints`와
+`/local_waypoints/path`로 발행합니다.
 
-## 동작 원리
+별도 `wpnt_publisher` 노드는 사용하지 않습니다.
 
-`global` 상태에서 최근 5회 수신한 회피 또는 추월 경로 중 non-empty 경로가 3회 이상이면
-해당 상태로 전환합니다. 회피·추월 경로의 합류 조건이
-충족되면 `global`로 복귀합니다. 두 경로의 진입 조건이 동시에 만족되면 `avoid`를 우선합니다.
+## 2. 동작 원리
 
-### 상태 진입 토글 (`allow_avoid_transition` / `allow_overtake_transition`)
+1. 글로벌·회피·추월 waypoint와 Frenet odometry를 각각 최신 캐시에 저장합니다.
+2. `publish_rate_hz` 타이머에서 committed-state FSM을 한 단계 평가하고 `/state` heartbeat를
+   발행합니다.
+3. Frenet odometry가 도착할 때마다 현재 committed state에 맞는 경로를 선택합니다.
+4. 선택한 `WpntArray`와 RViz용 `Path`를 같은 timestamp로 발행합니다.
 
-두 파라미터를 `false`로 두면 해당 상태로의 **진입만** 완전히 차단합니다. 판정 순서는 다음과 같습니다.
+`/state`는 기본 10 Hz 타이머 구동이고, local waypoint는 Frenet odometry 이벤트 구동입니다.
+Frenet 입력이 멈추면 마지막 index로 경로를 재발행하지 않습니다.
 
-1. `can_enter_avoid()` / `can_enter_overtake()`의 맨 앞에서 early-return 하므로,
-   위의 M-of-N 수신 확인과 경로 검증(`path_eval_*`)은 **아예 평가되지 않습니다**.
-   `/avoid_waypoints`가 정상적으로 들어와도 상태는 바뀌지 않습니다.
-2. `AVOID`/`OVERTAKE` → `GLOBAL` 복귀는 토글을 보지 않으므로 **항상 허용**됩니다.
-   따라서 `default_state`를 `avoid`로 두고 토글을 `false`로 하면, 한 번 `global`로 빠진 뒤
-   다시 돌아오지 못합니다.
-3. 진입이 꺼진 입력은 "입력 없음" 경고(`State publisher inputs: ...`) 대상에서 제외됩니다.
-   단, 이미 그 상태에 진입해 있으면(예: `default_state`) 입력이 실제로 필요하므로 경고를 유지합니다.
-4. 기동 로그에 두 값이 함께 출력되고, 둘 다 `false`면
-   `Both local-path transitions are disabled...` 경고가 한 번 나옵니다.
+### 2.1 상태 전환
 
-파라미터는 기동 시 한 번만 읽습니다(동적 재설정 콜백 없음). 값을 바꾸면 노드를 재시작하세요.
-현재 YAML 기본값은 둘 다 `false`(GLOBAL 고정 운용)이며, 코드 기본값은 `true`입니다.
+- `GLOBAL`: 최근 N개 메시지 중 M개 이상이 non-empty이면 `AVOID` 또는 `OVERTAKE`로
+  진입합니다. 둘 다 만족하면 `AVOID`가 우선입니다.
+- `AVOID`/`OVERTAKE`: ego가 local 경로 tail에 도달하고 global line에 설정 시간 동안
+  합류하면 `GLOBAL`로 복귀합니다.
+- `allow_avoid_transition`과 `allow_overtake_transition`은 진입만 차단합니다. YAML 기본값은
+  둘 다 `false`이므로 기본 운용은 `GLOBAL` 고정입니다.
 
-## 토픽과 메시지
+### 2.2 경로 유효성 및 선택
 
-| 구분 | 토픽 | 메시지 |
-|---|---|---|
-| 구독 | `/car_state/frenet/odom` | `nav_msgs/msg/Odometry` |
-| 구독 | `/global_waypoints` | `f110_msgs/msg/WpntArray` |
-| 구독 | `/avoid_waypoints` | `f110_msgs/msg/OTWpntArray` |
-| 구독 | `/overtake_waypoints` | `f110_msgs/msg/OTWpntArray` |
-| 발행 | `/state` | `f110_msgs/msg/StateMachine` |
+- GLOBAL: waypoint가 2개 이상이고 `s_m`이 엄격히 증가하며 `s_m/x_m/y_m`이 유한한 경로만
+  저장합니다. 정상 경로는 정적 데이터로 계속 사용합니다.
+- AVOID: 마지막 non-empty 경로를 유지하고 빈 메시지가 오면 즉시 무효화합니다.
+- OVERTAKE: 첫 경로를 `overtake_hold_duration_sec` 동안 고정합니다. hold 경과 후 도착한
+  non-empty 메시지로 갱신하고, hold 경과 후 도착한 빈 메시지로만 무효화합니다.
+- AVOID/OVERTAKE 상태에서 전용 경로가 무효하면 `global_fallback` 정책으로 글로벌 전방
+  구간을 발행합니다.
+
+GLOBAL 출력은 Frenet odometry의 `child_frame_id`를 최근접 글로벌 segment index로 해석해
+그 다음 waypoint부터 `waypoint_num`개를 원형으로 추출합니다.
+
+## 3. 토픽과 메시지
+
+| 구분 | 기본 토픽 | 메시지 | QoS/역할 |
+|---|---|---|---|
+| 구독 | `/global_waypoints` | `f110_msgs/msg/WpntArray` | Reliable + Transient Local, 글로벌 경로 |
+| 구독 | `/avoid_waypoints` | `f110_msgs/msg/OTWpntArray` | Reliable + Volatile, 정적 회피 경로 |
+| 구독 | `/overtake_waypoints` | `f110_msgs/msg/OTWpntArray` | Reliable + Volatile, 추월 경로 |
+| 구독 | `/car_state/frenet/odom` | `nav_msgs/msg/Odometry` | Reliable + Volatile, 위치·발행 트리거 |
+| 발행 | `/state` | `f110_msgs/msg/StateMachine` | Reliable + Transient Local, FSM 상태 |
+| 발행 | `/local_waypoints` | `f110_msgs/msg/WpntArray` | Reliable + Volatile, 제어 입력 경로 |
+| 발행 | `/local_waypoints/path` | `nav_msgs/msg/Path` | Reliable + Volatile, RViz 시각화 |
 
 상태 값은 `GLOBAL=0`, `AVOID=1`, `OVERTAKE=2`입니다.
 
-## 파라미터와 실행
+## 4. 주요 파라미터
 
-파라미터 파일은 `config/state_machine.yaml`이며, 토픽 이름·주기·입력 stale 시간·
-상태 진입 토글(`allow_avoid_transition`, `allow_overtake_transition`)·
-M-of-N 진입 조건(`local_path_confirmation_window_size`,
-`local_path_confirmation_min_hits`)·경로 검증 및 합류 조건을 설정할 수 있습니다.
+운영 파라미터 파일은 `config/state_machine.yaml`입니다.
 
-| 파라미터 | 코드 기본값 | YAML 값 | 설명 |
-|---|---|---|---|
-| `allow_avoid_transition` | `true` | `false` | `false`면 GLOBAL→AVOID 진입 완전 차단 |
-| `allow_overtake_transition` | `true` | `false` | `false`면 GLOBAL→OVERTAKE 진입 완전 차단 |
+| 파라미터 | YAML 값 | 설명 |
+|---|---:|---|
+| `publish_rate_hz` | `10.0` | FSM 평가와 `/state` heartbeat 주기 |
+| `waypoint_num` | `50` | GLOBAL에서 추출할 전방 waypoint 수 |
+| `allow_avoid_transition` | `false` | GLOBAL→AVOID 진입 허용 |
+| `allow_overtake_transition` | `false` | GLOBAL→OVERTAKE 진입 허용 |
+| `local_path_confirmation_window_size` | `5` | 진입 확인 메시지 창 크기 N |
+| `local_path_confirmation_min_hits` | `3` | 필요한 non-empty 수 M |
+| `overtake_hold_duration_sec` | `2.0` | 추월 경로 갱신 억제 시간 |
+| `global_publisher_warn_timeout_sec` | `5.0` | 정적 GLOBAL 발행자 침묵 경고 시간 |
+| `frenet_stale_timeout_sec` | `0.5` | 모든 local 출력의 Frenet freshness 제한 |
+| `invalid_local_path_policy` | `global_fallback` | local 전용 경로 무효 시 정책 |
+| `enter_global_*` | YAML 참고 | local 경로 tail에서 GLOBAL 복귀 조건 |
+
+현재 `invalid_local_path_policy`는 `global_fallback`만 지원합니다. 파라미터는 기동 시 한 번
+읽으므로 값을 바꾼 뒤 노드를 재시작해야 합니다.
+
+## 5. 빌드와 실행
+
+Ubuntu 24.04와 ROS 2 Jazzy 환경에서 다음 순서로 실행합니다.
 
 ```bash
 cd ~/2026_IFAC
 source /opt/ros/jazzy/setup.zsh
+colcon build --symlink-install --packages-select state_machine
 source install/setup.zsh
 ros2 launch state_machine state_machine.launch.py
 ```
+
+다른 파라미터 파일을 사용하려면 다음과 같이 지정합니다.
+
+```bash
+ros2 launch state_machine state_machine.launch.py \
+  params_file:=/absolute/path/to/state_machine.yaml
+```
+
+## 6. 단계별 확인
+
+1. `/global_waypoints`와 `/car_state/frenet/odom`이 수신되는지 확인합니다.
+2. `/state`가 `publish_rate_hz`와 같은 주기로 발행되는지 확인합니다.
+3. `/local_waypoints`가 Frenet odometry와 같은 주기로 발행되는지 확인합니다.
+4. `/local_waypoints` publisher가 `state_machine_node` 하나인지 확인합니다.
+
+```bash
+ros2 topic echo /state --once
+ros2 topic echo /local_waypoints --once
+ros2 topic hz /state
+ros2 topic hz /local_waypoints
+ros2 topic info -v /local_waypoints
+```
+
+GLOBAL 모드에서 `child_frame_id`가 빈 문자열, 음수, 숫자가 아닌 값 또는 글로벌 경로 범위
+밖의 index이면 local waypoint를 발행하지 않고 경고를 출력합니다.

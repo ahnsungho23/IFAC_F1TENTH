@@ -3,11 +3,15 @@ State machine package rules. These instructions apply to `src/state_machine`.
 
 ## Package Scope
 
-- Keep this package focused on behavior state publication.
-- `state_machine_node` must publish only `f110_msgs/msg/StateMachine` on the configured state topic.
-- `state_machine_node` consumes `/car_state/frenet/odom`, `/global_waypoints`, `/avoid_waypoints`, `/overtake_waypoints` and must not subscribe to `/scan`.
-- Do not publish `/local_waypoints` from this package.
-- Do not move waypoint source selection into this package; that belongs to downstream waypoint selection logic.
+- Keep this package focused on behavior-state decisions and final waypoint-source selection.
+- `state_machine_node` publishes `f110_msgs/msg/StateMachine`, the selected
+  `f110_msgs/msg/WpntArray`, and its `nav_msgs/msg/Path` visualization mirror.
+- `state_machine_node` consumes `/car_state/frenet/odom`, `/global_waypoints`,
+  `/avoid_waypoints`, and `/overtake_waypoints`; it must not subscribe to `/scan`.
+- This package is the only normal publisher of `/local_waypoints`. Keep
+  `local_planning.publish_standalone_local` disabled during integrated operation.
+- Do not reintroduce a separate state-subscriber waypoint relay. State decisions and waypoint
+  selection must use the same cached inputs and validity rules in this node.
 
 ## Package Layout
 
@@ -28,14 +32,24 @@ State machine package rules. These instructions apply to `src/state_machine`.
     `allow_avoid_transition` / `allow_overtake_transition` (code default true, YAML currently false)
     short-circuit these gates before the M-of-N check, so entry is fully blocked. They gate
     entry only — AVOID/OVERTAKE→GLOBAL merge-back ignores them. Read once at startup (no dynamic
-    reconfigure callback); `publish_state()` also drops disabled sources from the input warning.
+    reconfigure callback); `publish_state_cycle()` also drops disabled sources from the input warning.
   - `enter_to_global()` (+ `evaluate_enter_to_global()` entry point): AVOID/OVERTAKE→GLOBAL graceful merge-back judgment.
   - `resolve_requested_state()`: the FSM 1-step. It reads/updates `committed_state_` and returns the state to publish. No dwell, no separate safety fallback — the state changes only when an entry or merge-back condition fires.
 - `enter_to_global()` assumes the **segment publishing convention**: local paths (`/avoid_waypoints`, `/overtake_waypoints`) are ego→merge segments in global-raceline frenet coordinates (`s_m`/`d_m`), tail converging to d→0. As of 2026-07-13 `local_planning` still publishes a full-loop copy — until it is converted, the avoid-side merge judgment is inaccurate.
+- `/state` is timer-driven at `publish_rate_hz`; `/local_waypoints` and
+  `/local_waypoints/path` are emitted only by fresh Frenet odometry callbacks.
+- Global waypoints are static validated data with no use-blocking TTL. Avoidance waypoints latch
+  until an empty message arrives. Overtake waypoints use the configured receive-event hold period
+  and are invalidated only by an empty message received after that period.
+- `invalid_local_path_policy=global_fallback` is the only supported first-stage policy. Do not
+  invent a stop path in this selector.
 - Keep refinements (dynamic obstacle prediction, score-based hysteresis) as TODOs.
 
 ## Parameters, Launch, Docs
 
-- All topic names, frame names, publish rates, stale timeouts, and default states must be parameters with YAML defaults.
+- All topic names, frame names, publish rates, stale/diagnostic timeouts, hold durations, waypoint
+  counts, and default states must be parameters with YAML defaults.
 - Keep `launch/state_machine.launch.py` loading `config/state_machine.yaml`.
+- Keep Korean operational documentation in `docs/state_machine_node.md` current, including both
+  state and selected-waypoint interfaces.
 - Update this `AGENTS.md` (and `README.md` if run/launch changes) when changing node behavior, topics, parameters, or launch usage.
