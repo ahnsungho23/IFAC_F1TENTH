@@ -28,6 +28,22 @@
 4. **TF 및 Odometry 발행**:
    - 추정된 포즈를 바탕으로 `map -> odom` TF 트랜스폼을 브로드캐스팅합니다.
 
+5. **구조 결함 수정 (2026-08-03, D1~D6)**:
+   - **D1**: 최종 출력(`get_current_pose()`)이 EKF 모드에서 `ekf_state_`를 우선 반환. 이전에는
+     odom 추적 경로가 출력을 우회했고, 그 경로의 odom 델타가 map 프레임 회전 없이 더해져
+     부팅 헤딩 φ만큼 어긋난 델타가 매 주기 적용됐음. fallback odom 추적 경로도 SE(2)
+     합성(앵커 시점 프레임 요 차이 회전 + `normalize_angle`)으로 수정.
+   - **D2**: `timer_update()` 내 잉여 `state_lock_.unlock()` 제거 (미소유 뮤텍스 unlock = UB).
+   - **D3**: `odomCB`의 속도 대입·`update_odom_pose()` 호출을 `state_lock_` 안으로 이동 (데이터 레이스 수정).
+   - **D5**: 지연 보상이 `mcl_processing_time_ × delay_compensation_factor`(실제 지연과 무관한
+     base)를 쓰던 것을 **실측 lidar age(`now - scan stamp`, 0~0.2 s clamp)**로 교체. EKF 모드의
+     발행 stamp도 내용(odom 최신 시각)에 맞춰 odom 시각으로 수정. `delay_compensation_factor`는 은퇴(미사용).
+   - **D6**: 모션 노이즈를 map 좌표축에 직접 더하던 것을 **차체 프레임(종/횡)에서 생성 후
+     갱신 헤딩으로 회전**하도록 수정. 이제 `motion_dispersion_x/y`가 의도대로 종방향/횡방향을
+     의미함. ⚠️ 기존 sim/real 튜닝값은 map 프레임 전제였으므로 **재튜닝 필요**.
+   - **D4**: `obs_px_` 변환 시 무효 레이(NaN/inf/0)를 max range로 처리(이전엔 "매우 가까운 벽"으로
+     오해석), 중복 `last_steady_time` 대입 정리, dead 파라미터 `fine_timing`을 YAML에서 삭제.
+
 ---
 
 ## 3. 구독 및 발행 토픽 (Topics & Message Types)

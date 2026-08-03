@@ -12,7 +12,7 @@ particle_filter:
     max_viz_particles: 40              # Reduced visualization particles for better performance
     max_range: 10.0                    # Set laser max range 
     max_pose_range: 10000.0           # Maximum valid pose coordinate range (m)
-    delay_compensation_factor: 3.0     # Improved timing compensation for simulation
+    delay_compensation_factor: 1.0     # [은퇴] 코드에서 미사용 — 지연 보상은 실측 lidar age(now - scan stamp)로 대첨됨
     
     # === MODE & TF CONTROL ===
     sim_mode: false                    # Simulation mode flag (set by launch file)
@@ -21,9 +21,10 @@ particle_filter:
     auto_init_from_waypoints: true     # Auto-initialize particles from /global_waypoints start pose
     
     # === MOTION MODEL NOISE ===
-    motion_dispersion_x: 0.08          # Forward motion noise (m) - increased for simulation
-    motion_dispersion_y: 0.02          # Lateral motion noise (m) - increased for simulation  
-    motion_dispersion_theta: 0.08      # Rotation noise (rad) - increased for simulation
+    # ※ 차체 프레임 기준 (D6 수정으로 body-frame 회전 적용 — 값 재튜닝 필요)
+    motion_dispersion_x: 0.08          # 종방향(진행방향) 노이즈 σ (m)
+    motion_dispersion_y: 0.02          # 횡방향 노이즈 σ (m)
+    motion_dispersion_theta: 0.08      # 회전 노이즈 σ (rad)
     
     # === POSE SMOOTHING ===
     # ── Pose EMA smoothing (0.0=max smooth, 1.0=no smooth) ─────────────────────
@@ -97,7 +98,7 @@ particle_filter:
     laser_frame: "laser"               # Laser scanner frame
     
     # === PERFORMANCE & DEBUGGING ===
-    fine_timing: 1                     # Detailed timing output (0=off, 1=on) - enabled for optimization monitoring
+    # (fine_timing 삭제 — 코드에서 읽지 않는 dead 파라미터였음)
 
 # ================================================================================================
 # MAP SERVER CONFIGURATION

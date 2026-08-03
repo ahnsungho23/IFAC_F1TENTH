@@ -454,25 +454,27 @@ void ParticleFilter::lidarCB(const sensor_msgs::msg::LaserScan::SharedPtr msg)
 
 void ParticleFilter::odomCB(const nav_msgs::msg::Odometry::SharedPtr msg)
 {
-    // Store velocity information
-    current_velocity_ = msg->twist.twist.linear.x;
-    current_angular_vel_ = msg->twist.twist.angular.z;
-
     // Store pose data
     Eigen::Vector3d position(msg->pose.pose.position.x, msg->pose.pose.position.y,
                              utils::geometry::quaternion_to_yaw(msg->pose.pose.orientation));
 
-    // Update odometry tracking if active
-    bool can_use_odom_tracking = pose_initialized_from_rviz_ || 
-                               (map_initialized_ && iters_ > 0 && is_pose_valid(inferred_pose_));
-    
-    if (can_use_odom_tracking && odom_tracking_active_) {
-        update_odom_pose(msg);
-    }
-
-    // Store pose and timestamp - protected by mutex
+    // 공유 상태(속도/odom 추적/포즈) 쓰기는 전부 락 안에서 수행
     {
         std::lock_guard<std::mutex> lock(state_lock_);
+
+        // Store velocity information
+        current_velocity_ = msg->twist.twist.linear.x;
+        current_angular_vel_ = msg->twist.twist.angular.z;
+
+        // Update odometry tracking if active
+        bool can_use_odom_tracking = pose_initialized_from_rviz_ ||
+                                   (map_initialized_ && iters_ > 0 && is_pose_valid(inferred_pose_));
+
+        if (can_use_odom_tracking && odom_tracking_active_) {
+            update_odom_pose(msg);
+        }
+
+        // Store pose and timestamp
         if (last_pose_.norm() <= 0)
         {
             RCLCPP_INFO_ONCE(this->get_logger(), "Odometry initialized");
@@ -716,9 +718,15 @@ void ParticleFilter::motion_model(Eigen::MatrixXd &proposal_dist, const MotionCo
             proposal_dist(i, 2) = new_theta;
         }
 
-        // Add adaptive motion noise
-        proposal_dist(i, 0) += normal_dist_(rng_) * MOTION_DISPERSION_X * noise_factor;
-        proposal_dist(i, 1) += normal_dist_(rng_) * MOTION_DISPERSION_Y * noise_factor;
+        // Add adaptive motion noise — 차체 프레임(종/횡)에서 생성 후 갱신된 헤딩으로 회전.
+        // (이전에는 map 좌표축에 직접 더해져 헤딩에 따라 종/횡 의도가 뒤집혔다)
+        const double n_long = normal_dist_(rng_) * MOTION_DISPERSION_X * noise_factor;
+        const double n_lat  = normal_dist_(rng_) * MOTION_DISPERSION_Y * noise_factor;
+        const double th_new = proposal_dist(i, 2);
+        const double cn = std::cos(th_new), sn = std::sin(th_new);
+
+        proposal_dist(i, 0) += cn * n_long - sn * n_lat;
+        proposal_dist(i, 1) += sn * n_long + cn * n_lat;
         proposal_dist(i, 2) += normal_dist_(rng_) * MOTION_DISPERSION_THETA * noise_factor;
 
         // Normalize angle
@@ -804,7 +812,14 @@ void ParticleFilter::calculate_particle_weights(const std::vector<float> &obs, i
     // Convert observations to pixel units
     obs_px_.resize(obs.size());
     for (size_t i = 0; i < obs.size(); ++i) {
-        obs_px_[i] = std::min(static_cast<double>(MAX_RANGE_PX), obs[i] / map_resolution_);
+        // 무효 레이(NaN/inf/0 등)는 max range로 취급 — 무효값이 "매우 가까운 벽"으로
+        // 해석돼 전체 파티클 가중치를 붕괴시키는 것을 방지
+        const float r = obs[i];
+        if (!std::isfinite(r) || r <= 0.0f) {
+            obs_px_[i] = static_cast<double>(MAX_RANGE_PX);
+        } else {
+            obs_px_[i] = std::min(static_cast<double>(MAX_RANGE_PX), r / map_resolution_);
+        }
     }
 
     // Convert expected ranges to pixel units
@@ -1304,12 +1319,15 @@ void ParticleFilter::timer_update()
             // Execute MCL pipeline
             MCL(motion_cmd, observation);
             Eigen::Vector3d raw_pose = expected_pose();
+            // 실측 지연(스캔 시각 → 지금). 스캔 스윕+전송+타이머 큐 대기+MCL 연산을 모두 포함하므로
+            // 별도 계수 없이 그대로 쓴다 (delay_compensation_factor 은퇴 — 곱하던 base인
+            // mcl_processing_time_은 실제 지연과 무관했다).
+            const double lidar_age = std::clamp((current_time - last_lidar_time_).seconds(), 0.0, 0.2);
             if (USE_POSE_EKF) {
                 // EKF 상태는 "지금"이고 MCL 기대 포즈는 스캔 시점(과거)이므로, 기존 지연 보상을
                 // 측정에 먼저 적용해 시점을 맞춘다(속도×지연 계통 편차 → 게이트 상시 기각 방지).
-                // mcl_processing_time_은 직전 사이클 값이지만 처리시간 변동이 작아 충분하다.
                 Eigen::Vector3d z = raw_pose;
-                const double comp_t = mcl_processing_time_ * DELAY_COMPENSATION_FACTOR;
+                const double comp_t = lidar_age;
                 z[0] += current_velocity_ * comp_t * std::cos(raw_pose[2]);
                 z[1] += current_velocity_ * comp_t * std::sin(raw_pose[2]);
                 z[2] = utils::geometry::normalize_angle(z[2] + current_angular_vel_ * comp_t);
@@ -1349,12 +1367,12 @@ void ParticleFilter::timer_update()
                     RCLCPP_INFO(this->get_logger(), "Odometry tracking initialized");
                 }
 
-                // Apply delay compensation for motion during MCL processing using actual processing time
+                // Apply delay compensation using measured latency
                 // (EKF 모드는 측정 단계에서 이미 시점 보상됨 — 이중 보상 방지 위해 0)
                 Eigen::Vector3d compensated_pose = inferred_pose_;
-                const double comp_factor = USE_POSE_EKF ? 0.0 : DELAY_COMPENSATION_FACTOR;
-                double longitudinal_displacement = current_velocity_ * mcl_processing_time_ * comp_factor;
-                double angular_displacement = current_angular_vel_ * mcl_processing_time_ * comp_factor;
+                const double comp_t = USE_POSE_EKF ? 0.0 : lidar_age;
+                double longitudinal_displacement = current_velocity_ * comp_t;
+                double angular_displacement = current_angular_vel_ * comp_t;
 
                 // Apply compensation in vehicle's forward direction
                 compensated_pose[0] += longitudinal_displacement * std::cos(inferred_pose_[2]);
@@ -1441,7 +1459,10 @@ void ParticleFilter::timer_update()
         rclcpp::Time timestamp;
         {
             std::lock_guard<std::mutex> lock(state_lock_);
-            if (mcl_executed && last_lidar_time_.nanoseconds() != 0) {
+            if (USE_POSE_EKF && has_odom && last_stamp_.nanoseconds() != 0) {
+                // EKF 모드: 내용이 odom 최신 시각(≈now)이므로 stamp도 odom 시각으로 맞춘다
+                timestamp = last_stamp_;
+            } else if (mcl_executed && last_lidar_time_.nanoseconds() != 0) {
                 // Use compensated timestamp: LiDAR time + processing time
                 int64_t compensation_ns = static_cast<int64_t>(mcl_processing_time_ * 1e9);
                 timestamp = last_lidar_time_ + rclcpp::Duration::from_nanoseconds(compensation_ns);
@@ -1460,13 +1481,7 @@ void ParticleFilter::timer_update()
         if (mcl_executed || (has_odom && !has_lidar && odom_tracking_active_)) {
             visualize(timestamp);
         }
-
-        state_lock_.unlock();
     }
-
-    // Update timing for next iteration
-    last_steady_time = current_steady_time;
-    
 }
 
 void ParticleFilter::publish_map_periodically()
@@ -1555,11 +1570,15 @@ void ParticleFilter::publish_tf(const Eigen::Vector3d &pose, const rclcpp::Time 
 
 Eigen::Vector3d ParticleFilter::get_current_pose()
 {
-    // Priority 1: Use odometry-based tracking if active and valid
+    // Priority 1: EKF 융합 결과 (EKF 모드) — 융합 출력이 최종 포즈
+    if (USE_POSE_EKF && ekf_initialized_ && is_pose_valid(ekf_state_))
+        return ekf_state_;
+
+    // Priority 2: Use odometry-based tracking if active and valid
     if (odom_tracking_active_ && is_pose_valid(odom_pose_))
         return odom_pose_;
-    
-    // Priority 2: Use particle filter estimate if valid
+
+    // Priority 3: Use particle filter estimate if valid
     if (is_pose_valid(inferred_pose_))
         return inferred_pose_;
     
@@ -1673,12 +1692,23 @@ void ParticleFilter::initialize_odom_tracking(const Eigen::Vector3d& initial_pos
 void ParticleFilter::update_odom_pose(const nav_msgs::msg::Odometry::SharedPtr& msg)
 {
     if (!odom_tracking_active_) return;
-    
+
     Eigen::Vector3d current_odom(msg->pose.pose.position.x, msg->pose.pose.position.y,
                                  utils::geometry::quaternion_to_yaw(msg->pose.pose.orientation));
-    
-    Eigen::Vector3d odom_delta = current_odom - odom_reference_odom_;
-    odom_pose_ = odom_reference_pose_ + odom_delta;
+
+    // odom 프레임 델타를 map 프레임으로 회전해 합성 (SE(2) 합성).
+    // odom 프레임 → map 프레임 요 차이는 기준(앵커) 시점에 고정된다.
+    const double dyaw_frame = utils::geometry::normalize_angle(
+        odom_reference_pose_[2] - odom_reference_odom_[2]);
+    const double c = std::cos(dyaw_frame), s = std::sin(dyaw_frame);
+
+    const double dx  = current_odom[0] - odom_reference_odom_[0];
+    const double dy  = current_odom[1] - odom_reference_odom_[1];
+    const double dth = utils::geometry::normalize_angle(current_odom[2] - odom_reference_odom_[2]);
+
+    odom_pose_[0] = odom_reference_pose_[0] + (c * dx - s * dy);
+    odom_pose_[1] = odom_reference_pose_[1] + (s * dx + c * dy);
+    odom_pose_[2] = utils::geometry::normalize_angle(odom_reference_pose_[2] + dth);
 }
 
 // ================================================================================================

@@ -5,7 +5,13 @@ This file defines the working rules for Claude in this repository. These rules a
 ## Communication
 
 - All user-facing replies must be written in Korean unless the user explicitly requests another language.
-- Keep repository guidance in English when practical to reduce token usage and make instructions compact.
+- Keep repository guidance in English when practical to reduce token usage and make agent instructions compact.
+
+## Simplicity (KISS)
+
+- Keep It Simple, Stupid: always prefer the simplest solution that correctly solves the problem.
+- Make minimal, focused changes; avoid speculative abstractions, extra configurability, or features not requested.
+- Three similar lines are better than a premature abstraction.
 
 ## Target Environment
 
@@ -35,13 +41,14 @@ This file defines the working rules for Claude in this repository. These rules a
 - Ensure `CMakeLists.txt` installs launch files and parameter files so the node can run with:
   `ros2 launch <package> <launch_file>.py`
 
-## Node-Level Instruction Policy
+## Node-Level AGENTS.md Policy
 
 - Whenever creating a new node, create a node-level or package-level `AGENTS.md` in the most relevant directory for that node.
 - Whenever modifying an existing node, check for the nearest applicable `AGENTS.md`. If it is missing, create one. If it exists but is outdated, update it.
 - Node-level `AGENTS.md` files must describe the node-specific rules, package layout, message choices, parameter files, launch files, and documentation expectations.
-- Node-level instructions may add constraints, but must not weaken or contradict the root repository instructions.
-- Always follow the closest applicable node-level instructions before editing a node.
+- Node-level instructions may add constraints, but must not weaken or contradict this root `AGENTS.md`.
+- Always follow the closest applicable `AGENTS.md` before editing a node.
+- You must update repo using git before modifing.
 
 ## Node Documentation
 
@@ -73,7 +80,7 @@ Before finishing any ROS 2 node change, verify:
 ## Simulation Run Order (실행 순서)
 
 기본 주행은 터미널 7개를 아래 순서대로 띄웁니다. 순서가 중요합니다.
-상대차 검출·추월까지 보려면 터미널 8·9를 **추가로** 띄웁니다(터미널 7은 유지).
+상대차 검출·추월까지 볼 때는 터미널 8·9를 **추가로** 띄웁니다(터미널 7은 유지).
 
 > **원클릭 실행**: Terminator가 설치되어 있으면 `./sim/open_sim.sh`(터미널 1~7 분할) 또는
 > `./sim/open_sim.sh --opp`(터미널 1~9 분할) 한 번으로 전체 스택을 띄울 수 있습니다.

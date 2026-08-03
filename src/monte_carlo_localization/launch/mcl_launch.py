@@ -195,8 +195,10 @@ def generate_launch_description():
         # Motion/smoothing overrides for gym simulation only (real/bag keep YAML values).
         # gym scans of the synthetic corridor map are near-symmetric; the large real-car
         # dispersion lets the particle cloud flip 180 deg during turns, and heavy pose
-        # smoothing lags yaw. Verified in sim: with these values MCL holds <0.2 m error
-        # over full laps, with YAML values it diverges at the first corner.
+        # smoothing lags yaw.
+        # ※ 2026-08-03 D6 수정(모션 노이즈 body 프레임 회전)으로 과거 map 프레임 전제
+        #   튜닝 근거가 무효화됨. 0.08/0.08(YAML 값)은 주행 시작 직후 발산 확인 →
+        #   0.05/0.04로 환원. 시뮬 A/B 측정으로 재확정할 것.
         'motion_dispersion_x': PythonExpression([
             "0.05 if '", LaunchConfiguration('mod'), "' == 'sim' else 0.15"
         ]),
