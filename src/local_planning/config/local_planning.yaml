@@ -23,7 +23,7 @@ local_planner_node:
     outside_line_transition_scale: 1.35
     # d=0 합류점 뒤 글로벌 점을 덧붙여 controller와 state machine이 handoff를 완료할 시간을 줍니다.
     # 실제 tail은 max(post_merge_lookahead_m, 계획 시 ego_speed * post_merge_min_time_sec)입니다.
-    post_merge_lookahead_m: 2.0
+    post_merge_lookahead_m: 5.0
     post_merge_min_time_sec: 1.0
     minimum_target_offset_m: 0.20
     maximum_target_offset_m: 1.50
@@ -42,7 +42,10 @@ local_planner_node:
 
     # map-frame Cartesian AABB를 CLCS로 내부 투영한 정적 물체만 담당합니다.
     require_obstacles_message: true
+    # 한 번 유효하게 받은 뒤 이 시간이 지나면 degraded mode로 전환합니다. stale은 장애물 소멸로
+    # 해석하지 않고 마지막 경로/스냅샷을 유지하며, 새 유효 배열(빈 배열 포함)이 기억을 교체합니다.
     obstacle_stale_timeout_sec: 0.75
+    # Frenet 위치 자체가 stale이면 최악 상황으로 보고 마지막 위치에서 zero-speed hold를 발행합니다.
     odometry_stale_timeout_sec: 0.50
 
     # 설계된 spline merge 지점에 도달하고 실제 ego d도 글로벌 라인에 들어왔는지 확인합니다.
@@ -59,9 +62,10 @@ local_planner_node:
     state_handoff_tail_ratio: 0.10
     state_handoff_speed_cap_mps: 6.0
 
-    # 첫 blocking cluster는 실제 /static_obs 메시지에서 같은 ID를 3회 관측할 때까지
-    # 준비 감속합니다. planning tick 재사용 메시지는 중복 계수하지 않습니다.
+    # 첫 blocking cluster는 실제 /static_obs 메시지에서 같은 ID를 3회 관측하고 최소 시간도
+    # 지난 뒤 확정합니다. 고주기 detector의 연속 3개 메시지를 즉시 commitment하지 않습니다.
     initial_observation_count: 3
+    initial_observation_min_duration_sec: 0.15
     initial_observation_max_wait_sec: 0.35
     # 최초 AABB 합집합을 Kalman 중심 위치의 kσ와 AABB 크기 오차 floor만큼 확장해
     # commitment Guard로 고정합니다. 후속 같은-ID uncertainty envelope가 Guard 안이면
@@ -69,6 +73,13 @@ local_planner_node:
     uncertainty_sigma_scale: 3.0
     uncertainty_min_longitudinal_margin_m: 0.05
     uncertainty_min_lateral_margin_m: 0.03
+    # uncertainty/extent 여유만 침범한 soft 충돌은 3 planning cycle 연속일 때 재계획합니다.
+    # detector raw 경계에 차량 반폭+hard margin을 적용한 영역은 즉시 재계획/safe-stop합니다.
+    commitment_soft_violation_confirm_cycles: 3
+    hard_collision_margin_m: 0.03
+    # 첫 maneuver 장애물 Guard의 뒤쪽을 이 거리만큼 완전히 지난 뒤에만 다음 maneuver가
+    # 현재 ego.d에서 기존 commitment를 선점할 수 있습니다.
+    chain_release_margin_m: 0.20
     # 아래 횡/종방향 조건 중 하나에 도달하기 전에는 새 장애물 때문에 기존 방향이
     # 불가능해졌을 때 반대편을 한 번 더 평가합니다. 실제 회피 진입 뒤에는 방향을 고정합니다.
     commitment_lock_lateral_threshold_m: 0.10

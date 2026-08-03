@@ -480,12 +480,12 @@ class TrajectoryGui:
         self.root.rowconfigure(0, weight=1)
         self.root.rowconfigure(1, weight=0)
 
-        left = ttk.Frame(self.root, width=400)
+        left = ttk.Frame(self.root, width=560)
         left.grid(row=0, column=0, sticky="nsw")
         left.grid_propagate(False)
         left.rowconfigure(0, weight=1)
 
-        panel_canvas = tk.Canvas(left, highlightthickness=0, width=400, background=self.BG)
+        panel_canvas = tk.Canvas(left, highlightthickness=0, width=560, background=self.BG)
         panel_scroll = ttk.Scrollbar(left, orient="vertical", command=panel_canvas.yview)
         self.panel = ttk.Frame(panel_canvas)
         panel_window = panel_canvas.create_window((0, 0), window=self.panel, anchor="nw")

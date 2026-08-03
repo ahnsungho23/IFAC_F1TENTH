@@ -15,6 +15,8 @@
 #ifndef LOCAL_PLANNING__RACELINE_SPLINE_PLANNER_HPP_
 #define LOCAL_PLANNING__RACELINE_SPLINE_PLANNER_HPP_
 
+#include <cstddef>
+#include <limits>
 #include <optional>
 #include <string>
 #include <vector>
@@ -89,6 +91,33 @@ struct RacelineSplineResult
   std::string reason;
 };
 
+enum class PathValidationFailureKind
+{
+  kNone,
+  kInput,
+  kNoForwardPath,
+  kTrackBoundary,
+  kObstacleCollision,
+  kGeometry
+};
+
+struct PathValidationFailure
+{
+  PathValidationFailureKind kind{PathValidationFailureKind::kNone};
+  std::string reason;
+  int obstacle_id{-1};
+  std::size_t waypoint_index{std::numeric_limits<std::size_t>::max()};
+  double waypoint_s{std::numeric_limits<double>::quiet_NaN()};
+  double waypoint_d{std::numeric_limits<double>::quiet_NaN()};
+  double obstacle_s_start{std::numeric_limits<double>::quiet_NaN()};
+  double obstacle_s_end{std::numeric_limits<double>::quiet_NaN()};
+  double obstacle_source_d_right{std::numeric_limits<double>::quiet_NaN()};
+  double obstacle_source_d_left{std::numeric_limits<double>::quiet_NaN()};
+  double obstacle_test_d_right{std::numeric_limits<double>::quiet_NaN()};
+  double obstacle_test_d_left{std::numeric_limits<double>::quiet_NaN()};
+  double obstacle_clearance{std::numeric_limits<double>::quiet_NaN()};
+};
+
 // Static-obstacle planner whose only geometric reference is the ordered global race line.
 // A candidate never searches the map for a shortcut: it keeps every selected global waypoint's
 // s/order and changes only its local Frenet d offset before converting it back to map coordinates.
@@ -109,6 +138,10 @@ public:
   f110_msgs::msg::WpntArray buildGlobalHandoffPath(
     double ego_s, double state_tail_ratio, double speed_cap_mps) const;
   f110_msgs::msg::WpntArray buildEmergencyStopPath(const EgoFrenetState & ego) const;
+  RacelineSplineResult buildCommittedPathStop(
+    const EgoFrenetState & ego,
+    const f110_msgs::msg::WpntArray & committed_path,
+    const std::vector<f110_msgs::msg::Obstacle> & obstacles) const;
   RacelineSplineResult buildPreparationStop(
     const EgoFrenetState & ego,
     const std::vector<f110_msgs::msg::Obstacle> & obstacles) const;
@@ -123,7 +156,10 @@ public:
     const EgoFrenetState & ego,
     const f110_msgs::msg::WpntArray & path,
     const std::vector<f110_msgs::msg::Obstacle> & obstacles,
-    std::string * error = nullptr) const;
+    std::string * error = nullptr,
+    PathValidationFailure * failure = nullptr,
+    const std::optional<double> & obstacle_clearance = std::nullopt,
+    const std::optional<double> & maximum_collision_forward_m = std::nullopt) const;
 
   void toCartesian(double s, double d, double & x, double & y, double & yaw) const;
 
@@ -136,20 +172,37 @@ private:
   std::size_t nearestReferenceIndex(double s) const;
   std::vector<ExpandedObstacle> expandVisibleObstacles(
     const EgoFrenetState & ego,
-    const std::vector<f110_msgs::msg::Obstacle> & obstacles) const;
+    const std::vector<f110_msgs::msg::Obstacle> & obstacles,
+    const std::optional<double> & obstacle_clearance = std::nullopt) const;
   bool isBlockingRaceline(const ExpandedObstacle & obstacle) const;
   std::vector<ExpandedObstacle> nearestCluster(
     const std::vector<ExpandedObstacle> & obstacles) const;
   bool outsideIsLeft(
     const EgoFrenetState & ego,
     const std::vector<ExpandedObstacle> & cluster) const;
+  bool computeSideTarget(
+    const std::vector<ExpandedObstacle> & cluster,
+    bool go_left,
+    double & cluster_start,
+    double & cluster_end,
+    double & target_d,
+    std::string & reason) const;
+  bool targetFitsTrackBounds(
+    const EgoFrenetState & ego,
+    double cluster_start,
+    double cluster_end,
+    bool go_left,
+    double target_d,
+    std::string & reason) const;
   Candidate buildCandidate(
     const EgoFrenetState & ego,
     const std::vector<ExpandedObstacle> & visible,
-    const std::vector<ExpandedObstacle> & cluster,
     bool go_left,
     double transition_scale,
-    bool outside_is_left) const;
+    bool outside_is_left,
+    double cluster_start,
+    double cluster_end,
+    double target_d) const;
   RacelineSplineResult buildSafeStop(
     const EgoFrenetState & ego,
     const std::vector<ExpandedObstacle> & visible,
@@ -161,7 +214,9 @@ private:
     const std::vector<ExpandedObstacle> & visible,
     std::string & reason,
     std::size_t start_index = 0U,
-    std::size_t minimum_points = 0U) const;
+    std::size_t minimum_points = 0U,
+    PathValidationFailure * failure = nullptr,
+    const std::optional<double> & maximum_collision_forward_m = std::nullopt) const;
 
   RacelineSplineParameters parameters_;
   f110_msgs::msg::WpntArray reference_;

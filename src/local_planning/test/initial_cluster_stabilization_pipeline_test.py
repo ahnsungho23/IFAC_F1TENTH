@@ -50,6 +50,7 @@ class InitialClusterProbe(Node):
         self.second_started = None
         self.second_publish_count = 0
         self.saw_preparation = False
+        self.preparation_started = None
         self.passed = False
         self.failure = ''
         self.timer = self.create_timer(0.025, self.publish_inputs)
@@ -132,6 +133,8 @@ class InitialClusterProbe(Node):
             return
         if message.ot_line == 'raceline_static_prepare':
             self.saw_preparation = True
+            if self.preparation_started is None:
+                self.preparation_started = time.monotonic()
             if max(abs(point.d_m) for point in message.wpnts) > 1.0e-9:
                 self.failure = 'preparation path has a lateral offset'
             return
@@ -139,6 +142,12 @@ class InitialClusterProbe(Node):
             return
         if not self.saw_preparation or self.second_started is None:
             self.failure = 'avoidance committed before observing the complete cluster'
+            return
+        stabilization_duration = time.monotonic() - self.preparation_started
+        if stabilization_duration < 0.13:
+            self.failure = (
+                'avoidance committed before the configured minimum stabilization duration: '
+                f'{stabilization_duration:.3f}s')
             return
         if self.second_publish_count < 3:
             self.failure = (
@@ -165,8 +174,8 @@ def main():
             rclpy.spin_once(node, timeout_sec=0.1)
         if node.passed:
             print(
-                'PASS: late cluster ID received three topic observations and the first '
-                'lateral commitment selected the safe right side')
+                'PASS: minimum stabilization time and three real observations included the '
+                'late cluster ID before selecting the safe right side')
             return 0
         print(f'FAIL: {node.failure or "no completed avoidance commitment"}')
         return 1

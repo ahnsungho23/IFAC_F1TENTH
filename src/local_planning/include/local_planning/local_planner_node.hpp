@@ -69,7 +69,19 @@ private:
     const rclcpp::Time & update_time);
   std::vector<f110_msgs::msg::Obstacle> buildNextManeuverInput() const;
   std::vector<f110_msgs::msg::Obstacle> buildCurrentManeuverInput(
-    const EgoFrenetState & ego) const;
+    const EgoFrenetState & ego,
+    bool apply_uncertainty_guard = true) const;
+  void resetNextManeuverStabilization();
+  bool updateNextManeuverStabilization(
+    const EgoFrenetState & ego,
+    const std::vector<f110_msgs::msg::Obstacle> & next_obstacles,
+    const rclcpp::Time & update_time);
+  void promoteNextManeuverStabilization();
+  bool activeManeuverObstacleCleared(const EgoFrenetState & ego) const;
+  bool tryEarlyChainedManeuver(
+    const EgoFrenetState & ego,
+    std::vector<f110_msgs::msg::Obstacle> & next_obstacles);
+  double remainingDistanceToMerge(const EgoFrenetState & ego) const;
   bool beginChainedManeuverIfNeeded(
     const EgoFrenetState & ego,
     std::vector<f110_msgs::msg::Obstacle> & next_obstacles,
@@ -77,9 +89,17 @@ private:
   void resetForChainedManeuver();
   bool commitmentSideLocked(const EgoFrenetState & ego) const;
   bool activateGlobalHandoff(const EgoFrenetState & ego);
-  void latchSafeStop(RacelineSplineResult result, const EgoFrenetState & ego);
+  void latchSafeStop(
+    RacelineSplineResult result,
+    const EgoFrenetState & ego,
+    const std::vector<f110_msgs::msg::Obstacle> & planning_obstacles);
   void handleSafeStopLatch(const EgoFrenetState & ego);
   bool commitmentComplete(const EgoFrenetState & ego);
+  void resetCommitmentViolationConfirmation();
+  void logObstacleCollision(
+    const std::string & severity,
+    const PathValidationFailure & failure,
+    int confirmation_count = 0) const;
   void publishResult(
     const RacelineSplineResult & result,
     const EgoFrenetState & ego,
@@ -116,17 +136,21 @@ private:
   rclcpp::Time last_obstacles_time_{0, 0, RCL_ROS_TIME};
   rclcpp::Time last_side_switch_time_{0, 0, RCL_ROS_TIME};
   rclcpp::Time initial_stabilization_start_{0, 0, RCL_ROS_TIME};
+  rclcpp::Time next_stabilization_start_{0, 0, RCL_ROS_TIME};
   std::uint64_t obstacles_message_sequence_{0};
   std::uint64_t initial_last_counted_sequence_{0};
+  std::uint64_t next_last_counted_sequence_{0};
 
   bool has_global_waypoints_{false};
   bool has_obstacles_message_{false};
+  bool obstacle_perception_degraded_{false};
   bool has_odometry_{false};
   bool has_commitment_{false};
   RacelineSplineResult committed_result_;
   bool safe_stop_latched_{false};
   RacelineSplineResult safe_stop_result_;
   int safe_stop_release_count_{0};
+  int commitment_soft_violation_count_{0};
   double commitment_start_s_{0.0};
   int merge_complete_count_{0};
   bool merge_geometry_confirmed_{false};
@@ -136,10 +160,14 @@ private:
   bool initial_stabilization_active_{false};
   bool initial_prepare_published_{false};
   bool initial_has_counted_sequence_{false};
+  bool next_stabilization_active_{false};
+  bool next_has_counted_sequence_{false};
   uint8_t current_state_{f110_msgs::msg::StateMachine::STATE_GLOBAL};
   std::optional<bool> last_published_side_;
   std::map<int, f110_msgs::msg::Obstacle> initial_cluster_union_;
   std::map<int, int> initial_observation_counts_;
+  std::map<int, f110_msgs::msg::Obstacle> next_cluster_union_;
+  std::map<int, int> next_observation_counts_;
   std::map<int, f110_msgs::msg::Obstacle> committed_obstacle_guards_;
   std::set<int> completed_obstacle_ids_;
 
@@ -153,7 +181,11 @@ private:
   double state_handoff_tail_ratio_{0.10};
   double state_handoff_speed_cap_mps_{6.0};
   int initial_observation_count_{3};
+  double initial_observation_min_duration_sec_{0.15};
   double initial_observation_max_wait_sec_{0.35};
+  int commitment_soft_violation_confirm_cycles_{3};
+  double hard_collision_margin_m_{0.03};
+  double chain_release_margin_m_{0.20};
   double commitment_lock_lateral_threshold_m_{0.10};
   double commitment_lock_longitudinal_m_{0.50};
   double obstacle_marker_scale_m_{0.35};
