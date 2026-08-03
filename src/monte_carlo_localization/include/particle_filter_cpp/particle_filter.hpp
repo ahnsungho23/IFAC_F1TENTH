@@ -167,6 +167,17 @@ class ParticleFilter : public rclcpp::Node
     // --------------------------------- SENSOR MODEL PARAMETERS ---------------------------------
     double Z_SHORT, Z_MAX, Z_RAND, Z_HIT, SIGMA_HIT;
 
+    // --------------------------------- SCAN ROBUSTNESS (다이낯믹 환경 대응) ---------------------------------
+    double RAY_LIKELIHOOD_FLOOR_RATIO;      // per-ray likelihood 하한 (열 최댓값 대비, 0=비활성)
+    std::vector<double> sensor_model_col_max_;  // 센서 모델 열(기대 거리)별 최댓값
+    bool USE_SCAN_QUALITY_R;                // 스캔 품질 연동 측정 노이즈 부풀림
+    double SCAN_QUALITY_OUTLIER_GAIN;       // K_OUTLIER
+    double SCAN_QUALITY_OUTLIER_START;      // q0
+    double SCAN_QUALITY_ESS_GAIN;           // K_ESS
+    double SCAN_QUALITY_ESS_START;          // ess0
+    double outlier_fraction_ = 0.0;         // 최대 가중치 파티클 기준 outlier 레이 비율
+    double ess_ratio_ = 1.0;                // ESS / N
+
     // --------------------------------- MOTION MODEL PARAMETERS ---------------------------------
     double MOTION_DISPERSION_X, MOTION_DISPERSION_Y, MOTION_DISPERSION_THETA;
 

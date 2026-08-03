@@ -155,8 +155,13 @@ def generate_launch_description():
     
     config_arg = DeclareLaunchArgument(
         'config_file',
-        default_value=default_config_file,
-        description='Path to MCL configuration file'
+        # mod에 따라 기본 설정 파일 선택 (sim → mcl_config_sim.yaml, real/bag → mcl_config.yaml).
+        # 튜닝값의 단일 소스는 YAML — launch는 값을 오버라이드하지 않고 파일만 고른다.
+        default_value=PythonExpression([
+            "'", os.path.join(pkg_share_dir, 'config', 'mcl_config_sim.yaml'),
+            "' if '", LaunchConfiguration('mod'), "' == 'sim' else '", default_config_file, "'"
+        ]),
+        description='Path to MCL configuration file (default: mod-dependent)'
     )
     map_file_path = PathJoinSubstitution([pkg_share, 'maps', [LaunchConfiguration('map_name'), '.yaml']])
     
@@ -192,9 +197,8 @@ def generate_launch_description():
             "'false' if '", LaunchConfiguration('mod'), "' == 'sim' else 'true'"
         ]),
 
-        # ※ 모션/스묽싱 오버라이드는 sim에만 적용한다 (아래 _particle_filter_node_action 참고).
-        #    과거에는 real/bag에도 0.15/0.25가 강제로 들어가 YAML(0.08/0.08)이
-        #    실차에 적용되지 않는 배선 버그가 있었다 (4de8e1a의 튜닝 의도 묵살).
+        # ※ 튜닝값(모션 노이즈/스묻싱 등)은 전부 YAML이 단일 소스. launch는
+        #    모드 배선(토픽/프레임/TF 플래그)과 설정 파일 선택만 담당한다.
     }
     
     # === COMMON PARAMETERS ===
@@ -237,62 +241,28 @@ def generate_launch_description():
     )
     
     # === PARTICLE FILTER NODE ===
-    # 모션/스묽싱(sim 전용) 오버라이드: mod=='sim'일 때만 추가한다.
-    # real/bag은 config_file(YAML) 값을 그대로 쓴다 — 이전에는 else 분기 0.15/0.25/0.3이
-    # real/bag에도 강제 적용돼 YAML 튜닝이 묵살였다 (주석 "real/bag keep YAML values"와 불일치).
-    # gym 시뮬 값 근거: 합성 복도 맵이 near-symmetric이라 큰 dispersion은 코너에서 180° 플립 유발,
-    # 무거운 스묽싱은 요 지연 유발. (D6 body-frame 수정 후에도 sim A/B로 확인된 값)
-    sim_only_params = {
-        'motion_dispersion_x': 0.05,
-        'motion_dispersion_theta': 0.04,
-        'smoothing_alpha': 0.5,
-    }
-
-    def _particle_filter_node_action(context):
-        def _coerce(v):
-            # 수동 평가된 substitution은 str이 되므로 ROS 파라미터 타입에 맞게 복원
-            if isinstance(v, str):
-                low = v.lower()
-                if low == 'true':
-                    return True
-                if low == 'false':
-                    return False
-                try:
-                    return int(v)
-                except ValueError:
-                    pass
-                try:
-                    return float(v)
-                except ValueError:
-                    pass
-            return v
-
-        def _resolved(d):
-            return {k: _coerce(v.perform(context) if hasattr(v, 'perform') else v) for k, v in d.items()}
-
-        params = [
-            LaunchConfiguration('config_file').perform(context),
-            _resolved(common_params),
-            _resolved(dynamic_params),
-        ]
-        if LaunchConfiguration('mod').perform(context) == 'sim':
-            params.append(sim_only_params)
-
-        return [Node(
-            package='particle_filter_cpp',
-            executable='particle_filter_node',
-            name='particle_filter',
-            output='screen',
-            parameters=params,
-            remappings=[
-                ('/map_server/map', '/particle_filter_map_server/map')
-            ],
-            **FAST_SHUTDOWN
-        )]
-
+    # 튜닝값은 전부 config_file(YAML)에서 온다 — launch가 값을 오버라이드하지 않는다.
+    # (2026-08-03: 과거 else 분기 0.15/0.25가 real/bag에도 강제 적용돼 YAML이 묵살이던
+    #  배선 버그를 제거하고, sim 전용 값은 mcl_config_sim.yaml로 분리)
     particle_filter_node = TimerAction(
         period=3.0,  # Allow map server and simulator to initialize
-        actions=[OpaqueFunction(function=_particle_filter_node_action)]
+        actions=[
+            Node(
+                package='particle_filter_cpp',
+                executable='particle_filter_node',
+                name='particle_filter',
+                output='screen',
+                parameters=[
+                    LaunchConfiguration('config_file'),
+                    common_params,
+                    dynamic_params
+                ],
+                remappings=[
+                    ('/map_server/map', '/particle_filter_map_server/map')
+                ],
+                **FAST_SHUTDOWN
+            )
+        ]
     )
     
     # === TF TRANSFORMS RESPONSIBILITY ===

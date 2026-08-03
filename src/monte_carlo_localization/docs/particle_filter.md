@@ -64,7 +64,7 @@
 
 ## 4. 주요 파라미터 및 YAML 위치 (Main Parameters & YAML)
 
-- **YAML 파일 위치**: `config/mcl_config.yaml`
+- **YAML 파일 위치**: `config/mcl_config.yaml` (real/bag), `config/mcl_config_sim.yaml` (sim 전용 — mod:=sim일 때 launch가 선택. launch는 값을 오버라이드하지 않고 YAML이 단일 소스)
 - **주요 파라미터**:
   - `auto_init_from_waypoints` (`bool`, 기본값: `true`): `/global_waypoints` 시작 포즈 기반 자동 초기 포즈 세팅 활성화 여부
   - `max_particles` (`int`, 기본값: `1000`): 파티클 개수

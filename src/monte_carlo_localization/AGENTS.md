@@ -13,7 +13,8 @@ This document defines package-specific developer rules and guidelines for `monte
 
 ## Parameter Policy & YAML Location
 
-- Key configuration YAML: `config/mcl_config.yaml`
+- Key configuration YAML: `config/mcl_config.yaml` (real/bag), `config/mcl_config_sim.yaml` (sim 전용, mod:=sim일 때 launch가 선택).
+- `mcl_launch.py`는 파라미터 **값을 오버라이드하지 않는다** — 모드 배선(토픽/프레임/TF 플래그)과 설정 파일 선택만 담당. 튜닝값 변경은 반드시 YAML에서만 할 것 (2026-08-03, launch else 분기가 YAML을 묵살하던 배선 버그 제거).
 - Key parameters:
   - `auto_init_from_waypoints` (bool, default: `true`): Automatically initializes particles around the first waypoint of `/global_waypoints`.
   - `scan_topic` (string, default: `/scan`): LiDAR scan input topic.

@@ -57,6 +57,14 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
     this->declare_parameter("z_rand", 0.12);
     this->declare_parameter("z_hit", 0.80);
     this->declare_parameter("sigma_hit", 8.0);
+
+    // Scan robustness (다이낯믹 환경 대응)
+    this->declare_parameter("ray_likelihood_floor_ratio", 0.0);
+    this->declare_parameter("use_scan_quality_r", false);
+    this->declare_parameter("scan_quality_outlier_gain", 4.0);
+    this->declare_parameter("scan_quality_outlier_start", 0.15);
+    this->declare_parameter("scan_quality_ess_gain", 2.0);
+    this->declare_parameter("scan_quality_ess_start", 0.4);
     
     // Motion model parameters
     this->declare_parameter("motion_dispersion_x", 0.05);
@@ -123,6 +131,14 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
     Z_RAND = this->get_parameter("z_rand").as_double();
     Z_HIT = this->get_parameter("z_hit").as_double();
     SIGMA_HIT = this->get_parameter("sigma_hit").as_double();
+
+    // Scan robustness parameters
+    RAY_LIKELIHOOD_FLOOR_RATIO = this->get_parameter("ray_likelihood_floor_ratio").as_double();
+    USE_SCAN_QUALITY_R = this->get_parameter("use_scan_quality_r").as_bool();
+    SCAN_QUALITY_OUTLIER_GAIN = this->get_parameter("scan_quality_outlier_gain").as_double();
+    SCAN_QUALITY_OUTLIER_START = this->get_parameter("scan_quality_outlier_start").as_double();
+    SCAN_QUALITY_ESS_GAIN = this->get_parameter("scan_quality_ess_gain").as_double();
+    SCAN_QUALITY_ESS_START = this->get_parameter("scan_quality_ess_start").as_double();
 
     // Motion model parameters
     MOTION_DISPERSION_X = this->get_parameter("motion_dispersion_x").as_double();
@@ -403,6 +419,13 @@ void ParticleFilter::precompute_sensor_model()
             sensor_model_table_.col(d) /= norm;
         }
     }
+
+    // per-ray likelihood floor용 열(기대 거리)별 최댓값 — 틀린 레이 하나의 벌점을
+    // peak/floor 비율(약 66배)에서 floor_ratio 배로 제한해, 맵과 일부 다른 레이가
+    // 있어도 정답 가설이 급사하지 않게 한다 (다이낯믹 환경 대응)
+    sensor_model_col_max_.resize(table_width);
+    for (int d = 0; d < table_width; ++d)
+        sensor_model_col_max_[d] = sensor_model_table_.col(d).maxCoeff();
 
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
@@ -771,6 +794,24 @@ void ParticleFilter::sensor_model(const Eigen::MatrixXd &proposal_dist, const st
     calculate_particle_weights(obs, num_rays, weights);
     timing_stats_.sensor_model_time += std::chrono::duration<double, std::milli>(
         std::chrono::high_resolution_clock::now() - sensor_eval_start).count();
+
+    // === SCAN QUALITY METRIC ===
+    // 최대 가중치 파티클의 기대 거리와 관측이 3·sigma_hit 이상 어긋나는 레이 비율.
+    // 맵과 환경이 다른(다이낯믹) 구간에서 급등 → 측정 노이즈 R 부풀림의 입력이 된다.
+    if (!weights.empty()) {
+        const int best = static_cast<int>(std::distance(
+            weights.begin(), std::max_element(weights.begin(), weights.end())));
+        const double outlier_thresh = 3.0 * SIGMA_HIT * map_resolution_;
+        int outliers = 0, valid = 0;
+        for (int j = 0; j < num_rays; ++j) {
+            const float o = obs[j];
+            if (!std::isfinite(o) || o <= 0.0f) continue;
+            ++valid;
+            if (std::abs(static_cast<double>(o) - ranges_[best * num_rays + j]) > outlier_thresh)
+                ++outliers;
+        }
+        outlier_fraction_ = valid > 0 ? static_cast<double>(outliers) / valid : 0.0;
+    }
 }
 
 void ParticleFilter::initialize_sensor_arrays(int num_rays, int total_queries)
@@ -852,7 +893,12 @@ void ParticleFilter::calculate_particle_weights(const std::vector<float> &obs, i
             const int obs_idx = std::max(0, std::min(static_cast<int>(std::round(obs_px_[j])), MAX_RANGE_PX));
             const int range_idx = std::max(0, std::min(static_cast<int>(std::round(ranges_px_[base_idx + j])), MAX_RANGE_PX));
 
-            weight *= sensor_model_table_(obs_idx, range_idx);
+            const double p = sensor_model_table_(obs_idx, range_idx);
+            if (RAY_LIKELIHOOD_FLOOR_RATIO > 0.0) {
+                weight *= std::max(p, RAY_LIKELIHOOD_FLOOR_RATIO * sensor_model_col_max_[range_idx]);
+            } else {
+                weight *= p;
+            }
         }
 
         weights[i] = std::pow(weight, squash_factor);
@@ -981,6 +1027,7 @@ void ParticleFilter::MCL(const MotionCommand &motion_cmd, const std::vector<floa
             effective_particles += w * w;
         }
         effective_particles = 1.0 / effective_particles;
+        ess_ratio_ = effective_particles / MAX_PARTICLES;   // 스캔 품질 연동 R 입력용으로 보존
 
         // Emergency recovery: inject random particles during high-speed maneuvers if diversity is too low
         if (effective_particles < MAX_PARTICLES * 0.15 && std::abs(current_velocity_) > 4.0) {
@@ -1347,6 +1394,23 @@ void ParticleFilter::timer_update()
                 meas_cov.topLeftCorner<2, 2>() = to_body.transpose() * cov_body * to_body;
                 meas_cov(0, 2) = meas_cov(2, 0) = meas_cov(1, 2) = meas_cov(2, 1) = 0.0;
                 meas_cov(2, 2) = std::max(meas_cov(2, 2), EKF_MEAS_YAW_STD_FLOOR * EKF_MEAS_YAW_STD_FLOOR);
+
+                // 스캔 품질 연동 R 부풀림: 맵과 환경이 다른(다이낯믹) 구간에서 outlier 비율이
+                // 급등하고 ESS가 묻히므로, 그때는 MCL 측정을 연속적으로 불신해 odom 우세로
+                // 버틴다. 하드 게이트와 달리 부분 신뢰라 복구 불능이 없고, R이 커지면
+                // S=P+R도 커져 게이트 과민 기각도 함께 완화된다.
+                if (USE_SCAN_QUALITY_R) {
+                    const double q_term = std::clamp(
+                        (outlier_fraction_ - SCAN_QUALITY_OUTLIER_START) / (1.0 - SCAN_QUALITY_OUTLIER_START),
+                        0.0, 1.0);
+                    const double ess_term = std::clamp(
+                        (SCAN_QUALITY_ESS_START - ess_ratio_) / SCAN_QUALITY_ESS_START, 0.0, 1.0);
+                    const double s_scan = 1.0
+                        + SCAN_QUALITY_OUTLIER_GAIN * q_term
+                        + SCAN_QUALITY_ESS_GAIN * ess_term;
+                    meas_cov *= s_scan * s_scan;
+                }
+
                 ekf_update(z, meas_cov);
                 inferred_pose_ = ekf_state_;
             } else {

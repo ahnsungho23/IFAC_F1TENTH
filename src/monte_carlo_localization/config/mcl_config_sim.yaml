@@ -1,8 +1,10 @@
 # ================================================================================================
-# MONTE CARLO LOCALIZATION (MCL) CONFIGURATION — real / bag 모드용
+# MONTE CARLO LOCALIZATION (MCL) CONFIGURATION — SIMULATION 전용
 # ================================================================================================
-# mod:=real/bag은 이 파일, mod:=sim은 mcl_config_sim.yaml을 mcl_launch.py가 선택해 로드.
-# launch는 파라미터 값을 오버라이드하지 않는다 — 튜닝값은 이 YAML들이 단일 소스.
+# mod:=sim일 때 mcl_launch.py가 mcl_config.yaml 대신 이 파일을 로드한다.
+# gym 시뮬 전용 튜닝 근거: 합성 복도 맵이 near-symmetric이라 큰 dispersion은 코너에서
+# 파티클 구름 180° 플립을 유발하고, 무거운 스묻싱은 요 지연을 유발한다.
+# (2026-08-03 launch 오버라이드 폐지 — 튜닝값은 전부 YAML이 단일 소스)
 # ================================================================================================
 
 particle_filter:
@@ -21,14 +23,11 @@ particle_filter:
     auto_init_from_waypoints: true     # Auto-initialize particles from /global_waypoints start pose
     
     # === MOTION MODEL NOISE ===
-    # ※ 차체 프레임 기준 (D6 수정으로 body-frame 회전 적용)
-    # ※ 0.15/0.25 = 실차 검증값. launch else 분기 시절 실차에 실제 적용되던 값이며,
-    #    0.08/0.08로 낮췄을 때 실차에서 파티클 가중치 붕괴→재분산 반복(구름이 퍼짐)으로
-    #    MCL 부작동이 관측되어 복원 (2026-08-03). 진동/스캔 노이즈가 큰 실차 환경에서는
-    #    모션 노이즈가 너무 작으면 파티클이 가설을 커버하지 못한다.
-    motion_dispersion_x: 0.15          # 종방향(진행방향) 노이즈 σ (m)
+    # ※ 차체 프레임 기준 (D6 수정으로 body-frame 회전 적용). sim 전용 값 — 0.08/0.08은
+    #    gym에서 주행 시작 직후 발산 확인됨 (2026-08-03 시뮬 A/B).
+    motion_dispersion_x: 0.05          # 종방향(진행방향) 노이즈 σ (m)
     motion_dispersion_y: 0.02          # 횡방향 노이즈 σ (m)
-    motion_dispersion_theta: 0.25      # 회전 노이즈 σ (rad)
+    motion_dispersion_theta: 0.04      # 회전 노이즈 σ (rad)
     
     # === POSE SMOOTHING ===
     # ── Pose EMA smoothing (0.0=max smooth, 1.0=no smooth) ─────────────────────
@@ -36,8 +35,8 @@ particle_filter:
     # 출력 지연 시정수 τ ≈ (1/timer_frequency)·(1-α)/α.
     # 구 실차값 0.05는 저속(α≈0.05)에서 τ≈0.63 s — "MCL이 늦게 따라온다"의 주범이라
     # 0.3(τ≈77 ms)으로 상향 (2026-07-29). 지터가 늘면 0.2까지 낮춰볼 것.
-    # 시뮬은 mcl_launch.py가 0.5로 오버라이드(모션 모델 튜닝과 한 세트).
-    smoothing_alpha: 0.3
+    # 시뮬은 0.5 (이 파일이 sim 전용이므로 launch 오버라이드 없이 여기서 결정).
+    smoothing_alpha: 0.5
     smoothing_velocity_full_mps: 2.0   # 이 속도 이상에서 속도 적응 보정이 최대
     smoothing_alpha_gain: 0.4          # 최대 속도에서 base에 더해지는 폭 (0.3→0.7)
     smoothing_alpha_max: 0.8           # 유효 alpha 상한
@@ -48,10 +47,9 @@ particle_filter:
     # 기대 포즈로 보정하되, 측정 노이즈 R = 파티클 가중 공분산 — 복도에선 종방향 분산이
     # 커서 자동으로 odom 유지, 코너에선 분산이 작아 MCL로 재고정된다.
     # true면 EMA 스무딩 대신 EKF 출력이 /pf/pose/odom이 된다 (false = 구 EMA 거동).
-    # ⚠️ false 운용 사고 기록(2026-08-03, run_0803_180758): EKF off + D6 body-frame 노이즈
-    # 상태에서 4.6 m/s 직진 중 MCL이 종방향으로 ~2.5~4 m 후방 스냅 → 벽 충돌.
-    # bag 재생 A/B로 EKF on 시 동 구간 오차 0.4 m로 스냅 소거 확인 → true 복원.
-    use_pose_ekf: true
+    # sim은 EKF off (2026-08-03 시뮬 검증 p50 4.4 cm/p95 8.8 cm 당시 설정과 동일하게 유지).
+    # 실차(mcl_config.yaml)는 직진 후방 스냅 사고(run_0803_180758) 대응으로 true.
+    use_pose_ekf: false
     # 병진 오차율: 실차 휠 odom 고유 오차는 ~0.3%지만, 30Hz 델타 적용·헤딩 결합 오차를
     # 포함한 유효값으로 1%를 쓴다(과소하면 게인이 죽어 사실상 데드레커닝이 됨).
     ekf_trans_error_rate: 0.01         # 주행거리 대비 병진 오차율
@@ -82,15 +80,9 @@ particle_filter:
     z_rand: 0.14                       # Weight for random noise (reduced)
     sigma_hit: 7.0                     # Measurement noise std dev (tightened)
 
-    # === 스캔 강건화 (다이낯믹 환경 대응, 2026-08-03) ===
-    # 환경이 맵과 부분적으로 달라도(가구 이동, 사람 등) 정답 가설이 급사하지 않게 함.
-    ray_likelihood_floor_ratio: 0.05   # per-ray likelihood 하한 (센서 모델 열 최댓값 대비).
-                                       # 0=비활성. 틀린 레이 1개의 최대 벌점이 66배→20배로 제한됨
-    use_scan_quality_r: true           # 스캔 품질 연동 측정 노이즈 R 부풀림 (EKF 모드)
-    scan_quality_outlier_gain: 4.0     # K_OUTLIER — outlier 비율 기반 R 부풀림 강도
-    scan_quality_outlier_start: 0.15   # q0 — outlier 비율이 이 이하면 페널티 없음
-    scan_quality_ess_gain: 2.0         # K_ESS — ESS 하락 기반 R 부풀림 강도
-    scan_quality_ess_start: 0.4        # ess0 — ESS/N이 이 이하면 페널티 시작
+    # === 스캔 강건화 (다이낯믹 환경 대응) — sim은 비활성 (기존 거동 유지) ===
+    ray_likelihood_floor_ratio: 0.0
+    use_scan_quality_r: false
     
     # === RAY CASTING ===
     range_method: "cddt"               # Distance transform method
