@@ -163,6 +163,8 @@ class ParticleFilter : public rclcpp::Node
     void ekf_predict_from_odom(const Eigen::Vector3d &odom_now);
     void ekf_update(const Eigen::Vector3d &z, const Eigen::Matrix3d &R);
     Eigen::Matrix3d particle_covariance(const Eigen::Vector3d &mean);
+    // 포즈가 맵의 free 공간에 있는지 (반경 3셀≈15 cm 내 free 1개 이상이면 허용 — 벽 스침/맵 오차 허용)
+    bool is_pose_permissible(const Eigen::Vector3d& pose) const;
 
     // --------------------------------- SENSOR MODEL PARAMETERS ---------------------------------
     double Z_SHORT, Z_MAX, Z_RAND, Z_HIT, SIGMA_HIT;

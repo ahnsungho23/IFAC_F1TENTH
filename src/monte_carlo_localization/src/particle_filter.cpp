@@ -1209,7 +1209,16 @@ void ParticleFilter::ekf_update(const Eigen::Vector3d &z, const Eigen::Matrix3d 
                 ++ekf_reject_count_;
                 return;   // MCL 순간 글리치로 판단하고 이번 보정은 건너뜀
             }
-            // 연속 기각이 길어지면 EKF 자신이 틀렸다고 보고 측정에 재고정
+            // 연속 기각이 길어지면 EKF 자신이 틀렸다고 보고 측정에 재고정.
+            // 단, 재고정 대상이 물리적으로 불가능한 위치(벽/미지 깊숙이)면 재고정하지 않는다 —
+            // 갭/맵 불일치 후 MCL이 벽 속 모드로 수렴했을 때 추정 전체를 벽 속에 박는
+            // 최악 경로(run_0803_210100 t≈24-25, 점유율 0.8 셀에 34회 보고)를 차단.
+            if (!is_pose_permissible(z)) {
+                RCLCPP_WARN(this->get_logger(),
+                            "Pose EKF: force-accept target in occupied/unknown cell - NOT re-anchoring");
+                ekf_reject_count_ = 0;   // 일정 주기 후 재시도
+                return;
+            }
             RCLCPP_WARN(this->get_logger(),
                         "Pose EKF: %d consecutive gate rejections - re-anchoring to MCL pose",
                         ekf_reject_count_);
@@ -1244,6 +1253,29 @@ Eigen::Matrix3d ParticleFilter::particle_covariance(const Eigen::Vector3d &mean)
     cov(2, 0) = cov(0, 2);
     cov(2, 1) = cov(1, 2);
     return cov;
+}
+
+bool ParticleFilter::is_pose_permissible(const Eigen::Vector3d& pose) const
+{
+    if (!map_initialized_ || !map_msg_)
+        return true;
+
+    const int width = map_msg_->info.width;
+    const int height = map_msg_->info.height;
+    const int gx = static_cast<int>((pose[0] - map_origin_[0]) / map_resolution_);
+    const int gy = static_cast<int>((pose[1] - map_origin_[1]) / map_resolution_);
+
+    // 반경 3셀(약 15 cm) 안에 free가 하나라도 있으면 허용 — 벽에 바짝 붙은 정상 주행
+    // (맵 오차/벽 스침)은 용인하고, 벽 깊숙한 곳(불가능)만 판정한다.
+    constexpr int TOL = 3;
+    for (int dy = -TOL; dy <= TOL; ++dy) {
+        for (int dx = -TOL; dx <= TOL; ++dx) {
+            const int x = gx + dx, y = gy + dy;
+            if (x >= 0 && y >= 0 && x < width && y < height && permissible_region_(y, x) == 1)
+                return true;
+        }
+    }
+    return false;
 }
 
 // ================================================================================================
@@ -1483,6 +1515,15 @@ void ParticleFilter::timer_update()
         else if (has_odom && !has_lidar && odom_tracking_active_) {
             // Update pose based on odometry when no new lidar data is available
             if (apply_motion && (std::abs(current_velocity_) > 0.0001 || std::abs(current_angular_vel_) > 0.0001)) {
+                // 라이다 갭 동안 파티클 구름도 odom 기반 모션 모델로 전파한다.
+                // 전파하지 않으면 파티클이 갭 시작 시점 위치에 얼어붙어, 갭 종료 후
+                // 첫 MCL이 수 초 전 위치로 평가돼 가중치 붕괴 → 포즈 스냅이 발생한다
+                // (run_0803_210100: 스캔 갭 13회 중 16회의 점프가 갭 직후에 발생).
+                if (iters_ > 0) {
+                    MotionCommand gap_motion_cmd(current_velocity_, current_angular_vel_, dt);
+                    motion_model(particles_, gap_motion_cmd);
+                }
+
                 // Dead reckoning based on current velocities
                 Eigen::Vector3d current_pose_estimate = get_current_pose();
 
