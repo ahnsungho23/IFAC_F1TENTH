@@ -192,22 +192,9 @@ def generate_launch_description():
             "'false' if '", LaunchConfiguration('mod'), "' == 'sim' else 'true'"
         ]),
 
-        # Motion/smoothing overrides for gym simulation only (real/bag keep YAML values).
-        # gym scans of the synthetic corridor map are near-symmetric; the large real-car
-        # dispersion lets the particle cloud flip 180 deg during turns, and heavy pose
-        # smoothing lags yaw.
-        # ※ 2026-08-03 D6 수정(모션 노이즈 body 프레임 회전)으로 과거 map 프레임 전제
-        #   튜닝 근거가 무효화됨. 0.08/0.08(YAML 값)은 주행 시작 직후 발산 확인 →
-        #   0.05/0.04로 환원. 시뮬 A/B 측정으로 재확정할 것.
-        'motion_dispersion_x': PythonExpression([
-            "0.05 if '", LaunchConfiguration('mod'), "' == 'sim' else 0.15"
-        ]),
-        'motion_dispersion_theta': PythonExpression([
-            "0.04 if '", LaunchConfiguration('mod'), "' == 'sim' else 0.25"
-        ]),
-        'smoothing_alpha': PythonExpression([
-            "0.5 if '", LaunchConfiguration('mod'), "' == 'sim' else 0.3"
-        ])
+        # ※ 모션/스묽싱 오버라이드는 sim에만 적용한다 (아래 _particle_filter_node_action 참고).
+        #    과거에는 real/bag에도 0.15/0.25가 강제로 들어가 YAML(0.08/0.08)이
+        #    실차에 적용되지 않는 배선 버그가 있었다 (4de8e1a의 튜닝 의도 묵살).
     }
     
     # === COMMON PARAMETERS ===
@@ -250,25 +237,62 @@ def generate_launch_description():
     )
     
     # === PARTICLE FILTER NODE ===
+    # 모션/스묽싱(sim 전용) 오버라이드: mod=='sim'일 때만 추가한다.
+    # real/bag은 config_file(YAML) 값을 그대로 쓴다 — 이전에는 else 분기 0.15/0.25/0.3이
+    # real/bag에도 강제 적용돼 YAML 튜닝이 묵살였다 (주석 "real/bag keep YAML values"와 불일치).
+    # gym 시뮬 값 근거: 합성 복도 맵이 near-symmetric이라 큰 dispersion은 코너에서 180° 플립 유발,
+    # 무거운 스묽싱은 요 지연 유발. (D6 body-frame 수정 후에도 sim A/B로 확인된 값)
+    sim_only_params = {
+        'motion_dispersion_x': 0.05,
+        'motion_dispersion_theta': 0.04,
+        'smoothing_alpha': 0.5,
+    }
+
+    def _particle_filter_node_action(context):
+        def _coerce(v):
+            # 수동 평가된 substitution은 str이 되므로 ROS 파라미터 타입에 맞게 복원
+            if isinstance(v, str):
+                low = v.lower()
+                if low == 'true':
+                    return True
+                if low == 'false':
+                    return False
+                try:
+                    return int(v)
+                except ValueError:
+                    pass
+                try:
+                    return float(v)
+                except ValueError:
+                    pass
+            return v
+
+        def _resolved(d):
+            return {k: _coerce(v.perform(context) if hasattr(v, 'perform') else v) for k, v in d.items()}
+
+        params = [
+            LaunchConfiguration('config_file').perform(context),
+            _resolved(common_params),
+            _resolved(dynamic_params),
+        ]
+        if LaunchConfiguration('mod').perform(context) == 'sim':
+            params.append(sim_only_params)
+
+        return [Node(
+            package='particle_filter_cpp',
+            executable='particle_filter_node',
+            name='particle_filter',
+            output='screen',
+            parameters=params,
+            remappings=[
+                ('/map_server/map', '/particle_filter_map_server/map')
+            ],
+            **FAST_SHUTDOWN
+        )]
+
     particle_filter_node = TimerAction(
         period=3.0,  # Allow map server and simulator to initialize
-        actions=[
-            Node(
-                package='particle_filter_cpp',
-                executable='particle_filter_node',
-                name='particle_filter',
-                output='screen',
-                parameters=[
-                    LaunchConfiguration('config_file'),
-                    common_params,
-                    dynamic_params
-                ],
-                remappings=[
-                    ('/map_server/map', '/particle_filter_map_server/map')
-                ],
-                **FAST_SHUTDOWN
-            )
-        ]
+        actions=[OpaqueFunction(function=_particle_filter_node_action)]
     )
     
     # === TF TRANSFORMS RESPONSIBILITY ===
