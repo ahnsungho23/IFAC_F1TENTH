@@ -1,5 +1,8 @@
 local_planner_node:
   ros__parameters:
+    # =========================================================================
+    # 장애물 탐색과 충돌 envelope
+    # =========================================================================
     # 가장 가까운 정적 장애물 군집만 계획합니다. 모든 거리는 글로벌 Race Line의 Frenet s/d 기준입니다.
     detection_lookahead_m: 12.0
     obstacle_cluster_gap_m: 0.8
@@ -13,6 +16,9 @@ local_planner_node:
     boundary_margin_m: 0.13
     fallback_track_half_width_m: 1.50
 
+    # =========================================================================
+    # d-offset spline 형상과 기하 검증
+    # =========================================================================
     # 참고 구현의 7개 pre/apex/post 제어점 개념을 정적 장애물 상자의 앞/뒤 경계로 확장했습니다.
     # 배열은 각각 [먼 점, 중간 점, 가까운 점], [가까운 점, 중간 점, 먼 점] 순서입니다.
     pre_apex_distances_m: [4.0, 3.0, 1.5]
@@ -40,6 +46,9 @@ local_planner_node:
     safe_stop_deceleration_mps2: 2.5
     minimum_path_points: 8
 
+    # =========================================================================
+    # 입력 freshness, commitment와 state-machine 인계
+    # =========================================================================
     # map-frame Cartesian AABB를 CLCS로 내부 투영한 정적 물체만 담당합니다.
     require_obstacles_message: true
     # 한 번 유효하게 받은 뒤 이 시간이 지나면 degraded mode로 전환합니다. stale은 장애물 소멸로
@@ -85,11 +94,14 @@ local_planner_node:
     commitment_lock_lateral_threshold_m: 0.10
     commitment_lock_longitudinal_m: 0.50
 
+    # =========================================================================
+    # RViz 표현과 ROS 인터페이스
+    # =========================================================================
     obstacle_marker_scale_m: 0.35
     path_marker_width_m: 0.06
 
     global_waypoints_topic: "/global_waypoints"
-    # obstacle_detector Layer 2 output. It contains provisional/confirmed static objects.
+    # obstacle_detector Layer 2가 발행하는 provisional/confirmed 정적 장애물입니다.
     obstacles_topic: "/static_obs"
     frenet_odom_topic: "/car_state/frenet/odom"
     state_topic: "/state"

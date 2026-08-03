@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Verify avoidance -> latched safe-stop -> delayed avoidance across ROS nodes."""
+"""여러 ROS 노드 사이에서 회피 → safe-stop latch → 지연 회피 복귀를 검사한다."""
 
 import math
 import sys
@@ -28,7 +28,7 @@ from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 
 
 def latched_qos():
-    """Return the transient-local QoS used by global waypoints."""
+    """글로벌 waypoint에 사용하는 transient-local QoS를 반환한다."""
     qos = QoSProfile(depth=1)
     qos.reliability = ReliabilityPolicy.RELIABLE
     qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
@@ -36,7 +36,7 @@ def latched_qos():
 
 
 class SafeStopLatchProbe(Node):
-    """Drive one same-ID obstacle through feasible and blocked envelopes."""
+    """같은 ID 장애물 envelope를 회피 가능/불가능 상태로 차례로 바꾼다."""
 
     def __init__(self):
         super().__init__('safe_stop_latch_pipeline_probe')
@@ -66,7 +66,7 @@ class SafeStopLatchProbe(Node):
 
     @staticmethod
     def reference():
-        """Create a straight ordered reference with finite track widths."""
+        """유한한 트랙 폭을 갖는 직선 순서 기준 경로를 만든다."""
         message = WpntArray()
         message.header.frame_id = 'map'
         for index in range(300):
@@ -84,7 +84,7 @@ class SafeStopLatchProbe(Node):
         return message
 
     def publish_inputs(self):
-        """Publish the reference, fixed ego, and current obstacle envelope."""
+        """기준 경로, 고정 ego와 현재 장애물 envelope를 발행한다."""
         now = self.get_clock().now().to_msg()
         reference = self.reference()
         reference.header.stamp = now
@@ -124,8 +124,8 @@ class SafeStopLatchProbe(Node):
         odometry.header.frame_id = 'map'
         odometry.child_frame_id = '0'
         odometry.pose.pose.position.x = 0.0
-        # Enter the selected maneuver before widening its side of the AABB. This verifies that the
-        # planner locks direction after engagement and therefore safe-stops instead of reversing.
+        # 선택한 maneuver에 먼저 진입한 뒤 해당 AABB 방향을 넓힌다. 진입 뒤에는 planner가
+        # 방향을 잠가 반대편으로 뒤집지 않고 safe-stop하는지 확인하기 위한 순서다.
         if self.stage == 'initial':
             odometry.pose.pose.position.y = 0.0
         else:
@@ -134,21 +134,21 @@ class SafeStopLatchProbe(Node):
         self.odom_pub.publish(odometry)
 
     def on_state(self, message):
-        """Track the state-machine output."""
+        """상태 머신 state_machine 출력을 추적한다."""
         self.state = message.state
         if self.safe_stop_started is not None and self.stage != 'released':
             if self.state != StateMachine.STATE_AVOID:
                 self.failure = 'state machine left AVOID while safe-stop was latched'
 
     def on_local(self, message):
-        """Confirm waypoint selection keeps a non-empty local stop path."""
+        """선택 결과가 비어 있지 않은 local waypoint 정지 경로를 유지하는지 확인한다."""
         if (
                 self.safe_stop_started is not None and message.wpnts and
                 min(point.vx_mps for point in message.wpnts) <= 1.0e-9):
             self.saw_local_safe_stop = True
 
     def on_avoid(self, message):
-        """Advance stages and enforce release hysteresis."""
+        """테스트 단계를 진행하며 safe-stop 해제 hysteresis를 확인한다."""
         now = time.monotonic()
         if not message.wpnts:
             return
@@ -190,7 +190,7 @@ class SafeStopLatchProbe(Node):
 
 
 def main():
-    """Run the probe against local_planner, state_machine, and wpnt_publisher."""
+    """세 노드 local_planner, state_machine, wpnt_publisher를 대상으로 probe를 실행한다."""
     rclpy.init()
     node = SafeStopLatchProbe()
     deadline = time.monotonic() + 12.0

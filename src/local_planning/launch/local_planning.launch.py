@@ -23,7 +23,17 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node, SetRemap
 
 
+# ============================================================================
+# local_planning 통합 launch
+# ============================================================================
+# 기본 구성:
+#   1. 장애물이 포함되지 않은 wall-only 기준 지도를 별도 토픽으로 제공
+#   2. obstacle_detector를 함께 실행해 /static_obs 생성
+#   3. local_planner_node가 /static_obs를 회피 경로로 변환
+#
+# 이미 외부 obstacle_detector를 실행했다면 start_obstacle_detector:=false로 중복 실행을 막는다.
 def generate_launch_description():
+    # 설치된 package share를 기준으로 config와 포함 launch의 절대 경로를 만든다.
     pkg_dir = get_package_share_directory('local_planning')
     default_config = os.path.join(pkg_dir, 'config', 'local_planning.yaml')
     default_reference_map = os.path.join(
@@ -37,6 +47,7 @@ def generate_launch_description():
         'obstacle_detector.launch.py',
     )
 
+    # ── 사용자가 명령행에서 덮어쓸 수 있는 launch 인자 ──────────────────────
     params_file_arg = DeclareLaunchArgument(
         'params_file',
         default_value=default_config,
@@ -71,6 +82,9 @@ def generate_launch_description():
         description='Wall-only reference-map YAML loaded for local planning',
     )
 
+    # ── local planning 전용 wall-only map server ─────────────────────────────
+    # gym의 /map에는 시뮬레이션 장애물이 구워져 있을 수 있으므로 perception 필터에는 별도의
+    # 깨끗한 기준 지도를 공급한다.
     reference_map_server = Node(
         package='nav2_map_server',
         executable='map_server',
@@ -94,6 +108,9 @@ def generate_launch_description():
         }],
     )
 
+    # ── obstacle_detector 선택 실행 ──────────────────────────────────────────
+    # detector가 보는 /map만 planning_map_topic으로 remap한다. RViz는 이 통합 launch에서
+    # 중복으로 띄우지 않는다.
     obstacle_detector = GroupAction(actions=[
         SetRemap(src='/map', dst=LaunchConfiguration('planning_map_topic')),
         IncludeLaunchDescription(
@@ -107,6 +124,7 @@ def generate_launch_description():
         ),
     ])
 
+    # ── 정적 장애물 회피 계획 노드 ──────────────────────────────────────────
     local_planner_node = Node(
         package='local_planning',
         executable='local_planner_node',
@@ -118,6 +136,7 @@ def generate_launch_description():
         ]
     )
 
+    # 선언 순서와 무관하게 모든 action이 하나의 LaunchDescription으로 함께 관리된다.
     return LaunchDescription([
         params_file_arg,
         simulator_arg,

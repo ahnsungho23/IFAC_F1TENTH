@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Verify that a post-merge-tail obstacle chains without stopping the first maneuver."""
+"""합류 뒤 tail 장애물이 첫 maneuver를 멈추지 않고 연결되는지 검사한다."""
 
 import math
 import sys
@@ -28,7 +28,7 @@ from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 
 
 def latched_qos():
-    """Return the transient-local QoS used by global waypoints and state."""
+    """글로벌 waypoint와 state에 사용하는 transient-local QoS를 반환한다."""
     qos = QoSProfile(depth=1)
     qos.reliability = ReliabilityPolicy.RELIABLE
     qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
@@ -36,7 +36,7 @@ def latched_qos():
 
 
 class PostMergeTailProbe(Node):
-    """Add a second obstacle inside the first path's controller-only tail."""
+    """첫 경로의 controller 전용 tail 안에 두 번째 장애물을 추가한다."""
 
     def __init__(self):
         super().__init__('post_merge_tail_chaining_probe')
@@ -63,7 +63,7 @@ class PostMergeTailProbe(Node):
 
     @staticmethod
     def reference():
-        """Create an ordered straight race line."""
+        """순서가 증가하는 s를 가진 직선 레이스 라인을 만든다."""
         message = WpntArray()
         message.header.frame_id = 'map'
         for index in range(400):
@@ -82,7 +82,7 @@ class PostMergeTailProbe(Node):
 
     @staticmethod
     def obstacle(obstacle_id, center_s):
-        """Build a right-side box that requires a left maneuver."""
+        """왼쪽 maneuver가 필요한 오른쪽 장애물 상자를 만든다."""
         obstacle = Obstacle()
         obstacle.id = obstacle_id
         obstacle.has_cartesian = True
@@ -106,12 +106,12 @@ class PostMergeTailProbe(Node):
 
     @staticmethod
     def path_d_at(message, target_s):
-        """Return the d of the path sample closest to target s."""
+        """지정한 s에 가장 가까운 경로 표본의 d를 반환한다."""
         return min(message.wpnts, key=lambda waypoint: abs(
             waypoint.s_m - target_s)).d_m
 
     def publish_inputs(self):
-        """Publish fresh localization and obstacle observations."""
+        """최신 localization과 장애물 관측을 계속 발행한다."""
         stamp = self.get_clock().now().to_msg()
         reference = self.reference()
         reference.header.stamp = stamp
@@ -140,7 +140,7 @@ class PostMergeTailProbe(Node):
         self.state_pub.publish(state)
 
     def on_avoid(self, message):
-        """Require first avoidance to be replaced directly by the second."""
+        """첫 회피가 두 번째 회피로 직접 교체되는지 확인한다."""
         if not message.wpnts:
             if self.stage == 'chaining':
                 self.failure = 'avoid waypoints became empty while chaining'
@@ -185,7 +185,7 @@ class PostMergeTailProbe(Node):
 
 
 def main():
-    """Run the probe against a fresh local_planner_node."""
+    """새로 실행한 local_planner_node를 대상으로 probe를 실행한다."""
     rclpy.init()
     node = PostMergeTailProbe()
     deadline = time.monotonic() + 10.0

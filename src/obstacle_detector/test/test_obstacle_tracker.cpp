@@ -9,6 +9,7 @@ namespace obstacle_detector
 namespace
 {
 
+// 각 테스트에서 형상 차이보다 상태 전이에 집중하도록 만드는 기본 검출값이다.
 Detection makeDetection(double s, double d = 0.0)
 {
     Detection detection;
@@ -25,6 +26,7 @@ Detection makeDetection(double s, double d = 0.0)
     return detection;
 }
 
+// 단위 테스트를 짧고 결정적으로 만들기 위한 추적기 파라미터이다.
 TrackerParams testParams()
 {
     TrackerParams params;
@@ -39,6 +41,7 @@ TrackerParams testParams()
     return params;
 }
 
+// 세 번째 관측에서 같은 ID로 임시 정적 발행을 시작하고 연속 저속 관측 뒤 정적으로 확정한다.
 TEST(ObstacleTrackerClassification, PublishesAtHitThreeAndKeepsIdThroughStaticPromotion)
 {
     ObstacleTracker tracker;
@@ -74,6 +77,7 @@ TEST(ObstacleTrackerClassification, PublishesAtHitThreeAndKeepsIdThroughStaticPr
     EXPECT_TRUE(tracker.tracks().front().is_static);
 }
 
+// 미관측 예측 프레임에서도 마지막 Frenet 종·횡방향 형상은 독립적으로 유지해야 한다.
 TEST(ObstacleTrackerGeometry, RetainsIndependentFrenetExtentsDuringPrediction)
 {
     ObstacleTracker tracker;
@@ -100,6 +104,7 @@ TEST(ObstacleTrackerGeometry, RetainsIndependentFrenetExtentsDuringPrediction)
     EXPECT_FALSE(tracker.tracks().front().is_visible);
 }
 
+// 급회전 중의 이동량은 증거로 쌓지 않고, 신뢰 가능한 연속 관측만 동적 승격에 사용한다.
 TEST(ObstacleTrackerClassification, RequiresConsecutiveReliableMotionBeforeDynamicPromotion)
 {
     ObstacleTracker tracker;
@@ -117,7 +122,7 @@ TEST(ObstacleTrackerClassification, RequiresConsecutiveReliableMotionBeforeDynam
     const int id = tracker.tracks().front().id;
     EXPECT_EQ(tracker.tracks().front().motion_class, MotionClass::ProvisionalStatic);
 
-    // Even clear translational motion must not accumulate dynamic evidence while ego yaw is rapid.
+    // 뚜렷한 병진 운동도 자차가 급회전 중이면 동적 증거로 누적하면 안 된다.
     for (int i = 0; i < 10; ++i)
     {
         tracker.update({makeDetection(s)}, stamp, 2.0, true);

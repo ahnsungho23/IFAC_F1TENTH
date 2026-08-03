@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Verify transient soft collisions are ignored and persistent ones replan after confirmation."""
+"""일시적 soft 충돌은 무시하고 지속 충돌만 확인 후 재계획하는지 검사한다."""
 
 import math
 import sys
@@ -27,7 +27,7 @@ from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 
 
 def latched_qos():
-    """Return the transient-local QoS used by global waypoints."""
+    """글로벌 waypoint에 사용하는 transient-local QoS를 반환한다."""
     qos = QoSProfile(depth=1)
     qos.reliability = ReliabilityPolicy.RELIABLE
     qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
@@ -35,7 +35,7 @@ def latched_qos():
 
 
 class SoftViolationProbe(Node):
-    """Pulse and then persist a same-ID uncertainty-only path violation."""
+    """같은 ID의 uncertainty-only 경로 위반을 짧게 준 뒤 지속시킨다."""
 
     def __init__(self):
         super().__init__('soft_violation_confirmation_probe')
@@ -59,7 +59,7 @@ class SoftViolationProbe(Node):
 
     @staticmethod
     def reference():
-        """Create a straight ordered reference with finite track widths."""
+        """유한한 트랙 폭을 갖는 직선 순서 기준 경로를 만든다."""
         message = WpntArray()
         message.header.frame_id = 'map'
         for index in range(300):
@@ -77,7 +77,7 @@ class SoftViolationProbe(Node):
         return message
 
     def expanded_lateral_bounds(self):
-        """Expand only the committed side without entering the hard vehicle envelope."""
+        """실제 hard vehicle envelope에 닿지 않고 commitment 방향만 확장한다."""
         if self.stage not in ('soft_pulse', 'persistent'):
             return -0.2, 0.2
         if self.committed_left:
@@ -85,7 +85,7 @@ class SoftViolationProbe(Node):
         return -0.30, 0.2
 
     def publish_inputs(self):
-        """Publish one short soft pulse, then a persistent soft violation."""
+        """짧은 soft pulse 한 번 뒤 지속적인 soft 위반을 발행한다."""
         if (
                 self.stage == 'soft_pulse' and
                 time.monotonic() - self.stage_started >= 0.035):
@@ -137,13 +137,13 @@ class SoftViolationProbe(Node):
         self.odom_pub.publish(odometry)
 
     def selected_peak(self, message):
-        """Return the magnitude on the committed side."""
+        """확정된 commitment 방향의 최대 d 크기를 반환한다."""
         if self.committed_left:
             return max(point.d_m for point in message.wpnts)
         return abs(min(point.d_m for point in message.wpnts))
 
     def on_avoid(self, message):
-        """Require two old-path outputs before a persistent soft violation replans."""
+        """지속 soft 위반이 재계획되기 전에 기존 경로가 두 번 유지되는지 확인한다."""
         if not message.wpnts:
             return
         if message.ot_line == 'raceline_static_safe_stop':
@@ -187,7 +187,7 @@ class SoftViolationProbe(Node):
 
 
 def main():
-    """Run the probe against a fresh local_planner_node."""
+    """새로 실행한 local_planner_node를 대상으로 probe를 실행한다."""
     rclpy.init()
     node = SoftViolationProbe()
     deadline = time.monotonic() + 10.0

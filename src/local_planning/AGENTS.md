@@ -143,5 +143,7 @@
   `local_planner_node` to verify frozen-path retention beyond the stale timeout, GLOBAL handoff
   completion, and last-snapshot reuse on the next lap while `/static_obs` remains silent.
 - Keep all runtime values configurable in YAML and load that YAML from the launch file.
+- Keep explanatory source comments in Korean and document intent, invariants, units, and safety
+  reasons instead of restating individual statements.
 - Update this file and the Korean documentation when behavior, topics, parameters, or launch usage
   changes.

@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Verify that an unsafe commitment may switch sides before lateral engagement."""
+"""횡방향 진입 전에는 위험해진 commitment가 반대쪽으로 전환되는지 검사한다."""
 
 import math
 import sys
@@ -27,7 +27,7 @@ from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 
 
 def latched_qos():
-    """Return the transient-local QoS used by global waypoints."""
+    """글로벌 waypoint에 사용하는 transient-local QoS를 반환한다."""
     qos = QoSProfile(depth=1)
     qos.reliability = ReliabilityPolicy.RELIABLE
     qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
@@ -35,7 +35,7 @@ def latched_qos():
 
 
 class PreEngagementSwitchProbe(Node):
-    """Invalidate an initial left path while ego remains on d=0."""
+    """차량 ego가 d=0에 있는 동안 최초 왼쪽 경로를 무효화한다."""
 
     def __init__(self):
         super().__init__('pre_engagement_side_switch_probe')
@@ -53,7 +53,7 @@ class PreEngagementSwitchProbe(Node):
 
     @staticmethod
     def reference():
-        """Create an ordered straight reference."""
+        """순서가 증가하는 s를 가진 직선 기준 경로를 만든다."""
         message = WpntArray()
         message.header.frame_id = 'map'
         for index in range(300):
@@ -71,7 +71,7 @@ class PreEngagementSwitchProbe(Node):
         return message
 
     def publish_inputs(self):
-        """Publish a narrow AABB, then widen its left envelope."""
+        """좁은 AABB를 발행한 뒤 왼쪽 envelope를 넓힌다."""
         stamp = self.get_clock().now().to_msg()
         reference = self.reference()
         reference.header.stamp = stamp
@@ -113,7 +113,7 @@ class PreEngagementSwitchProbe(Node):
         self.odom_pub.publish(odometry)
 
     def on_path(self, message):
-        """Wait for left commitment, then require a direct right replacement."""
+        """왼쪽 commitment 뒤 중간 빈 경로 없이 오른쪽 교체가 나오는지 확인한다."""
         if (
                 not message.wpnts or
                 message.ot_line != 'raceline_local_d_offset_spline'):
@@ -131,7 +131,7 @@ class PreEngagementSwitchProbe(Node):
 
 
 def main():
-    """Run the probe against an already running local_planner_node."""
+    """이미 실행 중인 local_planner_node를 대상으로 probe를 실행한다."""
     rclpy.init()
     node = PreEngagementSwitchProbe()
     deadline = time.monotonic() + 8.0

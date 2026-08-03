@@ -25,6 +25,8 @@
 namespace obstacle_detector
 {
 
+// 최종 발행된 Frenet 장애물 외곽을 LINE_STRIP marker로 변환한다. Cartesian AABB가 없는
+// 예측 전용 트랙도 동일하게 시각화할 수 있도록 FrenetProjector만 사용한다.
 visualization_msgs::msg::MarkerArray buildFrenetObstacleMarkers(
   const f110_msgs::msg::ObstacleArray & obstacles,
   const FrenetProjector & projector,

@@ -1,6 +1,6 @@
 map_yaml: /home/sungho/slam_toolbox/maps/map.yaml
 output_dir: /home/sungho/2026_IFAC/offline_trajectory_generator/output/map
-optimizer: mincurv
+optimizer: centerline
 width_mode: hybrid
 show_centerline: true
 show_rt_lane: true

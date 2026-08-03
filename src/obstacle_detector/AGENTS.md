@@ -108,6 +108,8 @@ published Frenet bounds instead of reprojecting the Cartesian metadata.
 
 - All tunables belong in `config/obstacle_detector.yaml` and must be declared with safe defaults
   in the C++ node.
+- Keep explanatory comments and Python docstrings in Korean. Preserve standard license text,
+  identifiers, topic names, formulas, and external API terminology when translating comments.
 - `diagnostics_enable` and `diagnostics_period_sec` control the passive INFO diagnostics; they must
   not change scan, detection, association, or Kalman state.
 - `launch/obstacle_detector_node.launch.py` is the direct node launch.

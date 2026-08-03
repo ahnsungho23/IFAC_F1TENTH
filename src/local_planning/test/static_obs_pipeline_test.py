@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Verify the live /scan -> /static_obs -> /avoid_waypoints pipeline."""
+"""실제 /scan → /static_obs → /avoid_waypoints 파이프라인을 검사한다."""
 
 import math
 import sys
@@ -39,7 +39,7 @@ ANGLE_INCREMENT = FIELD_OF_VIEW / BEAM_COUNT
 
 
 def latched_qos():
-    """Return the QoS used by the global path and map."""
+    """글로벌 경로와 지도에 사용하는 QoS를 반환한다."""
     qos = QoSProfile(depth=1)
     qos.reliability = ReliabilityPolicy.RELIABLE
     qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
@@ -47,7 +47,7 @@ def latched_qos():
 
 
 class StaticObstaclePipelineProbe(Node):
-    """Publish one physical static obstacle and validate both pipeline stages."""
+    """물리 정적 장애물 하나를 발행하고 detector/planner 두 단계를 검증한다."""
 
     def __init__(self):
         super().__init__('static_obs_pipeline_probe')
@@ -76,7 +76,7 @@ class StaticObstaclePipelineProbe(Node):
         self.timer = self.create_timer(0.025, self.publish_sensor_inputs)
 
     def publish_reference_inputs(self):
-        """Publish a closed circular reference and an obstacle-free map."""
+        """폐곡선 원형 기준 경로와 장애물이 없는 지도를 발행한다."""
         waypoints = WpntArray()
         waypoints.header.frame_id = 'map'
         waypoint_count = 360
@@ -117,7 +117,7 @@ class StaticObstaclePipelineProbe(Node):
 
     @staticmethod
     def obstacle_points():
-        """Return the visible faces of a 0.5 m square in the laser frame."""
+        """레이저 frame에서 보이는 0.5 m 정사각형의 면 점들을 반환한다."""
         map_x = TRACK_RADIUS * math.cos(OBSTACLE_ANGLE)
         map_y = TRACK_RADIUS * math.sin(OBSTACLE_ANGLE)
         delta_x = map_x - TRACK_RADIUS
@@ -133,7 +133,7 @@ class StaticObstaclePipelineProbe(Node):
         return points
 
     def publish_sensor_inputs(self):
-        """Publish ego states and a scan containing the static obstacle."""
+        """차량 ego 상태와 정적 장애물이 포함된 scan을 발행한다."""
         stamp = self.get_clock().now().to_msg()
 
         pose = Odometry()
@@ -173,7 +173,7 @@ class StaticObstaclePipelineProbe(Node):
         self.scan_pub.publish(scan)
 
     def on_static_obstacles(self, message):
-        """Require detector output with valid Cartesian metadata and Frenet planning bounds."""
+        """유효한 Cartesian metadata와 Frenet 계획 경계를 가진 detector 출력을 요구한다."""
         for obstacle in message.obstacles:
             cartesian_values = (
                 obstacle.x_center,
@@ -206,7 +206,7 @@ class StaticObstaclePipelineProbe(Node):
                 self.saw_valid_static = True
 
     def on_static_markers(self, message):
-        """Require a map-frame Frenet boundary mirroring the static obstacle input."""
+        """정적 장애물 입력을 반영한 map-frame Frenet 경계 marker를 요구한다."""
         self.saw_valid_static_marker = (
             self.saw_valid_static_marker
             or any(
@@ -223,7 +223,7 @@ class StaticObstaclePipelineProbe(Node):
         )
 
     def on_avoidance_path(self, message):
-        """Require a finite path that actually moves off the global race line."""
+        """실제로 글로벌 레이스 라인에서 벗어나며 좌표가 유한한 경로를 요구한다."""
         if not self.saw_valid_static or not message.wpnts:
             return
         if not all(
@@ -241,7 +241,7 @@ class StaticObstaclePipelineProbe(Node):
 
 
 def main():
-    """Run the probe against active detector and local-planner nodes."""
+    """실행 중인 detector와 local_planner 노드를 대상으로 probe를 실행한다."""
     rclpy.init()
     node = StaticObstaclePipelineProbe()
     deadline = time.monotonic() + 10.0

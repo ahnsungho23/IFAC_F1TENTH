@@ -25,8 +25,10 @@ namespace obstacle_detector
 namespace
 {
 
+// 곡선 장애물 경계를 직선 하나로 단순화하지 않도록 각 종방향 면을 여러 점으로 샘플링한다.
 constexpr int kLongitudinalSamples = 8;
 
+// marker를 만들기 전에 네 Frenet 경계가 유한하고 좌우 순서가 올바른지 확인한다.
 bool finiteFrenetBounds(const f110_msgs::msg::Obstacle & obstacle)
 {
   return std::isfinite(obstacle.s_start) &&
@@ -36,6 +38,7 @@ bool finiteFrenetBounds(const f110_msgs::msg::Obstacle & obstacle)
          obstacle.d_right <= obstacle.d_left;
 }
 
+// 폐루프 시작점을 지나가는 장애물도 올바른 전방 길이로 표현한다.
 double forwardSpan(double start, double end, double track_length)
 {
   double span = end - start;
@@ -49,6 +52,7 @@ double forwardSpan(double start, double end, double track_length)
   return span;
 }
 
+// Frenet 경계점 하나를 map 좌표로 바꾸어 LINE_STRIP에 추가한다.
 bool appendBoundaryPoint(
   visualization_msgs::msg::Marker & marker,
   const FrenetProjector & projector,
@@ -77,6 +81,7 @@ visualization_msgs::msg::MarkerArray buildFrenetObstacleMarkers(
 {
   visualization_msgs::msg::MarkerArray result;
 
+  // 매 주기 DELETEALL을 먼저 보내 이전 프레임에서 사라진 장애물 marker가 남지 않게 한다.
   visualization_msgs::msg::Marker clear;
   clear.header = obstacles.header;
   clear.ns = marker_namespace;
@@ -104,10 +109,12 @@ visualization_msgs::msg::MarkerArray buildFrenetObstacleMarkers(
     marker.color.r = red;
     marker.color.g = green;
     marker.color.b = blue;
+    // 현재 측정된 물체는 진하게, TTL 예측만 남은 물체는 반투명하게 표시한다.
     marker.color.a = obstacle.is_visible ? 0.95F : 0.45F;
 
     const double span = forwardSpan(
       obstacle.s_start, obstacle.s_end, track_length);
+    // 오른쪽 경계를 s 증가 방향으로, 왼쪽 경계를 s 감소 방향으로 따라가 폐곡선을 만든다.
     bool valid = true;
     for (int i = 0; i <= kLongitudinalSamples; ++i) {
       const double ratio =

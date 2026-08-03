@@ -23,6 +23,7 @@ namespace local_planning
 namespace
 {
 
+// 테스트마다 필요한 Frenet 경계만 간단히 설정하는 장애물 fixture
 f110_msgs::msg::Obstacle makeObstacle(
   double s_center,
   double s_start,
@@ -42,6 +43,7 @@ f110_msgs::msg::Obstacle makeObstacle(
   return obstacle;
 }
 
+// 고정 오차 하한과 k·표준편차가 종/횡방향에 정확히 더해지는지 검사한다.
 TEST(ObstacleGuard, AddsFixedMarginAndKalmanStandardDeviation)
 {
   auto obstacle = makeObstacle(10.0, 9.8, 10.2);
@@ -60,6 +62,7 @@ TEST(ObstacleGuard, AddsFixedMarginAndKalmanStandardDeviation)
   EXPECT_NEAR(guard.d_left, 0.38, 1.0e-9);
 }
 
+// 작은 같은-ID 이동은 동결 Guard 안에 남고 누적 이동은 결국 Guard를 벗어나는지 검사한다.
 TEST(ObstacleGuard, KeepsSmallSameIdMotionInsideFrozenGuard)
 {
   auto initial = makeObstacle(10.0, 9.8, 10.2);
@@ -78,6 +81,7 @@ TEST(ObstacleGuard, KeepsSmallSameIdMotionInsideFrozenGuard)
   EXPECT_FALSE(obstacleEnvelopeContained(breached_envelope, frozen_guard, 100.0));
 }
 
+// s=0을 가로지르는 장애물도 팽창과 포함 판정이 폐곡선 방향으로 이어지는지 검사한다.
 TEST(ObstacleGuard, HandlesClosedTrackWrap)
 {
   ObstacleGuardParameters parameters;
@@ -95,6 +99,7 @@ TEST(ObstacleGuard, HandlesClosedTrackWrap)
   EXPECT_TRUE(obstacleEnvelopeContained(shifted_envelope, frozen_guard, 100.0));
 }
 
+// NaN/음수 분산은 0으로 취급하고 고정 margin만 적용하는 안전 fallback을 검사한다.
 TEST(ObstacleGuard, FallsBackToFixedMarginForInvalidVariance)
 {
   auto obstacle = makeObstacle(10.0, 9.8, 10.2);

@@ -26,14 +26,21 @@ namespace local_planning
 namespace
 {
 
+// ============================================================================
+// 순수 기하 계산 보조 함수와 1차원 natural cubic spline
+// ============================================================================
+
+// 수치 비교, waypoint 간 최소 거리 및 spline 행렬 특이점 판정 허용 오차
 constexpr double kEpsilon = 1.0e-6;
 constexpr double kPi = 3.14159265358979323846;
 
+// 값이 하한/상한을 넘지 않도록 제한한다.
 double clamp(double value, double lower, double upper)
 {
   return std::max(lower, std::min(value, upper));
 }
 
+// heading 차이를 [-π, π] 범위로 정규화해 wrap 보간의 급격한 회전을 막는다.
 double normalizeAngle(double angle)
 {
   while (angle > kPi) {
@@ -45,6 +52,7 @@ double normalizeAngle(double angle)
   return angle;
 }
 
+// 경로 생성·검증에 쓰는 모든 waypoint 필드가 유한한지 확인한다.
 bool finiteWaypoint(const f110_msgs::msg::Wpnt & waypoint)
 {
   return std::isfinite(waypoint.s_m) && std::isfinite(waypoint.d_m) &&
@@ -54,6 +62,7 @@ bool finiteWaypoint(const f110_msgs::msg::Wpnt & waypoint)
          std::isfinite(waypoint.d_left) && std::isfinite(waypoint.d_right);
 }
 
+// 두 map-frame waypoint의 유클리드 거리
 double pointDistance(
   const f110_msgs::msg::Wpnt & first,
   const f110_msgs::msg::Wpnt & second)
@@ -61,12 +70,12 @@ double pointDistance(
   return std::hypot(second.x_m - first.x_m, second.y_m - first.y_m);
 }
 
-// Natural cubic interpolation in the unwrapped Frenet-s domain. The evaluated value is clipped by
-// the caller to the control-point extrema, matching the upstream spliner's no-opposite-overshoot
-// behavior while retaining a continuous cubic fit.
+// 펼친 Frenet s 영역에서 d(s)를 잇는 natural cubic spline이다. 호출부에서 평가값을
+// 제어점 d의 최솟값/최댓값으로 제한해 연속 cubic 형상은 유지하면서 반대쪽 overshoot를 막는다.
 class NaturalCubicSpline
 {
 public:
+  // x는 엄격히 증가해야 한다. 각 구간의 a/b/c/d 계수를 삼대각 시스템으로 계산한다.
   bool build(const std::vector<double> & x, const std::vector<double> & y)
   {
     if (x.size() < 2U || x.size() != y.size()) {
@@ -94,6 +103,7 @@ public:
     }
 
     if (n > 2U) {
+      // natural boundary(c[0]=c[n-1]=0)를 갖는 삼대각 시스템의 우변
       std::vector<double> alpha(n, 0.0);
       for (std::size_t i = 1; i + 1U < n; ++i) {
         alpha[i] = 3.0 * (a_[i + 1U] - a_[i]) / h[i] -
@@ -103,6 +113,8 @@ public:
       std::vector<double> lower(n, 1.0);
       std::vector<double> mu(n, 0.0);
       std::vector<double> z(n, 0.0);
+
+      // 삼대각 Thomas algorithm의 전진 소거
       for (std::size_t i = 1; i + 1U < n; ++i) {
         lower[i] = 2.0 * (x[i + 1U] - x[i - 1U]) - h[i - 1U] * mu[i - 1U];
         if (std::abs(lower[i]) < kEpsilon) {
@@ -111,6 +123,8 @@ public:
         mu[i] = h[i] / lower[i];
         z[i] = (alpha[i] - h[i - 1U] * z[i - 1U]) / lower[i];
       }
+
+      // 역대입으로 구간별 1·2·3차 계수를 완성한다.
       for (std::size_t reverse = n - 1U; reverse > 0U; --reverse) {
         const std::size_t j = reverse - 1U;
         c_[j] = z[j] - mu[j] * c_[j + 1U];
@@ -119,11 +133,13 @@ public:
         d_[j] = (c_[j + 1U] - c_[j]) / (3.0 * h[j]);
       }
     } else {
+      // 제어점 두 개뿐이면 유일한 직선 보간을 사용한다.
       b_[0] = (a_[1] - a_[0]) / h[0];
     }
     return true;
   }
 
+  // 해당 x가 속한 구간을 이진 탐색하고 cubic 다항식을 평가한다.
   double evaluate(double x) const
   {
     if (x_.empty()) {
@@ -142,6 +158,7 @@ public:
   }
 
 private:
+  // x_[i]부터 x_[i+1] 사이에서 a + b·dx + c·dx² + d·dx³ 형태로 저장한다.
   std::vector<double> x_;
   std::vector<double> a_;
   std::vector<double> b_;
@@ -151,6 +168,8 @@ private:
 
 }  // namespace
 
+// ego.s를 0으로 펼친 장애물 envelope. raw d는 진단용 원 경계이고 d_right/d_left에는
+// 차량 중심 경로가 피해야 할 clearance가 반영되어 있다.
 struct RacelineSplinePlanner::ExpandedObstacle
 {
   int id{-1};
@@ -164,6 +183,7 @@ struct RacelineSplinePlanner::ExpandedObstacle
   double clearance{0.0};
 };
 
+// 한 방향과 한 전환 길이에 대해 생성·검증한 spline 후보
 struct RacelineSplinePlanner::Candidate
 {
   bool valid{false};
@@ -176,21 +196,28 @@ struct RacelineSplinePlanner::Candidate
   std::string reason;
 };
 
+// 파라미터 복사본을 소유하는 순수 계획 객체. ROS 인터페이스는 포함하지 않는다.
 RacelineSplinePlanner::RacelineSplinePlanner(RacelineSplineParameters parameters)
 : parameters_(std::move(parameters))
 {
 }
 
+// 노드가 YAML 선언을 끝낸 후 검증된 설정으로 교체한다.
 void RacelineSplinePlanner::setParameters(const RacelineSplineParameters & parameters)
 {
   parameters_ = parameters;
 }
 
+// ============================================================================
+// 글로벌 기준 경로 등록
+// ============================================================================
+// waypoint 순서를 계획의 기하 불변식으로 사용하므로 유한값과 엄격히 증가하는 s_m을 요구한다.
 bool RacelineSplinePlanner::setReference(
   const f110_msgs::msg::WpntArray & reference,
   std::string * error)
 {
   auto reject = [&](const std::string & why) {
+      // 잘못된 새 reference가 들어오면 이전 경로를 계속 쓰지 않고 명시적으로 준비 해제한다.
       reference_.wpnts.clear();
       track_length_ = 0.0;
       if (error != nullptr) {
@@ -217,6 +244,8 @@ bool RacelineSplinePlanner::setReference(
     }
   }
   std::sort(spacing.begin(), spacing.end());
+
+  // 마지막 점 뒤의 폐곡선 간격은 인접 s 간격의 중앙값으로 추정해 outlier 영향을 줄인다.
   const double median_spacing = spacing[spacing.size() / 2U];
   const double inferred_length = reference.wpnts.back().s_m + median_spacing;
   if (!(inferred_length > reference.wpnts.back().s_m) || !std::isfinite(inferred_length)) {
@@ -228,16 +257,19 @@ bool RacelineSplinePlanner::setReference(
   return true;
 }
 
+// 최소 4개의 순서가 검증된 waypoint와 양의 트랙 길이가 있어야 계획 가능하다.
 bool RacelineSplinePlanner::ready() const
 {
   return reference_.wpnts.size() >= 4U && track_length_ > 0.0;
 }
 
+// 추정한 폐곡선 한 바퀴 길이
 double RacelineSplinePlanner::trackLength() const
 {
   return track_length_;
 }
 
+// 폐곡선 Frenet s를 [0, track_length_)로 감싼다.
 double RacelineSplinePlanner::wrapS(double s) const
 {
   if (!(track_length_ > 0.0)) {
@@ -250,11 +282,13 @@ double RacelineSplinePlanner::wrapS(double s) const
   return wrapped;
 }
 
+// 트랙 wrap을 건너더라도 양수로 유지되는 전방 거리
 double RacelineSplinePlanner::forwardDistance(double from_s, double to_s) const
 {
   return wrapS(to_s - from_s);
 }
 
+// 현재 ego 앞에서 가장 먼저 레이스 라인을 막는 연결 장애물 군집의 ID만 반환한다.
 std::vector<int> RacelineSplinePlanner::blockingClusterIds(
   const EgoFrenetState & ego,
   const std::vector<f110_msgs::msg::Obstacle> & obstacles) const
@@ -273,6 +307,7 @@ std::vector<int> RacelineSplinePlanner::blockingClusterIds(
   return ids;
 }
 
+// 주어진 s 이상인 첫 글로벌 waypoint index. 마지막을 넘으면 폐곡선 첫 점으로 돌아간다.
 std::size_t RacelineSplinePlanner::nextReferenceIndex(double s) const
 {
   const double wrapped_s = wrapS(s);
@@ -285,6 +320,7 @@ std::size_t RacelineSplinePlanner::nextReferenceIndex(double s) const
          0U : static_cast<std::size_t>(std::distance(reference_.wpnts.begin(), iterator));
 }
 
+// 폐곡선 양방향 거리를 비교해 가장 가까운 글로벌 waypoint index를 선택한다.
 std::size_t RacelineSplinePlanner::nearestReferenceIndex(double s) const
 {
   const std::size_t next = nextReferenceIndex(s);
@@ -297,6 +333,9 @@ std::size_t RacelineSplinePlanner::nearestReferenceIndex(double s) const
   return circular_distance(next) < circular_distance(previous) ? next : previous;
 }
 
+// ============================================================================
+// detector Frenet obstacle을 ego 기준의 충돌 검사용 envelope로 변환
+// ============================================================================
 std::vector<RacelineSplinePlanner::ExpandedObstacle>
 RacelineSplinePlanner::expandVisibleObstacles(
   const EgoFrenetState & ego,
@@ -307,6 +346,7 @@ RacelineSplinePlanner::expandVisibleObstacles(
   std::vector<ExpandedObstacle> visible;
   visible.reserve(obstacles.size());
   for (const auto & obstacle : obstacles) {
+    // 잘못된 한 물체 때문에 전체 계획을 중단하지 않고 해당 물체만 제외한다.
     if (!std::isfinite(obstacle.s_center) || !std::isfinite(obstacle.s_start) ||
       !std::isfinite(obstacle.s_end) || !std::isfinite(obstacle.d_left) ||
       !std::isfinite(obstacle.d_right))
@@ -328,6 +368,8 @@ RacelineSplinePlanner::expandVisibleObstacles(
     expanded.end = center + half_span;
     expanded.raw_d_right = std::min(obstacle.d_right, obstacle.d_left);
     expanded.raw_d_left = std::max(obstacle.d_right, obstacle.d_left);
+
+    // 경로는 차량 중심 궤적이므로 detector 경계 양쪽에 요구 clearance를 직접 더한다.
     expanded.d_right = expanded.raw_d_right - clearance;
     expanded.d_left = expanded.raw_d_left + clearance;
     expanded.clearance = clearance;
@@ -337,6 +379,8 @@ RacelineSplinePlanner::expandVisibleObstacles(
       visible.push_back(expanded);
     }
   }
+
+  // 가장 가까운 앞면부터 검사해야 첫 blocking cluster를 안정적으로 선택할 수 있다.
   std::sort(
     visible.begin(), visible.end(),
     [](const ExpandedObstacle & first, const ExpandedObstacle & second) {
@@ -345,12 +389,14 @@ RacelineSplinePlanner::expandVisibleObstacles(
   return visible;
 }
 
+// 원 장애물 경계가 race line 중심의 차량 폭 + blocking margin을 덮으면 blocking으로 본다.
 bool RacelineSplinePlanner::isBlockingRaceline(const ExpandedObstacle & obstacle) const
 {
   const double envelope = parameters_.vehicle_half_width_m + parameters_.blocking_margin_m;
   return obstacle.raw_d_right <= envelope && obstacle.raw_d_left >= -envelope;
 }
 
+// 첫 blocking obstacle부터 종방향 gap이 설정값 이하로 이어지는 물체들을 한 maneuver로 묶는다.
 std::vector<RacelineSplinePlanner::ExpandedObstacle>
 RacelineSplinePlanner::nearestCluster(
   const std::vector<ExpandedObstacle> & obstacles) const
@@ -375,6 +421,8 @@ RacelineSplinePlanner::nearestCluster(
   return cluster;
 }
 
+// 장애물 구간 주변 2 m의 signed curvature 합으로 코너 바깥쪽을 판단한다.
+// 왼쪽 회전(양의 곡률)의 바깥은 오른쪽, 오른쪽 회전(음의 곡률)의 바깥은 왼쪽이다.
 bool RacelineSplinePlanner::outsideIsLeft(
   const EgoFrenetState & ego,
   const std::vector<ExpandedObstacle> & cluster) const
@@ -403,6 +451,7 @@ bool RacelineSplinePlanner::outsideIsLeft(
   return curvature_sum < 0.0;
 }
 
+// 군집 전체의 좌/우 바깥 경계에 clearance reserve를 더해 목표 d를 계산한다.
 bool RacelineSplinePlanner::computeSideTarget(
   const std::vector<ExpandedObstacle> & cluster,
   bool go_left,
@@ -426,6 +475,7 @@ bool RacelineSplinePlanner::computeSideTarget(
       std::min(target_d, obstacle.d_right);
   }
   if (go_left) {
+    // 좌측은 양의 d, 우측은 음의 d이며 최소 회피 offset도 보장한다.
     target_d = std::max(
       target_d + parameters_.commitment_clearance_reserve_m,
       parameters_.minimum_target_offset_m);
@@ -441,6 +491,7 @@ bool RacelineSplinePlanner::computeSideTarget(
   return true;
 }
 
+// 장애물 span 동안 목표 d를 유지할 공간이 waypoint별 트랙 폭 안에 있는지 빠르게 검사한다.
 bool RacelineSplinePlanner::targetFitsTrackBounds(
   const EgoFrenetState & ego,
   double cluster_start,
@@ -461,9 +512,9 @@ bool RacelineSplinePlanner::targetFitsTrackBounds(
              target_d >= -right_width + center_boundary_clearance - kEpsilon;
     };
 
-  // The target offset is held across the expanded obstacle-cluster span. Reject an obviously
-  // impossible side before fitting/sampling up to three splines, but retain the full candidate
-  // validation because the transition can still meet a narrower wall before or after this span.
+  // 목표 offset은 팽창된 장애물 군집 span 전체에서 유지된다. 명백히 불가능한 방향은 여러
+  // spline을 fitting/sampling하기 전에 제거한다. 단, 전환 구간의 더 좁은 벽은 이 검사로
+  // 잡히지 않을 수 있으므로 살아남은 후보도 전체 경로 검증을 반드시 수행한다.
   const double check_start = std::max(0.0, cluster_start);
   bool checked_reference = false;
   const std::size_t first_index = nextReferenceIndex(wrapS(ego.s + check_start));
@@ -486,8 +537,8 @@ bool RacelineSplinePlanner::targetFitsTrackBounds(
     }
   }
 
-  // A very short obstacle span can fall between two global samples. Check its midpoint against the
-  // nearest reference width so the fast gate remains useful without inventing a Cartesian wall.
+  // 매우 짧은 장애물 span이 두 글로벌 표본 사이에 있으면 midpoint에서 가장 가까운 기준 폭을
+  // 검사한다. Cartesian 벽을 새로 추정하지 않으면서 빠른 gate의 누락을 막는다.
   if (!checked_reference) {
     const double midpoint = 0.5 * (check_start + std::max(check_start, cluster_end));
     const auto & reference = reference_.wpnts[
@@ -505,6 +556,7 @@ bool RacelineSplinePlanner::targetFitsTrackBounds(
 f110_msgs::msg::WpntArray RacelineSplinePlanner::buildGlobalHandoffPath(
   double ego_s, double state_tail_ratio, double speed_cap_mps) const
 {
+  // state_machine이 GLOBAL 전환을 확인할 때까지 비지 않은 d=0 한 바퀴를 제공한다.
   f110_msgs::msg::WpntArray path;
   path.header = reference_.header;
   if (!ready() || !std::isfinite(ego_s) || !(state_tail_ratio > 0.0) ||
@@ -536,6 +588,8 @@ f110_msgs::msg::WpntArray RacelineSplinePlanner::buildGlobalHandoffPath(
   return path;
 }
 
+// Frenet 위치는 알지만 정상 경로를 만들 수 없을 때 현재 d를 유지하는 zero-speed hold를 만든다.
+// 최소 점 개수를 채워 downstream이 빈 경로로 해석하지 않게 한다.
 f110_msgs::msg::WpntArray RacelineSplinePlanner::buildEmergencyStopPath(
   const EgoFrenetState & ego) const
 {
@@ -564,6 +618,11 @@ f110_msgs::msg::WpntArray RacelineSplinePlanner::buildEmergencyStopPath(
   return path;
 }
 
+// ============================================================================
+// 활성 commitment 위에서 만드는 안전 정지 prefix
+// ============================================================================
+// 장애물 때문에 기존 경로가 무효화되어도 즉시 d=0으로 돌아가지 않는다. ego 앞의 committed
+// waypoint부터 첫 충돌 전 safe_stop_buffer까지 같은 기하를 잘라 역방향 감속 프로파일을 만든다.
 RacelineSplineResult RacelineSplinePlanner::buildCommittedPathStop(
   const EgoFrenetState & ego,
   const f110_msgs::msg::WpntArray & committed_path,
@@ -580,6 +639,8 @@ RacelineSplineResult RacelineSplinePlanner::buildCommittedPathStop(
 
   std::size_t start_index = 0U;
   double nearest_forward = std::numeric_limits<double>::infinity();
+
+  // commitment 배열 중 현재 ego에서 가장 가까운 전방 waypoint를 시작점으로 찾는다.
   for (std::size_t i = 0; i < committed_path.wpnts.size(); ++i) {
     const double forward = forwardDistance(ego.s, committed_path.wpnts[i].s_m);
     if (forward < nearest_forward) {
@@ -595,6 +656,8 @@ RacelineSplineResult RacelineSplinePlanner::buildCommittedPathStop(
   const auto visible = expandVisibleObstacles(ego, obstacles);
   double first_collision_forward = std::numeric_limits<double>::infinity();
   int first_collision_id = -1;
+
+  // 남은 commitment를 따라가며 가장 먼저 충돌하는 waypoint와 장애물 ID를 찾는다.
   for (std::size_t i = start_index; i < committed_path.wpnts.size(); ++i) {
     const auto & waypoint = committed_path.wpnts[i];
     const double forward_s = forwardDistance(ego.s, waypoint.s_m);
@@ -620,6 +683,8 @@ RacelineSplineResult RacelineSplinePlanner::buildCommittedPathStop(
   const double stop_at = std::max(
     0.0, first_collision_forward - parameters_.safe_stop_buffer_m);
   result.path.header = committed_path.header;
+
+  // 충돌 지점보다 buffer만큼 앞까지만 기존 기하를 복사한다.
   for (std::size_t i = start_index; i < committed_path.wpnts.size(); ++i) {
     const double forward_s = forwardDistance(ego.s, committed_path.wpnts[i].s_m);
     if (forward_s > stop_at + kEpsilon) {
@@ -643,6 +708,8 @@ RacelineSplineResult RacelineSplinePlanner::buildCommittedPathStop(
   const bool excessive_entry_slope =
     first_forward > kEpsilon &&
     first_lateral_delta / first_forward > parameters_.maximum_lateral_slope;
+
+  // 첫 waypoint가 현재 ego.d와 불연속이면 차량이 순간 횡이동해야 하므로 이 prefix를 버린다.
   if (same_s_lateral_jump || excessive_entry_slope) {
     result.path.wpnts.clear();
     result.reason = "committed braking prefix is discontinuous from the current ego d";
@@ -650,6 +717,9 @@ RacelineSplineResult RacelineSplinePlanner::buildCommittedPathStop(
   }
 
   result.path.wpnts.back().vx_mps = 0.0;
+
+  // v_prev² = v_next² + 2·a·Δx를 뒤에서 앞으로 적용해 기존 속도보다 높이지 않는 감속
+  // 프로파일을 만든다.
   for (std::size_t reverse = result.path.wpnts.size() - 1U; reverse > 0U; --reverse) {
     const std::size_t previous = reverse - 1U;
     const double distance = pointDistance(
@@ -663,6 +733,7 @@ RacelineSplineResult RacelineSplinePlanner::buildCommittedPathStop(
   }
   updateGeometryAndAcceleration(result.path);
 
+  // 잘라낸 prefix도 트랙·장애물·기하 검사를 다시 통과해야 발행할 수 있다.
   std::string validation_reason;
   if (!validateCandidate(ego, result.path, visible, validation_reason, 0U, 2U)) {
     result.path.wpnts.clear();
@@ -676,6 +747,9 @@ RacelineSplineResult RacelineSplinePlanner::buildCommittedPathStop(
   return result;
 }
 
+// ============================================================================
+// 한 방향/전환 길이의 cubic d-offset 후보 생성
+// ============================================================================
 RacelineSplinePlanner::Candidate RacelineSplinePlanner::buildCandidate(
   const EgoFrenetState & ego,
   const std::vector<ExpandedObstacle> & visible,
@@ -689,12 +763,15 @@ RacelineSplinePlanner::Candidate RacelineSplinePlanner::buildCandidate(
   Candidate candidate;
   candidate.go_left = go_left;
 
+  // 코너 바깥쪽은 안쪽보다 전환 거리를 늘려 횡기울기와 곡률 변화를 완만하게 만든다.
   if (go_left == outside_is_left) {
     transition_scale *= parameters_.outside_line_transition_scale;
   }
 
   std::vector<double> knot_s;
   std::vector<double> knot_d;
+
+  // 너무 가까운 s 제어점은 하나로 합쳐 spline 입력의 엄격한 증가 조건을 보장한다.
   auto append_knot = [&](double forward_s, double d) {
       if (!knot_s.empty() && forward_s <= knot_s.back() + 1.0e-3) {
         if (forward_s > knot_s.back() - 1.0e-3) {
@@ -713,6 +790,7 @@ RacelineSplinePlanner::Candidate RacelineSplinePlanner::buildCandidate(
   const double post_middle = parameters_.post_apex_distances_m[1] * transition_scale;
   const double post_far = parameters_.post_apex_distances_m[2] * transition_scale;
 
+  // [현재 d 유지 3점] → [장애물 구간 target d] → [global d=0 복귀 3점]
   append_knot(cluster_start - pre_far, ego.d);
   append_knot(cluster_start - pre_middle, ego.d);
   append_knot(cluster_start - pre_near, ego.d);
@@ -724,6 +802,8 @@ RacelineSplinePlanner::Candidate RacelineSplinePlanner::buildCandidate(
   append_knot(cluster_end + post_middle, 0.0);
   append_knot(cluster_end + post_far, 0.0);
 
+  // 첫 maneuver는 가능한 기존 pre 점을 살리고, 연속 maneuver처럼 ego.d가 0이 아니면
+  // 반드시 (forward_s=0, ego.d)에서 시작해 현재 차량 위치와 연속되게 한다.
   if (std::abs(ego.d) <= kEpsilon) {
     if (knot_s.front() > 0.05) {
       knot_s.insert(knot_s.begin(), 0.0);
@@ -771,6 +851,8 @@ RacelineSplinePlanner::Candidate RacelineSplinePlanner::buildCandidate(
   const std::size_t first_index = nextReferenceIndex(ego.s);
   candidate.path.header = reference_.header;
   candidate.path.wpnts.reserve(reference_.wpnts.size());
+
+  // 글로벌 waypoint의 s/order/속도 프로파일은 유지하고 d와 map x/y만 바꾼다.
   for (std::size_t k = 0; k < reference_.wpnts.size(); ++k) {
     const std::size_t index = (first_index + k) % reference_.wpnts.size();
     const auto & global = reference_.wpnts[index];
@@ -780,6 +862,8 @@ RacelineSplinePlanner::Candidate RacelineSplinePlanner::buildCandidate(
     }
     auto waypoint = global;
     waypoint.id = static_cast<int32_t>(candidate.path.wpnts.size());
+
+    // cubic overshoot가 반대쪽으로 튀지 않도록 [0, ego.d, target_d]의 min/max로 제한한다.
     waypoint.d_m = clamp(spline.evaluate(forward_s), clip_min, clip_max);
     waypoint.x_m = global.x_m - waypoint.d_m * std::sin(global.psi_rad);
     waypoint.y_m = global.y_m + waypoint.d_m * std::cos(global.psi_rad);
@@ -791,6 +875,8 @@ RacelineSplinePlanner::Candidate RacelineSplinePlanner::buildCandidate(
   }
 
   updateGeometryAndAcceleration(candidate.path);
+
+  // 생성된 모든 표본이 트랙·장애물·기하 제약을 만족해야 후보를 유효 처리한다.
   if (!validateCandidate(ego, candidate.path, visible, candidate.reason)) {
     return candidate;
   }
@@ -804,6 +890,8 @@ RacelineSplinePlanner::Candidate RacelineSplinePlanner::buildCandidate(
   return candidate;
 }
 
+// d 이동으로 map 좌표가 바뀐 뒤 heading, signed curvature, longitudinal acceleration을
+// 순서대로 다시 계산한다. 속도 자체는 글로벌 프로파일을 보존한다.
 void RacelineSplinePlanner::updateGeometryAndAcceleration(
   f110_msgs::msg::WpntArray & path) const
 {
@@ -812,6 +900,7 @@ void RacelineSplinePlanner::updateGeometryAndAcceleration(
     return;
   }
 
+  // 양끝에서는 단방향 차분, 내부에서는 중앙 차분으로 heading을 계산한다.
   for (std::size_t i = 0; i < waypoints.size(); ++i) {
     const std::size_t previous = (i == 0U) ? 0U : i - 1U;
     const std::size_t next = std::min(i + 1U, waypoints.size() - 1U);
@@ -822,6 +911,7 @@ void RacelineSplinePlanner::updateGeometryAndAcceleration(
     }
   }
 
+  // 세 점의 외적과 변 길이 곱으로 signed curvature κ = 2·cross/(a·b·c)를 계산한다.
   for (std::size_t i = 1; i + 1U < waypoints.size(); ++i) {
     const auto & first = waypoints[i - 1U];
     const auto & middle = waypoints[i];
@@ -838,6 +928,7 @@ void RacelineSplinePlanner::updateGeometryAndAcceleration(
   waypoints.front().kappa_radpm = waypoints[1].kappa_radpm;
   waypoints.back().kappa_radpm = waypoints[waypoints.size() - 2U].kappa_radpm;
 
+  // v_next² = v_prev² + 2·a·Δx 관계로 각 구간 종가속도를 재계산한다.
   for (std::size_t i = 1; i < waypoints.size(); ++i) {
     const double distance = pointDistance(waypoints[i - 1U], waypoints[i]);
     if (distance > kEpsilon) {
@@ -849,6 +940,11 @@ void RacelineSplinePlanner::updateGeometryAndAcceleration(
   waypoints.back().ax_mps2 = 0.0;
 }
 
+// ============================================================================
+// 표본화된 경로의 통합 안전 검증
+// ============================================================================
+// 실패 시 PathValidationFailure에 정확한 원인과 waypoint/obstacle 경계를 채워 상위 노드가
+// hard/soft collision을 구분하고 재현 가능한 로그를 남길 수 있게 한다.
 bool RacelineSplinePlanner::validateCandidate(
   const EgoFrenetState & ego,
   const f110_msgs::msg::WpntArray & path,
@@ -893,6 +989,8 @@ bool RacelineSplinePlanner::validateCandidate(
       }
       return false;
     };
+
+  // ego 앞에 충분한 waypoint가 남았는지 먼저 확인한다.
   if (start_index >= path.wpnts.size()) {
     return reject(
       PathValidationFailureKind::kNoForwardPath,
@@ -920,6 +1018,8 @@ bool RacelineSplinePlanner::validateCandidate(
       reference.d_left : parameters_.fallback_track_half_width_m;
     const double right_width = reference.d_right > 0.05 ?
       reference.d_right : parameters_.fallback_track_half_width_m;
+
+    // waypoint별 좌/우 트랙 폭에서 차량 반폭과 boundary margin을 뺀 중심 허용 범위
     if (waypoint.d_m > left_width - center_boundary_clearance + 1.0e-6 ||
       waypoint.d_m < -right_width + center_boundary_clearance - 1.0e-6)
     {
@@ -927,6 +1027,8 @@ bool RacelineSplinePlanner::validateCandidate(
         PathValidationFailureKind::kTrackBoundary,
         "d-offset leaves the global waypoint track bounds", i, &waypoint);
     }
+
+    // 지정된 collision horizon 안에서 종/횡방향이 동시에 겹치면 장애물 충돌이다.
     for (const auto & obstacle : visible) {
       if ((!maximum_collision_forward_m.has_value() ||
         forward_s <= maximum_collision_forward_m.value() + kEpsilon) &&
@@ -942,17 +1044,23 @@ bool RacelineSplinePlanner::validateCandidate(
     }
     if (i > start_index) {
       const double ds = forward_s - previous_s;
+
+      // s 순서 보존은 이 planner의 핵심 불변식이며 branch jump를 원천 차단한다.
       if (!(ds > kEpsilon)) {
         return reject(
           PathValidationFailureKind::kGeometry,
           "candidate no longer follows increasing global race-line order", i, &waypoint);
       }
+
+      // |Δd/Δs|가 너무 크면 조향이 급격하므로 경로를 거부한다.
       const double slope = std::abs(waypoint.d_m - previous_d) / ds;
       if (slope > parameters_.maximum_lateral_slope) {
         return reject(
           PathValidationFailureKind::kGeometry,
           "cubic d-offset exceeds maximum_lateral_slope", i, &waypoint);
       }
+
+      // 곡률 변화율은 steering rate에 대응하는 기하 제한이다.
       const double curvature_rate =
         std::abs(waypoint.kappa_radpm - previous_curvature) / ds;
       if (curvature_rate > parameters_.maximum_curvature_rate_radpm2) {
@@ -961,6 +1069,8 @@ bool RacelineSplinePlanner::validateCandidate(
           "shifted race line exceeds maximum_curvature_rate_radpm2", i, &waypoint);
       }
     }
+
+    // 점 자체의 절대 곡률도 차량의 최대 조향 가능 범위 안이어야 한다.
     if (std::abs(waypoint.kappa_radpm) > parameters_.maximum_curvature_radpm) {
       return reject(
         PathValidationFailureKind::kGeometry,
@@ -973,6 +1083,9 @@ bool RacelineSplinePlanner::validateCandidate(
   return true;
 }
 
+// 이미 발행한 경로를 현재 ego에서 남은 부분만 재검증하는 공개 함수다.
+// obstacle_clearance로 hard/soft 검사용 팽창량을 바꾸고, maximum_collision_forward_m으로
+// 현재 spline merge 뒤의 controller tail을 충돌 검사에서 제외할 수 있다.
 bool RacelineSplinePlanner::validatePath(
   const EgoFrenetState & ego,
   const f110_msgs::msg::WpntArray & path,
@@ -1027,6 +1140,8 @@ bool RacelineSplinePlanner::validatePath(
 
   std::size_t start_index = 0U;
   double nearest_forward = std::numeric_limits<double>::infinity();
+
+  // 폐곡선 wrap을 고려해 ego에서 가장 가까운 전방 waypoint를 찾는다.
   for (std::size_t i = 0; i < path.wpnts.size(); ++i) {
     const double forward = forwardDistance(ego.s, path.wpnts[i].s_m);
     if (forward < nearest_forward) {
@@ -1054,6 +1169,7 @@ bool RacelineSplinePlanner::validatePath(
   return true;
 }
 
+// 좌우 회피 후보가 모두 실패했을 때 현재 ego.d를 유지하며 장애물 앞에 정지하는 경로를 만든다.
 RacelineSplineResult RacelineSplinePlanner::buildSafeStop(
   const EgoFrenetState & ego,
   const std::vector<ExpandedObstacle> & visible,
@@ -1062,6 +1178,8 @@ RacelineSplineResult RacelineSplinePlanner::buildSafeStop(
   RacelineSplineResult result;
   result.kind = SplinePlanKind::kNoSafePath;
   result.obstacle_id = blocking.id;
+
+  // 장애물 팽창 앞면보다 safe_stop_buffer_m만큼 앞을 목표 정지점으로 둔다.
   const double stop_at = std::max(0.0, blocking.start - parameters_.safe_stop_buffer_m);
   const std::size_t first_index = nextReferenceIndex(ego.s);
   result.path.header = reference_.header;
@@ -1077,6 +1195,8 @@ RacelineSplineResult RacelineSplinePlanner::buildSafeStop(
     waypoint.d_m = ego.d;
     waypoint.x_m = global.x_m - ego.d * std::sin(global.psi_rad);
     waypoint.y_m = global.y_m + ego.d * std::cos(global.psi_rad);
+
+    // v ≤ sqrt(2·a·남은거리)로 제한해 정지점에서 속도가 0이 되는 감속 상한을 만든다.
     waypoint.vx_mps = std::min(
       std::max(0.0, waypoint.vx_mps),
       std::sqrt(
@@ -1092,6 +1212,7 @@ RacelineSplineResult RacelineSplinePlanner::buildSafeStop(
   result.path.wpnts.back().vx_mps = 0.0;
   updateGeometryAndAcceleration(result.path);
 
+  // 정지 prefix 자체도 장애물/트랙/기하 검증을 통과해야 한다.
   std::string validation_reason;
   if (!validateCandidate(ego, result.path, visible, validation_reason, 0U, 2U)) {
     result.path.wpnts.clear();
@@ -1104,6 +1225,7 @@ RacelineSplineResult RacelineSplinePlanner::buildSafeStop(
   return result;
 }
 
+// 최초 blocking cluster를 여러 메시지 동안 관측하는 동안 사용할 준비 감속 경로를 만든다.
 RacelineSplineResult RacelineSplinePlanner::buildPreparationStop(
   const EgoFrenetState & ego,
   const std::vector<f110_msgs::msg::Obstacle> & obstacles) const
@@ -1129,6 +1251,8 @@ RacelineSplineResult RacelineSplinePlanner::buildPreparationStop(
   }
 
   result = buildSafeStop(ego, visible, cluster.front());
+
+  // 준비 단계에서 군집의 모든 ID를 알려 상위 노드가 각 ID의 관측 횟수를 따로 셀 수 있게 한다.
   result.obstacle_ids.reserve(cluster.size());
   for (const auto & obstacle : cluster) {
     result.obstacle_ids.push_back(obstacle.id);
@@ -1141,6 +1265,12 @@ RacelineSplineResult RacelineSplinePlanner::buildPreparationStop(
   return result;
 }
 
+// ============================================================================
+// 좌/우 회피 계획의 최상위 함수
+// ============================================================================
+// 가장 가까운 blocking cluster에 대해 목표 d와 여러 전환 길이를 평가한다. preferred_left가
+// 있으면 commitment 방향을 먼저 검사하고, allow_side_switch가 true인 진입 전 단계에서만
+// 반대편 fallback을 허용한다.
 RacelineSplineResult RacelineSplinePlanner::plan(
   const EgoFrenetState & ego,
   const std::vector<f110_msgs::msg::Obstacle> & obstacles,
@@ -1168,6 +1298,8 @@ RacelineSplineResult RacelineSplinePlanner::plan(
   }
 
   const bool outside_is_left = outsideIsLeft(ego, cluster);
+
+  // 한 방향의 목표 d를 계산하고 짧은 전환부터 유효한 첫 spline을 찾는다.
   auto evaluate_side = [&](bool go_left) {
       Candidate last;
       last.go_left = go_left;
@@ -1184,8 +1316,8 @@ RacelineSplineResult RacelineSplinePlanner::plan(
       {
         return last;
       }
-      // transition_distance_scales is validated as strictly increasing. The first valid
-      // candidate therefore has the minimum score and later, longer splines are redundant.
+      // transition_distance_scales는 엄격한 오름차순으로 검증됐다. 따라서 첫 유효 후보가
+      // 최소 score이며 이후의 더 긴 spline은 평가할 필요가 없다.
       for (const double scale : parameters_.transition_distance_scales) {
         last = buildCandidate(
           ego, visible, go_left, scale, outside_is_left,
@@ -1202,6 +1334,8 @@ RacelineSplineResult RacelineSplinePlanner::plan(
   bool left_evaluated = false;
   bool right_evaluated = false;
   Candidate selected;
+
+  // 기존 commitment 방향이 있으면 그쪽을 우선하고, 방향 전환 허용 시에만 반대쪽을 검사한다.
   if (preferred_left.has_value()) {
     if (preferred_left.value()) {
       left = evaluate_side(true);
@@ -1229,6 +1363,7 @@ RacelineSplineResult RacelineSplinePlanner::plan(
       }
     }
   } else {
+    // 새 maneuver는 양쪽을 모두 평가해 더 작은 offset/짧은 전환 score를 선택한다.
     left = evaluate_side(true);
     right = evaluate_side(false);
     left_evaluated = true;
@@ -1243,6 +1378,7 @@ RacelineSplineResult RacelineSplinePlanner::plan(
   }
 
   if (!selected.valid) {
+    // 어느 쪽도 안전하지 않으면 실패 이유를 보존한 검증된 감속 경로를 반환한다.
     auto safe_stop = buildSafeStop(ego, visible, cluster.front());
     safe_stop.obstacle_ids.reserve(cluster.size());
     for (const auto & obstacle : cluster) {
@@ -1266,6 +1402,8 @@ RacelineSplineResult RacelineSplinePlanner::plan(
   result.target_d = selected.target_d;
   result.merge_s = selected.merge_s;
   result.obstacle_id = cluster.front().id;
+
+  // commitment/Guard 동결에 사용할 군집 전체 ID를 결과에 함께 싣는다.
   result.obstacle_ids.reserve(cluster.size());
   for (const auto & obstacle : cluster) {
     result.obstacle_ids.push_back(obstacle.id);
@@ -1275,6 +1413,11 @@ RacelineSplineResult RacelineSplinePlanner::plan(
   return result;
 }
 
+// ============================================================================
+// Frenet → map 좌표 보간
+// ============================================================================
+// s를 감싼 뒤 인접 글로벌 waypoint의 위치와 heading을 선형 보간하고, 기준 heading의 왼쪽
+// 법선 방향으로 d만큼 이동한다. 이 변환도 글로벌 순서를 바꾸지 않는다.
 void RacelineSplinePlanner::toCartesian(
   double s, double d, double & x, double & y, double & yaw) const
 {
@@ -1286,6 +1429,8 @@ void RacelineSplinePlanner::toCartesian(
   }
   const double wrapped = wrapS(s);
   std::size_t first = 0U;
+
+  // wrapped s를 포함하는 기준 구간 [first, second]를 찾는다.
   for (std::size_t i = 1; i < reference_.wpnts.size(); ++i) {
     if (reference_.wpnts[i].s_m > wrapped) {
       break;
@@ -1300,6 +1445,8 @@ void RacelineSplinePlanner::toCartesian(
   const auto & b = reference_.wpnts[second];
   const double base_x = a.x_m + fraction * (b.x_m - a.x_m);
   const double base_y = a.y_m + fraction * (b.y_m - a.y_m);
+
+  // ±π 경계를 가로지르는 heading도 최단 각도 차로 보간한다.
   yaw = a.psi_rad + fraction * normalizeAngle(b.psi_rad - a.psi_rad);
   x = base_x - d * std::sin(yaw);
   y = base_y + d * std::cos(yaw);

@@ -30,8 +30,18 @@ namespace local_planning
 namespace
 {
 
+// ============================================================================
+// local_planner_node 내부 보조 함수
+// ============================================================================
+// 이 파일의 큰 흐름은 다음과 같다.
+//   입력 검증 → 관측 안정화/Guard 생성 → 기존 commitment 재검증 → 새 spline 계획
+//   → safe-stop 또는 state_machine 인계 → 제어·시각화 토픽 발행
+// ============================================================================
+
+// Frenet 구간과 부동소수점 비교에서 퇴화 형상을 거르는 허용 오차
 constexpr double kGeometryEpsilon = 1.0e-9;
 
+// RViz nav_msgs/Path에 넣을 평면 yaw를 z/w quaternion으로 변환한다.
 geometry_msgs::msg::Quaternion yawQuaternion(double yaw)
 {
   geometry_msgs::msg::Quaternion quaternion;
@@ -40,6 +50,7 @@ geometry_msgs::msg::Quaternion yawQuaternion(double yaw)
   return quaternion;
 }
 
+// planner가 직접 사용하는 Frenet s/d와 종방향 속도가 모두 유효한지 검사한다.
 bool finiteOdometry(const nav_msgs::msg::Odometry & odometry)
 {
   return std::isfinite(odometry.pose.pose.position.x) &&
@@ -47,6 +58,8 @@ bool finiteOdometry(const nav_msgs::msg::Odometry & odometry)
          std::isfinite(odometry.twist.twist.linear.x);
 }
 
+// 여러 관측의 envelope를 합칠 때 유효한 분산 중 가장 큰 값을 보존한다.
+// 잘못된 음수/NaN 분산은 0으로 취급해 Guard 계산을 오염시키지 않는다.
 double conservativeVariance(double first, double second)
 {
   const double finite_first = std::isfinite(first) && first >= 0.0 ? first : 0.0;
@@ -54,6 +67,7 @@ double conservativeVariance(double first, double second)
   return std::max(finite_first, finite_second);
 }
 
+// 위치·속도 각 축의 분산을 가장 보수적인 값으로 병합한다.
 void mergeObstacleVariances(
   f110_msgs::msg::Obstacle & target,
   const f110_msgs::msg::Obstacle & other)
@@ -66,6 +80,7 @@ void mergeObstacleVariances(
   target.vd_var = conservativeVariance(target.vd_var, other.vd_var);
 }
 
+// 폐곡선 Frenet s를 [0, track_length)로 정규화한다.
 double wrapS(double s, double track_length)
 {
   if (!(track_length > kGeometryEpsilon) || !std::isfinite(s)) {
@@ -75,11 +90,13 @@ double wrapS(double s, double track_length)
   return s < 0.0 ? s + track_length : s;
 }
 
+// wrap을 포함하는 from_s → to_s의 양수 전방 거리
 double forwardDistance(double from_s, double to_s, double track_length)
 {
   return wrapS(to_s - from_s, track_length);
 }
 
+// detector가 s=0을 걸친 장애물을 s_start > s_end로 표현해도 실제 짧은 span을 선택한다.
 double obstacleLongitudinalSpan(
   const f110_msgs::msg::Obstacle & obstacle,
   double track_length)
@@ -93,6 +110,8 @@ double obstacleLongitudinalSpan(
   return std::max(0.0, std::abs(obstacle.size));
 }
 
+// 폐곡선에서 두 중심 사이의 최단 거리에 진행 방향 부호를 붙인다.
+// 첫 관측을 기준으로 여러 envelope를 하나의 펼친 구간에 합칠 때 사용한다.
 double signedTrackDelta(double from_s, double to_s, double track_length)
 {
   double delta = forwardDistance(from_s, to_s, track_length);
@@ -102,6 +121,8 @@ double signedTrackDelta(double from_s, double to_s, double track_length)
   return delta;
 }
 
+// local_planning이 신뢰하는 detector Frenet 계약을 검사한다.
+// Cartesian AABB는 선택적 진단 정보이므로 여기서 필수로 요구하지 않는다.
 bool validFrenetObstacle(
   const f110_msgs::msg::Obstacle & obstacle,
   double track_length)
@@ -124,6 +145,7 @@ bool validFrenetObstacle(
   return longitudinal_span > kGeometryEpsilon || lateral_span > kGeometryEpsilon;
 }
 
+// RViz CUBE marker를 만들 수 있는 선택적 map-frame AABB인지 확인한다.
 bool validCartesianAabb(const f110_msgs::msg::Obstacle & obstacle)
 {
   return obstacle.has_cartesian &&
@@ -135,6 +157,8 @@ bool validCartesianAabb(const f110_msgs::msg::Obstacle & obstacle)
          obstacle.y_min <= obstacle.y_max;
 }
 
+// 같은 장애물 ID의 여러 관측을 모두 포함하는 보수적 Frenet/Cartesian envelope로 합친다.
+// 중심 평균이 아니라 전체 경계의 합집합을 쓰므로 관측 jitter로 물체 크기가 줄어들지 않는다.
 f110_msgs::msg::Obstacle mergeObstacleEnvelopes(
   const f110_msgs::msg::Obstacle & first,
   const f110_msgs::msg::Obstacle & second,
@@ -152,6 +176,7 @@ f110_msgs::msg::Obstacle mergeObstacleEnvelopes(
   const double upper = std::max(
     first_half_span, second_center + second_half_span);
 
+  // first 중심을 기준으로 펼친 lower/upper를 다시 폐곡선 s로 감싼다.
   merged.s_start = wrapS(first.s_center + lower, track_length);
   merged.s_end = wrapS(first.s_center + upper, track_length);
   merged.s_center = wrapS(
@@ -165,6 +190,7 @@ f110_msgs::msg::Obstacle mergeObstacleEnvelopes(
   const bool first_has_aabb = validCartesianAabb(first);
   const bool second_has_aabb = validCartesianAabb(second);
   if (first_has_aabb || second_has_aabb) {
+    // 한 관측만 Cartesian 정보를 가져도 해당 AABB를 보존하고, 둘 다 있으면 합집합을 만든다.
     const auto & seed = first_has_aabb ? first : second;
     merged.has_cartesian = true;
     merged.x_min = seed.x_min;
@@ -189,6 +215,7 @@ f110_msgs::msg::Obstacle mergeObstacleEnvelopes(
 
 }  // namespace
 
+// 파라미터를 먼저 선언·검증하고 planner에 전달한 뒤 ROS 인터페이스를 생성한다.
 LocalPlannerNode::LocalPlannerNode(const rclcpp::NodeOptions & options)
 : Node("local_planner_node", options), planner_(planner_parameters_)
 {
@@ -202,8 +229,14 @@ LocalPlannerNode::LocalPlannerNode(const rclcpp::NodeOptions & options)
     planner_parameters_.detection_lookahead_m, obstacles_topic_.c_str());
 }
 
+// ============================================================================
+// ROS 파라미터 선언과 상호 제약 검증
+// ============================================================================
+// C++ 기본값은 launch 없이 ros2 run으로 실행해도 안전한 값이며, 운영값은
+// config/local_planning.yaml에서 덮어쓴다.
 void LocalPlannerNode::initializeParameters()
 {
+  // ── 장애물 탐색·군집·충돌 여유 ───────────────────────────────────────────
   planner_parameters_.detection_lookahead_m =
     declare_parameter<double>("detection_lookahead_m", 12.0);
   planner_parameters_.obstacle_cluster_gap_m =
@@ -220,6 +253,8 @@ void LocalPlannerNode::initializeParameters()
     declare_parameter<double>("boundary_margin_m", 0.13);
   planner_parameters_.fallback_track_half_width_m =
     declare_parameter<double>("fallback_track_half_width_m", 1.50);
+
+  // ── spline 제어점, 전환 길이와 목표 d ─────────────────────────────────────
   planner_parameters_.pre_apex_distances_m =
     declare_parameter<std::vector<double>>(
     "pre_apex_distances_m", std::vector<double>{4.0, 3.0, 1.5});
@@ -247,6 +282,8 @@ void LocalPlannerNode::initializeParameters()
     declare_parameter<double>("maximum_curvature_radpm", 3.20);
   planner_parameters_.maximum_curvature_rate_radpm2 =
     declare_parameter<double>("maximum_curvature_rate_radpm2", 20.0);
+
+  // ── 회피 불가능 시 감속 경로 ───────────────────────────────────────────────
   planner_parameters_.safe_stop_buffer_m =
     declare_parameter<double>("safe_stop_buffer_m", 0.80);
   planner_parameters_.safe_stop_deceleration_mps2 =
@@ -254,6 +291,7 @@ void LocalPlannerNode::initializeParameters()
   planner_parameters_.minimum_path_points =
     declare_parameter<int>("minimum_path_points", 8);
 
+  // ── 입력 freshness와 상태 전이 ─────────────────────────────────────────────
   require_obstacles_message_ = declare_parameter<bool>("require_obstacles_message", true);
   obstacle_stale_timeout_sec_ = declare_parameter<double>("obstacle_stale_timeout_sec", 0.75);
   odometry_stale_timeout_sec_ = declare_parameter<double>("odometry_stale_timeout_sec", 0.50);
@@ -289,6 +327,7 @@ void LocalPlannerNode::initializeParameters()
   obstacle_marker_scale_m_ = declare_parameter<double>("obstacle_marker_scale_m", 0.35);
   path_marker_width_m_ = declare_parameter<double>("path_marker_width_m", 0.06);
 
+  // ── ROS 토픽 및 frame 이름 ─────────────────────────────────────────────────
   global_waypoints_topic_ =
     declare_parameter<std::string>("global_waypoints_topic", "/global_waypoints");
   obstacles_topic_ =
@@ -308,6 +347,8 @@ void LocalPlannerNode::initializeParameters()
     declare_parameter<std::string>("markers_topic", "/local_planning/markers");
   frame_id_ = declare_parameter<std::string>("frame_id", "map");
 
+  // 제어점은 [먼 점 > 중간 점 > 가까운 점 > 0] 순서여야 하고, 전환 배율은 짧은
+  // spline부터 평가하도록 양수 오름차순이어야 한다.
   const bool control_points_valid =
     planner_parameters_.pre_apex_distances_m.size() == 3U &&
     planner_parameters_.post_apex_distances_m.size() == 3U &&
@@ -332,6 +373,9 @@ void LocalPlannerNode::initializeParameters()
             "pre/post apex arrays must contain three ordered positive values and transition "
             "scales must be positive");
   }
+
+  // 주기·횟수·거리의 범위뿐 아니라 hard clearance가 일반 obstacle clearance보다
+  // 커지지 않는지도 함께 검사해 hard/soft 충돌 분류가 뒤집히는 설정을 막는다.
   if (planning_period_ms_ <= 0 || merge_confirm_cycles_ <= 0 ||
     safe_stop_release_cycles_ <= 0 ||
     planner_parameters_.commitment_clearance_reserve_m < 0.0 ||
@@ -369,10 +413,18 @@ void LocalPlannerNode::initializeParameters()
   }
 }
 
+// ============================================================================
+// ROS 구독·발행·timer 배선
+// ============================================================================
 void LocalPlannerNode::initializeInterfaces()
 {
+  // planning 입력과 timer는 한 그룹에서 직렬 처리해 상태 전이를 보호한다. odometry만 별도
+  // 그룹으로 분리하고 mutex로 스냅샷을 복사해 계획 중에도 최신 위치 수신을 허용한다.
   planning_callback_group_ = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
   odometry_callback_group_ = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+
+  // 고주기 입력/출력은 최신 1개만 사용한다. 기준 경로와 state는 늦게 참가한 노드도 마지막
+  // 값을 받도록 transient_local을 사용한다.
   const auto volatile_qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable();
   const auto global_qos = rclcpp::QoS(1).reliable().transient_local();
 
@@ -380,6 +432,8 @@ void LocalPlannerNode::initializeInterfaces()
   planning_options.callback_group = planning_callback_group_;
   rclcpp::SubscriptionOptions odometry_options;
   odometry_options.callback_group = odometry_callback_group_;
+
+  // 입력 구독
   global_waypoints_sub_ = create_subscription<f110_msgs::msg::WpntArray>(
     global_waypoints_topic_, global_qos,
     std::bind(&LocalPlannerNode::onGlobalWaypoints, this, std::placeholders::_1), planning_options);
@@ -393,6 +447,7 @@ void LocalPlannerNode::initializeInterfaces()
     state_topic_, global_qos,
     std::bind(&LocalPlannerNode::onState, this, std::placeholders::_1), planning_options);
 
+  // 제어 경로와 시각화 출력
   avoid_waypoints_pub_ =
     create_publisher<f110_msgs::msg::OTWpntArray>(ot_waypoints_topic_, volatile_qos);
   local_path_pub_ = create_publisher<nav_msgs::msg::Path>(local_path_topic_, volatile_qos);
@@ -401,11 +456,14 @@ void LocalPlannerNode::initializeInterfaces()
   markers_pub_ =
     create_publisher<visualization_msgs::msg::MarkerArray>(markers_topic_, volatile_qos);
 
+  // 계획 주기는 wall timer이며 use_sim_time과 무관하게 안전 판정을 계속 수행한다.
   planning_timer_ = create_wall_timer(
     std::chrono::milliseconds(planning_period_ms_),
     std::bind(&LocalPlannerNode::onPlanningTimer, this), planning_callback_group_);
 }
 
+// 기준 경로의 핵심 기하(s/x/y)가 완전히 같은지 확인해 latched 재발행에 따른 불필요한
+// commitment 초기화를 막는다.
 bool LocalPlannerNode::sameReference(const f110_msgs::msg::WpntArray & message) const
 {
   if (message.wpnts.size() != global_waypoints_.wpnts.size() || message.wpnts.empty()) {
@@ -424,6 +482,8 @@ bool LocalPlannerNode::sameReference(const f110_msgs::msg::WpntArray & message) 
   return true;
 }
 
+// 새 글로벌 경로는 planner의 단조 s/유한값 검증을 통과한 뒤에만 적용한다.
+// 기준 기하가 바뀌면 이전 경로의 안전성을 보장할 수 없으므로 commitment를 모두 해제한다.
 void LocalPlannerNode::onGlobalWaypoints(
   const f110_msgs::msg::WpntArray::SharedPtr message)
 {
@@ -445,6 +505,8 @@ void LocalPlannerNode::onGlobalWaypoints(
     global_waypoints_.wpnts.size(), planner_.trackLength());
 }
 
+// detector가 소유하는 Frenet 경계만 선별해 최신 장애물 스냅샷으로 교체한다.
+// 잘못된 frame 메시지는 마지막 정상 스냅샷을 지우지 않는다.
 void LocalPlannerNode::onObstacles(const f110_msgs::msg::ObstacleArray::SharedPtr message)
 {
   if (!message->header.frame_id.empty() && message->header.frame_id != frame_id_) {
@@ -474,6 +536,8 @@ void LocalPlannerNode::onObstacles(const f110_msgs::msg::ObstacleArray::SharedPt
   static_obstacles_ = std::move(accepted_obstacles);
   has_obstacles_message_ = true;
   last_obstacles_time_ = now();
+
+  // timer tick이 아니라 실제 /static_obs 메시지를 안정화 횟수로 세기 위한 sequence
   ++obstacles_message_sequence_;
   if (obstacle_perception_degraded_) {
     obstacle_perception_degraded_ = false;
@@ -483,6 +547,7 @@ void LocalPlannerNode::onObstacles(const f110_msgs::msg::ObstacleArray::SharedPt
   }
 }
 
+// 유한한 Frenet odometry만 별도 callback group에서 원자적인 스냅샷으로 갱신한다.
 void LocalPlannerNode::onFrenetOdometry(const nav_msgs::msg::Odometry::SharedPtr message)
 {
   if (!finiteOdometry(*message)) {
@@ -496,6 +561,8 @@ void LocalPlannerNode::onFrenetOdometry(const nav_msgs::msg::Odometry::SharedPtr
   has_odometry_ = true;
 }
 
+// state_machine이 이번 회피에서 실제 STATE_AVOID를 거쳤는지 기억한다.
+// 기하 합류 후 STATE_GLOBAL을 확인할 때 이 이력이 있어야 경로 발행을 끝낼 수 있다.
 void LocalPlannerNode::onState(const f110_msgs::msg::StateMachine::SharedPtr message)
 {
   current_state_ = message->state;
@@ -507,6 +574,7 @@ void LocalPlannerNode::onState(const f110_msgs::msg::StateMachine::SharedPtr mes
   }
 }
 
+// 기준 경로 변경 또는 정상 GLOBAL 복귀 시 모든 회피·정지·안정화 상태를 초기화한다.
 void LocalPlannerNode::clearCommitment()
 {
   resetInitialStabilization();
@@ -525,6 +593,7 @@ void LocalPlannerNode::clearCommitment()
   committed_obstacle_guards_.clear();
 }
 
+// 최초 blocking cluster의 준비 경로, envelope 합집합과 메시지별 횟수를 초기화한다.
 void LocalPlannerNode::resetInitialStabilization()
 {
   initial_stabilization_active_ = false;
@@ -534,6 +603,7 @@ void LocalPlannerNode::resetInitialStabilization()
   initial_observation_counts_.clear();
 }
 
+// 현재 maneuver 뒤에서 동시에 모으는 다음 cluster 안정화 상태를 초기화한다.
 void LocalPlannerNode::resetNextManeuverStabilization()
 {
   next_stabilization_active_ = false;
@@ -542,11 +612,13 @@ void LocalPlannerNode::resetNextManeuverStabilization()
   next_observation_counts_.clear();
 }
 
+// uncertainty 여유만 침범한 soft collision의 연속 확인 횟수를 초기화한다.
 void LocalPlannerNode::resetCommitmentViolationConfirmation()
 {
   commitment_soft_violation_count_ = 0;
 }
 
+// 완료한 장애물은 제외하고 현재 detector 스냅샷과 안정화 중 누적 envelope를 ID별로 합친다.
 std::vector<f110_msgs::msg::Obstacle>
 LocalPlannerNode::buildInitialStabilizationInput() const
 {
@@ -576,6 +648,7 @@ LocalPlannerNode::buildInitialStabilizationInput() const
   return result;
 }
 
+// detector envelope 각각에 위치 분산과 고정 크기 오차를 반영한 Guard를 만든다.
 std::vector<f110_msgs::msg::Obstacle> LocalPlannerNode::buildGuardedObstacles(
   const std::vector<f110_msgs::msg::Obstacle> & obstacles) const
 {
@@ -588,6 +661,11 @@ std::vector<f110_msgs::msg::Obstacle> LocalPlannerNode::buildGuardedObstacles(
   return guarded;
 }
 
+// ============================================================================
+// 최초 장애물 군집 관측 안정화
+// ============================================================================
+// 동일 timer에서 여러 번 불려도 실제 새 /static_obs 메시지가 들어왔을 때만 ID별 횟수를
+// 올린다. 군집이 완전히 바뀌면 누적 envelope가 다른 물체에 섞이지 않도록 다시 시작한다.
 bool LocalPlannerNode::updateInitialStabilization(
   const std::vector<int> & cluster_ids,
   const std::vector<f110_msgs::msg::Obstacle> & conservative_obstacles,
@@ -617,6 +695,7 @@ bool LocalPlannerNode::updateInitialStabilization(
     initial_observation_counts_.clear();
   }
 
+  // obstacles_message_sequence_가 달라진 경우만 새 관측으로 인정한다.
   const bool new_obstacle_message =
     !initial_has_counted_sequence_ ||
     initial_last_counted_sequence_ != obstacles_message_sequence_;
@@ -639,6 +718,8 @@ bool LocalPlannerNode::updateInitialStabilization(
     }
   }
 
+  // 군집을 구성하는 모든 ID가 요구 횟수와 최소 시간을 만족해야 정상적으로 안정화된다.
+  // 단, 최대 대기시간을 넘으면 장애물 앞에서 무기한 준비 상태에 머무르지 않고 진행한다.
   const bool observation_count_reached = std::all_of(
     cluster_ids.begin(), cluster_ids.end(),
     [this](int id) {
@@ -655,6 +736,7 @@ bool LocalPlannerNode::updateInitialStabilization(
 
 std::vector<f110_msgs::msg::Obstacle> LocalPlannerNode::buildNextManeuverInput() const
 {
+  // 완료된 ID와 현재 commitment의 ID는 다음 maneuver 후보에서 제외한다.
   std::set<int> excluded = completed_obstacle_ids_;
   if (has_commitment_) {
     excluded.insert(
@@ -664,6 +746,7 @@ std::vector<f110_msgs::msg::Obstacle> LocalPlannerNode::buildNextManeuverInput()
     }
   }
 
+  // 최신 스냅샷이 일부 관측을 놓치더라도 이미 누적한 다음 cluster envelope를 합쳐 보존한다.
   std::map<int, f110_msgs::msg::Obstacle> conservative;
   for (const auto & obstacle : static_obstacles_) {
     if (excluded.count(obstacle.id) == 0U) {
@@ -691,6 +774,11 @@ std::vector<f110_msgs::msg::Obstacle> LocalPlannerNode::buildNextManeuverInput()
   return buildGuardedObstacles(result);
 }
 
+// ============================================================================
+// 다음 maneuver 사전 안정화
+// ============================================================================
+// 현재 spline의 merge 지점에 차량이 있다고 가정하고, 그 뒤에서 처음 만날 blocking cluster를
+// 현재 maneuver 진행 중에 미리 누적한다. 그래야 첫 maneuver 종료 직후 빈 경로 없이 연결된다.
 bool LocalPlannerNode::updateNextManeuverStabilization(
   const EgoFrenetState & ego,
   const std::vector<f110_msgs::msg::Obstacle> & next_obstacles,
@@ -724,6 +812,7 @@ bool LocalPlannerNode::updateNextManeuverStabilization(
     next_observation_counts_.clear();
   }
 
+  // 최초 안정화와 마찬가지로 timer 호출 수가 아닌 실제 obstacle 메시지 수만 센다.
   const bool new_obstacle_message =
     !next_has_counted_sequence_ ||
     next_last_counted_sequence_ != obstacles_message_sequence_;
@@ -745,6 +834,7 @@ bool LocalPlannerNode::updateNextManeuverStabilization(
     }
   }
 
+  // perception이 stale이면 새 표본이 올 수 없으므로 보존한 마지막 정상 스냅샷을 즉시 사용한다.
   const bool observation_count_reached = std::all_of(
     cluster_ids.begin(), cluster_ids.end(),
     [this](int id) {
@@ -758,6 +848,7 @@ bool LocalPlannerNode::updateNextManeuverStabilization(
          duration >= initial_observation_max_wait_sec_;
 }
 
+// 다음 cluster를 실제 새 maneuver로 넘길 때 누적 상태를 최초 안정화 슬롯으로 이동한다.
 void LocalPlannerNode::promoteNextManeuverStabilization()
 {
   if (next_stabilization_active_) {
@@ -771,6 +862,7 @@ void LocalPlannerNode::promoteNextManeuverStabilization()
   resetNextManeuverStabilization();
 }
 
+// 현재 ego부터 spline이 실제 d=0으로 복귀하는 merge_s까지의 남은 전방 거리
 double LocalPlannerNode::remainingDistanceToMerge(const EgoFrenetState & ego) const
 {
   if (!has_commitment_ || committed_result_.kind != SplinePlanKind::kAvoidance) {
@@ -787,6 +879,8 @@ double LocalPlannerNode::remainingDistanceToMerge(const EgoFrenetState & ego) co
   return planned_distance - driven_distance;
 }
 
+// 현재 maneuver의 모든 동결 Guard 뒤쪽과 chain_release_margin_m을 완전히 지났는지 확인한다.
+// 이를 만족해야 다음 장애물이 기존 spline merge 전에 새 경로로 선점할 수 있다.
 bool LocalPlannerNode::activeManeuverObstacleCleared(const EgoFrenetState & ego) const
 {
   if (!has_commitment_ || committed_obstacle_guards_.empty()) {
@@ -806,6 +900,8 @@ bool LocalPlannerNode::activeManeuverObstacleCleared(const EgoFrenetState & ego)
   return driven_distance + 1.0e-6 >= active_rear_distance + chain_release_margin_m_;
 }
 
+// 현재 장애물은 통과했지만 아직 d=0 merge 전일 때, 다음 장애물 spline을 현재 ego.d에서
+// 직접 시작한다. AVOID를 끊지 않고 다음 commitment로 교체하는 연속 maneuver 경로다.
 bool LocalPlannerNode::tryEarlyChainedManeuver(
   const EgoFrenetState & ego,
   std::vector<f110_msgs::msg::Obstacle> & next_obstacles)
@@ -819,6 +915,7 @@ bool LocalPlannerNode::tryEarlyChainedManeuver(
     return false;
   }
 
+  // 안정화됐더라도 현재 ego.d에서 실제 안전한 avoidance가 만들어질 때만 선점한다.
   RacelineSplineResult next_result = planner_.plan(ego, next_obstacles);
   if (next_result.kind != SplinePlanKind::kAvoidance) {
     RCLCPP_WARN_THROTTLE(
@@ -842,6 +939,11 @@ bool LocalPlannerNode::tryEarlyChainedManeuver(
   return true;
 }
 
+// ============================================================================
+// 현재 commitment 검증용 장애물 입력 구성
+// ============================================================================
+// 현재 maneuver의 obstacle은 항상 포함하고, 새 obstacle은 팽창된 앞면이 실제 spline merge
+// 이전에 시작할 때만 포함한다. merge 뒤 controller tail과의 충돌은 다음 maneuver가 처리한다.
 std::vector<f110_msgs::msg::Obstacle> LocalPlannerNode::buildCurrentManeuverInput(
   const EgoFrenetState & ego,
   bool apply_uncertainty_guard) const
@@ -872,6 +974,9 @@ std::vector<f110_msgs::msg::Obstacle> LocalPlannerNode::buildCurrentManeuverInpu
     if (active_ids.count(obstacle.id) > 0U) {
       observed_active_ids.insert(obstacle.id);
       const auto committed_guard = committed_obstacle_guards_.find(obstacle.id);
+
+      // 최신 같은-ID envelope 전체가 동결 Guard 안이면 경로가 측정 jitter를 따라 움직이지
+      // 않도록 commitment 시점 Guard를 계속 사용한다. Guard를 벗어난 관측은 그대로 검증한다.
       if (apply_uncertainty_guard &&
         committed_guard != committed_obstacle_guards_.end() &&
         obstacleEnvelopeContained(
@@ -881,6 +986,7 @@ std::vector<f110_msgs::msg::Obstacle> LocalPlannerNode::buildCurrentManeuverInpu
       }
     }
 
+    // merge가 이미 뒤에 있거나 현재 commitment obstacle이면 필터링 없이 검증한다.
     if (!merge_is_ahead || active_ids.count(obstacle.id) > 0U) {
       result.push_back(validation_obstacle);
       continue;
@@ -901,6 +1007,8 @@ std::vector<f110_msgs::msg::Obstacle> LocalPlannerNode::buildCurrentManeuverInpu
       result.push_back(validation_obstacle);
     }
   }
+
+  // detector가 통과 중인 장애물을 잠시 누락해도 동결 Guard로 현재 경로 검증을 계속한다.
   if (apply_uncertainty_guard) {
     for (const int id : active_ids) {
       if (observed_active_ids.count(id) > 0U) {
@@ -915,6 +1023,8 @@ std::vector<f110_msgs::msg::Obstacle> LocalPlannerNode::buildCurrentManeuverInpu
   return result;
 }
 
+// 완료한 obstacle ID는 기억하되 이전 방향 잠금과 경로 기하만 해제한다.
+// state_machine의 AVOID 관측 이력은 보존해 maneuver 사이에 GLOBAL로 잘못 떨어지지 않게 한다.
 void LocalPlannerNode::resetForChainedManeuver()
 {
   completed_obstacle_ids_.insert(
@@ -939,6 +1049,8 @@ void LocalPlannerNode::resetForChainedManeuver()
   committed_obstacle_guards_.clear();
 }
 
+// merge 완료 또는 global handoff 중 아직 막는 다음 cluster가 있으면 현재 maneuver를 종료하고
+// 다음 안정화 상태를 승격한다. 새 방향은 이전 commitment와 독립적으로 다시 선택한다.
 bool LocalPlannerNode::beginChainedManeuverIfNeeded(
   const EgoFrenetState & ego,
   std::vector<f110_msgs::msg::Obstacle> & next_obstacles,
@@ -967,6 +1079,8 @@ bool LocalPlannerNode::beginChainedManeuverIfNeeded(
   return true;
 }
 
+// 차량이 선택 방향으로 실제 이동했거나 시작점에서 충분히 전진하면 방향을 잠근다.
+// 진입 전에는 새 장애물로 기존 쪽이 막힐 경우 반대편 재평가를 한 번 허용한다.
 bool LocalPlannerNode::commitmentSideLocked(const EgoFrenetState & ego) const
 {
   if (!has_commitment_ || committed_result_.kind != SplinePlanKind::kAvoidance) {
@@ -982,6 +1096,7 @@ bool LocalPlannerNode::commitmentSideLocked(const EgoFrenetState & ego) const
   return lateral_engaged || longitudinal_engaged;
 }
 
+// 검증을 통과한 회피 결과를 commitment로 확정하고 관련 장애물 Guard를 동결한다.
 void LocalPlannerNode::commitAvoidance(
   RacelineSplineResult result,
   const EgoFrenetState & ego,
@@ -993,6 +1108,9 @@ void LocalPlannerNode::commitAvoidance(
   if (result.obstacle_id >= 0) {
     committed_ids.insert(result.obstacle_id);
   }
+
+  // planning_obstacles에는 안정화 합집합과 uncertainty 확장이 이미 반영되어 있으므로
+  // 해당 ID의 envelope를 그대로 동결 기준으로 저장한다.
   committed_obstacle_guards_.clear();
   for (const auto & obstacle : planning_obstacles) {
     if (committed_ids.count(obstacle.id) > 0U) {
@@ -1022,6 +1140,8 @@ void LocalPlannerNode::commitAvoidance(
     committed_result_.obstacle_id, committed_result_.target_d);
 }
 
+// 기하 합류 후 글로벌 d=0 경로 전체를 회전해 non-empty handoff 경로로 바꾼다.
+// state_machine이 STATE_GLOBAL을 확인할 때까지 commitment 자체는 유지한다.
 bool LocalPlannerNode::activateGlobalHandoff(const EgoFrenetState & ego)
 {
   auto handoff_path = planner_.buildGlobalHandoffPath(
@@ -1049,6 +1169,11 @@ bool LocalPlannerNode::activateGlobalHandoff(const EgoFrenetState & ego)
   return true;
 }
 
+// ============================================================================
+// 안전 정지 latch
+// ============================================================================
+// 활성 회피 중이면 글로벌 d=0으로 즉시 복귀하지 않고 기존 commitment의 남은 기하를 따라
+// 정지한다. 그 prefix도 만들 수 없을 때만 현재 d에서 zero-speed hold를 사용한다.
 void LocalPlannerNode::latchSafeStop(
   RacelineSplineResult result,
   const EgoFrenetState & ego,
@@ -1064,6 +1189,7 @@ void LocalPlannerNode::latchSafeStop(
     }
   }
   if (result.path.wpnts.empty()) {
+    // 빈 /avoid_waypoints는 wpnt_publisher가 global 경로로 fallback할 수 있으므로 금지한다.
     result.kind = SplinePlanKind::kSafeStop;
     result.path = planner_.buildEmergencyStopPath(ego);
     result.reason = "no collision-free stop prefix; publishing a zero-speed emergency hold";
@@ -1079,6 +1205,8 @@ void LocalPlannerNode::latchSafeStop(
     "Static safe-stop latched: %s", safe_stop_result_.reason.c_str());
 }
 
+// latch 진입은 즉시지만 해제는 연속 safe_stop_release_cycles번의 안전한 계획을 요구한다.
+// 일시적인 detector 흔들림이 정지/주행 상태를 빠르게 왕복시키는 것을 막는다.
 void LocalPlannerNode::handleSafeStopLatch(const EgoFrenetState & ego)
 {
   const auto planning_obstacles = has_commitment_ ?
@@ -1093,6 +1221,7 @@ void LocalPlannerNode::handleSafeStopLatch(const EgoFrenetState & ego)
     ego, planning_obstacles, locked_side, allow_side_switch);
 
   if (result.kind == SplinePlanKind::kAvoidance) {
+    // 같은 조건에서 연속으로 회피 가능해야 새 commitment로 복귀한다.
     ++safe_stop_release_count_;
     if (safe_stop_release_count_ >= safe_stop_release_cycles_) {
       RCLCPP_INFO(
@@ -1104,6 +1233,7 @@ void LocalPlannerNode::handleSafeStopLatch(const EgoFrenetState & ego)
       return;
     }
   } else if (result.kind == SplinePlanKind::kNoObstacle) {
+    // 연속으로 장애물이 없으면 빈 경로 대신 글로벌 handoff를 시작한다.
     ++safe_stop_release_count_;
     if (safe_stop_release_count_ >= safe_stop_release_cycles_) {
       if (activateGlobalHandoff(ego)) {
@@ -1127,6 +1257,8 @@ void LocalPlannerNode::handleSafeStopLatch(const EgoFrenetState & ego)
   publishResult(safe_stop_result_, ego, static_obstacles_);
 }
 
+// commitment 시작점부터 merge_s까지의 진행량과 실제 |ego.d|를 함께 확인한다.
+// 한 번의 위치 노이즈로 합류 처리되지 않도록 연속 merge_confirm_cycles번을 요구한다.
 bool LocalPlannerNode::commitmentComplete(const EgoFrenetState & ego)
 {
   if (!has_commitment_ || committed_result_.kind != SplinePlanKind::kAvoidance) {
@@ -1145,6 +1277,7 @@ bool LocalPlannerNode::commitmentComplete(const EgoFrenetState & ego)
   return merge_complete_count_ >= merge_confirm_cycles_;
 }
 
+// 경로를 무효화한 정확한 waypoint와 detector/검증 envelope를 한 줄에 기록한다.
 void LocalPlannerNode::logObstacleCollision(
   const std::string & severity,
   const PathValidationFailure & failure,
@@ -1169,6 +1302,7 @@ void LocalPlannerNode::logObstacleCollision(
 
 void LocalPlannerNode::onPlanningTimer()
 {
+  // 별도 callback group이 쓰는 odometry를 짧게 lock해 로컬 스냅샷으로 복사한다.
   nav_msgs::msg::Odometry odometry;
   rclcpp::Time odometry_time(0, 0, RCL_ROS_TIME);
   bool has_odometry = false;
@@ -1183,11 +1317,14 @@ void LocalPlannerNode::onPlanningTimer()
     return;
   }
 
+  // 메시지 계약: position.x=s, position.y=d, linear.x=종방향 속도
   EgoFrenetState ego;
   ego.s = odometry.pose.pose.position.x;
   ego.d = odometry.pose.pose.position.y;
   ego.speed = std::abs(odometry.twist.twist.linear.x);
 
+  // 위치가 stale이면 장애물 유무와 무관하게 마지막 위치에서 즉시 정지한다. 이전 commitment는
+  // 지우지 않으므로 odometry 회복 후 정상 재검증을 이어갈 수 있다.
   if ((now() - odometry_time).seconds() > odometry_stale_timeout_sec_) {
     RacelineSplineResult emergency_hold;
     emergency_hold.kind = SplinePlanKind::kSafeStop;
@@ -1203,6 +1340,9 @@ void LocalPlannerNode::onPlanningTimer()
     publishEmpty("waiting for static-obstacle perception");
     return;
   }
+
+  // 장애물 입력 stale은 "트랙이 비었다"는 뜻이 아니다. 마지막 정상 스냅샷과 commitment를
+  // 유지하는 degraded mode로 들어가며, 빈 배열을 포함한 다음 정상 메시지만 기억을 교체한다.
   if (has_obstacles_message_ &&
     (now() - last_obstacles_time_).seconds() > obstacle_stale_timeout_sec_)
   {
@@ -1222,12 +1362,14 @@ void LocalPlannerNode::onPlanningTimer()
   // 이번 commitment에서 STATE_AVOID를 실제로 관측했고, spline 합류가 확인된 뒤
   // state_machine이 STATE_GLOBAL을 발행한 경우에만 non-empty 경로 발행을 종료한다.
   if (has_commitment_ && merge_geometry_confirmed_) {
+    // global handoff 중에도 새 blocking cluster가 나타나면 빈 구간 없이 AVOID 계획으로 복귀한다.
     chained_maneuver_started = beginChainedManeuverIfNeeded(
       ego, planning_obstacles, "global handoff");
     if (!chained_maneuver_started) {
       if (avoid_state_observed_ && has_state_ &&
         current_state_ == f110_msgs::msg::StateMachine::STATE_GLOBAL)
       {
+        // AVOID를 실제 거친 뒤 GLOBAL 확인까지 받았으므로 이제 non-empty tail을 해제해도 된다.
         RCLCPP_INFO(
           get_logger(),
           "State machine confirmed GLOBAL after all static obstacles cleared; "
@@ -1241,10 +1383,12 @@ void LocalPlannerNode::onPlanningTimer()
     }
   }
   if (safe_stop_latched_) {
+    // latch가 활성화된 동안에는 일반 계획 흐름 대신 연속 안전 판정과 정지 경로 재발행을 수행한다.
     handleSafeStopLatch(ego);
     return;
   }
   if (has_commitment_ && !merge_geometry_confirmed_) {
+    // 현재 obstacle을 이미 통과했다면 기존 merge까지 기다리지 않고 다음 maneuver 선점을 시도한다.
     std::vector<f110_msgs::msg::Obstacle> early_next_obstacles;
     if (tryEarlyChainedManeuver(ego, early_next_obstacles)) {
       publishResult(committed_result_, ego, static_obstacles_);
@@ -1255,8 +1399,8 @@ void LocalPlannerNode::onPlanningTimer()
     chained_maneuver_started = beginChainedManeuverIfNeeded(
       ego, planning_obstacles, "merge completion");
     if (chained_maneuver_started) {
-      // Fall through to the ordinary initial-stabilization path. This deliberately starts the
-      // next obstacle with no preferred side, while the non-empty preparation path keeps AVOID.
+      // 일반 최초 안정화 흐름으로 계속 내려간다. 다음 장애물은 선호 방향 없이 새로 시작하고,
+      // non-empty 준비 경로를 발행해 STATE_AVOID는 유지한다.
     } else if (!activateGlobalHandoff(ego)) {
       RCLCPP_ERROR(
         get_logger(),
@@ -1269,18 +1413,21 @@ void LocalPlannerNode::onPlanningTimer()
     }
   }
   if (has_commitment_ && merge_geometry_confirmed_) {
+    // GLOBAL 확인 전에는 동일한 handoff 경로를 계속 발행한다.
     publishResult(committed_result_, ego, static_obstacles_);
     return;
   }
 
   if (!has_commitment_) {
+    // 새 회피 시작 전에는 여러 detector 메시지의 보수적 합집합을 Guard로 확장한다.
     auto conservative_obstacles = buildInitialStabilizationInput();
     planning_obstacles = buildGuardedObstacles(conservative_obstacles);
     if (obstacle_perception_degraded_) {
-      // No new observation can improve stabilization while perception is stale. Reuse the
-      // already accepted snapshot and its uncertainty guard immediately on a later lap.
+      // perception이 stale이면 새 관측으로 안정화가 나아질 수 없다. 다음 lap에서도 이미 승인한
+      // 마지막 스냅샷과 uncertainty Guard를 즉시 재사용한다.
       resetInitialStabilization();
     } else {
+      // 안정화 중에는 장애물 앞에서 감속하는 검증된 preparation prefix를 발행한다.
       auto preparation = planner_.buildPreparationStop(ego, planning_obstacles);
       if (preparation.kind == SplinePlanKind::kNoObstacle) {
         const bool published_preparation = initial_prepare_published_;
@@ -1302,20 +1449,22 @@ void LocalPlannerNode::onPlanningTimer()
           publishResult(preparation, ego, planning_obstacles);
           return;
         }
-        // The final guard is frozen from the conservative multi-message union and its worst
-        // positional variance. Subsequent same-ID observations inside it cannot move the path.
+        // 최종 Guard는 여러 메시지의 보수적 합집합과 최악 위치 분산으로 만든다. 이후 같은 ID의
+        // 관측이 이 안에 머무르면 commitment 경로는 움직이지 않는다.
         conservative_obstacles = buildInitialStabilizationInput();
         planning_obstacles = buildGuardedObstacles(conservative_obstacles);
         resetInitialStabilization();
       }
     }
   } else {
-    // Obstacles whose expanded front face starts after this maneuver's merge belong to the next
-    // maneuver. They must not invalidate the current path merely because its controller tail
-    // extends beyond the merge point.
+    // 팽창된 앞면이 현재 merge 뒤에서 시작하는 장애물은 다음 maneuver 소속이다. controller
+    // tail이 merge 뒤까지 이어진다는 이유만으로 현재 commitment를 무효화하면 안 된다.
     planning_obstacles = buildCurrentManeuverInput(ego);
   }
 
+  // ── 동결 commitment 재검증 ────────────────────────────────────────────────
+  // 새 spline을 매 주기 만들기 전에 현재 경로의 실제 merge까지 남은 부분만 최신 envelope로
+  // 검사한다. 유효하면 기하를 그대로 재발행해 perception jitter가 제어기로 전달되지 않게 한다.
   std::string commitment_error;
   PathValidationFailure commitment_failure;
   if (has_commitment_) {
@@ -1332,13 +1481,15 @@ void LocalPlannerNode::onPlanningTimer()
           commitment_soft_violation_count_, commitment_soft_violation_confirm_cycles_);
       }
       resetCommitmentViolationConfirmation();
-      // The committed geometry is still safe. Rebuilding six spline candidates here only makes
-      // perception jitter visible downstream and repeats all geometry/curvature work.
+      // 확정 기하가 여전히 안전하다. 여기서 여러 spline 후보를 다시 만들면 perception jitter가
+      // 하위 노드에 보이고 동일한 기하/곡률 계산만 반복된다.
       publishResult(committed_result_, ego, static_obstacles_);
       return;
     }
 
     if (commitment_failure.kind == PathValidationFailureKind::kObstacleCollision) {
+      // uncertainty Guard로 실패했으면 detector 원 경계 + 차량 반폭 + hard margin으로 다시
+      // 검사한다. 실제 물체 충돌은 즉시 처리하고 Guard 여유만의 충돌은 연속 확인한다.
       const auto hard_collision_obstacles = buildCurrentManeuverInput(ego, false);
       const double hard_clearance =
         planner_parameters_.vehicle_half_width_m + hard_collision_margin_m_;
@@ -1353,6 +1504,7 @@ void LocalPlannerNode::onPlanningTimer()
         resetCommitmentViolationConfirmation();
         logObstacleCollision("Hard commitment collision; replanning immediately", hard_failure);
       } else {
+        // soft collision은 설정 횟수만큼 연속될 때만 재계획해 일시적인 분산 증가를 흡수한다.
         ++commitment_soft_violation_count_;
         if (commitment_soft_violation_count_ == 1 ||
           commitment_soft_violation_count_ >= commitment_soft_violation_confirm_cycles_)
@@ -1381,6 +1533,9 @@ void LocalPlannerNode::onPlanningTimer()
       "Committed path needs replacement: %s", commitment_error.c_str());
   }
 
+  // ── 새 회피 spline 계획 ───────────────────────────────────────────────────
+  // commitment 진입 뒤 방향이 잠겼다면 같은 쪽만 검사한다. 잠기기 전에는 기존 쪽이 실패할 때
+  // 반대쪽을 평가할 수 있다.
   const std::optional<bool> preferred_side =
     has_commitment_ && committed_result_.kind == SplinePlanKind::kAvoidance ?
     std::optional<bool>(committed_result_.go_left) : std::nullopt;
@@ -1396,8 +1551,8 @@ void LocalPlannerNode::onPlanningTimer()
   }
 
   if (has_commitment_ && result.kind == SplinePlanKind::kNoObstacle) {
-    // Perception commonly drops the passed obstacle before the spline tail is reached. Keep the
-    // already race-line-locked commitment until its geometric merge is complete.
+    // perception은 spline tail 도달 전에 이미 지난 장애물을 자주 제거한다. 기하 합류가 끝날
+    // 때까지 순서가 고정된 기존 commitment를 계속 유지한다.
     publishResult(committed_result_, ego, static_obstacles_);
     return;
   }
@@ -1420,6 +1575,7 @@ void LocalPlannerNode::onPlanningTimer()
   publishEmpty(result.reason);
 }
 
+// f110 waypoint 배열을 RViz와 범용 도구가 사용하는 nav_msgs/Path로 변환한다.
 nav_msgs::msg::Path LocalPlannerNode::makePath(
   const std::vector<f110_msgs::msg::Wpnt> & waypoints,
   const std_msgs::msg::Header & header) const
@@ -1438,6 +1594,10 @@ nav_msgs::msg::Path LocalPlannerNode::makePath(
   return path;
 }
 
+// ============================================================================
+// RViz marker 생성
+// ============================================================================
+// 매 주기 DELETEALL 뒤 경로, spline 제어점, 유효한 Cartesian 장애물 AABB를 다시 그린다.
 visualization_msgs::msg::MarkerArray LocalPlannerNode::makeMarkers(
   const RacelineSplineResult & result,
   const EgoFrenetState & ego,
@@ -1451,6 +1611,7 @@ visualization_msgs::msg::MarkerArray LocalPlannerNode::makeMarkers(
   clear.action = Marker::DELETEALL;
   markers.markers.push_back(clear);
 
+  // 회피 경로는 초록색, 준비/안전 정지 경로는 주황색 LINE_STRIP으로 구분한다.
   Marker path;
   path.header = clear.header;
   path.ns = "raceline_offset_spline";
@@ -1474,6 +1635,7 @@ visualization_msgs::msg::MarkerArray LocalPlannerNode::makeMarkers(
   }
   markers.markers.push_back(path);
 
+  // Frenet 제어점을 map 좌표로 변환해 보라색 구로 표시한다.
   Marker control;
   control.header = clear.header;
   control.ns = "spline_control_points";
@@ -1496,6 +1658,7 @@ visualization_msgs::msg::MarkerArray LocalPlannerNode::makeMarkers(
   }
   markers.markers.push_back(control);
 
+  // planner 기하는 Frenet 경계를 사용하지만 marker는 detector가 제공한 선택적 Cartesian AABB다.
   int marker_id = 0;
   for (const auto & obstacle : obstacles) {
     if (!validCartesianAabb(obstacle)) {
@@ -1522,6 +1685,7 @@ visualization_msgs::msg::MarkerArray LocalPlannerNode::makeMarkers(
   return markers;
 }
 
+// 계획 결과를 제어용 OTWpntArray로 발행하고, 구독자가 있을 때만 디버그 변환 비용을 지불한다.
 void LocalPlannerNode::publishResult(
   const RacelineSplineResult & result,
   const EgoFrenetState & ego,
@@ -1531,6 +1695,8 @@ void LocalPlannerNode::publishResult(
   output.header.stamp = now();
   output.header.frame_id = frame_id_;
   output.wpnts = result.path.wpnts;
+
+  // state_machine/wpnt_publisher가 동작 단계를 구분할 수 있도록 문자열 계약을 설정한다.
   const bool stop_like =
     result.kind == SplinePlanKind::kSafeStop ||
     result.kind == SplinePlanKind::kPreparation;
@@ -1540,6 +1706,8 @@ void LocalPlannerNode::publishResult(
     result.kind == SplinePlanKind::kPreparation ? "raceline_static_prepare" :
     (result.kind == SplinePlanKind::kSafeStop ? "raceline_static_safe_stop" :
     (handoff_active_ ? "raceline_global_handoff" : "raceline_local_d_offset_spline"));
+
+  // 실제 발행 방향이 바뀐 첫 메시지에만 side_switch를 표시하고 마지막 전환 시각을 보존한다.
   const std::optional<bool> current_side = result.kind == SplinePlanKind::kAvoidance ?
     std::optional<bool>(result.go_left) : std::nullopt;
   output.side_switch = current_side.has_value() &&
@@ -1551,6 +1719,7 @@ void LocalPlannerNode::publishResult(
   last_published_side_ = current_side;
   avoid_waypoints_pub_->publish(output);
 
+  // 제어 경로 발행은 항상 수행하지만 Path/Marker는 구독자가 있을 때만 생성한다.
   const bool publish_local_path = local_path_pub_->get_subscription_count() > 0U;
   const bool publish_compatibility_path =
     compatibility_path_pub_->get_subscription_count() > 0U;
@@ -1568,6 +1737,8 @@ void LocalPlannerNode::publishResult(
   }
 }
 
+// 아직 입력이 준비되지 않았거나 정상적으로 계획할 것이 없을 때 빈 경로와 이유를 발행한다.
+// 단, active commitment/safe-stop/global handoff 중에는 이 함수를 호출하지 않는 것이 핵심이다.
 void LocalPlannerNode::publishEmpty(const std::string & reason)
 {
   f110_msgs::msg::OTWpntArray output;

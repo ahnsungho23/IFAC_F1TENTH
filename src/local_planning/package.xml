@@ -6,8 +6,10 @@
   <maintainer email="haejum@example.com">haejum</maintainer>
   <license>Apache-2.0</license>
 
+  <!-- ament_cmake 기반 C++ 패키지 빌드 도구 -->
   <buildtool_depend>ament_cmake</buildtool_depend>
 
+  <!-- 노드 런타임과 사용 메시지 -->
   <depend>rclcpp</depend>
   <depend>std_msgs</depend>
   <depend>nav_msgs</depend>
@@ -15,6 +17,7 @@
   <depend>visualization_msgs</depend>
   <depend>f110_msgs</depend>
 
+  <!-- Python launch와 통합 실행 시 함께 띄우는 지도·perception 패키지 -->
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
@@ -23,6 +26,7 @@
   <exec_depend>obstacle_detector</exec_depend>
   <exec_depend>particle_filter_cpp</exec_depend>
 
+  <!-- C++ 단위 테스트, lint 및 수동 Python pipeline 검사 의존성 -->
   <test_depend>ament_cmake_gtest</test_depend>
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

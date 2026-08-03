@@ -28,6 +28,7 @@ namespace
 
 constexpr double kTolerance = 1.0e-6;
 
+// 테스트별 waypoint로 열린 CLCS 변환기를 만드는 공통 fixture이다.
 global_planning::ClcsFrenetConverter::Ptr makeConverter(
   const std::vector<global_planning::ReferenceWaypoint> & waypoints)
 {
@@ -36,6 +37,7 @@ global_planning::ClcsFrenetConverter::Ptr makeConverter(
   return global_planning::ClcsFrenetConverter::create(waypoints, config, 1);
 }
 
+// 긴 직사각형의 종방향·횡방향 크기가 대각선 하나로 뭉개지지 않는지 검증한다.
 TEST(AabbFrenetProjector, PreservesIndependentLongitudinalAndLateralExtents)
 {
   const auto converter = makeConverter(
@@ -61,6 +63,7 @@ TEST(AabbFrenetProjector, PreservesIndependentLongitudinalAndLateralExtents)
   EXPECT_NEAR(bounds->longitudinal_half_extent, 1.0, kTolerance);
 }
 
+// 대각선 raceline에서도 네 모서리를 국소 접선/법선 축으로 모두 회전해야 한다.
 TEST(AabbFrenetProjector, RotatesAllFourCornersIntoTheLocalTrackFrame)
 {
   const auto converter = makeConverter(
@@ -81,6 +84,7 @@ TEST(AabbFrenetProjector, RotatesAllFourCornersIntoTheLocalTrackFrame)
   EXPECT_NEAR(bounds->d_left, bounds->d_center + expected_half_extent, kTolerance);
 }
 
+// 곡선에서는 중심 접선 근사가 아니라 실제 raceline 선분과 가장 가까운 AABB 면을 사용한다.
 TEST(AabbFrenetProjector, UsesClosestAabbFaceAgainstTheActualCurvedRaceLine)
 {
   std::vector<global_planning::ReferenceWaypoint> waypoints;
@@ -100,9 +104,8 @@ TEST(AabbFrenetProjector, UsesClosestAabbFaceAgainstTheActualCurvedRaceLine)
     *converter, -0.4, 0.4, 0.5, 0.7);
 
   ASSERT_TRUE(bounds.has_value());
-  // The centre tangent at the top of the semicircle would report about 0.3 m. The true nearest
-  // point is the perpendicular projection of the AABB's upper-right corner onto the preceding
-  // curved-race-line chord.
+  // 반원의 꼭대기 중심 접선만 쓰면 약 0.3 m가 나오지만, 실제 최근접점은 AABB 오른쪽 위
+  // 모서리를 직전 곡선 raceline chord에 수직 투영한 점이다.
   const double first_angle = std::acos(-1.0) / 4.0;
   const double second_angle = 3.0 * std::acos(-1.0) / 8.0;
   const double x0 = std::cos(first_angle);
@@ -120,6 +123,7 @@ TEST(AabbFrenetProjector, UsesClosestAabbFaceAgainstTheActualCurvedRaceLine)
   EXPECT_GT(bounds->d_left, bounds->d_right);
 }
 
+// min/max가 뒤집혔거나 한 점으로 퇴화한 AABB는 안전하게 거부해야 한다.
 TEST(AabbFrenetProjector, RejectsMalformedOrPointSizedAabb)
 {
   const auto converter = makeConverter(
