@@ -423,6 +423,9 @@ void ObstacleTracker::update(
             kalmanUpdate(t, det);
             t.hits++;
             t.is_visible = true;
+            t.s_half_extent = det.s_half_extent;
+            t.d_right_offset = det.d_right_offset;
+            t.d_left_offset = det.d_left_offset;
             t.size = det.size;
             t.x_min_map = det.x_min;
             t.x_max_map = det.x_max;
@@ -462,6 +465,9 @@ void ObstacleTracker::update(
         t.ttl = p_.ttl_static;
         t.is_static = true;
         t.is_visible = true;
+        t.s_half_extent = detections[di].s_half_extent;
+        t.d_right_offset = detections[di].d_right_offset;
+        t.d_left_offset = detections[di].d_left_offset;
         t.size = detections[di].size;
         t.x_min_map = detections[di].x_min;
         t.x_max_map = detections[di].x_max;

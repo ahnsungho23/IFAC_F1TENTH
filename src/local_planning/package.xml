@@ -2,7 +2,7 @@
 <package format="3">
   <name>local_planning</name>
   <version>0.0.1</version>
-  <description>Frenet lattice based local planner for static obstacle avoidance in IFAC.</description>
+  <description>Race-line-locked local planner consuming detector-owned Frenet obstacle bounds.</description>
   <maintainer email="haejum@example.com">haejum</maintainer>
   <license>Apache-2.0</license>
 
@@ -14,7 +14,6 @@
   <depend>geometry_msgs</depend>
   <depend>visualization_msgs</depend>
   <depend>f110_msgs</depend>
-  <depend>global_planning</depend>
 
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>launch</exec_depend>

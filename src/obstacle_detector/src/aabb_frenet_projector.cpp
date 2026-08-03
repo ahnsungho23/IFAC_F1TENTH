@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "local_planning/aabb_frenet_projector.hpp"
+#include "obstacle_detector/aabb_frenet_projector.hpp"
 
 #include <algorithm>
 #include <array>
@@ -21,7 +21,7 @@
 #include <utility>
 #include <vector>
 
-namespace local_planning
+namespace obstacle_detector
 {
 namespace
 {
@@ -197,7 +197,6 @@ std::optional<double> closestBranchLockedAabbDistance(
 
 std::optional<FrenetAabbBounds> projectCartesianAabb(
   const global_planning::ClcsFrenetConverter & converter,
-  double track_length,
   double x_min,
   double x_max,
   double y_min,
@@ -221,6 +220,7 @@ std::optional<FrenetAabbBounds> projectCartesianAabb(
   bounds.x_center = 0.5 * (x_min + x_max);
   bounds.y_center = 0.5 * (y_min + y_max);
   bounds.diagonal = diagonal;
+  const double track_length = converter.stats().track_length;
 
   global_planning::ClcsConversionInput center_input;
   center_input.x = bounds.x_center;
@@ -265,6 +265,8 @@ std::optional<FrenetAabbBounds> projectCartesianAabb(
   bounds.s_end = wrapS(bounds.s_center + max_longitudinal, track_length);
   bounds.d_right = bounds.d_center + min_lateral;
   bounds.d_left = bounds.d_center + max_lateral;
+  bounds.longitudinal_half_extent =
+    0.5 * (max_longitudinal - min_longitudinal);
 
   const auto closest_abs_d = closestBranchLockedAabbDistance(
     converter, center, x_min, x_max, y_min, y_max, diagonal);
@@ -288,4 +290,4 @@ std::optional<FrenetAabbBounds> projectCartesianAabb(
   return bounds;
 }
 
-}  // namespace local_planning
+}  // namespace obstacle_detector

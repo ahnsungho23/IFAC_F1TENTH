@@ -23,7 +23,9 @@ explicitly outside this package. Do not add an overtake planner, `/state`, `/avo
 - Use `f110_msgs/msg/WpntArray` for `/global_waypoints`.
 - Use `f110_msgs/msg/ObstacleArray` for both `/static_obs` and `/opp_obs`; do not create a new
   obstacle message.
-- Use `visualization_msgs/msg/MarkerArray` only for the RViz mirror.
+- Use `visualization_msgs/msg/MarkerArray` only for the RViz mirrors. `/static_obs/markers` must
+  mirror the final `/static_obs` Frenet envelopes, and `/opp_obs/markers` must mirror the final
+  `/opp_obs` Frenet envelope. Do not build these markers from Cartesian AABB metadata.
 
 ## Detection pipeline
 
@@ -36,8 +38,10 @@ Keep the scan-driven pipeline ordered as follows:
    sets are both within `cluster_merge_distance`, and keep the merged AABB within `max_obs_size`.
    Drop any result still smaller than `min_cluster_points`.
 5. Reject clusters larger than `max_obs_size`.
-6. Project the cluster centroid to Frenet `(s,d)` with
-   `global_planning::ClcsFrenetConverter`.
+6. Build the complete map-frame Cartesian AABB and project it with
+   `aabb_frenet_projector`. Use the projected AABB centre as the detection `(s,d)`, preserve
+   independent longitudinal and lateral extents, and use the closest race-line/AABB-face
+   distance for the race-line-facing lateral bound.
 7. Apply the viewing-window and track-boundary gates.
 8. Remove clusters that belong to known occupied map structure.
 9. Scale each detection's Kalman measurement covariance by its range, point sparsity, and fresh
@@ -51,13 +55,17 @@ Keep the scan-driven pipeline ordered as follows:
     `ConfirmedStatic` after consecutive low-relative-speed observations, or to `Dynamic` only
     after consecutive velocity-confident motion observations with fresh, bounded ego yaw rate.
 12. Merge confirmed tracks only within the same static/dynamic layer.
-13. Preserve each measured cluster's map-frame Cartesian AABB through Detection and Track. For
-    each same-layer component, union only currently visible member AABBs and publish the union's
-    centre and enclosing-circle radius. A predicted-only component keeps valid Frenet state but
-    must set `has_cartesian=false`; never expose a stale raw scan footprint as current geometry.
+13. Preserve each measured cluster's independent Frenet footprint and map-frame Cartesian AABB
+    through Detection and Track. For each same-layer component, union only currently visible
+    member AABBs, reproject that complete union once, and publish matching Cartesian and Frenet
+    bounds. A predicted-only component keeps its last measured Frenet footprint around the
+    predicted Kalman centre but must set `has_cartesian=false`; never expose a stale raw scan
+    footprint as current geometry.
 14. Publish all merged statics on `/static_obs` and at most one nearest-ahead dynamic object on
     `/opp_obs`.
-15. Keep perception diagnostics passive. Accumulate beam, cluster, rejection, and tracker event
+15. Build the two RViz MarkerArrays from those final published arrays' Frenet bounds. Include
+    predicted-only obstacles and distinguish them with lower alpha.
+16. Keep perception diagnostics passive. Accumulate beam, cluster, rejection, and tracker event
     counters over the configured wall-clock interval, but report live track/classification counts
     as a current snapshot. Do not claim noise filtering or deskew statistics in this package;
     those belong to the upstream scan preprocessor that actually performs them.
@@ -66,8 +74,10 @@ Pre-tracking `cluster_merge` and post-tracking `layer_merge` are complementary. 
 one detection/track from LiDAR fragments; the second consolidates same-layer output tracks. Do not
 replace one with the other.
 
-The lightweight `FrenetProjector` is only for boundary lookup and wrap-aware `s` differences.
-Cartesian-to-Frenet projection must use the exported `global_planning` CLCS converter.
+`FrenetProjector` remains responsible for boundary lookup and wrap-aware `s` differences.
+`aabb_frenet_projector` is the sole owner of Cartesian obstacle AABB-to-Frenet conversion. It must
+use the exported `global_planning::ClcsFrenetConverter`; downstream planners must consume the
+published Frenet bounds instead of reprojecting the Cartesian metadata.
 
 ## Layer semantics
 
@@ -80,8 +90,9 @@ Cartesian-to-Frenet projection must use the exported `global_planning` CLCS conv
   first publishable state is `ProvisionalStatic`; promotion to `ConfirmedStatic` preserves the
   track ID and must not interrupt `/static_obs`.
 - Merge tracks only within one layer. Never merge static and dynamic tracks together.
-- Cartesian AABB union affects the output footprint and markers, not the existing wrap-aware
-  Frenet merge decision or Frenet envelope.
+- Layer merge uses the independent Frenet longitudinal/lateral extents. When a visible Cartesian
+  AABB union exists, reproject it so the published Frenet envelope describes exactly the same
+  current footprint shown by the marker.
 - Publish both layer topics every scan, including empty arrays, so downstream consumers receive a
   deterministic scan-rate tick.
 
@@ -108,8 +119,11 @@ Cartesian-to-Frenet projection must use the exported `global_planning` CLCS conv
 ## Layout
 
 - `src/obstacle_detector_node.cpp` — ROS interface and scan-driven detection pipeline.
+- `src/aabb_frenet_projector.cpp` — complete Cartesian AABB-to-Frenet footprint projection.
+- `src/frenet_marker_builder.cpp` — final Frenet obstacle arrays to map-frame RViz boundaries.
 - `src/obstacle_tracker.cpp` — Frenet Kalman tracking and static/dynamic classification.
-- `src/frenet_projector.cpp` — boundary lookup and track-length wrapping.
+- `src/frenet_projector.cpp` — boundary lookup, track-length wrapping, and marker-only map
+  interpolation.
 - `include/obstacle_detector/` — matching C++ headers.
 - `config/obstacle_detector.yaml` — all detector parameters.
 - `launch/obstacle_detector_node.launch.py` — detector-only launch.
@@ -117,6 +131,10 @@ Cartesian-to-Frenet projection must use the exported `global_planning` CLCS conv
 - `docs/obstacle_detector_node.md` — Korean operation documentation.
 - `docs/sim_test_commands.md` — Korean detector test procedure.
 - `test/synthetic_opponent_test.py` — synthetic layer-classification and merge harness.
+- `test/test_aabb_frenet_projector.cpp` — independent AABB extent and curved-track projection
+  tests.
+- `test/test_frenet_marker_builder.cpp` — Frenet-to-map interpolation and final-envelope marker
+  tests.
 - `test/test_obstacle_tracker.cpp` — motion-state transition and ID-continuity unit tests.
 
 ## Verification
@@ -128,4 +146,7 @@ Cartesian-to-Frenet projection must use the exported `global_planning` CLCS conv
 - Confirm `/static_obs` contains provisional/confirmed stationary objects, a moving provisional
   object moves to `/opp_obs` with the same ID, and confirmed stationary objects never leak into
   `/opp_obs`.
+- Confirm every published object has finite Frenet bounds with `d_right <= d_left`; a closed-track
+  wrap may make `s_start > s_end`. Visible merged objects must also have a matching current
+  Cartesian AABB.
 - Keep the Korean node document, README pair, configuration comments, and launch examples in sync.

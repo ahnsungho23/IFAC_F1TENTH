@@ -19,9 +19,9 @@
 #include <vector>
 
 #include "global_planning/clcs_frenet_converter.hpp"
-#include "local_planning/aabb_frenet_projector.hpp"
+#include "obstacle_detector/aabb_frenet_projector.hpp"
 
-namespace local_planning
+namespace obstacle_detector
 {
 namespace
 {
@@ -46,8 +46,7 @@ TEST(AabbFrenetProjector, PreservesIndependentLongitudinalAndLateralExtents)
       });
 
   const auto bounds = projectCartesianAabb(
-    *converter, converter->stats().track_length,
-    4.0, 6.0, -0.1, 0.1);
+    *converter, 4.0, 6.0, -0.1, 0.1);
 
   ASSERT_TRUE(bounds.has_value());
   EXPECT_NEAR(bounds->x_center, 5.0, kTolerance);
@@ -59,6 +58,7 @@ TEST(AabbFrenetProjector, PreservesIndependentLongitudinalAndLateralExtents)
   EXPECT_NEAR(bounds->d_right, -0.1, kTolerance);
   EXPECT_NEAR(bounds->d_left, 0.1, kTolerance);
   EXPECT_NEAR(bounds->diagonal, std::hypot(2.0, 0.2), kTolerance);
+  EXPECT_NEAR(bounds->longitudinal_half_extent, 1.0, kTolerance);
 }
 
 TEST(AabbFrenetProjector, RotatesAllFourCornersIntoTheLocalTrackFrame)
@@ -71,8 +71,7 @@ TEST(AabbFrenetProjector, RotatesAllFourCornersIntoTheLocalTrackFrame)
       });
 
   const auto bounds = projectCartesianAabb(
-    *converter, converter->stats().track_length,
-    4.0, 6.0, 4.9, 5.1);
+    *converter, 4.0, 6.0, 4.9, 5.1);
 
   ASSERT_TRUE(bounds.has_value());
   const double expected_half_extent = (1.0 + 0.1) / std::sqrt(2.0);
@@ -98,8 +97,7 @@ TEST(AabbFrenetProjector, UsesClosestAabbFaceAgainstTheActualCurvedRaceLine)
   const auto converter = makeConverter(waypoints);
 
   const auto bounds = projectCartesianAabb(
-    *converter, converter->stats().track_length,
-    -0.4, 0.4, 0.5, 0.7);
+    *converter, -0.4, 0.4, 0.5, 0.7);
 
   ASSERT_TRUE(bounds.has_value());
   // The centre tangent at the top of the semicircle would report about 0.3 m. The true nearest
@@ -130,11 +128,9 @@ TEST(AabbFrenetProjector, RejectsMalformedOrPointSizedAabb)
         {5.0, 0.0, 5.0},
         {10.0, 0.0, 10.0},
       });
-  const double track_length = converter->stats().track_length;
-
-  EXPECT_FALSE(projectCartesianAabb(*converter, track_length, 2.0, 1.0, -0.1, 0.1));
-  EXPECT_FALSE(projectCartesianAabb(*converter, track_length, 1.0, 1.0, 0.0, 0.0));
+  EXPECT_FALSE(projectCartesianAabb(*converter, 2.0, 1.0, -0.1, 0.1));
+  EXPECT_FALSE(projectCartesianAabb(*converter, 1.0, 1.0, 0.0, 0.0));
 }
 
 }  // namespace
-}  // namespace local_planning
+}  // namespace obstacle_detector

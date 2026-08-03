@@ -57,6 +57,7 @@ class SequentialObstacleProbe(Node):
         self.ego_s = 0.0
         self.first_merge_s = None
         self.second_s = None
+        self.second_first_publish_time = None
         self.outputs_after_first = 0
         self.saw_second_prepare = False
         self.passed = False
@@ -84,7 +85,7 @@ class SequentialObstacleProbe(Node):
 
     @staticmethod
     def obstacle(obstacle_id, center_s, d_right, d_left):
-        """Build a map-frame Cartesian AABB for the straight reference."""
+        """Build a detector-style Frenet obstacle for the straight reference."""
         obstacle = Obstacle()
         obstacle.id = obstacle_id
         obstacle.has_cartesian = True
@@ -96,6 +97,12 @@ class SequentialObstacleProbe(Node):
         obstacle.x_max = center_s + 0.2
         obstacle.y_min = d_right
         obstacle.y_max = d_left
+        obstacle.s_start = center_s - 0.2
+        obstacle.s_end = center_s + 0.2
+        obstacle.s_center = center_s
+        obstacle.d_right = d_right
+        obstacle.d_left = d_left
+        obstacle.d_center = 0.5 * (d_right + d_left)
         obstacle.radius = 0.5 * math.hypot(
             obstacle.x_max - obstacle.x_min,
             obstacle.y_max - obstacle.y_min)
@@ -118,6 +125,8 @@ class SequentialObstacleProbe(Node):
             # This later box blocks the left side. A stale left commitment cannot avoid it.
             obstacles.obstacles.append(
                 self.obstacle(32, self.second_s, -0.2, 1.2))
+            if self.second_first_publish_time is None:
+                self.second_first_publish_time = time.monotonic()
         self.obstacle_pub.publish(obstacles)
 
         odometry = Odometry()
@@ -136,13 +145,13 @@ class SequentialObstacleProbe(Node):
 
     @staticmethod
     def merge_s(message):
-        """Recover merge s from the configured 2 m post-merge controller tail."""
+        """Recover merge s from the configured 5 m post-merge controller tail."""
         if not message.wpnts:
             return None
-        return message.wpnts[-1].s_m - 2.0
+        return message.wpnts[-1].s_m - 5.0
 
     def on_avoid(self, message):
-        """Require left avoidance -> second preparation -> right avoidance."""
+        """Require left avoidance -> stabilized direct chain -> right avoidance."""
         if not message.wpnts:
             if self.stage != 'first':
                 self.failure = 'avoid waypoints became empty while chaining maneuvers'
@@ -182,8 +191,14 @@ class SequentialObstacleProbe(Node):
         if min(waypoint.d_m for waypoint in message.wpnts) > -0.4:
             # The first commitment remains valid while merge confirmation accumulates.
             return
-        if not self.saw_second_prepare:
-            self.failure = 'second maneuver skipped initial cluster stabilization'
+        if self.second_first_publish_time is None:
+            self.failure = 'second maneuver committed before its obstacle was published'
+            return
+        stabilization_elapsed = time.monotonic() - self.second_first_publish_time
+        if stabilization_elapsed < 0.15:
+            self.failure = (
+                'second maneuver skipped the 0.15 s cluster stabilization '
+                f'({stabilization_elapsed:.3f} s)')
             return
         self.passed = True
 
@@ -205,9 +220,12 @@ def main():
             rclpy.spin_once(node, timeout_sec=0.1)
         if node.passed:
             timing = 'during handoff' if arguments.during_handoff else 'before handoff'
+            transition = (
+                'through preparation' if node.saw_second_prepare
+                else 'directly from the active avoidance')
             print(
-                'PASS: first-left avoidance chained through preparation to '
-                f'second-right avoidance {timing} over '
+                f'PASS: first-left avoidance chained {transition} to '
+                f'second-right avoidance {timing} after stabilization over '
                 f'{node.outputs_after_first} outputs')
             return 0
         print(f'FAIL: {node.failure or "sequential maneuver did not complete"}')

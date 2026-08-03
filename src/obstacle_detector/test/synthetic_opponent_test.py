@@ -39,6 +39,7 @@ from geometry_msgs.msg import TransformStamped
 from nav_msgs.msg import OccupancyGrid, Odometry
 from sensor_msgs.msg import LaserScan
 from tf2_ros import StaticTransformBroadcaster
+from visualization_msgs.msg import Marker, MarkerArray
 
 from f110_msgs.msg import WpntArray, Wpnt, ObstacleArray
 
@@ -125,6 +126,19 @@ def valid_cartesian(ob):
     )
 
 
+def valid_frenet(ob):
+    """Check the authoritative Frenet geometry contract."""
+    values = (
+        ob.s_start, ob.s_end, ob.s_center,
+        ob.d_right, ob.d_left, ob.d_center, ob.size,
+    )
+    return (
+        all(math.isfinite(value) for value in values)
+        and ob.d_right <= ob.d_left
+        and ob.size >= 0.0
+    )
+
+
 class Harness(Node):
     def __init__(self):
         super().__init__("synthetic_opponent_test")
@@ -138,6 +152,10 @@ class Harness(Node):
             ObstacleArray, "/static_obs", self.on_static, 10)
         self.sub_opp = self.create_subscription(
             ObstacleArray, "/opp_obs", self.on_opp, 10)
+        self.sub_static_markers = self.create_subscription(
+            MarkerArray, "/static_obs/markers", self.on_static_markers, 10)
+        self.sub_opp_markers = self.create_subscription(
+            MarkerArray, "/opp_obs/markers", self.on_opp_markers, 10)
 
         self.max_dyn_vs = 0.0
         self.saw_dynamic = False       # opponent present in /opp_obs (near d=0, |vs|>0.3)
@@ -160,9 +178,12 @@ class Harness(Node):
         self.outlier_injected = False
         self.visible_cartesian_missing = False
         self.invalid_cartesian = False
+        self.invalid_frenet = False
         self.stale_cartesian_leak = False
         self.saw_predicted_without_cartesian = False
         self.saw_merged_cartesian_union = False
+        self.saw_static_frenet_marker = False
+        self.saw_opp_frenet_marker = False
 
         self.done = False
         self.ok = False
@@ -267,6 +288,8 @@ class Harness(Node):
         frag_entries = 0
         premerge_entries = 0
         for ob in msg.obstacles:
+            if not valid_frenet(ob):
+                self.invalid_frenet = True
             if ob.is_visible:
                 if not ob.has_cartesian:
                     self.visible_cartesian_missing = True
@@ -321,6 +344,8 @@ class Harness(Node):
         if msg.obstacles:
             self.opp_populated = True
         for ob in msg.obstacles:
+            if not valid_frenet(ob):
+                self.invalid_frenet = True
             if ob.is_visible:
                 if not ob.has_cartesian:
                     self.visible_cartesian_missing = True
@@ -346,6 +371,36 @@ class Harness(Node):
                 if ob.id in self.provisional_opp_ids:
                     self.dynamic_id_continuity = True
 
+    @staticmethod
+    def valid_frenet_marker(marker):
+        """Check one map-frame LINE_STRIP generated from a Frenet envelope."""
+        return (
+            marker.action == Marker.ADD
+            and marker.type == Marker.LINE_STRIP
+            and marker.header.frame_id == "map"
+            and len(marker.points) >= 5
+            and all(
+                math.isfinite(point.x)
+                and math.isfinite(point.y)
+                and math.isfinite(point.z)
+                for point in marker.points
+            )
+        )
+
+    def on_static_markers(self, msg: MarkerArray):
+        """Require the RViz mirror of /static_obs to contain a valid Frenet boundary."""
+        self.saw_static_frenet_marker = (
+            self.saw_static_frenet_marker
+            or any(self.valid_frenet_marker(marker) for marker in msg.markers)
+        )
+
+    def on_opp_markers(self, msg: MarkerArray):
+        """Require the RViz mirror of /opp_obs to contain a valid Frenet boundary."""
+        self.saw_opp_frenet_marker = (
+            self.saw_opp_frenet_marker
+            or any(self.valid_frenet_marker(marker) for marker in msg.markers)
+        )
+
     def finish(self):
         print("\n================ SYNTHETIC OBSTACLE TEST RESULT ================", flush=True)
         print(f"  dynamic opponent on /opp_obs (is_static=False, |vs|>0.3): {self.saw_dynamic}", flush=True)
@@ -370,6 +425,12 @@ class Harness(Node):
               f"{self.premerge_position_var}", flush=True)
         print(f"  every visible obstacle has valid Cartesian AABB/radius:    "
               f"{not self.visible_cartesian_missing and not self.invalid_cartesian}", flush=True)
+        print(f"  every published obstacle has valid Frenet AABB bounds:     "
+              f"{not self.invalid_frenet}", flush=True)
+        print(f"  /static_obs/markers mirrors a Frenet boundary:             "
+              f"{self.saw_static_frenet_marker}", flush=True)
+        print(f"  /opp_obs/markers mirrors a Frenet boundary:                "
+              f"{self.saw_opp_frenet_marker}", flush=True)
         print(f"  layer-merged object publishes Cartesian AABB union:        "
               f"{self.saw_merged_cartesian_union}", flush=True)
         print(f"  predicted-only obstacle observed with has_cartesian=false: "
@@ -390,6 +451,9 @@ class Harness(Node):
                    and self.premerge_position_var is not None
                    and self.premerge_position_var > self.static_position_var
                    and not self.visible_cartesian_missing and not self.invalid_cartesian
+                   and not self.invalid_frenet
+                   and self.saw_static_frenet_marker
+                   and self.saw_opp_frenet_marker
                    and self.saw_merged_cartesian_union
                    and self.saw_predicted_without_cartesian
                    and not self.stale_cartesian_leak

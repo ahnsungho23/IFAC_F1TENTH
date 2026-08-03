@@ -14,6 +14,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <limits>
@@ -134,6 +135,7 @@ TEST(RacelineSplinePlanner, ShiftsOnlyOrderedGlobalRaceLineSamples)
     EXPECT_NEAR(waypoint.x_m, global.x_m, 1.0e-9);
     EXPECT_NEAR(waypoint.y_m, waypoint.d_m, 1.0e-9);
     EXPECT_EQ(waypoint.s_m, global.s_m);
+    EXPECT_EQ(waypoint.vx_mps, global.vx_mps);
     saw_offset = saw_offset || std::abs(waypoint.d_m) > 0.20;
   }
   EXPECT_TRUE(saw_offset);
@@ -211,6 +213,24 @@ TEST(RacelineSplinePlanner, UsesRightSideWhenLeftTrackSpaceIsInsufficient)
   EXPECT_LT(result.target_d, 0.0);
 }
 
+TEST(RacelineSplinePlanner, RejectsWallBlockedTargetsBeforeSplineConstruction)
+{
+  auto reference = makeStraightReference(300, 0.1, 0.55, 0.55);
+  RacelineSplinePlanner planner(testParameters());
+  ASSERT_TRUE(planner.setReference(reference));
+
+  const auto result = planner.plan(
+    EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(3, 7.0)});
+
+  ASSERT_EQ(result.kind, SplinePlanKind::kSafeStop) << result.reason;
+  EXPECT_NE(
+    result.reason.find("left target d exceeds track bound in obstacle span"),
+    std::string::npos);
+  EXPECT_NE(
+    result.reason.find("right target d exceeds track bound in obstacle span"),
+    std::string::npos);
+}
+
 TEST(RacelineSplinePlanner, HonorsCommittedSideWhenItRemainsFeasible)
 {
   RacelineSplinePlanner planner(testParameters());
@@ -254,6 +274,87 @@ TEST(RacelineSplinePlanner, KeepsCommittedPathValidAcrossSmallAabbJitter)
       {makeObstacle(2, 7.0, -0.35, 0.35)}, &reason));
 }
 
+TEST(RacelineSplinePlanner, DistinguishesSoftEnvelopeFromHardVehicleCollision)
+{
+  auto parameters = testParameters();
+  parameters.commitment_clearance_reserve_m = 0.05;
+  RacelineSplinePlanner planner(parameters);
+  ASSERT_TRUE(planner.setReference(makeStraightReference()));
+  const EgoFrenetState ego{0.0, 0.0, 2.0};
+  const auto committed = planner.plan(ego, {makeObstacle(23, 7.0)}, true, false);
+  ASSERT_EQ(committed.kind, SplinePlanKind::kAvoidance) << committed.reason;
+
+  const auto expanded_obstacle = makeObstacle(23, 7.0, -0.20, 0.30);
+  std::string reason;
+  PathValidationFailure failure;
+  EXPECT_FALSE(
+    planner.validatePath(
+      ego, committed.path, {expanded_obstacle}, &reason, &failure));
+  EXPECT_EQ(failure.kind, PathValidationFailureKind::kObstacleCollision);
+  EXPECT_EQ(failure.obstacle_id, 23);
+  EXPECT_TRUE(std::isfinite(failure.waypoint_s));
+  EXPECT_TRUE(std::isfinite(failure.waypoint_d));
+  EXPECT_NEAR(failure.obstacle_source_d_left, 0.30, 1.0e-9);
+  EXPECT_NEAR(failure.obstacle_test_d_left, 0.55, 1.0e-9);
+  EXPECT_NEAR(failure.obstacle_clearance, 0.25, 1.0e-9);
+
+  constexpr double kHardVehicleClearance = 0.15;
+  EXPECT_TRUE(
+    planner.validatePath(
+      ego, committed.path, {expanded_obstacle}, &reason, &failure,
+      kHardVehicleClearance)) << reason;
+  EXPECT_EQ(failure.kind, PathValidationFailureKind::kNone);
+}
+
+TEST(RacelineSplinePlanner, IgnoresPostMergeTailCollisionForCurrentCommitment)
+{
+  RacelineSplinePlanner planner(testParameters());
+  ASSERT_TRUE(planner.setReference(makeStraightReference()));
+  const EgoFrenetState ego{0.0, 0.0, 2.0};
+  const auto committed = planner.plan(ego, {makeObstacle(24, 7.0)}, true, false);
+  ASSERT_EQ(committed.kind, SplinePlanKind::kAvoidance) << committed.reason;
+
+  const double next_obstacle_s = committed.merge_s + 0.5;
+  const auto next_obstacle = makeObstacle(25, next_obstacle_s, -0.60, -0.05);
+  std::string reason;
+  PathValidationFailure failure;
+  EXPECT_FALSE(
+    planner.validatePath(
+      ego, committed.path, {next_obstacle}, &reason, &failure));
+  EXPECT_EQ(failure.kind, PathValidationFailureKind::kObstacleCollision);
+  EXPECT_GT(failure.waypoint_s, committed.merge_s);
+
+  const double merge_horizon = planner.forwardDistance(ego.s, committed.merge_s);
+  EXPECT_TRUE(
+    planner.validatePath(
+      ego, committed.path, {next_obstacle}, &reason, &failure,
+      std::nullopt, merge_horizon)) << reason;
+}
+
+TEST(RacelineSplinePlanner, StartsNextManeuverContinuouslyFromNonzeroEgoD)
+{
+  RacelineSplinePlanner planner(testParameters());
+  ASSERT_TRUE(planner.setReference(makeStraightReference()));
+  const EgoFrenetState ego{9.05, 0.50, 2.0};
+  const auto result = planner.plan(
+    ego, {makeObstacle(26, 13.5)}, true, true);
+  ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
+  ASSERT_FALSE(result.path.wpnts.empty());
+
+  double previous_s = ego.s;
+  double previous_d = ego.d;
+  for (const auto & waypoint : result.path.wpnts) {
+    const double ds = planner.forwardDistance(previous_s, waypoint.s_m);
+    ASSERT_GT(ds, 0.0);
+    EXPECT_LE(
+      std::abs(waypoint.d_m - previous_d) / ds,
+      testParameters().maximum_lateral_slope + 1.0e-6);
+    previous_s = waypoint.s_m;
+    previous_d = waypoint.d_m;
+  }
+  EXPECT_NEAR(result.path.wpnts.front().d_m, ego.d, 0.02);
+}
+
 TEST(RacelineSplinePlanner, DoesNotReverseCommittedSideWhenItBecomesBlocked)
 {
   auto reference = makeStraightReference(300, 0.1, 0.55, 1.5);
@@ -292,6 +393,59 @@ TEST(RacelineSplinePlanner, BuildsCollisionFreeStopWhenBothSidesAreClosed)
   for (const auto & waypoint : result.path.wpnts) {
     EXPECT_DOUBLE_EQ(waypoint.d_m, 0.0);
   }
+}
+
+TEST(RacelineSplinePlanner, BuildsSafeStopAtCurrentLateralOffset)
+{
+  auto parameters = testParameters();
+  parameters.maximum_target_offset_m = 0.45;
+  RacelineSplinePlanner planner(parameters);
+  ASSERT_TRUE(planner.setReference(makeStraightReference()));
+  const auto result = planner.plan(
+    EgoFrenetState{0.0, 0.30, 2.0},
+    {makeObstacle(27, 7.0, -0.40, 0.40)});
+  ASSERT_EQ(result.kind, SplinePlanKind::kSafeStop) << result.reason;
+  ASSERT_GE(result.path.wpnts.size(), 2U);
+  for (const auto & waypoint : result.path.wpnts) {
+    EXPECT_NEAR(waypoint.d_m, 0.30, 1.0e-9);
+  }
+  EXPECT_NEAR(result.path.wpnts.back().vx_mps, 0.0, 1.0e-9);
+}
+
+TEST(RacelineSplinePlanner, BrakesOnCommittedGeometryBeforeEmergencyHold)
+{
+  RacelineSplinePlanner planner(testParameters());
+  ASSERT_TRUE(planner.setReference(makeStraightReference()));
+  const auto committed = planner.plan(
+    EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(28, 7.0)}, true, false);
+  ASSERT_EQ(committed.kind, SplinePlanKind::kAvoidance) << committed.reason;
+
+  const auto ego_waypoint = std::find_if(
+    committed.path.wpnts.begin(), committed.path.wpnts.end(),
+    [](const auto & waypoint) {return waypoint.s_m >= 3.0;});
+  ASSERT_NE(ego_waypoint, committed.path.wpnts.end());
+  const EgoFrenetState ego{ego_waypoint->s_m, ego_waypoint->d_m, 2.0};
+  const auto stop = planner.buildCommittedPathStop(
+    ego, committed.path, {makeObstacle(29, 9.0, -1.0, 1.0)});
+
+  ASSERT_EQ(stop.kind, SplinePlanKind::kSafeStop) << stop.reason;
+  ASSERT_GE(stop.path.wpnts.size(), 2U);
+  EXPECT_NEAR(stop.path.wpnts.front().d_m, ego.d, 0.05);
+  EXPECT_NEAR(stop.path.wpnts.back().vx_mps, 0.0, 1.0e-9);
+  EXPECT_TRUE(
+    std::any_of(
+      stop.path.wpnts.begin(), stop.path.wpnts.end(),
+      [](const auto & waypoint) {return std::abs(waypoint.d_m) > 0.10;}));
+
+  auto off_path_ego = ego;
+  off_path_ego.d += 0.10;
+  const auto discontinuous_stop = planner.buildCommittedPathStop(
+    off_path_ego, committed.path, {makeObstacle(29, 9.0, -1.0, 1.0)});
+  EXPECT_EQ(discontinuous_stop.kind, SplinePlanKind::kNoSafePath);
+  EXPECT_TRUE(discontinuous_stop.path.wpnts.empty());
+  EXPECT_NE(
+    discontinuous_stop.reason.find("discontinuous from the current ego d"),
+    std::string::npos);
 }
 
 TEST(RacelineSplinePlanner, BuildsPreparationStopForInitialBlockingCluster)

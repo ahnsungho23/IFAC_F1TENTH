@@ -15,7 +15,9 @@
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <tf2/exceptions.h>
 #include <tf2/time.h>
-#include <visualization_msgs/msg/marker.hpp>
+
+#include "obstacle_detector/aabb_frenet_projector.hpp"
+#include "obstacle_detector/frenet_marker_builder.hpp"
 
 namespace obstacle_detector
 {
@@ -64,8 +66,10 @@ ObstacleDetectorNode::ObstacleDetectorNode(const rclcpp::NodeOptions &options)
     opp_obs_pub_ = this->create_publisher<f110_msgs::msg::ObstacleArray>(opp_obs_topic_, 10);
     if (publish_markers_)
     {
-        markers_pub_ =
-            this->create_publisher<visualization_msgs::msg::MarkerArray>(markers_topic_, 10);
+        static_markers_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(
+            static_markers_topic_, 10);
+        opp_markers_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(
+            opp_markers_topic_, 10);
     }
 
     RCLCPP_INFO(
@@ -95,7 +99,8 @@ void ObstacleDetectorNode::declareParameters()
     this->declare_parameter<std::string>("ego_odom_topic", "/pf/pose/odom");
     this->declare_parameter<std::string>("static_obs_topic", "/static_obs");
     this->declare_parameter<std::string>("opp_obs_topic", "/opp_obs");
-    this->declare_parameter<std::string>("markers_topic", "/perception/obstacles/markers");
+    this->declare_parameter<std::string>("static_markers_topic", "/static_obs/markers");
+    this->declare_parameter<std::string>("opp_markers_topic", "/opp_obs/markers");
     this->declare_parameter<std::string>("map_frame", "map");
 
     this->declare_parameter<double>("max_range", 10.0);
@@ -176,7 +181,8 @@ void ObstacleDetectorNode::loadParameters()
     ego_odom_topic_ = this->get_parameter("ego_odom_topic").as_string();
     static_obs_topic_ = this->get_parameter("static_obs_topic").as_string();
     opp_obs_topic_ = this->get_parameter("opp_obs_topic").as_string();
-    markers_topic_ = this->get_parameter("markers_topic").as_string();
+    static_markers_topic_ = this->get_parameter("static_markers_topic").as_string();
+    opp_markers_topic_ = this->get_parameter("opp_markers_topic").as_string();
     map_frame_ = this->get_parameter("map_frame").as_string();
 
     max_range_ = this->get_parameter("max_range").as_double();
@@ -283,7 +289,7 @@ void ObstacleDetectorNode::globalWpntsCallback(const f110_msgs::msg::WpntArray::
         return;
     }
 
-    // lightweight projector: kept only for track-boundary (d_left/d_right) lookup and s-wrap
+    // Lightweight helper for track boundaries, s-wrap, and final Frenet-marker interpolation.
     std::vector<FrenetProjector::Waypoint> wpnts;
     std::vector<global_planning::ReferenceWaypoint> ref;
     wpnts.reserve(msg->wpnts.size());
@@ -307,10 +313,10 @@ void ObstacleDetectorNode::globalWpntsCallback(const f110_msgs::msg::WpntArray::
     // CLCS converter: the accurate (x,y) -> (s,d) projection used for clusters and ego.
     try
     {
-        FrenetProjector next_frenet;
-        next_frenet.build(std::move(wpnts), true);
         global_planning::ClcsFrenetConfig cfg;  // closed_loop=true + sane projection-domain defaults
         auto conv = global_planning::ClcsFrenetConverter::create(ref, cfg, ++clcs_version_);
+        FrenetProjector next_frenet;
+        next_frenet.build(std::move(wpnts), true, conv->stats().track_length);
         frenet_ = std::move(next_frenet);
         converter_ = conv;
         ego_s_ = -1.0;  // wait for an odometry sample projected against the new CLCS reference
@@ -644,8 +650,9 @@ ObstacleDetectorNode::mergeLayer(const std::vector<const Track *> &members,
     }
     out.reserve(n);
 
-    // union-find: link two track boxes when BOTH Frenet edge-to-edge gaps are within the merge
-    // gaps (s is wrap-aware). Each box is the track's square [s +- size/2] x [d +- size/2].
+    // Union-find: link two track boxes when BOTH Frenet edge-to-edge gaps are within the merge
+    // gaps. Each box retains the independently projected AABB extents instead of expanding the
+    // Cartesian diagonal equally along s and d.
     std::vector<std::size_t> parent(n);
     for (std::size_t i = 0; i < n; ++i)
     {
@@ -667,10 +674,16 @@ ObstacleDetectorNode::mergeLayer(const std::vector<const Track *> &members,
             {
                 const Track &a = *members[i];
                 const Track &b = *members[j];
-                const double half_sum = 0.5 * (a.size + b.size);
-                const double gap_s =
-                    std::max(0.0, std::abs(frenet_.wrapDelta(a.s(), b.s())) - half_sum);
-                const double gap_d = std::max(0.0, std::abs(a.d() - b.d()) - half_sum);
+                const double gap_s = std::max(
+                    0.0,
+                    std::abs(frenet_.wrapDelta(a.s(), b.s())) -
+                    a.s_half_extent - b.s_half_extent);
+                const double a_right = a.d() + a.d_right_offset;
+                const double a_left = a.d() + a.d_left_offset;
+                const double b_right = b.d() + b.d_right_offset;
+                const double b_left = b.d() + b.d_left_offset;
+                const double gap_d = std::max(
+                    {0.0, a_right - b_left, b_right - a_left});
                 if (gap_s <= layer_merge_gap_s_ && gap_d <= layer_merge_gap_d_)
                 {
                     parent[find(i)] = find(j);
@@ -725,10 +738,10 @@ ObstacleDetectorNode::mergeLayer(const std::vector<const Track *> &members,
         for (const Track *t : comp)
         {
             const double rel = frenet_.wrapDelta(t->s(), s0);
-            lo = std::min(lo, rel - t->size / 2.0);
-            hi = std::max(hi, rel + t->size / 2.0);
-            d_left = std::max(d_left, t->d() + t->size / 2.0);
-            d_right = std::min(d_right, t->d() - t->size / 2.0);
+            lo = std::min(lo, rel - t->s_half_extent);
+            hi = std::max(hi, rel + t->s_half_extent);
+            d_left = std::max(d_left, t->d() + t->d_left_offset);
+            d_right = std::min(d_right, t->d() + t->d_right_offset);
             const double w = std::max(t->size, 1e-3);  // size-weighted merged velocity
             w_sum += w;
             vs += w * t->vs();
@@ -766,8 +779,7 @@ ObstacleDetectorNode::mergeLayer(const std::vector<const Track *> &members,
         m.ob.d_left = d_left;
         m.ob.d_right = d_right;
         m.ob.d_center = 0.5 * (d_left + d_right);
-        // singleton keeps the raw cluster diagonal; a merged object reports its envelope diagonal
-        m.ob.size = comp.size() == 1 ? comp.front()->size : std::hypot(hi - lo, d_left - d_right);
+        m.ob.size = std::hypot(hi - lo, d_left - d_right);
         m.ob.vs = vs / w_sum;
         m.ob.vd = vd / w_sum;
         m.ob.s_var = s_var;
@@ -793,6 +805,22 @@ ObstacleDetectorNode::mergeLayer(const std::vector<const Track *> &members,
             // Until then, use the worst positional variance on both Cartesian axes.
             m.ob.x_var = std::max(s_var, d_var);
             m.ob.y_var = m.ob.x_var;
+
+            // The current visible Cartesian union is the authoritative footprint. Reproject it
+            // once after layer merging so /static_obs and /opp_obs expose one geometry contract:
+            // their Frenet bounds describe the same AABB shown by the RViz marker.
+            const auto projected = projectCartesianAabb(
+                *converter_, x_min, x_max, y_min, y_max);
+            if (projected.has_value())
+            {
+                m.ob.s_start = projected->s_start;
+                m.ob.s_end = projected->s_end;
+                m.ob.s_center = projected->s_center;
+                m.ob.d_right = projected->d_right;
+                m.ob.d_left = projected->d_left;
+                m.ob.d_center = projected->d_center;
+                m.ob.size = projected->diagonal;
+            }
         }
         out.push_back(m);
     }
@@ -968,9 +996,8 @@ void ObstacleDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
     detections.reserve(clusters.size());
     for (const auto &cluster : clusters)
     {
-        // centroid + axis-aligned box size
-        double cx = 0.0;
-        double cy = 0.0;
+        // Map-frame axis-aligned box. Its centre and all four corners are projected together so
+        // the published Frenet footprint preserves independent longitudinal/lateral extents.
         double minx = cluster.front().x;
         double maxx = cluster.front().x;
         double miny = cluster.front().y;
@@ -978,16 +1005,12 @@ void ObstacleDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
         double range_sum = 0.0;
         for (const auto &p : cluster)
         {
-            cx += p.x;
-            cy += p.y;
             range_sum += p.range;
             minx = std::min(minx, p.x);
             maxx = std::max(maxx, p.x);
             miny = std::min(miny, p.y);
             maxy = std::max(maxy, p.y);
         }
-        cx /= static_cast<double>(cluster.size());
-        cy /= static_cast<double>(cluster.size());
         const double size = std::hypot(maxx - minx, maxy - miny);
         if (size > max_obs_size_)
         {
@@ -995,13 +1018,9 @@ void ObstacleDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
             continue;  // too big to be an F1TENTH car / cone
         }
 
-        // accurate CLCS projection of the cluster centre; invalid => outside the projection domain
-        // (not on/near the track) => drop.
-        global_planning::ClcsConversionInput ci;
-        ci.x = cx;
-        ci.y = cy;
-        const auto cr = converter_->convert(ci);
-        if (!cr.valid)
+        const auto bounds = projectCartesianAabb(
+            *converter_, minx, maxx, miny, maxy);
+        if (!bounds.has_value())
         {
             ++stats.projection_rejected;
             continue;
@@ -1009,7 +1028,7 @@ void ObstacleDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
         // viewing-distance gate (ahead of ego)
         if (ego_s_ >= 0.0)
         {
-            const double ds = frenet_.wrapDelta(cr.s, ego_s_);
+            const double ds = frenet_.wrapDelta(bounds->s_center, ego_s_);
             if (ds > max_viewing_distance_ || ds < -view_behind_distance_)
             {
                 ++stats.viewing_window_rejected;
@@ -1020,11 +1039,11 @@ void ObstacleDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
         // track-boundary corridor gate (falls back to a default half-width if bounds are unset)
         double dl = 0.0;
         double dr = 0.0;
-        frenet_.boundsAtS(cr.s, dl, dr);
+        frenet_.boundsAtS(bounds->s_center, dl, dr);
         const double left_bound = (dl > 0.05 ? dl : fallback_track_halfwidth_) - boundaries_inflation_;
         const double right_bound =
             (dr > 0.05 ? dr : fallback_track_halfwidth_) - boundaries_inflation_;
-        if (cr.d > left_bound || cr.d < -right_bound)
+        if (bounds->d_center > left_bound || bounds->d_center < -right_bound)
         {
             ++stats.track_boundary_rejected;
             continue;
@@ -1057,8 +1076,11 @@ void ObstacleDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
         }
 
         Detection det;
-        det.s = cr.s;
-        det.d = cr.d;
+        det.s = bounds->s_center;
+        det.d = bounds->d_center;
+        det.s_half_extent = bounds->longitudinal_half_extent;
+        det.d_right_offset = bounds->d_right - bounds->d_center;
+        det.d_left_offset = bounds->d_left - bounds->d_center;
         det.size = size;
         det.x_min = minx;
         det.x_max = maxx;
@@ -1139,60 +1161,16 @@ void ObstacleDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
     }
     opp_obs_pub_->publish(opp_arr);
 
-    // ---- markers (RViz), 1:1 with the published objects: blue = merged static (Layer 2),
-    //      red = the merged opponent (Layer 3) ----
-    if (publish_markers_ && markers_pub_)
+    // RViz mirrors are built from the final published Frenet arrays. They therefore visualize the
+    // exact s/d envelopes consumed by downstream planners, including predicted-only objects.
+    if (publish_markers_ && static_markers_pub_ && opp_markers_pub_)
     {
-        visualization_msgs::msg::MarkerArray ma;
-        ma.markers.reserve(1 + static_objs.size() + (opp >= 0 ? 1U : 0U));
-        visualization_msgs::msg::Marker del;
-        del.header.frame_id = map_frame_;
-        del.header.stamp = msg->header.stamp;
-        del.action = visualization_msgs::msg::Marker::DELETEALL;
-        ma.markers.push_back(del);
-
-        auto makeMarker = [&](const MergedObstacle &mo, bool is_opp) {
-            visualization_msgs::msg::Marker m;
-            m.header.frame_id = map_frame_;
-            m.header.stamp = msg->header.stamp;
-            m.ns = "obstacle_detector";
-            m.id = mo.ob.id;
-            m.type = visualization_msgs::msg::Marker::CUBE;
-            m.action = visualization_msgs::msg::Marker::ADD;
-            m.pose.position.x = mo.ob.x_center;
-            m.pose.position.y = mo.ob.y_center;
-            m.pose.position.z = 0.1;
-            m.pose.orientation.w = 1.0;
-            m.scale.x = std::max(0.02, mo.ob.x_max - mo.ob.x_min);
-            m.scale.y = std::max(0.02, mo.ob.y_max - mo.ob.y_min);
-            m.scale.z = 0.2;
-            m.color.a = 0.8f;
-            if (is_opp)
-            {
-                m.color.r = 1.0f;
-                m.color.g = 0.2f;
-                m.color.b = 0.2f;  // red: dynamic opponent (Layer 3)
-            }
-            else
-            {
-                m.color.r = 0.2f;
-                m.color.g = 0.6f;
-                m.color.b = 1.0f;  // blue: static (Layer 2)
-            }
-            return m;
-        };
-        for (const auto &mo : static_objs)
-        {
-            if (mo.ob.has_cartesian)
-            {
-                ma.markers.push_back(makeMarker(mo, false));
-            }
-        }
-        if (opp >= 0 && dynamic_objs[opp].ob.has_cartesian)
-        {
-            ma.markers.push_back(makeMarker(dynamic_objs[opp], true));
-        }
-        markers_pub_->publish(ma);
+        static_markers_pub_->publish(
+            buildFrenetObstacleMarkers(
+                static_arr, frenet_, "static_obs_frenet", 0.2F, 0.6F, 1.0F));
+        opp_markers_pub_->publish(
+            buildFrenetObstacleMarkers(
+                opp_arr, frenet_, "opp_obs_frenet", 1.0F, 0.2F, 0.2F));
     }
 }
 

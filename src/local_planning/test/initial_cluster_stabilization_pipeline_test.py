@@ -48,7 +48,9 @@ class InitialClusterProbe(Node):
             OTWpntArray, '/avoid_waypoints', self.on_path, 10)
         self.started = time.monotonic()
         self.second_started = None
+        self.second_publish_count = 0
         self.saw_preparation = False
+        self.preparation_started = None
         self.passed = False
         self.failure = ''
         self.timer = self.create_timer(0.025, self.publish_inputs)
@@ -74,7 +76,7 @@ class InitialClusterProbe(Node):
 
     @staticmethod
     def obstacle(obstacle_id, x_min, x_max, y_min, y_max):
-        """Create one finite map-frame Cartesian AABB."""
+        """Create one detector-style Frenet obstacle for the straight reference."""
         obstacle = Obstacle()
         obstacle.id = obstacle_id
         obstacle.has_cartesian = True
@@ -87,6 +89,12 @@ class InitialClusterProbe(Node):
         obstacle.x_center = 0.5 * (x_min + x_max)
         obstacle.y_center = 0.5 * (y_min + y_max)
         obstacle.radius = 0.5 * math.hypot(x_max - x_min, y_max - y_min)
+        obstacle.s_start = x_min
+        obstacle.s_end = x_max
+        obstacle.s_center = obstacle.x_center
+        obstacle.d_right = y_min
+        obstacle.d_left = y_max
+        obstacle.d_center = obstacle.y_center
         obstacle.size = 2.0 * obstacle.radius
         return obstacle
 
@@ -106,6 +114,7 @@ class InitialClusterProbe(Node):
         if time.monotonic() - self.started >= 0.10:
             if self.second_started is None:
                 self.second_started = time.monotonic()
+            self.second_publish_count += 1
             obstacles.obstacles.append(
                 self.obstacle(18, 7.3, 7.7, 0.2, 1.0))
         self.obstacle_pub.publish(obstacles)
@@ -124,6 +133,8 @@ class InitialClusterProbe(Node):
             return
         if message.ot_line == 'raceline_static_prepare':
             self.saw_preparation = True
+            if self.preparation_started is None:
+                self.preparation_started = time.monotonic()
             if max(abs(point.d_m) for point in message.wpnts) > 1.0e-9:
                 self.failure = 'preparation path has a lateral offset'
             return
@@ -132,10 +143,16 @@ class InitialClusterProbe(Node):
         if not self.saw_preparation or self.second_started is None:
             self.failure = 'avoidance committed before observing the complete cluster'
             return
-        elapsed = time.monotonic() - self.second_started
-        if elapsed < 0.16:
+        stabilization_duration = time.monotonic() - self.preparation_started
+        if stabilization_duration < 0.13:
             self.failure = (
-                f'avoidance committed only {elapsed:.3f}s after the new cluster ID')
+                'avoidance committed before the configured minimum stabilization duration: '
+                f'{stabilization_duration:.3f}s')
+            return
+        if self.second_publish_count < 3:
+            self.failure = (
+                'avoidance committed after only '
+                f'{self.second_publish_count} topic observations of the new cluster ID')
             return
         peak = max(message.wpnts, key=lambda point: abs(point.d_m)).d_m
         if peak >= -0.05:
@@ -157,8 +174,8 @@ def main():
             rclpy.spin_once(node, timeout_sec=0.1)
         if node.passed:
             print(
-                'PASS: late cluster ID reset stabilization and the first '
-                'lateral commitment selected the safe right side')
+                'PASS: minimum stabilization time and three real observations included the '
+                'late cluster ID before selecting the safe right side')
             return 0
         print(f'FAIL: {node.failure or "no completed avoidance commitment"}')
         return 1

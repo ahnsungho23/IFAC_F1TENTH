@@ -161,6 +161,7 @@ struct RacelineSplinePlanner::ExpandedObstacle
   double raw_d_left{0.0};
   double d_right{0.0};
   double d_left{0.0};
+  double clearance{0.0};
 };
 
 struct RacelineSplinePlanner::Candidate
@@ -299,8 +300,10 @@ std::size_t RacelineSplinePlanner::nearestReferenceIndex(double s) const
 std::vector<RacelineSplinePlanner::ExpandedObstacle>
 RacelineSplinePlanner::expandVisibleObstacles(
   const EgoFrenetState & ego,
-  const std::vector<f110_msgs::msg::Obstacle> & obstacles) const
+  const std::vector<f110_msgs::msg::Obstacle> & obstacles,
+  const std::optional<double> & obstacle_clearance) const
 {
+  const double clearance = obstacle_clearance.value_or(parameters_.obstacle_clearance_m);
   std::vector<ExpandedObstacle> visible;
   visible.reserve(obstacles.size());
   for (const auto & obstacle : obstacles) {
@@ -325,10 +328,9 @@ RacelineSplinePlanner::expandVisibleObstacles(
     expanded.end = center + half_span;
     expanded.raw_d_right = std::min(obstacle.d_right, obstacle.d_left);
     expanded.raw_d_left = std::max(obstacle.d_right, obstacle.d_left);
-    expanded.d_right = expanded.raw_d_right -
-      parameters_.obstacle_clearance_m;
-    expanded.d_left = expanded.raw_d_left +
-      parameters_.obstacle_clearance_m;
+    expanded.d_right = expanded.raw_d_right - clearance;
+    expanded.d_left = expanded.raw_d_left + clearance;
+    expanded.clearance = clearance;
     if (expanded.end >= 0.0 &&
       expanded.start <= parameters_.detection_lookahead_m)
     {
@@ -401,6 +403,105 @@ bool RacelineSplinePlanner::outsideIsLeft(
   return curvature_sum < 0.0;
 }
 
+bool RacelineSplinePlanner::computeSideTarget(
+  const std::vector<ExpandedObstacle> & cluster,
+  bool go_left,
+  double & cluster_start,
+  double & cluster_end,
+  double & target_d,
+  std::string & reason) const
+{
+  if (cluster.empty()) {
+    reason = "empty obstacle cluster";
+    return false;
+  }
+
+  cluster_start = cluster.front().start;
+  cluster_end = cluster.front().end;
+  target_d = go_left ? cluster.front().d_left : cluster.front().d_right;
+  for (const auto & obstacle : cluster) {
+    cluster_start = std::min(cluster_start, obstacle.start);
+    cluster_end = std::max(cluster_end, obstacle.end);
+    target_d = go_left ? std::max(target_d, obstacle.d_left) :
+      std::min(target_d, obstacle.d_right);
+  }
+  if (go_left) {
+    target_d = std::max(
+      target_d + parameters_.commitment_clearance_reserve_m,
+      parameters_.minimum_target_offset_m);
+  } else {
+    target_d = std::min(
+      target_d - parameters_.commitment_clearance_reserve_m,
+      -parameters_.minimum_target_offset_m);
+  }
+  if (std::abs(target_d) > parameters_.maximum_target_offset_m) {
+    reason = "required d-offset exceeds maximum_target_offset_m";
+    return false;
+  }
+  return true;
+}
+
+bool RacelineSplinePlanner::targetFitsTrackBounds(
+  const EgoFrenetState & ego,
+  double cluster_start,
+  double cluster_end,
+  bool go_left,
+  double target_d,
+  std::string & reason) const
+{
+  const double center_boundary_clearance =
+    parameters_.vehicle_half_width_m + parameters_.boundary_margin_m;
+  const auto fits_at = [&](const f110_msgs::msg::Wpnt & reference) {
+      const double left_width = reference.d_left > 0.05 ?
+        reference.d_left : parameters_.fallback_track_half_width_m;
+      const double right_width = reference.d_right > 0.05 ?
+        reference.d_right : parameters_.fallback_track_half_width_m;
+      return go_left ?
+             target_d <= left_width - center_boundary_clearance + kEpsilon :
+             target_d >= -right_width + center_boundary_clearance - kEpsilon;
+    };
+
+  // The target offset is held across the expanded obstacle-cluster span. Reject an obviously
+  // impossible side before fitting/sampling up to three splines, but retain the full candidate
+  // validation because the transition can still meet a narrower wall before or after this span.
+  const double check_start = std::max(0.0, cluster_start);
+  bool checked_reference = false;
+  const std::size_t first_index = nextReferenceIndex(wrapS(ego.s + check_start));
+  for (std::size_t k = 0; k < reference_.wpnts.size(); ++k) {
+    const auto & reference =
+      reference_.wpnts[(first_index + k) % reference_.wpnts.size()];
+    const double forward_s = forwardDistance(ego.s, reference.s_m);
+    if (forward_s + kEpsilon < check_start) {
+      continue;
+    }
+    if (forward_s > cluster_end + kEpsilon) {
+      break;
+    }
+    checked_reference = true;
+    if (!fits_at(reference)) {
+      reason = go_left ?
+        "left target d exceeds track bound in obstacle span before spline construction" :
+        "right target d exceeds track bound in obstacle span before spline construction";
+      return false;
+    }
+  }
+
+  // A very short obstacle span can fall between two global samples. Check its midpoint against the
+  // nearest reference width so the fast gate remains useful without inventing a Cartesian wall.
+  if (!checked_reference) {
+    const double midpoint = 0.5 * (check_start + std::max(check_start, cluster_end));
+    const auto & reference = reference_.wpnts[
+      nearestReferenceIndex(wrapS(ego.s + midpoint))];
+    if (!fits_at(reference)) {
+      reason = go_left ?
+        "left target d exceeds track bound in obstacle span before spline construction" :
+        "right target d exceeds track bound in obstacle span before spline construction";
+      return false;
+    }
+  }
+  return true;
+}
+
 f110_msgs::msg::WpntArray RacelineSplinePlanner::buildGlobalHandoffPath(
   double ego_s, double state_tail_ratio, double speed_cap_mps) const
 {
@@ -463,43 +564,130 @@ f110_msgs::msg::WpntArray RacelineSplinePlanner::buildEmergencyStopPath(
   return path;
 }
 
+RacelineSplineResult RacelineSplinePlanner::buildCommittedPathStop(
+  const EgoFrenetState & ego,
+  const f110_msgs::msg::WpntArray & committed_path,
+  const std::vector<f110_msgs::msg::Obstacle> & obstacles) const
+{
+  RacelineSplineResult result;
+  result.kind = SplinePlanKind::kNoSafePath;
+  if (!ready() || !std::isfinite(ego.s) || !std::isfinite(ego.d) ||
+    !std::isfinite(ego.speed) || committed_path.wpnts.empty())
+  {
+    result.reason = "cannot build a committed-path stop from invalid inputs";
+    return result;
+  }
+
+  std::size_t start_index = 0U;
+  double nearest_forward = std::numeric_limits<double>::infinity();
+  for (std::size_t i = 0; i < committed_path.wpnts.size(); ++i) {
+    const double forward = forwardDistance(ego.s, committed_path.wpnts[i].s_m);
+    if (forward < nearest_forward) {
+      nearest_forward = forward;
+      start_index = i;
+    }
+  }
+  if (nearest_forward > 0.5 * track_length_) {
+    result.reason = "committed path has no waypoint ahead for braking";
+    return result;
+  }
+
+  const auto visible = expandVisibleObstacles(ego, obstacles);
+  double first_collision_forward = std::numeric_limits<double>::infinity();
+  int first_collision_id = -1;
+  for (std::size_t i = start_index; i < committed_path.wpnts.size(); ++i) {
+    const auto & waypoint = committed_path.wpnts[i];
+    const double forward_s = forwardDistance(ego.s, waypoint.s_m);
+    for (const auto & obstacle : visible) {
+      if (forward_s >= obstacle.start && forward_s <= obstacle.end &&
+        waypoint.d_m > obstacle.d_right + kEpsilon &&
+        waypoint.d_m < obstacle.d_left - kEpsilon)
+      {
+        first_collision_forward = forward_s;
+        first_collision_id = obstacle.id;
+        break;
+      }
+    }
+    if (std::isfinite(first_collision_forward)) {
+      break;
+    }
+  }
+  if (!std::isfinite(first_collision_forward)) {
+    result.reason = "committed path has no obstacle collision before which to stop";
+    return result;
+  }
+
+  const double stop_at = std::max(
+    0.0, first_collision_forward - parameters_.safe_stop_buffer_m);
+  result.path.header = committed_path.header;
+  for (std::size_t i = start_index; i < committed_path.wpnts.size(); ++i) {
+    const double forward_s = forwardDistance(ego.s, committed_path.wpnts[i].s_m);
+    if (forward_s > stop_at + kEpsilon) {
+      break;
+    }
+    auto waypoint = committed_path.wpnts[i];
+    waypoint.id = static_cast<int32_t>(result.path.wpnts.size());
+    result.path.wpnts.push_back(waypoint);
+  }
+  if (result.path.wpnts.size() < 2U) {
+    result.path.wpnts.clear();
+    result.reason = "committed path has no collision-free braking prefix";
+    return result;
+  }
+
+  const double first_forward = forwardDistance(ego.s, result.path.wpnts.front().s_m);
+  const double first_lateral_delta =
+    std::abs(result.path.wpnts.front().d_m - ego.d);
+  const bool same_s_lateral_jump =
+    first_forward <= kEpsilon && first_lateral_delta > kEpsilon;
+  const bool excessive_entry_slope =
+    first_forward > kEpsilon &&
+    first_lateral_delta / first_forward > parameters_.maximum_lateral_slope;
+  if (same_s_lateral_jump || excessive_entry_slope) {
+    result.path.wpnts.clear();
+    result.reason = "committed braking prefix is discontinuous from the current ego d";
+    return result;
+  }
+
+  result.path.wpnts.back().vx_mps = 0.0;
+  for (std::size_t reverse = result.path.wpnts.size() - 1U; reverse > 0U; --reverse) {
+    const std::size_t previous = reverse - 1U;
+    const double distance = pointDistance(
+      result.path.wpnts[previous], result.path.wpnts[reverse]);
+    const double next_speed = std::max(0.0, result.path.wpnts[reverse].vx_mps);
+    const double braking_speed = std::sqrt(
+      next_speed * next_speed +
+      2.0 * parameters_.safe_stop_deceleration_mps2 * std::max(0.0, distance));
+    result.path.wpnts[previous].vx_mps = std::min(
+      std::max(0.0, result.path.wpnts[previous].vx_mps), braking_speed);
+  }
+  updateGeometryAndAcceleration(result.path);
+
+  std::string validation_reason;
+  if (!validateCandidate(ego, result.path, visible, validation_reason, 0U, 2U)) {
+    result.path.wpnts.clear();
+    result.reason = "committed braking prefix rejected: " + validation_reason;
+    return result;
+  }
+  result.kind = SplinePlanKind::kSafeStop;
+  result.obstacle_id = first_collision_id;
+  result.merge_s = result.path.wpnts.back().s_m;
+  result.reason = "braking on the remaining committed geometry before a collision";
+  return result;
+}
+
 RacelineSplinePlanner::Candidate RacelineSplinePlanner::buildCandidate(
   const EgoFrenetState & ego,
   const std::vector<ExpandedObstacle> & visible,
-  const std::vector<ExpandedObstacle> & cluster,
   bool go_left,
   double transition_scale,
-  bool outside_is_left) const
+  bool outside_is_left,
+  double cluster_start,
+  double cluster_end,
+  double target_d) const
 {
   Candidate candidate;
   candidate.go_left = go_left;
-  if (cluster.empty()) {
-    candidate.reason = "empty obstacle cluster";
-    return candidate;
-  }
-
-  double cluster_start = cluster.front().start;
-  double cluster_end = cluster.front().end;
-  double target_d = go_left ? cluster.front().d_left : cluster.front().d_right;
-  for (const auto & obstacle : cluster) {
-    cluster_start = std::min(cluster_start, obstacle.start);
-    cluster_end = std::max(cluster_end, obstacle.end);
-    target_d = go_left ? std::max(target_d, obstacle.d_left) :
-      std::min(target_d, obstacle.d_right);
-  }
-  if (go_left) {
-    target_d = std::max(
-      target_d + parameters_.commitment_clearance_reserve_m,
-      parameters_.minimum_target_offset_m);
-  } else {
-    target_d = std::min(
-      target_d - parameters_.commitment_clearance_reserve_m,
-      -parameters_.minimum_target_offset_m);
-  }
-  if (std::abs(target_d) > parameters_.maximum_target_offset_m) {
-    candidate.reason = "required d-offset exceeds maximum_target_offset_m";
-    return candidate;
-  }
 
   if (go_left == outside_is_left) {
     transition_scale *= parameters_.outside_line_transition_scale;
@@ -525,9 +713,9 @@ RacelineSplinePlanner::Candidate RacelineSplinePlanner::buildCandidate(
   const double post_middle = parameters_.post_apex_distances_m[1] * transition_scale;
   const double post_far = parameters_.post_apex_distances_m[2] * transition_scale;
 
-  append_knot(cluster_start - pre_far, 0.0);
-  append_knot(cluster_start - pre_middle, 0.0);
-  append_knot(cluster_start - pre_near, 0.0);
+  append_knot(cluster_start - pre_far, ego.d);
+  append_knot(cluster_start - pre_middle, ego.d);
+  append_knot(cluster_start - pre_near, ego.d);
   append_knot(cluster_start, target_d);
   if (cluster_end > cluster_start + 0.05) {
     append_knot(cluster_end, target_d);
@@ -536,11 +724,28 @@ RacelineSplinePlanner::Candidate RacelineSplinePlanner::buildCandidate(
   append_knot(cluster_end + post_middle, 0.0);
   append_knot(cluster_end + post_far, 0.0);
 
-  if (knot_s.front() > 0.05) {
-    knot_s.insert(knot_s.begin(), 0.0);
-    knot_d.insert(knot_d.begin(), ego.d);
-  } else if (knot_s.front() <= 0.05) {
-    knot_s.front() = std::min(knot_s.front(), 0.0);
+  if (std::abs(ego.d) <= kEpsilon) {
+    if (knot_s.front() > 0.05) {
+      knot_s.insert(knot_s.begin(), 0.0);
+      knot_d.insert(knot_d.begin(), ego.d);
+    } else {
+      knot_s.front() = std::min(knot_s.front(), 0.0);
+    }
+  } else {
+    std::vector<double> forward_knot_s;
+    std::vector<double> forward_knot_d;
+    forward_knot_s.reserve(knot_s.size() + 1U);
+    forward_knot_d.reserve(knot_d.size() + 1U);
+    forward_knot_s.push_back(0.0);
+    forward_knot_d.push_back(ego.d);
+    for (std::size_t i = 0; i < knot_s.size(); ++i) {
+      if (knot_s[i] > 1.0e-3) {
+        forward_knot_s.push_back(knot_s[i]);
+        forward_knot_d.push_back(knot_d[i]);
+      }
+    }
+    knot_s = std::move(forward_knot_s);
+    knot_d = std::move(forward_knot_d);
   }
 
   NaturalCubicSpline spline;
@@ -585,7 +790,7 @@ RacelineSplinePlanner::Candidate RacelineSplinePlanner::buildCandidate(
     return candidate;
   }
 
-  updateGeometryAndSpeed(candidate.path, wrapS(ego.s + spline_end));
+  updateGeometryAndAcceleration(candidate.path);
   if (!validateCandidate(ego, candidate.path, visible, candidate.reason)) {
     return candidate;
   }
@@ -599,9 +804,8 @@ RacelineSplinePlanner::Candidate RacelineSplinePlanner::buildCandidate(
   return candidate;
 }
 
-void RacelineSplinePlanner::updateGeometryAndSpeed(
-  f110_msgs::msg::WpntArray & path,
-  double active_until_s) const
+void RacelineSplinePlanner::updateGeometryAndAcceleration(
+  f110_msgs::msg::WpntArray & path) const
 {
   auto & waypoints = path.wpnts;
   if (waypoints.size() < 2U) {
@@ -634,36 +838,8 @@ void RacelineSplinePlanner::updateGeometryAndSpeed(
   waypoints.front().kappa_radpm = waypoints[1].kappa_radpm;
   waypoints.back().kappa_radpm = waypoints[waypoints.size() - 2U].kappa_radpm;
 
-  const double start_s = waypoints.front().s_m;
-  const double active_distance = forwardDistance(start_s, active_until_s);
-  for (auto & waypoint : waypoints) {
-    const double forward_s = forwardDistance(start_s, waypoint.s_m);
-    double speed = std::max(0.0, waypoint.vx_mps);
-    if (forward_s <= active_distance || std::abs(waypoint.d_m) > 0.01) {
-      speed *= parameters_.avoidance_speed_scale;
-    }
-    const double curvature = std::abs(waypoint.kappa_radpm);
-    if (curvature > kEpsilon) {
-      speed = std::min(
-        speed, std::sqrt(parameters_.maximum_lateral_accel_mps2 / curvature));
-    }
-    waypoint.vx_mps = speed;
-  }
-
-  for (std::size_t reverse = waypoints.size() - 1U; reverse > 0U; --reverse) {
-    const std::size_t i = reverse - 1U;
-    const double distance = pointDistance(waypoints[i], waypoints[i + 1U]);
-    const double allowed = std::sqrt(
-      waypoints[i + 1U].vx_mps * waypoints[i + 1U].vx_mps +
-      2.0 * parameters_.maximum_longitudinal_decel_mps2 * distance);
-    waypoints[i].vx_mps = std::min(waypoints[i].vx_mps, allowed);
-  }
   for (std::size_t i = 1; i < waypoints.size(); ++i) {
     const double distance = pointDistance(waypoints[i - 1U], waypoints[i]);
-    const double allowed = std::sqrt(
-      waypoints[i - 1U].vx_mps * waypoints[i - 1U].vx_mps +
-      2.0 * parameters_.maximum_longitudinal_accel_mps2 * distance);
-    waypoints[i].vx_mps = std::min(waypoints[i].vx_mps, allowed);
     if (distance > kEpsilon) {
       waypoints[i - 1U].ax_mps2 =
         (waypoints[i].vx_mps * waypoints[i].vx_mps -
@@ -679,18 +855,56 @@ bool RacelineSplinePlanner::validateCandidate(
   const std::vector<ExpandedObstacle> & visible,
   std::string & reason,
   std::size_t start_index,
-  std::size_t minimum_points) const
+  std::size_t minimum_points,
+  PathValidationFailure * failure,
+  const std::optional<double> & maximum_collision_forward_m) const
 {
+  if (failure != nullptr) {
+    *failure = PathValidationFailure();
+  }
+  const auto reject = [&reason, failure](
+    PathValidationFailureKind kind,
+    const std::string & message,
+    std::size_t waypoint_index = std::numeric_limits<std::size_t>::max(),
+    const f110_msgs::msg::Wpnt * waypoint = nullptr,
+    const ExpandedObstacle * obstacle = nullptr,
+    double obstacle_s_start = std::numeric_limits<double>::quiet_NaN(),
+    double obstacle_s_end = std::numeric_limits<double>::quiet_NaN())
+    {
+      reason = message;
+      if (failure != nullptr) {
+        failure->kind = kind;
+        failure->reason = message;
+        failure->waypoint_index = waypoint_index;
+        if (waypoint != nullptr) {
+          failure->waypoint_s = waypoint->s_m;
+          failure->waypoint_d = waypoint->d_m;
+        }
+        if (obstacle != nullptr) {
+          failure->obstacle_id = obstacle->id;
+          failure->obstacle_s_start = obstacle_s_start;
+          failure->obstacle_s_end = obstacle_s_end;
+          failure->obstacle_source_d_right = obstacle->raw_d_right;
+          failure->obstacle_source_d_left = obstacle->raw_d_left;
+          failure->obstacle_test_d_right = obstacle->d_right;
+          failure->obstacle_test_d_left = obstacle->d_left;
+          failure->obstacle_clearance = obstacle->clearance;
+        }
+      }
+      return false;
+    };
   if (start_index >= path.wpnts.size()) {
-    reason = "path has no waypoint ahead of ego";
-    return false;
+    return reject(
+      PathValidationFailureKind::kNoForwardPath,
+      "path has no waypoint ahead of ego");
   }
   if (minimum_points == 0U) {
     minimum_points = static_cast<std::size_t>(parameters_.minimum_path_points);
   }
   if (path.wpnts.size() - start_index < minimum_points) {
-    reason = "path does not meet minimum_path_points";
-    return false;
+    return reject(
+      PathValidationFailureKind::kNoForwardPath,
+      "path does not meet minimum_path_points");
   }
   const double center_boundary_clearance =
     parameters_.vehicle_half_width_m + parameters_.boundary_margin_m;
@@ -709,39 +923,48 @@ bool RacelineSplinePlanner::validateCandidate(
     if (waypoint.d_m > left_width - center_boundary_clearance + 1.0e-6 ||
       waypoint.d_m < -right_width + center_boundary_clearance - 1.0e-6)
     {
-      reason = "d-offset leaves the global waypoint track bounds";
-      return false;
+      return reject(
+        PathValidationFailureKind::kTrackBoundary,
+        "d-offset leaves the global waypoint track bounds", i, &waypoint);
     }
     for (const auto & obstacle : visible) {
-      if (forward_s >= obstacle.start && forward_s <= obstacle.end &&
+      if ((!maximum_collision_forward_m.has_value() ||
+        forward_s <= maximum_collision_forward_m.value() + kEpsilon) &&
+        forward_s >= obstacle.start && forward_s <= obstacle.end &&
         waypoint.d_m > obstacle.d_right + 1.0e-6 &&
         waypoint.d_m < obstacle.d_left - 1.0e-6)
       {
-        reason = "d-offset intersects an inflated static-obstacle box";
-        return false;
+        return reject(
+          PathValidationFailureKind::kObstacleCollision,
+          "d-offset intersects an inflated static-obstacle box", i, &waypoint, &obstacle,
+          wrapS(ego.s + obstacle.start), wrapS(ego.s + obstacle.end));
       }
     }
     if (i > start_index) {
       const double ds = forward_s - previous_s;
       if (!(ds > kEpsilon)) {
-        reason = "candidate no longer follows increasing global race-line order";
-        return false;
+        return reject(
+          PathValidationFailureKind::kGeometry,
+          "candidate no longer follows increasing global race-line order", i, &waypoint);
       }
       const double slope = std::abs(waypoint.d_m - previous_d) / ds;
       if (slope > parameters_.maximum_lateral_slope) {
-        reason = "cubic d-offset exceeds maximum_lateral_slope";
-        return false;
+        return reject(
+          PathValidationFailureKind::kGeometry,
+          "cubic d-offset exceeds maximum_lateral_slope", i, &waypoint);
       }
       const double curvature_rate =
         std::abs(waypoint.kappa_radpm - previous_curvature) / ds;
       if (curvature_rate > parameters_.maximum_curvature_rate_radpm2) {
-        reason = "shifted race line exceeds maximum_curvature_rate_radpm2";
-        return false;
+        return reject(
+          PathValidationFailureKind::kGeometry,
+          "shifted race line exceeds maximum_curvature_rate_radpm2", i, &waypoint);
       }
     }
     if (std::abs(waypoint.kappa_radpm) > parameters_.maximum_curvature_radpm) {
-      reason = "shifted race line exceeds maximum_curvature_radpm";
-      return false;
+      return reject(
+        PathValidationFailureKind::kGeometry,
+        "shifted race line exceeds maximum_curvature_radpm", i, &waypoint);
     }
     previous_d = waypoint.d_m;
     previous_s = forward_s;
@@ -754,22 +977,52 @@ bool RacelineSplinePlanner::validatePath(
   const EgoFrenetState & ego,
   const f110_msgs::msg::WpntArray & path,
   const std::vector<f110_msgs::msg::Obstacle> & obstacles,
-  std::string * error) const
+  std::string * error,
+  PathValidationFailure * failure,
+  const std::optional<double> & obstacle_clearance,
+  const std::optional<double> & maximum_collision_forward_m) const
 {
-  auto reject = [error](const std::string & reason) {
+  if (failure != nullptr) {
+    *failure = PathValidationFailure();
+  }
+  auto reject = [error, failure](
+    PathValidationFailureKind kind,
+    const std::string & reason)
+    {
       if (error != nullptr) {
         *error = reason;
+      }
+      if (failure != nullptr) {
+        failure->kind = kind;
+        failure->reason = reason;
       }
       return false;
     };
   if (!ready()) {
-    return reject("global race-line reference is not ready");
+    return reject(
+      PathValidationFailureKind::kInput,
+      "global race-line reference is not ready");
   }
   if (!std::isfinite(ego.s) || !std::isfinite(ego.d) || !std::isfinite(ego.speed)) {
-    return reject("ego Frenet state is non-finite");
+    return reject(PathValidationFailureKind::kInput, "ego Frenet state is non-finite");
   }
   if (path.wpnts.empty()) {
-    return reject("path is empty");
+    return reject(PathValidationFailureKind::kInput, "path is empty");
+  }
+  if (obstacle_clearance.has_value() &&
+    (!std::isfinite(obstacle_clearance.value()) || obstacle_clearance.value() < 0.0))
+  {
+    return reject(
+      PathValidationFailureKind::kInput,
+      "obstacle clearance override is invalid");
+  }
+  if (maximum_collision_forward_m.has_value() &&
+    (!std::isfinite(maximum_collision_forward_m.value()) ||
+    maximum_collision_forward_m.value() < 0.0))
+  {
+    return reject(
+      PathValidationFailureKind::kInput,
+      "maximum collision-forward distance is invalid");
   }
 
   std::size_t start_index = 0U;
@@ -782,13 +1035,21 @@ bool RacelineSplinePlanner::validatePath(
     }
   }
   if (nearest_forward > 0.5 * track_length_) {
-    return reject("committed path has no remaining waypoint ahead of ego");
+    return reject(
+      PathValidationFailureKind::kNoForwardPath,
+      "committed path has no remaining waypoint ahead of ego");
   }
 
-  const auto visible = expandVisibleObstacles(ego, obstacles);
+  const auto visible = expandVisibleObstacles(ego, obstacles, obstacle_clearance);
   std::string reason;
-  if (!validateCandidate(ego, path, visible, reason, start_index, 1U)) {
-    return reject(reason);
+  if (!validateCandidate(
+      ego, path, visible, reason, start_index, 1U, failure,
+      maximum_collision_forward_m))
+  {
+    if (error != nullptr) {
+      *error = reason;
+    }
+    return false;
   }
   return true;
 }
@@ -810,9 +1071,12 @@ RacelineSplineResult RacelineSplinePlanner::buildSafeStop(
     if (forward_s > stop_at + kEpsilon) {
       break;
     }
-    auto waypoint = reference_.wpnts[index];
+    const auto & global = reference_.wpnts[index];
+    auto waypoint = global;
     waypoint.id = static_cast<int32_t>(result.path.wpnts.size());
-    waypoint.d_m = 0.0;
+    waypoint.d_m = ego.d;
+    waypoint.x_m = global.x_m - ego.d * std::sin(global.psi_rad);
+    waypoint.y_m = global.y_m + ego.d * std::cos(global.psi_rad);
     waypoint.vx_mps = std::min(
       std::max(0.0, waypoint.vx_mps),
       std::sqrt(
@@ -826,16 +1090,7 @@ RacelineSplineResult RacelineSplinePlanner::buildSafeStop(
     return result;
   }
   result.path.wpnts.back().vx_mps = 0.0;
-  result.path.wpnts.back().ax_mps2 = 0.0;
-  for (std::size_t i = 0; i + 1U < result.path.wpnts.size(); ++i) {
-    const double distance = pointDistance(result.path.wpnts[i], result.path.wpnts[i + 1U]);
-    if (distance > kEpsilon) {
-      const double speed = result.path.wpnts[i].vx_mps;
-      const double next_speed = result.path.wpnts[i + 1U].vx_mps;
-      result.path.wpnts[i].ax_mps2 =
-        (next_speed * next_speed - speed * speed) / (2.0 * distance);
-    }
-  }
+  updateGeometryAndAcceleration(result.path);
 
   std::string validation_reason;
   if (!validateCandidate(ego, result.path, visible, validation_reason, 0U, 2U)) {
@@ -916,10 +1171,25 @@ RacelineSplineResult RacelineSplinePlanner::plan(
   auto evaluate_side = [&](bool go_left) {
       Candidate last;
       last.go_left = go_left;
+      double cluster_start = 0.0;
+      double cluster_end = 0.0;
+      double target_d = 0.0;
+      if (!computeSideTarget(
+          cluster, go_left, cluster_start, cluster_end, target_d, last.reason))
+      {
+        return last;
+      }
+      if (!targetFitsTrackBounds(
+          ego, cluster_start, cluster_end, go_left, target_d, last.reason))
+      {
+        return last;
+      }
       // transition_distance_scales is validated as strictly increasing. The first valid
       // candidate therefore has the minimum score and later, longer splines are redundant.
       for (const double scale : parameters_.transition_distance_scales) {
-        last = buildCandidate(ego, visible, cluster, go_left, scale, outside_is_left);
+        last = buildCandidate(
+          ego, visible, go_left, scale, outside_is_left,
+          cluster_start, cluster_end, target_d);
         if (last.valid) {
           break;
         }

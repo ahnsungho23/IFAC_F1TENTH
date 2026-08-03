@@ -38,6 +38,12 @@ struct Detection
 {
     double s{0.0};
     double d{0.0};
+    // Current Cartesian AABB projected into the local Frenet frame. The longitudinal extent is
+    // symmetric around `s`; lateral offsets may be asymmetric after the exact curved-raceline
+    // closest-face correction.
+    double s_half_extent{0.0};
+    double d_right_offset{0.0};
+    double d_left_offset{0.0};
     double size{0.0};
     double x_min{0.0};
     double x_max{0.0};
@@ -120,6 +126,12 @@ struct Track
     double relative_speed{0.0};
     double velocity_mahalanobis_sq{0.0};
     bool dynamic_motion_reliable{false};
+    // Most recent measured Frenet footprint, retained relative to the Kalman centre so a
+    // predicted-only output can move its last valid shape without claiming a current Cartesian
+    // scan footprint.
+    double s_half_extent{0.0};
+    double d_right_offset{0.0};
+    double d_left_offset{0.0};
     double size{0.0};
     // Last measured map-frame Cartesian AABB. It is retained for the next matched update, but
     // consumers must use it only while is_visible=true; prediction updates Frenet state, not this

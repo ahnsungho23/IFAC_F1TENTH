@@ -16,15 +16,14 @@ find_package(nav_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(f110_msgs REQUIRED)
-find_package(global_planning REQUIRED)
 
 include_directories(
   include
 )
 
 add_library(local_planner_core STATIC
-  src/aabb_frenet_projector.cpp
   src/local_planner_node.cpp
+  src/obstacle_guard.cpp
   src/raceline_spline_planner.cpp
 )
 ament_target_dependencies(local_planner_core
@@ -34,7 +33,6 @@ ament_target_dependencies(local_planner_core
   geometry_msgs
   visualization_msgs
   f110_msgs
-  global_planning
 )
 
 add_executable(local_planner_node src/local_planner_main.cpp)
@@ -74,12 +72,12 @@ if(BUILD_TESTING)
     target_link_libraries(test_raceline_spline local_planner_core)
   endif()
 
-  ament_add_gtest(test_aabb_frenet_projector test/test_aabb_frenet_projector.cpp)
-  if(TARGET test_aabb_frenet_projector)
-    ament_target_dependencies(test_aabb_frenet_projector
-      global_planning
+  ament_add_gtest(test_obstacle_guard test/test_obstacle_guard.cpp)
+  if(TARGET test_obstacle_guard)
+    ament_target_dependencies(test_obstacle_guard
+      f110_msgs
     )
-    target_link_libraries(test_aabb_frenet_projector local_planner_core)
+    target_link_libraries(test_obstacle_guard local_planner_core)
   endif()
 endif()
 
