@@ -7,7 +7,9 @@ local_planner_node:
 
     # 장애물 상자를 이 값만큼 횡방향으로 팽창한 뒤 차량 중심 경로를 만듭니다.
     # vehicle_half_width_m와 중복 합산하지 않도록 차량 반폭+추가 여유를 합친 값으로 설정합니다.
-    obstacle_clearance_m: 0.35
+    # 0.35 -> 0.25: 좁은 복도에서 커밋 슬랙이 5cm뿐이라 envelope 미세 변화에 경로가 깨지던
+    # 문제를 완화합니다(차체 반폭 0.121 외에도 +0.13 여유 유지).
+    obstacle_clearance_m: 0.25
     blocking_margin_m: 0.10
     vehicle_half_width_m: 0.121
     boundary_margin_m: 0.13
@@ -82,7 +84,8 @@ local_planner_node:
     uncertainty_min_lateral_margin_m: 0.03
     # 초기 검출의 큰 중심 분산이 Guard를 과도하게 키워 정중앙 장애물의 양쪽 목표 d를
     # 모두 불가능하게 만드는 것을 막는 횡방향 마진 상한입니다.
-    uncertainty_max_lateral_margin_m: 0.20
+    # 0.20 -> 0.15: 마진 중첩 슬랙 확보(커밋 유지력 개선).
+    uncertainty_max_lateral_margin_m: 0.15
     # uncertainty/extent 여유만 침범한 soft 충돌은 3 planning cycle 연속일 때 재계획합니다.
     # detector raw 경계에 차량 반폭+hard margin을 적용한 영역은 즉시 재계획/safe-stop합니다.
     commitment_soft_violation_confirm_cycles: 3

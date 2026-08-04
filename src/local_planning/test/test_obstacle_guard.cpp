@@ -52,6 +52,7 @@ TEST(ObstacleGuard, AddsFixedMarginAndKalmanStandardDeviation)
   parameters.uncertainty_sigma_scale = 3.0;
   parameters.minimum_longitudinal_margin_m = 0.05;
   parameters.minimum_lateral_margin_m = 0.03;
+  parameters.maximum_lateral_margin_m = 1.0;  // test the uncapped margin formula
   const auto guard = buildUncertaintyGuard(obstacle, 100.0, parameters);
 
   EXPECT_NEAR(guard.s_start, 9.45, 1.0e-9);
@@ -116,6 +117,7 @@ TEST(ObstacleGuard, CapsLateralMarginAtConfiguredMaximum)
   obstacle.d_var = 4.0;
 
   ObstacleGuardParameters parameters;
+  parameters.maximum_lateral_margin_m = 0.20;
   const auto guard = buildUncertaintyGuard(obstacle, 100.0, parameters);
 
   // 3 * sqrt(4.0) = 6 m of lateral inflation is capped at maximum_lateral_margin_m (0.20);

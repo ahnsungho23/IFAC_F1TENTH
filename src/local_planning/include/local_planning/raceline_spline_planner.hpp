@@ -32,7 +32,7 @@ struct RacelineSplineParameters
   double detection_lookahead_m{12.0};
   double obstacle_cluster_gap_m{0.8};
   double obstacle_longitudinal_padding_m{0.35};
-  double obstacle_clearance_m{0.35};
+  double obstacle_clearance_m{0.25};
   double blocking_margin_m{0.10};
   double vehicle_half_width_m{0.121};
   double boundary_margin_m{0.13};

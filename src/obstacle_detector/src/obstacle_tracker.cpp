@@ -484,6 +484,25 @@ void ObstacleTracker::update(
         if (trk_assigned[ti] >= 0)
         {
             const Detection &det = detections[trk_assigned[ti]];
+            // Envelope-stability streak: compare this measurement with the predicted centre and
+            // the retained (smoothed) extents BEFORE updating them. Morphing scatter keeps
+            // resetting the streak; stable physical obstacles reach the publish gate
+            // within min_hits_confirm frames.
+            const double center_shift = std::sqrt(
+                frenetDistSquared(t.s(), t.d(), det.s, det.d));
+            const double envelope_shift = std::max(
+                {std::abs(det.s_half_extent - t.s_half_extent),
+                 std::abs(det.d_right_offset - t.d_right_offset),
+                 std::abs(det.d_left_offset - t.d_left_offset)});
+            if (center_shift <= p_.envelope_stability_tolerance_m &&
+                envelope_shift <= p_.envelope_stability_tolerance_m)
+            {
+                ++t.envelope_stable_streak;
+            }
+            else
+            {
+                t.envelope_stable_streak = 0;
+            }
             kalmanUpdate(t, det);
             t.hits++;
             t.is_visible = true;

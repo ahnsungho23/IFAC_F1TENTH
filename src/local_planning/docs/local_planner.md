@@ -55,7 +55,7 @@
 2. 최초 commitment용 Frenet 경계 합집합에는 `uncertainty_sigma_scale * sqrt(s_var/d_var)`와
    `uncertainty_min_*_margin_m`을 더해 측정 불확실성 Guard를 만듭니다.
 3. 이 Guard를 다시 종방향 `obstacle_longitudinal_padding_m`, 횡방향
-   `obstacle_clearance_m`만큼 팽창합니다. 현재 횡방향 clearance 기본값은 0.35 m이며,
+   `obstacle_clearance_m`만큼 팽창합니다. 현재 횡방향 clearance 기본값은 0.25 m이며,
    spline 목표에는 `commitment_clearance_reserve_m=0.05 m`의 추가 기하 여유를 둡니다.
 4. 원본 장애물의 가장 가까운 면에서 구한 곡선 기준 `|d|`가 글로벌 `d=0`의 차량 envelope
    (`vehicle_half_width_m + blocking_margin_m`) 안에 들어올 때만 blocking 장애물로 봅니다.

@@ -56,6 +56,10 @@ Keep the scan-driven pipeline ordered as follows:
     confirming hit, publish the same track/ID immediately as `ProvisionalStatic`. Promote it to
     `ConfirmedStatic` after consecutive low-relative-speed observations, or to `Dynamic` only
     after consecutive velocity-confident motion observations with fresh, bounded ego yaw rate.
+    Additionally, a static track enters the published layer only while its envelope-stability
+    streak reaches `envelope_stability_frames`: consecutive matched frames whose measured centre
+    and extents stay within `envelope_stability_tolerance_m`. Fan-shaped morphing clusters never
+    settle and stay unpublished; stable real obstacles pass at the same hit as before.
 12. Merge confirmed tracks only within the same static/dynamic layer.
 13. Preserve each measured cluster's independent Frenet footprint and map-frame Cartesian AABB
     through Detection and Track. Smooth the Frenet extents per matched measurement with

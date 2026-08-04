@@ -109,6 +109,12 @@ struct TrackerParams
     // fast-grow/slow-shrink: expand immediately, relax over ~1/alpha matched frames.
     // 1.0 restores the legacy overwrite behaviour.
     double extent_shrink_alpha{0.25};
+    // Static-layer publish stability: count consecutive matched frames whose measured centre
+    // and envelope stay within the tolerance of the track. Fan-shaped morphing clusters never
+    // settle, so requiring a short streak keeps them unpublished while real obstacles (stable
+    // from the first scan) see no added delay beyond min_hits_confirm.
+    double envelope_stability_tolerance_m{0.10};
+    int envelope_stability_frames{2};
 };
 
 struct Track
@@ -127,6 +133,7 @@ struct Track
     MotionClass motion_class{MotionClass::Pending};
     int dyn_streak{0};
     int static_streak{0};
+    int envelope_stable_streak{0};  // consecutive matched frames with a settled centre+envelope
     double relative_speed{0.0};
     double velocity_mahalanobis_sq{0.0};
     bool dynamic_motion_reliable{false};

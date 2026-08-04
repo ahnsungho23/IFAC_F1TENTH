@@ -211,7 +211,7 @@ void LocalPlannerNode::initializeParameters()
   planner_parameters_.obstacle_longitudinal_padding_m =
     declare_parameter<double>("obstacle_longitudinal_padding_m", 0.35);
   planner_parameters_.obstacle_clearance_m =
-    declare_parameter<double>("obstacle_clearance_m", 0.35);
+    declare_parameter<double>("obstacle_clearance_m", 0.25);
   planner_parameters_.blocking_margin_m =
     declare_parameter<double>("blocking_margin_m", 0.10);
   planner_parameters_.vehicle_half_width_m =
@@ -287,7 +287,7 @@ void LocalPlannerNode::initializeParameters()
   guard_parameters_.minimum_lateral_margin_m =
     declare_parameter<double>("uncertainty_min_lateral_margin_m", 0.03);
   guard_parameters_.maximum_lateral_margin_m =
-    declare_parameter<double>("uncertainty_max_lateral_margin_m", 0.20);
+    declare_parameter<double>("uncertainty_max_lateral_margin_m", 0.15);
   commitment_lock_lateral_threshold_m_ =
     declare_parameter<double>("commitment_lock_lateral_threshold_m", 0.10);
   commitment_lock_longitudinal_m_ =

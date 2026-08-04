@@ -172,6 +172,8 @@ void ObstacleDetectorNode::declareParameters()
     this->declare_parameter<double>("max_std", 0.20);
     this->declare_parameter<double>("dt_max", 0.5);
     this->declare_parameter<double>("extent_shrink_alpha", 0.25);
+    this->declare_parameter<double>("envelope_stability_tolerance_m", 0.10);
+    this->declare_parameter<int>("envelope_stability_frames", 2);
 }
 
 void ObstacleDetectorNode::loadParameters()
@@ -264,6 +266,11 @@ void ObstacleDetectorNode::loadParameters()
     tracker_params_.dt_max = this->get_parameter("dt_max").as_double();
     tracker_params_.extent_shrink_alpha =
         std::clamp(this->get_parameter("extent_shrink_alpha").as_double(), 0.0, 1.0);
+    tracker_params_.envelope_stability_tolerance_m =
+        std::max(0.0, this->get_parameter("envelope_stability_tolerance_m").as_double());
+    tracker_params_.envelope_stability_frames =
+        std::max(0, static_cast<int>(
+            this->get_parameter("envelope_stability_frames").as_int()));
 
     const std::string cm = this->get_parameter("classifier_mode").as_string();
     if (cm == "std")
@@ -1152,10 +1159,11 @@ void ObstacleDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
         {
             dynamic_members.push_back(&t);
         }
-        else
+        else if (t.envelope_stable_streak >= tracker_params_.envelope_stability_frames)
         {
             // Provisional and confirmed static share the same track and ID. Promotion therefore
-            // never creates a one-scan gap in /static_obs.
+            // never creates a one-scan gap in /static_obs. Fan-shaped morphing clusters never
+            // reach the stability streak, so they stay out of the published layer entirely.
             static_members.push_back(&t);
         }
     }

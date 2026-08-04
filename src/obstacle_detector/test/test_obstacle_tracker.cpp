@@ -143,6 +143,36 @@ TEST(ObstacleTrackerGeometry, LegacyOverwriteWhenShrinkAlphaIsOne)
     EXPECT_DOUBLE_EQ(tracker.tracks().front().d_left_offset, 0.1);
 }
 
+TEST(ObstacleTrackerGeometry, EnvelopeStabilityStreakTracksSettledMeasurements)
+{
+    auto params = testParams();
+    params.envelope_stability_tolerance_m = 0.10;
+    ObstacleTracker tracker;
+    tracker.configure(params, nullptr);
+
+    // Stable measurements: the streak grows once per matched frame.
+    tracker.update({makeDetection(10.0)}, 0.0);
+    EXPECT_EQ(tracker.tracks().front().envelope_stable_streak, 0);
+    tracker.update({makeDetection(10.02)}, 0.1);
+    EXPECT_EQ(tracker.tracks().front().envelope_stable_streak, 1);
+    tracker.update({makeDetection(10.01)}, 0.2);
+    EXPECT_EQ(tracker.tracks().front().envelope_stable_streak, 2);
+
+    // A morphing envelope (fan-shaped scatter) resets the streak.
+    auto morph = makeDetection(10.0);
+    morph.d_left_offset = 0.45;
+    morph.d_right_offset = -0.55;
+    tracker.update({morph}, 0.3);
+    EXPECT_EQ(tracker.tracks().front().envelope_stable_streak, 0);
+
+    // The envelope fast-grew to the morph size; repeating it is stable again.
+    tracker.update({morph}, 0.4);
+    EXPECT_EQ(tracker.tracks().front().envelope_stable_streak, 1);
+    // A jumping centre resets the streak.
+    tracker.update({makeDetection(10.6)}, 0.5);
+    EXPECT_EQ(tracker.tracks().front().envelope_stable_streak, 0);
+}
+
 TEST(ObstacleTrackerClassification, RequiresConsecutiveReliableMotionBeforeDynamicPromotion)
 {
     ObstacleTracker tracker;
