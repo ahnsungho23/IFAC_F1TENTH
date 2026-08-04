@@ -1,24 +1,26 @@
 #include <ackermann_msgs/msg/ackermann_drive_stamped.hpp>
 #include <ament_index_cpp/get_package_share_directory.hpp>
+#include <f110_msgs/msg/state_machine.hpp>
 #include <f110_msgs/msg/wpnt.hpp>
 #include <f110_msgs/msg/wpnt_array.hpp>
 #include <geometry_msgs/msg/point.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/imu.hpp>
-#include <std_msgs/msg/string.hpp>
 #include <visualization_msgs/msg/marker.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <cstdlib>
 #include <deque>
 #include <fstream>
-#include <chrono>
 #include <iostream>
 #include <limits>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -30,6 +32,21 @@ namespace
 {
 
 constexpr double kPi = 3.14159265358979323846;
+
+// Matches state_machine's f110_msgs/StateMachine state names ("global"/"avoid"/"overtake").
+std::optional<uint8_t> parseStateName(const std::string & name)
+{
+  if (name == "global") {
+    return f110_msgs::msg::StateMachine::STATE_GLOBAL;
+  }
+  if (name == "avoid") {
+    return f110_msgs::msg::StateMachine::STATE_AVOID;
+  }
+  if (name == "overtake") {
+    return f110_msgs::msg::StateMachine::STATE_OVERTAKE;
+  }
+  return std::nullopt;
+}
 
 std::string trim(const std::string & input)
 {
@@ -153,8 +170,9 @@ public:
       pose_topic_, 10, [this](const nav_msgs::msg::Odometry::SharedPtr msg) {onPose(msg);});
     speed_sub_ = create_subscription<nav_msgs::msg::Odometry>(
       speed_topic_, 10, [this](const nav_msgs::msg::Odometry::SharedPtr msg) {onSpeed(msg);});
-    state_sub_ = create_subscription<std_msgs::msg::String>(
-      state_topic_, 10, [this](const std_msgs::msg::String::SharedPtr msg) {state_ = msg->data;});
+    state_sub_ = create_subscription<f110_msgs::msg::StateMachine>(
+      state_topic_, rclcpp::QoS(1).reliable().transient_local(),
+      [this](const f110_msgs::msg::StateMachine::SharedPtr msg) {state_ = msg->state;});
     if (!imu_topic_.empty()) {
       imu_sub_ = create_subscription<sensor_msgs::msg::Imu>(
         imu_topic_, 10, [this](const sensor_msgs::msg::Imu::SharedPtr msg) {onImu(msg);});
@@ -195,7 +213,7 @@ private:
     declare_parameter<std::string>("package_resource_root", "");
     declare_parameter<std::string>("frame_id", "map");
     declare_parameter<std::string>("base_frame_id", "base_link");
-    declare_parameter<std::string>("active_state", "GB_TRACK");
+    declare_parameter<std::string>("active_state", "global");
     declare_parameter<std::string>("global_waypoints_topic", "/global_waypoints");
     declare_parameter<std::string>("local_waypoints_topic", "/local_waypoints");
     declare_parameter<std::string>("drive_topic", "");
@@ -259,8 +277,20 @@ private:
     package_resource_root_ = get_parameter("package_resource_root").as_string();
     frame_id_ = get_parameter("frame_id").as_string();
     base_frame_id_ = get_parameter("base_frame_id").as_string();
-    active_state_ = get_parameter("active_state").as_string();
-    state_ = active_state_;
+    const auto active_state_name = get_parameter("active_state").as_string();
+    if (active_state_name.empty()) {
+      has_active_state_ = false;
+    } else if (const auto parsed = parseStateName(active_state_name)) {
+      active_state_ = *parsed;
+      has_active_state_ = true;
+      state_ = *parsed;
+    } else {
+      has_active_state_ = false;
+      RCLCPP_WARN(
+        get_logger(),
+        "Unknown active_state '%s' (expected global/avoid/overtake); state gating disabled.",
+        active_state_name.c_str());
+    }
     global_waypoints_topic_ = get_parameter("global_waypoints_topic").as_string();
     local_waypoints_topic_ = get_parameter("local_waypoints_topic").as_string();
     state_topic_ = get_parameter("state_topic").as_string();
@@ -643,7 +673,7 @@ private:
 
   void controlLoop()
   {
-    if (stop_on_state_mismatch_ && !active_state_.empty() && state_ != active_state_) {
+    if (stop_on_state_mismatch_ && has_active_state_ && state_ != active_state_) {
       publishStop();
       return;
     }
@@ -788,8 +818,9 @@ private:
   std::string package_resource_root_;
   std::string frame_id_;
   std::string base_frame_id_;
-  std::string active_state_;
-  std::string state_;
+  uint8_t active_state_{0};
+  uint8_t state_{0};
+  bool has_active_state_{false};
   std::string global_waypoints_topic_;
   std::string local_waypoints_topic_;
   std::string drive_topic_;
@@ -861,7 +892,7 @@ private:
   rclcpp::Subscription<f110_msgs::msg::WpntArray>::SharedPtr local_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr pose_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr speed_sub_;
-  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr state_sub_;
+  rclcpp::Subscription<f110_msgs::msg::StateMachine>::SharedPtr state_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
   rclcpp::TimerBase::SharedPtr control_timer_;
   rclcpp::TimerBase::SharedPtr global_timer_;

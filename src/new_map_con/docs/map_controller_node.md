@@ -19,7 +19,7 @@
 - `/local_waypoints`: `f110_msgs/WpntArray`
 - pose topic: `nav_msgs/Odometry`
 - speed topic: `nav_msgs/Odometry`
-- `/state`: `std_msgs/String`
+- `/state`: `f110_msgs/StateMachine` (state_machine 패키지와 동일, QoS는 transient_local)
 - imu topic: `sensor_msgs/Imu`
 
 토픽 이름은 모두 `config/config.yaml`에서 바꿀 수 있다. `pose_topic`, `speed_topic`, `drive_topic`, `imu_topic`을 비워두면 `simulator` 값에 따라 simulator topic profile 또는 vehicle topic profile을 자동으로 사용한다.

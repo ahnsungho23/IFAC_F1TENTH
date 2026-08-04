@@ -5,7 +5,8 @@ map_controller:
     package_resource_root: ''
     frame_id: map
     base_frame_id: base_link
-    active_state: GB_TRACK
+    # state_machine(/state, f110_msgs/StateMachine) 기준 상태 이름: global/avoid/overtake (빈 문자열이면 게이팅 해제)
+    active_state: global
 
     global_waypoints_topic: /global_waypoints
     local_waypoints_topic: /local_waypoints

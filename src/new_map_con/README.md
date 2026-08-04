@@ -49,7 +49,7 @@ waypoint 추종 컨트롤러 패키지. `map_controller`(C++) 노드가 global/l
 | 구독 | `/local_waypoints` | `f110_msgs/WpntArray` | 지역 경로(있으면 우선) |
 | 구독 | `/ego_racecar/odom` / `/pf/pose/odom` | `nav_msgs/Odometry` | pose |
 | 구독 | `/ego_racecar/odom` / `/odom` | `nav_msgs/Odometry` | speed |
-| 구독 | `/state` | `std_msgs/String` | 상태머신(선택) |
+| 구독 | `/state` | `f110_msgs/StateMachine` | 상태머신(선택) |
 | 구독 | (off) / `/sensors/imu/raw` | `sensor_msgs/Imu` | 가속도(조향 스케일, 선택) |
 | 발행 | `/drive` | `ackermann_msgs/AckermannDriveStamped` | 주행 명령 |
 | 발행 | `/global_waypoints` | `f110_msgs/WpntArray` | global 경로(latched) |
