@@ -42,7 +42,9 @@ Keep the scan-driven pipeline ordered as follows:
    `aabb_frenet_projector`. Use the projected AABB centre as the detection `(s,d)`, preserve
    independent longitudinal and lateral extents, and use the closest race-line/AABB-face
    distance for the race-line-facing lateral bound.
-7. Apply the viewing-window and track-boundary gates.
+7. Apply the viewing-window and track-boundary gates. Test the projected envelope's lateral
+   EDGES against the corridor, not just its centre: wall-hugging fan scatter keeps the centre
+   inside while its AABB edge already pokes into the wall.
 8. Remove clusters that belong to known occupied map structure.
 9. Scale each detection's Kalman measurement covariance by its range, point sparsity, and fresh
    ego-odometry yaw rate. Bound the scale and ignore stale/non-finite motion data.
@@ -56,11 +58,16 @@ Keep the scan-driven pipeline ordered as follows:
     after consecutive velocity-confident motion observations with fresh, bounded ego yaw rate.
 12. Merge confirmed tracks only within the same static/dynamic layer.
 13. Preserve each measured cluster's independent Frenet footprint and map-frame Cartesian AABB
-    through Detection and Track. For each same-layer component, union only currently visible
+    through Detection and Track. Smooth the Frenet extents per matched measurement with
+    fast-grow/slow-shrink magnitude filtering (`extent_shrink_alpha`) so per-scan AABB flapping
+    (square box vs real shape) does not flick the published envelope; expand immediately, relax
+    gradually. For each same-layer component, union only currently visible
     member AABBs, reproject that complete union once, and publish matching Cartesian and Frenet
     bounds. A predicted-only component keeps its last measured Frenet footprint around the
     predicted Kalman centre but must set `has_cartesian=false`; never expose a stale raw scan
-    footprint as current geometry.
+    footprint as current geometry. Drop a predicted-only component whose merged envelope exceeds
+    `max_obs_size`: fan-scatter ghost blobs can grow until they span the corridor and
+    false-block planners.
 14. Publish all merged statics on `/static_obs` and at most one nearest-ahead dynamic object on
     `/opp_obs`.
 15. Build the two RViz MarkerArrays from those final published arrays' Frenet bounds. Include

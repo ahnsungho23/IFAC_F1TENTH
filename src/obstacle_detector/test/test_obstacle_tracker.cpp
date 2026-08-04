@@ -100,6 +100,49 @@ TEST(ObstacleTrackerGeometry, RetainsIndependentFrenetExtentsDuringPrediction)
     EXPECT_FALSE(tracker.tracks().front().is_visible);
 }
 
+TEST(ObstacleTrackerGeometry, SmoothsExtentsFastGrowSlowShrink)
+{
+    auto params = testParams();
+    params.extent_shrink_alpha = 0.25;
+    ObstacleTracker tracker;
+    tracker.configure(params, nullptr);
+
+    const auto base = makeDetection(10.0);  // d_left_offset 0.1, d_right_offset -0.1
+    tracker.update({base}, 0.0);
+    ASSERT_EQ(tracker.tracks().size(), 1U);
+    EXPECT_DOUBLE_EQ(tracker.tracks().front().d_left_offset, 0.1);
+
+    // A larger measurement expands the envelope immediately.
+    auto bigger = makeDetection(10.0);
+    bigger.d_left_offset = 0.5;
+    bigger.d_right_offset = -0.5;
+    tracker.update({bigger}, 0.1);
+    EXPECT_DOUBLE_EQ(tracker.tracks().front().d_left_offset, 0.5);
+    EXPECT_DOUBLE_EQ(tracker.tracks().front().d_right_offset, -0.5);
+
+    // Smaller measurements shrink by alpha per matched frame instead of snapping back:
+    // 0.5 + 0.25 * (0.1 - 0.5) = 0.4, then 0.4 + 0.25 * (0.1 - 0.4) = 0.325.
+    tracker.update({base}, 0.2);
+    EXPECT_NEAR(tracker.tracks().front().d_left_offset, 0.4, 1.0e-9);
+    EXPECT_NEAR(tracker.tracks().front().d_right_offset, -0.4, 1.0e-9);
+    tracker.update({base}, 0.3);
+    EXPECT_NEAR(tracker.tracks().front().d_left_offset, 0.325, 1.0e-9);
+}
+
+TEST(ObstacleTrackerGeometry, LegacyOverwriteWhenShrinkAlphaIsOne)
+{
+    auto params = testParams();
+    params.extent_shrink_alpha = 1.0;
+    ObstacleTracker tracker;
+    tracker.configure(params, nullptr);
+
+    auto bigger = makeDetection(10.0);
+    bigger.d_left_offset = 0.5;
+    tracker.update({bigger}, 0.0);
+    tracker.update({makeDetection(10.0)}, 0.1);
+    EXPECT_DOUBLE_EQ(tracker.tracks().front().d_left_offset, 0.1);
+}
+
 TEST(ObstacleTrackerClassification, RequiresConsecutiveReliableMotionBeforeDynamicPromotion)
 {
     ObstacleTracker tracker;

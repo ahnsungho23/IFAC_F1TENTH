@@ -108,6 +108,23 @@ double ObstacleTracker::innovationDistanceSquared(
     return innovation.dot(solved);
 }
 
+double ObstacleTracker::smoothExtent(double previous, double current) const
+{
+    // Fast-grow/slow-shrink on the offset MAGNITUDE: the envelope expands to a larger
+    // measurement immediately but relaxes toward a smaller one over ~1/alpha matched frames.
+    // Per-scan AABB flapping (square box vs real shape) then stops flicking the published
+    // Frenet envelope across the raceline and back.
+    if (std::abs(current) >= std::abs(previous) || p_.extent_shrink_alpha >= 1.0)
+    {
+        return current;
+    }
+    if (p_.extent_shrink_alpha <= 0.0)
+    {
+        return previous;
+    }
+    return previous + p_.extent_shrink_alpha * (current - previous);
+}
+
 void ObstacleTracker::kalmanUpdate(Track &t, const Detection &detection) const
 {
     // H selects s (row0) and d (row2)
@@ -470,9 +487,9 @@ void ObstacleTracker::update(
             kalmanUpdate(t, det);
             t.hits++;
             t.is_visible = true;
-            t.s_half_extent = det.s_half_extent;
-            t.d_right_offset = det.d_right_offset;
-            t.d_left_offset = det.d_left_offset;
+            t.s_half_extent = smoothExtent(t.s_half_extent, det.s_half_extent);
+            t.d_right_offset = smoothExtent(t.d_right_offset, det.d_right_offset);
+            t.d_left_offset = smoothExtent(t.d_left_offset, det.d_left_offset);
             t.size = det.size;
             t.x_min_map = det.x_min;
             t.x_max_map = det.x_max;

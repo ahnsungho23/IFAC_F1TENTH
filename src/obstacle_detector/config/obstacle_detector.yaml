@@ -87,6 +87,9 @@ obstacle_detector:
     ttl_dynamic: 40                            # frames to keep a lost dynamic track
     ttl_static: 25                             # keep a lost static track for ~0.1 s at 250 Hz
     min_hits_confirm: 3                        # measurements before a track is reported
+    # 스캔마다 달라지는 AABB extent(정사각형 박스 vs 실제 형태 괴리)를 magnitude 기준으로
+    # 완화합니다. 확장은 즉시, 축소는 ~1/alpha 프레임에 걸쳐 서서히. 1.0이면 기존 덮어쓰기.
+    extent_shrink_alpha: 0.25
 
     # === LAYER 2 / LAYER 3 CLASSIFICATION (flow vs the map-flow reference) ===
     # The walls/stationary obstacles stream past the ego at the "map-flow" velocity (measured as

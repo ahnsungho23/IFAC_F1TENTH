@@ -105,6 +105,10 @@ struct TrackerParams
     double min_std{0.16};         // [m] below on both axes -> static vote
     double max_std{0.20};         // [m] above on either axis -> dynamic
     double dt_max{0.5};           // [s] clamp for prediction step
+    // Per-scan AABB extents flap (square box vs real shape). Smooth their magnitude
+    // fast-grow/slow-shrink: expand immediately, relax over ~1/alpha matched frames.
+    // 1.0 restores the legacy overwrite behaviour.
+    double extent_shrink_alpha{0.25};
 };
 
 struct Track
@@ -197,6 +201,7 @@ class ObstacleTracker
     double innovationDistanceSquared(const Track &t, const Detection &detection) const;
     double velocityMahalanobisSquared(const Track &t, double rel_vs, double rel_vd) const;
     void kalmanUpdate(Track &t, const Detection &detection) const;
+    double smoothExtent(double previous, double current) const;
     void updateStaticReference();
     void classify(Track &t, double ego_yaw_rate, bool yaw_rate_fresh) const;
     double frenetDistSquared(double s1, double d1, double s2, double d2) const;

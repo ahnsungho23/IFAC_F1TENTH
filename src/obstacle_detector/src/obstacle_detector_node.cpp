@@ -171,6 +171,7 @@ void ObstacleDetectorNode::declareParameters()
     this->declare_parameter<double>("min_std", 0.16);
     this->declare_parameter<double>("max_std", 0.20);
     this->declare_parameter<double>("dt_max", 0.5);
+    this->declare_parameter<double>("extent_shrink_alpha", 0.25);
 }
 
 void ObstacleDetectorNode::loadParameters()
@@ -261,6 +262,8 @@ void ObstacleDetectorNode::loadParameters()
     tracker_params_.min_std = this->get_parameter("min_std").as_double();
     tracker_params_.max_std = this->get_parameter("max_std").as_double();
     tracker_params_.dt_max = this->get_parameter("dt_max").as_double();
+    tracker_params_.extent_shrink_alpha =
+        std::clamp(this->get_parameter("extent_shrink_alpha").as_double(), 0.0, 1.0);
 
     const std::string cm = this->get_parameter("classifier_mode").as_string();
     if (cm == "std")
@@ -825,6 +828,13 @@ ObstacleDetectorNode::mergeLayer(const std::vector<const Track *> &members,
                 m.ob.size = projected->diagonal;
             }
         }
+        // A component with no currently-measured member is pure prediction. Fan-shaped scatter
+        // merging into one ghost blob can grow its envelope past the physical object gate until
+        // it spans the corridor and false-blocks planners; drop those oversized ghost blobs.
+        if (!visible && m.ob.size > max_obs_size_)
+        {
+            continue;
+        }
         out.push_back(m);
     }
     return out;
@@ -1045,14 +1055,16 @@ void ObstacleDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
             }
         }
 
-        // track-boundary corridor gate (falls back to a default half-width if bounds are unset)
+        // track-boundary corridor gate (falls back to a default half-width if bounds are unset).
+        // Test the inflated envelope EDGES, not just the centre: wall-hugging fan scatter keeps
+        // its centre inside the corridor while its AABB edge already pokes into the wall.
         double dl = 0.0;
         double dr = 0.0;
         frenet_.boundsAtS(bounds->s_center, dl, dr);
         const double left_bound = (dl > 0.05 ? dl : fallback_track_halfwidth_) - boundaries_inflation_;
         const double right_bound =
             (dr > 0.05 ? dr : fallback_track_halfwidth_) - boundaries_inflation_;
-        if (bounds->d_center > left_bound || bounds->d_center < -right_bound)
+        if (bounds->d_left > left_bound || bounds->d_right < -right_bound)
         {
             ++stats.track_boundary_rejected;
             continue;

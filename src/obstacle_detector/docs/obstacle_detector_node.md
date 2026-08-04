@@ -54,7 +54,9 @@ detection으로 복원해 하나의 Kalman track이 생성되도록 하는 segme
 5. 투영된 AABB 중심을 detection `(s,d)`로 사용하고, 종방향 반폭 및 중심 기준 좌·우 offset을
    함께 tracker에 전달한다.
 6. 에고 기준 `view_behind_distance`부터 `max_viewing_distance`까지의 관측 창만 남긴다.
-7. waypoint의 `d_left/d_right` 안에 있는 클러스터만 남긴다.
+7. waypoint의 `d_left/d_right` 안에 있는 클러스터만 남긴다. 이때 중심이 아니라 팽창된
+   envelope의 좌·우 가장자리(`d_left`, `d_right`)를 복도와 비교한다. 벽에 붙은 부채꼴 산란은
+   중심은 복도 안이지만 AABB 가장자리는 이미 벽을 파고들기 때문이다.
 8. 클러스터 점 중 `/map` occupied cell 위의 비율이 `map_point_reject_ratio` 이상이면 제거한다.
 
 Layer 1은 벽과 알려진 지도 구조물을 제거하는 필터이며 별도 토픽으로 발행하지 않는다.
@@ -162,8 +164,15 @@ scan에서 발행을 억제하고 throttled WARN을 남긴다.
 ### 2.7 Cartesian AABB와 authoritative Frenet 경계
 
 각 cluster의 map-frame `x_min/x_max/y_min/y_max`와 투영된 독립 Frenet extent를 Detection과
-Track에 보존한다. 같은 레이어에서 여러 track이 한 객체로 병합되면 현재 scan에서 실제로 측정된
+Track에 보존한다. 매칭될 때마다 Frenet extent의 크기는 fast-grow/slow-shrink로 완화한다
+(`extent_shrink_alpha`): 더 큰 측정에는 즉시 확장하고, 더 작은 측정에는 약 `1/alpha`
+프레임에 걸쳐 서서히 축소한다. 정사각형 AABB와 실제 형태의 괴리로 스캔마다 출렁이던
+발행 envelope가 raceline을 오가며 플래너를 흔드는 것을 막는다. 같은 레이어에서 여러
+track이 한 객체로 병합되면 현재 scan에서 실제로 측정된
 `is_visible=true` 멤버들의 AABB 합집합을 만든 뒤 그 완전한 합집합을 한 번 다시 투영한다.
+또한 visible 멤버가 하나도 없는 predicted-only component는 병합 envelope 대각선이
+`max_obs_size`를 넘으면 발행하지 않는다. 부채꼴 산란이 ghost blob으로 합쳐지며 복도 전체를
+덮는 가짜 blocking을 방지한다.
 따라서 visible 출력의 Cartesian AABB와 `s_start/s_end/d_right/d_left`는 같은 footprint를
 표현한다. 이 투영은 detector에서만 수행하며 downstream planner는 결과를 그대로 사용한다.
 
@@ -250,7 +259,7 @@ motion(yaw_used=... fresh=... ref_vs=... ref_vd=...)
 | 지도 | `use_map_filter`, `map_occupied_thresh`, `map_inflation_cells`, `map_point_reject_ratio` | 점유지도 필터 |
 | 측정 불확실성 | `meas_range_var_scale`, `meas_sparse_var_scale`, `meas_yaw_rate_var_scale`, `meas_reference_points`, `meas_variance_scale_max`, `meas_motion_timeout` | Detection별 adaptive Kalman `R` |
 | 추적 | `meas_var_s/d`, `process_var_vs/vd`, `assoc_gate`, `aggro_multi`, `assoc_use_mahalanobis`, `assoc_mahalanobis_gate` | Kalman 및 2단계 association |
-| 수명 | `ttl_dynamic`, `ttl_static`, `min_hits_confirm` | track 유지와 발행 확정. `ttl_static=25`는 약 250 Hz 입력에서 약 0.1초의 정적 track 검출 공백을 허용 |
+| 수명 | `ttl_dynamic`, `ttl_static`, `min_hits_confirm`, `extent_shrink_alpha` | track 유지와 발행 확정, envelope extent 완화(1.0=기존 덮어쓰기). `ttl_static=25`는 약 250 Hz 입력에서 약 0.1초의 정적 track 검출 공백을 허용 |
 | 분류 | `classifier_mode`, `dyn_vel_enter/exit`, `static_confirm_frames`, `dynamic_confirm_frames`, `dyn_velocity_mahalanobis_gate`, `dyn_max_abs_yaw_rate`, `static_ref_gate` | provisional/static/dynamic 판정 |
 | 레이어 병합 | `layer_merge_enable`, `layer_merge_gap_s/d` | tracking 후 같은 레이어 객체 병합 |
 | 진단 | `diagnostics_enable`, `diagnostics_period_sec` | 누적 perception INFO 로그 활성화와 주기 |
