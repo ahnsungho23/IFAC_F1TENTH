@@ -148,5 +148,34 @@ TEST(ObstacleTrackerClassification, RequiresConsecutiveReliableMotionBeforeDynam
     EXPECT_FALSE(tracker.tracks().front().is_static);
 }
 
+TEST(ObstacleTrackerGeometry, ForwardWindowRejectsOpponentBehindEgoAcrossWrap)
+{
+    // selectOpponent only considers dynamic objects whose wrap-aware forward distance from the
+    // ego falls inside (0, track_length/2). An object just behind the ego wraps to L - eps and
+    // must be excluded; this locks the wrap math that predicate relies on.
+    std::vector<FrenetProjector::Waypoint> wpnts(2);
+    wpnts[0].x = 0.0;
+    wpnts[0].s = 0.0;
+    wpnts[1].x = 100.0;
+    wpnts[1].s = 100.0;
+    FrenetProjector frenet;
+    frenet.build(wpnts, true, 100.0);
+    const double L = frenet.raceline_length();
+
+    const auto forward_distance = [&frenet, L](double s, double ego_s) {
+        double ahead = frenet.wrapDelta(s, ego_s);
+        if (ahead < 0.0)
+        {
+            ahead += L;
+        }
+        return ahead;
+    };
+
+    EXPECT_LT(forward_distance(51.0, 50.0), 0.5 * L);    // 1 m ahead: candidate
+    EXPECT_GE(forward_distance(49.0, 50.0), 0.5 * L);    // 1 m behind: rejected
+    EXPECT_LT(forward_distance(0.5, 99.5), 0.5 * L);     // 1 m ahead across the wrap: candidate
+    EXPECT_GE(forward_distance(98.5, 99.5), 0.5 * L);    // 1 m behind across the wrap: rejected
+}
+
 }  // namespace
 }  // namespace obstacle_detector

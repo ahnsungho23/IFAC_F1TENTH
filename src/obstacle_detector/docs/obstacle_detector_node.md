@@ -155,7 +155,9 @@ extent로 박스 모서리 간격을 계산하고, 같은 레이어 안에서 �
 - 마커는 `s_start/s_end/d_right/d_left`에서 직접 만들어지므로 local planner 입력과 같은
   영역을 나타낸다.
 
-두 ObstacleArray 토픽은 장애물이 없는 scan에서도 빈 배열로 발행된다.
+두 ObstacleArray 토픽은 장애물이 없는 scan에서도 빈 배열로 발행된다. 단 `/opp_obs`(와 그 마커)는
+ego odometry timestamp가 `meas_motion_timeout`보다 오래되면 전방 순위를 신뢰할 수 없으므로 해당
+scan에서 발행을 억제하고 throttled WARN을 남긴다.
 
 ### 2.7 Cartesian AABB와 authoritative Frenet 경계
 
@@ -190,7 +192,7 @@ DIAG perception [1.00s scans=40/40 drop(clcs=0 tf=0)]
 beam(valid=.../... nonfinite=... below_min=... at_or_above_max=...)
 cluster=...->... fragment_drop=... detections=...
 reject(size=... clcs_projection=... view=... boundary=... map=...)
-track(total=... visible=... hit_pending=... class_pending=... provisional=...
+track(total=... visible=... hit_pending=... provisional=...
       static=... dynamic=... motion_gated=...)
 assoc(pairs=... match=... spawn=... retire=... euclid_reject=... maha_reject=...)
 motion(yaw_used=... fresh=... ref_vs=... ref_vd=...)
@@ -205,8 +207,7 @@ motion(yaw_used=... fresh=... ref_vs=... ref_vd=...)
 - `assoc`는 1초 동안 누적한 tracker event다. `pairs`, `euclid_reject`, `maha_reject`는 장애물 수가
   아니라 `track × detection` 후보 쌍 수다.
 - `track`은 누적합이 아니라 로그 시점의 최신 snapshot이다. `hit_pending`은
-  `min_hits_confirm` 미달이다. 정상 상태기계에서는 hit 조건을 채우는 즉시 provisional이 되므로
-  `class_pending=0`이다. `motion_gated`는 속도가 `dyn_vel_enter`를 넘었지만 속도 Mahalanobis
+  `min_hits_confirm` 미달이다. `motion_gated`는 속도가 `dyn_vel_enter`를 넘었지만 속도 Mahalanobis
   신뢰도 또는 ego yaw 조건을 통과하지 못한 visible track 수다.
 - `yaw_used`는 adaptive covariance 계산에 실제 사용한 yaw rate다. odometry timestamp가
   `meas_motion_timeout`을 넘으면 `yaw_used=0`, `fresh=false`가 된다.

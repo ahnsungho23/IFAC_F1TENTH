@@ -83,7 +83,7 @@ if(BUILD_TESTING)
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   )
   target_link_libraries(test_obstacle_tracker Eigen3::Eigen)
-  ament_target_dependencies(test_obstacle_tracker global_planning)
+  ament_target_dependencies(test_obstacle_tracker global_planning rclcpp)
 
   ament_add_gtest(test_aabb_frenet_projector
     test/test_aabb_frenet_projector.cpp

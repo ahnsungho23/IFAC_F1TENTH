@@ -198,6 +198,7 @@ class ObstacleDetectorNode : public rclcpp::Node
     ObstacleTracker tracker_;
     nav_msgs::msg::OccupancyGrid::SharedPtr map_msg_;
     double ego_s_{-1.0};   // ego arc-length; < 0 disables the ahead-preference until first proj
+    double ego_s_stamp_{-1.0};  // odometry stamp of the last ego_s_ update (freshness check)
     double odom_yaw_rate_{0.0};
     double odom_motion_stamp_{-1.0};
     ScanProcessingStats diagnostics_scan_totals_;

@@ -8,13 +8,32 @@
 #include <cmath>
 #include <limits>
 
+#include <rclcpp/rclcpp.hpp>
+
 namespace obstacle_detector
 {
+
+namespace
+{
+rclcpp::Clock &warnThrottleClock()
+{
+    static rclcpp::Clock clock(RCL_SYSTEM_TIME);
+    return clock;
+}
+}  // namespace
 
 void ObstacleTracker::configure(const TrackerParams &params, const FrenetProjector *frenet)
 {
     p_ = params;
     frenet_ = frenet;
+}
+
+void ObstacleTracker::clear()
+{
+    // Called when the CLCS reference is rebuilt: existing tracks live in the old s-domain and
+    // must not be predicted or published against the new reference.
+    tracks_.clear();
+    has_last_stamp_ = false;
 }
 
 double ObstacleTracker::frenetDistSquared(double s1, double d1, double s2, double d2) const
@@ -110,10 +129,33 @@ void ObstacleTracker::kalmanUpdate(Track &t, const Detection &detection) const
     }
 
     Eigen::Matrix2d S = H * t.P * H.transpose() + R;
-    Eigen::Matrix<double, 4, 2> K = t.P * H.transpose() * S.inverse();
+    // Solve through LDLT like the association gate instead of inverting S blindly: a degraded
+    // covariance must skip this update (predicted state kept), not poison the track.
+    const Eigen::LDLT<Eigen::Matrix2d> solver(S);
+    if (solver.info() != Eigen::Success || !solver.isPositive())
+    {
+        RCLCPP_WARN_THROTTLE(rclcpp::get_logger("obstacle_tracker"), warnThrottleClock(), 2000,
+                             "Kalman update skipped: innovation covariance not positive definite");
+        return;
+    }
+    const Eigen::Matrix<double, 2, 4> solved = solver.solve(H * t.P);
+    if (solver.info() != Eigen::Success || !solved.allFinite())
+    {
+        RCLCPP_WARN_THROTTLE(rclcpp::get_logger("obstacle_tracker"), warnThrottleClock(), 2000,
+                             "Kalman update skipped: innovation covariance solve failed");
+        return;
+    }
+    const Eigen::Matrix<double, 4, 2> K = solved.transpose();
     t.x = t.x + K * y;
     Eigen::Matrix4d I = Eigen::Matrix4d::Identity();
     t.P = (I - K * H) * t.P;
+    // The simple covariance form drifts asymmetric over long runs; re-symmetrize it and keep the
+    // variances non-negative.
+    t.P = 0.5 * (t.P + t.P.transpose());
+    for (int i = 0; i < 4; ++i)
+    {
+        t.P(i, i) = std::max(0.0, t.P(i, i));
+    }
 
     // keep s within [0, length)
     if (frenet_ && frenet_->raceline_length() > 0.0)
@@ -136,14 +178,18 @@ double ObstacleTracker::velocityMahalanobisSquared(
     const Eigen::LDLT<Eigen::Matrix2d> solver(velocity_covariance);
     if (solver.info() != Eigen::Success || !solver.isPositive())
     {
-        return 0.0;
+        RCLCPP_WARN_THROTTLE(rclcpp::get_logger("obstacle_tracker"), warnThrottleClock(), 2000,
+                             "Velocity covariance not positive definite; motion not confident");
+        return std::numeric_limits<double>::quiet_NaN();
     }
 
     const Eigen::Vector2d relative_velocity(rel_vs, rel_vd);
     const Eigen::Vector2d solved = solver.solve(relative_velocity);
     if (solver.info() != Eigen::Success || !solved.allFinite())
     {
-        return 0.0;
+        RCLCPP_WARN_THROTTLE(rclcpp::get_logger("obstacle_tracker"), warnThrottleClock(), 2000,
+                             "Velocity covariance solve failed; motion not confident");
+        return std::numeric_limits<double>::quiet_NaN();
     }
     return std::max(0.0, relative_velocity.dot(solved));
 }
@@ -194,7 +240,8 @@ void ObstacleTracker::classify(
          std::abs(ego_yaw_rate) <= p_.dyn_max_abs_yaw_rate);
     const bool velocity_confident =
         p_.dyn_velocity_mahalanobis_gate <= 0.0 ||
-        t.velocity_mahalanobis_sq >= p_.dyn_velocity_mahalanobis_gate;
+        (std::isfinite(t.velocity_mahalanobis_sq) &&
+         t.velocity_mahalanobis_sq >= p_.dyn_velocity_mahalanobis_gate);
     const bool vel_dynamic =
         rel_speed > p_.dyn_vel_enter && velocity_confident && yaw_reliable;
     const bool vel_static = rel_speed < p_.dyn_vel_exit;
@@ -512,10 +559,6 @@ void ObstacleTracker::update(
         if (t.hits < p_.min_hits_confirm)
         {
             ++last_stats_.hit_confirmation_pending;
-        }
-        else if (!t.classified)
-        {
-            ++last_stats_.classification_pending;
         }
         else if (t.motion_class == MotionClass::ProvisionalStatic)
         {

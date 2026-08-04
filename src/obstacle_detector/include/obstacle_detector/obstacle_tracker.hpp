@@ -162,7 +162,6 @@ struct TrackerUpdateStats
     std::size_t total_tracks{0};
     std::size_t visible_tracks{0};
     std::size_t hit_confirmation_pending{0};
-    std::size_t classification_pending{0};
     std::size_t provisional_static{0};
     std::size_t confirmed_static{0};
     std::size_t confirmed_dynamic{0};
@@ -175,6 +174,10 @@ class ObstacleTracker
     ObstacleTracker() = default;
 
     void configure(const TrackerParams &params, const FrenetProjector *frenet);
+
+    // Drop every track. Must be called when the CLCS reference is rebuilt, since the old tracks
+    // live in the previous s-domain.
+    void clear();
 
     // Predict all tracks to `stamp`, associate detections, update, spawn/retire, classify.
     void update(const std::vector<Detection> &detections, double stamp,

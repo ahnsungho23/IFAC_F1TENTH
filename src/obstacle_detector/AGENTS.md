@@ -94,7 +94,9 @@ published Frenet bounds instead of reprojecting the Cartesian metadata.
   AABB union exists, reproject it so the published Frenet envelope describes exactly the same
   current footprint shown by the marker.
 - Publish both layer topics every scan, including empty arrays, so downstream consumers receive a
-  deterministic scan-rate tick.
+  deterministic scan-rate tick. The only exception: `/opp_obs` (and its marker) is suppressed with
+  a throttled warning while the ego odometry stamp is stale beyond `meas_motion_timeout`, because
+  the ahead-ranking would be misplaced.
 
 ## Map filtering
 

@@ -103,7 +103,7 @@ void ObstacleDetectorNode::declareParameters()
     this->declare_parameter<std::string>("opp_markers_topic", "/opp_obs/markers");
     this->declare_parameter<std::string>("map_frame", "map");
 
-    this->declare_parameter<double>("max_range", 10.0);
+    this->declare_parameter<double>("max_range", 14.0);
 
     // clustering
     this->declare_parameter<double>("lambda_deg", 10.0);
@@ -127,7 +127,7 @@ void ObstacleDetectorNode::declareParameters()
     this->declare_parameter<double>("meas_motion_timeout", 0.1);
 
     // Layer-1 filtering
-    this->declare_parameter<double>("max_viewing_distance", 9.0);
+    this->declare_parameter<double>("max_viewing_distance", 13.0);
     this->declare_parameter<double>("view_behind_distance", 1.0);
     this->declare_parameter<double>("boundaries_inflation", 0.1);
     this->declare_parameter<double>("fallback_track_halfwidth", 1.5);
@@ -319,7 +319,9 @@ void ObstacleDetectorNode::globalWpntsCallback(const f110_msgs::msg::WpntArray::
         next_frenet.build(std::move(wpnts), true, conv->stats().track_length);
         frenet_ = std::move(next_frenet);
         converter_ = conv;
+        tracker_.clear();  // old tracks live in the previous reference's s-domain
         ego_s_ = -1.0;  // wait for an odometry sample projected against the new CLCS reference
+        ego_s_stamp_ = -1.0;
         RCLCPP_INFO_ONCE(this->get_logger(),
                          "CLCS converter built from %zu waypoints (track length %.2f m).",
                          ref.size(), conv->stats().track_length);
@@ -362,6 +364,7 @@ void ObstacleDetectorNode::egoOdomCallback(const nav_msgs::msg::Odometry::Shared
     if (cr.valid)
     {
         ego_s_ = cr.s;
+        ego_s_stamp_ = stampToSec(msg->header.stamp);
     }
 }
 
@@ -840,7 +843,13 @@ int ObstacleDetectorNode::selectOpponent(const std::vector<MergedObstacle> &dyna
             double ahead = frenet_.wrapDelta(ob.s_center, ego_s_);
             if (ahead < 0.0)
             {
-                ahead += frenet_.raceline_length();  // prefer the one ahead on track
+                ahead += frenet_.raceline_length();  // wrap-aware forward distance from the ego
+            }
+            // Only the forward half-lap counts as "ahead": the closed-track wrap would otherwise
+            // rank an opponent just behind the ego as L - eps "ahead".
+            if (ahead <= 0.0 || ahead >= 0.5 * frenet_.raceline_length())
+            {
+                continue;
             }
             key = ahead;
         }
@@ -925,7 +934,7 @@ void ObstacleDetectorNode::updateDiagnostics(const ScanProcessingStats &scan_sta
         "beam(valid=%zu/%zu nonfinite=%zu below_min=%zu at_or_above_max=%zu) "
         "cluster=%zu->%zu fragment_drop=%zu detections=%zu "
         "reject(size=%zu clcs_projection=%zu view=%zu boundary=%zu map=%zu) "
-        "track(total=%zu visible=%zu hit_pending=%zu class_pending=%zu "
+        "track(total=%zu visible=%zu hit_pending=%zu "
         "provisional=%zu static=%zu dynamic=%zu motion_gated=%zu) "
         "assoc(pairs=%zu match=%zu spawn=%zu retire=%zu euclid_reject=%zu maha_reject=%zu) "
         "motion(yaw_used=%.3f fresh=%s ref_vs=%.3f ref_vd=%.3f)",
@@ -937,7 +946,7 @@ void ObstacleDetectorNode::updateDiagnostics(const ScanProcessingStats &scan_sta
         total.size_rejected, total.projection_rejected, total.viewing_window_rejected,
         total.track_boundary_rejected, total.map_rejected, snapshot.total_tracks,
         snapshot.visible_tracks, snapshot.hit_confirmation_pending,
-        snapshot.classification_pending, snapshot.provisional_static,
+        snapshot.provisional_static,
         snapshot.confirmed_static, snapshot.confirmed_dynamic,
         snapshot.dynamic_motion_gated, events.candidate_pairs, events.matched, events.spawned,
         events.retired, events.euclidean_pair_rejected,
@@ -1141,6 +1150,11 @@ void ObstacleDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
     const auto static_objs = mergeLayer(static_members, true);
     const auto dynamic_objs = mergeLayer(dynamic_members, false);
     const int opp = selectOpponent(dynamic_objs);
+    // Layer 3 ranks opponents by forward distance from ego_s_. A stale ego odometry sample would
+    // misplace that ranking, so /opp_obs is suppressed until fresh odometry arrives.
+    const bool ego_s_fresh =
+        ego_s_ < 0.0 ||
+        (ego_s_stamp_ >= 0.0 && std::abs(stamp - ego_s_stamp_) <= meas_motion_timeout_);
 
     f110_msgs::msg::ObstacleArray static_arr;
     static_arr.header = msg->header;
@@ -1159,7 +1173,15 @@ void ObstacleDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
     {
         opp_arr.obstacles.push_back(dynamic_objs[opp].ob);
     }
-    opp_obs_pub_->publish(opp_arr);
+    if (ego_s_fresh)
+    {
+        opp_obs_pub_->publish(opp_arr);
+    }
+    else
+    {
+        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                             "Ego odometry stale beyond meas_motion_timeout; suppressing /opp_obs");
+    }
 
     // RViz mirrors are built from the final published Frenet arrays. They therefore visualize the
     // exact s/d envelopes consumed by downstream planners, including predicted-only objects.
@@ -1168,9 +1190,12 @@ void ObstacleDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
         static_markers_pub_->publish(
             buildFrenetObstacleMarkers(
                 static_arr, frenet_, "static_obs_frenet", 0.2F, 0.6F, 1.0F));
-        opp_markers_pub_->publish(
-            buildFrenetObstacleMarkers(
-                opp_arr, frenet_, "opp_obs_frenet", 1.0F, 0.2F, 0.2F));
+        if (ego_s_fresh)
+        {
+            opp_markers_pub_->publish(
+                buildFrenetObstacleMarkers(
+                    opp_arr, frenet_, "opp_obs_frenet", 1.0F, 0.2F, 0.2F));
+        }
     }
 }
 
