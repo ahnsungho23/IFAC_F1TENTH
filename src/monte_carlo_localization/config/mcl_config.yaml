@@ -14,7 +14,6 @@ particle_filter:
     max_pose_range: 10000.0           # Maximum valid pose coordinate range (m)
     
     # === MODE & TF CONTROL ===
-    sim_mode: false                    # Simulation mode flag (set by launch file)
     publish_map_odom_tf: true          # Publish map->odom transform (real mode only)
     publish_odom_base_tf: false        # Let F1Tenth stack handle odom->base_link
     auto_init_from_waypoints: true     # Auto-initialize particles from /global_waypoints start pose
@@ -70,9 +69,7 @@ particle_filter:
     ekf_gate_force_accept_dist: 1.5    # 기각 중 누적 주행거리가 이 값[m]이어도 재고정 (고속 묵보정 방지, 0=해제)
 
     # === ROBOT GEOMETRY ===
-    # Real hardware values (overridden in sim_mode)
-    # lidar_offset_x: 0.28             # Use TF transform instead
-    # lidar_offset_y: 0.0              # Use TF transform instead
+    # lidar 오프셋은 TF(base_link→laser)에서 읽는다 (실패 시 코드 기본값 0.27 m)
     wheelbase: 0.324                   # Distance between axles (m)
     
     # === SENSOR MODEL (4-component beam model) ===
@@ -93,11 +90,13 @@ particle_filter:
     scan_quality_ess_start: 0.4        # ess0 — ESS/N이 이 이하면 페널티 시작
     
     # === RAY CASTING ===
-    range_method: "cddt"               # Distance transform method
-    theta_discretization: 112          # Angular resolution
-    rangelib_variant: 2                # Ray casting variant
     angle_step: 18                     # Laser downsampling factor
-    squash_factor: 2.5                 # Weight normalization (optimized for faster convergence)
+    squash_factor: 2.5                 # Weight normalization (지수 = 1/이값, 작을수록 대비 눌림)
+    # 상황별 squash 조정 (2026-08-04). 과거 코드는 min/max 상수가 거꾸로라 두 분기가
+    # no-op이었음 → 토글로 복원. false=지금까지 검증된 구 거동(조정 없음).
+    use_adaptive_squash: false         # true면 아래 두 상황별 조정 활성
+    squash_factor_high_speed_curve: 3.5  # 고속 커브(v>4 & |w|>0.3): 지수 1/3.5≈0.29로 더 눌러 소수 파티클 지배 완화
+    squash_factor_fast_convergence: 1.2  # 초기 수렴 N회: 지수 1/1.2≈0.83으로 더 뾰족하게 정답 가설 빨리 선택
     use_parallel_raycasting: true      # Enable parallel processing
     num_threads: 0                     # Auto-detect threads
     

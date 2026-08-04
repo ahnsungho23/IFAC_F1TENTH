@@ -29,6 +29,9 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
     this->declare_parameter("max_particles", 2000);
     this->declare_parameter("max_viz_particles", 60);
     this->declare_parameter("squash_factor", 2.2);
+    this->declare_parameter("use_adaptive_squash", false);
+    this->declare_parameter("squash_factor_high_speed_curve", 3.5);
+    this->declare_parameter("squash_factor_fast_convergence", 1.2);
     this->declare_parameter("max_range", 12.0);
     this->declare_parameter("max_pose_range", 10000.0);
     this->declare_parameter("smoothing_alpha", 0.3);
@@ -104,6 +107,9 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
     MAX_PARTICLES = this->get_parameter("max_particles").as_int();
     MAX_VIZ_PARTICLES = this->get_parameter("max_viz_particles").as_int();
     INV_SQUASH_FACTOR = 1.0 / this->get_parameter("squash_factor").as_double();
+    USE_ADAPTIVE_SQUASH = this->get_parameter("use_adaptive_squash").as_bool();
+    SQUASH_FACTOR_HIGH_SPEED_CURVE = this->get_parameter("squash_factor_high_speed_curve").as_double();
+    SQUASH_FACTOR_FAST_CONVERGENCE = this->get_parameter("squash_factor_fast_convergence").as_double();
     MAX_RANGE_METERS = this->get_parameter("max_range").as_double();
     MAX_POSE_RANGE = this->get_parameter("max_pose_range").as_double();
     SMOOTHING_ALPHA = this->get_parameter("smoothing_alpha").as_double();
@@ -869,14 +875,26 @@ void ParticleFilter::calculate_particle_weights(const std::vector<float> &obs, i
         ranges_px_[i] = std::min(static_cast<double>(MAX_RANGE_PX), ranges_[i] / map_resolution_);
     }
 
-    // Calculate adaptive squash factor for high-speed maneuvers and fast convergence
-    const bool is_high_speed_curve = (current_velocity_ > 4.0 && std::abs(current_angular_vel_) > 0.3);
-    double squash_factor = is_high_speed_curve ?
-        std::min(INV_SQUASH_FACTOR, 1.0 / 1.8) : INV_SQUASH_FACTOR;
+    // 상황별 squash 조정 — use_adaptive_squash=true일 때만 적용 (false면 구 거동 그대로).
+    // 지수가 작을수록 가중치 대비가 눌리고(소프트), 클수록 뾰족해진다.
+    // ※ 과거엔 std::min(INV, 1/1.8)처럼 INV보다 큰 상수와 min을 해서 두 분기 모두
+    //    no-op이었다 — min은 INV보다 작은 값과, max는 INV보다 큰 값과 쌍을 이뤄야 한다.
+    double squash_factor = INV_SQUASH_FACTOR;
+    if (USE_ADAPTIVE_SQUASH) {
+        // 고속 커브: 이례적 소수 파티클의 지배를 막기 위해 가중치를 더 눌러준다 (지수↓)
+        const bool is_high_speed_curve = (current_velocity_ > 4.0 && std::abs(current_angular_vel_) > 0.3);
+        if (is_high_speed_curve) {
+            squash_factor = std::min(squash_factor, 1.0 / SQUASH_FACTOR_HIGH_SPEED_CURVE);
+        }
 
-    // Apply stronger weighting during fast convergence mode for faster particle selection
+        // 초기 수렴(RViz/자동 초기화 직후 N회): 가중치를 더 뾰족하게 해 정답 가설을 빨리 선택
+        if (fast_convergence_mode_ && fast_convergence_remaining_ > 0) {
+            squash_factor = std::max(squash_factor, 1.0 / SQUASH_FACTOR_FAST_CONVERGENCE);
+        }
+    }
+
+    // fast convergence 카운터는 토글과 무관하게 소진 (모드 종료 로그 유지)
     if (fast_convergence_mode_ && fast_convergence_remaining_ > 0) {
-        squash_factor = std::min(squash_factor, 1.0 / 1.2); // More aggressive weighting
         --fast_convergence_remaining_;
         if (fast_convergence_remaining_ <= 0) {
             fast_convergence_mode_ = false;
@@ -1175,10 +1193,11 @@ void ParticleFilter::ekf_predict_from_odom(const Eigen::Vector3d &odom_now)
     F(0, 2) = -(s * dx_body + c * dy_body);
     F(1, 2) = (c * dx_body - s * dy_body);
 
-    // 프로세스 노이즈: 이동량 비례(휠 odom 오차율) + 미소 하한, body → map 회전
-    const double sigma_long = EKF_TRANS_ERROR_RATE * ds + EKF_TRANS_FLOOR_MPS * 0.033;
-    const double sigma_lat = EKF_LAT_ERROR_RATIO * sigma_long + 0.5 * EKF_TRANS_FLOOR_MPS * 0.033;
-    const double sigma_yaw = EKF_ROT_ERROR_RATE * std::abs(dtheta) + EKF_ROT_FLOOR_RADPS * 0.033;
+    // 프로세스 노이즈: 이동량 비례(휠 odom 오차율) + 미소 하한(1주기분), body → map 회전
+    const double dt_nom = 1.0 / TIMER_FREQUENCY;
+    const double sigma_long = EKF_TRANS_ERROR_RATE * ds + EKF_TRANS_FLOOR_MPS * dt_nom;
+    const double sigma_lat = EKF_LAT_ERROR_RATIO * sigma_long + 0.5 * EKF_TRANS_FLOOR_MPS * dt_nom;
+    const double sigma_yaw = EKF_ROT_ERROR_RATE * std::abs(dtheta) + EKF_ROT_FLOOR_RADPS * dt_nom;
     Eigen::Matrix2d rot;
     rot << c, -s, s, c;
     Eigen::Matrix2d q_body = Eigen::Matrix2d::Zero();
@@ -1349,8 +1368,10 @@ void ParticleFilter::timer_update()
         return;
     }
 
-    // Skip excessive time steps
+    // Skip excessive time steps — 단, 기준 시각은 갱신해야 한다. 갱신 없이 리턴하면
+    // 이후 dt가 영원히 >1.0이라 노드가 조용히 정지한다 (bag 일시정지/CPU 스파이크 후 사고).
     if (dt > 1.0) {
+        last_steady_time = current_steady_time;
         return;
     }
 

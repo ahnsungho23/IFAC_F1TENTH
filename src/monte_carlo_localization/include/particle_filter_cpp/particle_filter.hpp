@@ -117,6 +117,9 @@ class ParticleFilter : public rclcpp::Node
     int MAX_PARTICLES;
     int MAX_VIZ_PARTICLES;
     double INV_SQUASH_FACTOR;
+    bool USE_ADAPTIVE_SQUASH;                 // true면 아래 두 상황별 squash 조정 활성 (false=구 거동)
+    double SQUASH_FACTOR_HIGH_SPEED_CURVE;    // 고속 커브에서 squash 지수 = 1/이값 (base보다 크게 → 더 눌림)
+    double SQUASH_FACTOR_FAST_CONVERGENCE;    // 초기 수렴 시 squash 지수 = 1/이값 (base보다 작게 → 더 뾰족)
     double MAX_RANGE_METERS;
     bool PUBLISH_ODOM;
     bool PUBLISH_MAP_ODOM_TF;
