@@ -171,6 +171,7 @@ struct RacelineSplinePlanner::Candidate
   double target_d{0.0};
   double merge_s{0.0};
   double score{std::numeric_limits<double>::infinity()};
+  double headroom{-std::numeric_limits<double>::infinity()};
   f110_msgs::msg::WpntArray path;
   std::vector<SplineControlPoint> control_points;
   std::string reason;
@@ -447,18 +448,26 @@ bool RacelineSplinePlanner::targetFitsTrackBounds(
   double cluster_end,
   bool go_left,
   double target_d,
-  std::string & reason) const
+  std::string & reason,
+  double * min_headroom) const
 {
   const double center_boundary_clearance =
     parameters_.vehicle_half_width_m + parameters_.boundary_margin_m;
+  if (min_headroom != nullptr) {
+    *min_headroom = std::numeric_limits<double>::infinity();
+  }
   const auto fits_at = [&](const f110_msgs::msg::Wpnt & reference) {
       const double left_width = reference.d_left > 0.05 ?
         reference.d_left : parameters_.fallback_track_half_width_m;
       const double right_width = reference.d_right > 0.05 ?
         reference.d_right : parameters_.fallback_track_half_width_m;
-      return go_left ?
-             target_d <= left_width - center_boundary_clearance + kEpsilon :
-             target_d >= -right_width + center_boundary_clearance - kEpsilon;
+      const double headroom = go_left ?
+        left_width - center_boundary_clearance - target_d :
+        target_d + right_width - center_boundary_clearance;
+      if (min_headroom != nullptr) {
+        *min_headroom = std::min(*min_headroom, headroom);
+      }
+      return headroom >= -kEpsilon;
     };
 
   // The target offset is held across the expanded obstacle-cluster span. Reject an obviously
@@ -1168,77 +1177,116 @@ RacelineSplineResult RacelineSplinePlanner::plan(
   }
 
   const bool outside_is_left = outsideIsLeft(ego, cluster);
-  auto evaluate_side = [&](bool go_left) {
-      Candidate last;
-      last.go_left = go_left;
-      double cluster_start = 0.0;
-      double cluster_end = 0.0;
-      double target_d = 0.0;
-      if (!computeSideTarget(
-          cluster, go_left, cluster_start, cluster_end, target_d, last.reason))
-      {
-        return last;
-      }
-      if (!targetFitsTrackBounds(
-          ego, cluster_start, cluster_end, go_left, target_d, last.reason))
-      {
-        return last;
-      }
-      // transition_distance_scales is validated as strictly increasing. The first valid
-      // candidate therefore has the minimum score and later, longer splines are redundant.
-      for (const double scale : parameters_.transition_distance_scales) {
-        last = buildCandidate(
-          ego, visible, go_left, scale, outside_is_left,
-          cluster_start, cluster_end, target_d);
-        if (last.valid) {
-          break;
-        }
-      }
-      return last;
-    };
-
   Candidate left;
   Candidate right;
   bool left_evaluated = false;
   bool right_evaluated = false;
   Candidate selected;
-  if (preferred_left.has_value()) {
-    if (preferred_left.value()) {
-      left = evaluate_side(true);
-      left_evaluated = true;
-      if (left.valid) {
-        selected = std::move(left);
-      } else if (allow_side_switch) {
+  bool used_tight_clearance = false;
+
+  auto run_selection = [&](
+    const std::vector<ExpandedObstacle> & pass_visible,
+    const std::vector<ExpandedObstacle> & pass_cluster) {
+      auto evaluate_side = [&](bool go_left) {
+          Candidate last;
+          last.go_left = go_left;
+          double cluster_start = 0.0;
+          double cluster_end = 0.0;
+          double target_d = 0.0;
+          if (!computeSideTarget(
+              pass_cluster, go_left, cluster_start, cluster_end, target_d, last.reason))
+          {
+            return last;
+          }
+          double headroom = -std::numeric_limits<double>::infinity();
+          if (!targetFitsTrackBounds(
+              ego, cluster_start, cluster_end, go_left, target_d, last.reason, &headroom))
+          {
+            return last;
+          }
+          // transition_distance_scales is validated as strictly increasing. The first valid
+          // candidate therefore has the minimum score and later, longer splines are redundant.
+          for (const double scale : parameters_.transition_distance_scales) {
+            last = buildCandidate(
+              ego, pass_visible, go_left, scale, outside_is_left,
+              cluster_start, cluster_end, target_d);
+            if (last.valid) {
+              last.headroom = headroom;
+              break;
+            }
+          }
+          return last;
+        };
+
+      left = Candidate();
+      right = Candidate();
+      left_evaluated = false;
+      right_evaluated = false;
+      selected = Candidate();
+      if (preferred_left.has_value()) {
+        if (preferred_left.value()) {
+          left = evaluate_side(true);
+          left_evaluated = true;
+          if (left.valid) {
+            selected = std::move(left);
+          } else if (allow_side_switch) {
+            right = evaluate_side(false);
+            right_evaluated = true;
+            if (right.valid) {
+              selected = std::move(right);
+            }
+          }
+        } else {
+          right = evaluate_side(false);
+          right_evaluated = true;
+          if (right.valid) {
+            selected = std::move(right);
+          } else if (allow_side_switch) {
+            left = evaluate_side(true);
+            left_evaluated = true;
+            if (left.valid) {
+              selected = std::move(left);
+            }
+          }
+        }
+      } else {
+        left = evaluate_side(true);
         right = evaluate_side(false);
+        left_evaluated = true;
         right_evaluated = true;
-        if (right.valid) {
+        if (left.valid && right.valid) {
+          // A raceline-centred obstacle ties the score within perception jitter. Break ties
+          // with the reference-width headroom, which does not jitter frame to frame, so the
+          // chosen side cannot flap between replans.
+          if (std::abs(left.score - right.score) <= parameters_.side_tie_epsilon_m &&
+            left.headroom != right.headroom)
+          {
+            selected = left.headroom > right.headroom ? std::move(left) : std::move(right);
+          } else {
+            selected = left.score <= right.score ? std::move(left) : std::move(right);
+          }
+        } else if (left.valid) {
+          selected = std::move(left);
+        } else if (right.valid) {
           selected = std::move(right);
         }
       }
-    } else {
-      right = evaluate_side(false);
-      right_evaluated = true;
-      if (right.valid) {
-        selected = std::move(right);
-      } else if (allow_side_switch) {
-        left = evaluate_side(true);
-        left_evaluated = true;
-        if (left.valid) {
-          selected = std::move(left);
-        }
-      }
-    }
-  } else {
-    left = evaluate_side(true);
-    right = evaluate_side(false);
-    left_evaluated = true;
-    right_evaluated = true;
-    if (left.valid && right.valid) {
-      selected = left.score <= right.score ? std::move(left) : std::move(right);
-    } else if (left.valid) {
-      selected = std::move(left);
-    } else if (right.valid) {
-      selected = std::move(right);
+    };
+
+  run_selection(visible, cluster);
+  if (!selected.valid &&
+    parameters_.minimum_avoidance_clearance_m <
+    parameters_.obstacle_clearance_m - kEpsilon)
+  {
+    // Centred obstacles demand the full obstacle width plus margins on BOTH sides, so they
+    // are the first to fail the offset/track/slope gates. Retry once with the tight
+    // last-resort clearance before giving up to a safe stop.
+    const auto tight_visible = expandVisibleObstacles(
+      ego, obstacles, parameters_.minimum_avoidance_clearance_m);
+    const auto tight_cluster = nearestCluster(tight_visible);
+    if (!tight_cluster.empty()) {
+      run_selection(tight_visible, tight_cluster);
+      used_tight_clearance = selected.valid;
     }
   }
 
@@ -1271,7 +1319,10 @@ RacelineSplineResult RacelineSplinePlanner::plan(
     result.obstacle_ids.push_back(obstacle.id);
   }
   result.control_points = std::move(selected.control_points);
-  result.reason = "global race-line waypoints shifted by a local cubic d-offset";
+  result.reason = used_tight_clearance ?
+    "global race-line waypoints shifted by a local cubic d-offset "
+    "(reduced-clearance fallback)" :
+    "global race-line waypoints shifted by a local cubic d-offset";
   return result;
 }
 

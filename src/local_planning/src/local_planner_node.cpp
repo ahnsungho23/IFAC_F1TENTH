@@ -241,6 +241,10 @@ void LocalPlannerNode::initializeParameters()
     declare_parameter<double>("maximum_target_offset_m", 1.50);
   planner_parameters_.commitment_clearance_reserve_m =
     declare_parameter<double>("commitment_clearance_reserve_m", 0.05);
+  planner_parameters_.minimum_avoidance_clearance_m =
+    declare_parameter<double>("minimum_avoidance_clearance_m", 0.18);
+  planner_parameters_.side_tie_epsilon_m =
+    declare_parameter<double>("side_tie_epsilon_m", 0.02);
   planner_parameters_.maximum_lateral_slope =
     declare_parameter<double>("maximum_lateral_slope", 0.65);
   planner_parameters_.maximum_curvature_radpm =
@@ -282,6 +286,8 @@ void LocalPlannerNode::initializeParameters()
     declare_parameter<double>("uncertainty_min_longitudinal_margin_m", 0.05);
   guard_parameters_.minimum_lateral_margin_m =
     declare_parameter<double>("uncertainty_min_lateral_margin_m", 0.03);
+  guard_parameters_.maximum_lateral_margin_m =
+    declare_parameter<double>("uncertainty_max_lateral_margin_m", 0.20);
   commitment_lock_lateral_threshold_m_ =
     declare_parameter<double>("commitment_lock_lateral_threshold_m", 0.10);
   commitment_lock_longitudinal_m_ =
@@ -358,6 +364,14 @@ void LocalPlannerNode::initializeParameters()
     guard_parameters_.minimum_longitudinal_margin_m < 0.0 ||
     !std::isfinite(guard_parameters_.minimum_lateral_margin_m) ||
     guard_parameters_.minimum_lateral_margin_m < 0.0 ||
+    guard_parameters_.maximum_lateral_margin_m <
+    guard_parameters_.minimum_lateral_margin_m ||
+    planner_parameters_.minimum_avoidance_clearance_m <
+    planner_parameters_.vehicle_half_width_m + hard_collision_margin_m_ ||
+    planner_parameters_.minimum_avoidance_clearance_m >
+    planner_parameters_.obstacle_clearance_m ||
+    !std::isfinite(planner_parameters_.side_tie_epsilon_m) ||
+    planner_parameters_.side_tie_epsilon_m < 0.0 ||
     commitment_lock_lateral_threshold_m_ < 0.0 ||
     commitment_lock_longitudinal_m_ < 0.0 ||
     planner_parameters_.minimum_path_points < 2)
@@ -522,6 +536,7 @@ void LocalPlannerNode::clearCommitment()
   merge_geometry_confirmed_ = false;
   handoff_active_ = false;
   avoid_state_observed_ = false;
+  pre_engagement_side_switched_ = false;
   committed_obstacle_guards_.clear();
 }
 
@@ -936,6 +951,7 @@ void LocalPlannerNode::resetForChainedManeuver()
   merge_geometry_confirmed_ = false;
   handoff_active_ = false;
   avoid_state_observed_ = avoid_was_observed;
+  pre_engagement_side_switched_ = false;
   committed_obstacle_guards_.clear();
 }
 
@@ -989,6 +1005,19 @@ void LocalPlannerNode::commitAvoidance(
 {
   const bool replacing = has_commitment_;
   const bool avoid_was_observed = avoid_state_observed_;
+  if (replacing && committed_result_.kind == SplinePlanKind::kAvoidance &&
+    result.go_left != committed_result_.go_left && !commitmentSideLocked(ego))
+  {
+    pre_engagement_side_switched_ = true;
+    RCLCPP_INFO(
+      get_logger(),
+      "Pre-engagement side switch to %s; further side switches are disabled until lateral "
+      "engagement or the next maneuver.",
+      result.go_left ? "left" : "right");
+  }
+  if (!replacing) {
+    pre_engagement_side_switched_ = false;
+  }
   std::set<int> committed_ids(result.obstacle_ids.begin(), result.obstacle_ids.end());
   if (result.obstacle_id >= 0) {
     committed_ids.insert(result.obstacle_id);
@@ -1088,7 +1117,8 @@ void LocalPlannerNode::handleSafeStopLatch(const EgoFrenetState & ego)
     has_commitment_ && committed_result_.kind == SplinePlanKind::kAvoidance ?
     std::optional<bool>(committed_result_.go_left) : std::nullopt;
   const bool allow_side_switch =
-    !locked_side.has_value() || !commitmentSideLocked(ego);
+    !locked_side.has_value() ||
+    (!commitmentSideLocked(ego) && !pre_engagement_side_switched_);
   RacelineSplineResult result = planner_.plan(
     ego, planning_obstacles, locked_side, allow_side_switch);
 
@@ -1385,7 +1415,8 @@ void LocalPlannerNode::onPlanningTimer()
     has_commitment_ && committed_result_.kind == SplinePlanKind::kAvoidance ?
     std::optional<bool>(committed_result_.go_left) : std::nullopt;
   const bool allow_side_switch =
-    !preferred_side.has_value() || !commitmentSideLocked(ego);
+    !preferred_side.has_value() ||
+    (!commitmentSideLocked(ego) && !pre_engagement_side_switched_);
   RacelineSplineResult result = planner_.plan(
     ego, planning_obstacles, preferred_side, allow_side_switch);
 

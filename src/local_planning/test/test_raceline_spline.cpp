@@ -231,6 +231,55 @@ TEST(RacelineSplinePlanner, RejectsWallBlockedTargetsBeforeSplineConstruction)
     std::string::npos);
 }
 
+TEST(RacelineSplinePlanner, FallsBackToTightClearanceForCentredObstacleOnNarrowTrack)
+{
+  auto reference = makeStraightReference(300, 0.1, 0.65, 0.65);
+  RacelineSplinePlanner planner(testParameters());
+  ASSERT_TRUE(planner.setReference(reference));
+
+  // Centred obstacle: the full-clearance target (0.50) exceeds the 0.45 track gate on BOTH
+  // sides at once. The reduced-clearance fallback target (0.43) still fits, so the planner
+  // avoids instead of stopping.
+  const auto result = planner.plan(
+    EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(3, 7.0)});
+  ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
+  EXPECT_TRUE(result.go_left);
+  EXPECT_NEAR(result.target_d, 0.43, 1.0e-9);
+  EXPECT_NE(result.reason.find("reduced-clearance fallback"), std::string::npos);
+}
+
+TEST(RacelineSplinePlanner, KeepsSafeStopWhenReducedClearanceFallbackIsDisabled)
+{
+  auto parameters = testParameters();
+  parameters.minimum_avoidance_clearance_m = parameters.obstacle_clearance_m;
+  auto reference = makeStraightReference(300, 0.1, 0.65, 0.65);
+  RacelineSplinePlanner planner(parameters);
+  ASSERT_TRUE(planner.setReference(reference));
+
+  const auto result = planner.plan(
+    EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(3, 7.0)});
+  EXPECT_EQ(result.kind, SplinePlanKind::kSafeStop) << result.reason;
+}
+
+TEST(RacelineSplinePlanner, BreaksCentredObstacleScoreTieWithTrackHeadroom)
+{
+  auto reference = makeCircularReference();
+  for (auto & waypoint : reference.wpnts) {
+    waypoint.d_left = 0.9;
+  }
+  RacelineSplinePlanner planner(testParameters());
+  ASSERT_TRUE(planner.setReference(reference));
+
+  // Centred obstacle: both targets are +/-0.50 and the scores tie within
+  // side_tie_epsilon_m. The wider right side offers more headroom, so the tie resolves to
+  // the right even though the raw score marginally favours the left.
+  const auto result = planner.plan(
+    EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(3, 8.0)});
+  ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
+  EXPECT_FALSE(result.go_left);
+  EXPECT_NEAR(result.target_d, -0.50, 1.0e-9);
+}
+
 TEST(RacelineSplinePlanner, HonorsCommittedSideWhenItRemainsFeasible)
 {
   RacelineSplinePlanner planner(testParameters());

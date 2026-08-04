@@ -25,6 +25,9 @@ struct ObstacleGuardParameters
   double uncertainty_sigma_scale{3.0};
   double minimum_longitudinal_margin_m{0.05};
   double minimum_lateral_margin_m{0.03};
+  // Fresh detections can carry a large centre variance; cap the lateral inflation so a
+  // raceline-centred obstacle does not demand an impossible d-offset on both sides at once.
+  double maximum_lateral_margin_m{0.20};
 };
 
 // Expand a projected Frenet AABB by a fixed extent-noise floor plus k standard deviations of the

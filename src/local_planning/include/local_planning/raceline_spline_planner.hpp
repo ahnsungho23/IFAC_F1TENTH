@@ -47,6 +47,14 @@ struct RacelineSplineParameters
   double minimum_target_offset_m{0.20};
   double maximum_target_offset_m{1.50};
   double commitment_clearance_reserve_m{0.05};
+  // Last-resort pass when both sides are rejected with the full clearance: retry with a
+  // tighter lateral inflation so a raceline-centred obstacle still yields a feasible offset.
+  // Must stay above vehicle_half_width_m + hard_collision_margin_m and below
+  // obstacle_clearance_m.
+  double minimum_avoidance_clearance_m{0.18};
+  // When left/right candidate scores differ by less than this, pick the side with more track
+  // headroom instead; reference widths are jitter-free, so centred-obstacle ties stay stable.
+  double side_tie_epsilon_m{0.02};
   double maximum_lateral_slope{0.65};
   double maximum_curvature_radpm{3.20};
   double maximum_curvature_rate_radpm2{20.0};
@@ -193,7 +201,8 @@ private:
     double cluster_end,
     bool go_left,
     double target_d,
-    std::string & reason) const;
+    std::string & reason,
+    double * min_headroom = nullptr) const;
   Candidate buildCandidate(
     const EgoFrenetState & ego,
     const std::vector<ExpandedObstacle> & visible,

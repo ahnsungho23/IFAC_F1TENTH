@@ -29,6 +29,13 @@ local_planner_node:
     maximum_target_offset_m: 1.50
     # uncertainty Guard 바깥에 추가 기하 여유를 두어 spline 표본화/검증 경계 접촉을 피합니다.
     commitment_clearance_reserve_m: 0.05
+    # 정중앙 장애물처럼 양쪽이 전체 clearance로 모두 거절될 때 마지막으로 한 번 더 시도하는
+    # 축소 clearance입니다. 차체 hard 한계(vehicle_half_width+hard_collision_margin) 이상,
+    # obstacle_clearance_m 이하여야 합니다.
+    minimum_avoidance_clearance_m: 0.18
+    # 좌우 후보 점수 차가 이 값 이하면 트랙 폭 여유(headroom)가 큰 쪽을 고릅니다.
+    # reference 폭은 측정 jitter가 없어 정중앙 동점에서도 측면이 프레임마다 뒤집히지 않습니다.
+    side_tie_epsilon_m: 0.02
 
     # 이동된 글로벌 점의 기하학적 주행 가능성 검사입니다.
     maximum_lateral_slope: 0.65
@@ -73,6 +80,9 @@ local_planner_node:
     uncertainty_sigma_scale: 3.0
     uncertainty_min_longitudinal_margin_m: 0.05
     uncertainty_min_lateral_margin_m: 0.03
+    # 초기 검출의 큰 중심 분산이 Guard를 과도하게 키워 정중앙 장애물의 양쪽 목표 d를
+    # 모두 불가능하게 만드는 것을 막는 횡방향 마진 상한입니다.
+    uncertainty_max_lateral_margin_m: 0.20
     # uncertainty/extent 여유만 침범한 soft 충돌은 3 planning cycle 연속일 때 재계획합니다.
     # detector raw 경계에 차량 반폭+hard margin을 적용한 영역은 즉시 재계획/safe-stop합니다.
     commitment_soft_violation_confirm_cycles: 3

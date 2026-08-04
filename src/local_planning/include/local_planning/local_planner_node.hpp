@@ -156,6 +156,9 @@ private:
   bool merge_geometry_confirmed_{false};
   bool handoff_active_{false};
   bool avoid_state_observed_{false};
+  // Set once a pre-engagement replan flips the committed side; blocks further flip-flops
+  // (centred-obstacle ties) until lateral engagement or the next maneuver.
+  bool pre_engagement_side_switched_{false};
   bool has_state_{false};
   bool initial_stabilization_active_{false};
   bool initial_prepare_published_{false};

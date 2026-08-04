@@ -109,5 +109,22 @@ TEST(ObstacleGuard, FallsBackToFixedMarginForInvalidVariance)
   EXPECT_NEAR(guard.d_left, 0.23, 1.0e-9);
 }
 
+TEST(ObstacleGuard, CapsLateralMarginAtConfiguredMaximum)
+{
+  auto obstacle = makeObstacle(10.0, 9.8, 10.2);
+  obstacle.s_var = 0.01;
+  obstacle.d_var = 4.0;
+
+  ObstacleGuardParameters parameters;
+  const auto guard = buildUncertaintyGuard(obstacle, 100.0, parameters);
+
+  // 3 * sqrt(4.0) = 6 m of lateral inflation is capped at maximum_lateral_margin_m (0.20);
+  // the longitudinal margin stays uncapped.
+  EXPECT_NEAR(guard.d_right, -0.40, 1.0e-9);
+  EXPECT_NEAR(guard.d_left, 0.40, 1.0e-9);
+  EXPECT_NEAR(guard.s_start, 9.45, 1.0e-9);
+  EXPECT_NEAR(guard.s_end, 10.55, 1.0e-9);
+}
+
 }  // namespace
 }  // namespace local_planning

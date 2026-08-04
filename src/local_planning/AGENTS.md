@@ -20,6 +20,13 @@
   Cartesian AABB fields are optional current-observation metadata used only for RViz markers.
 - Derive each target `d` from the obstacle lateral bound plus configured clearance and the small
   commitment reserve. Reject targets outside the per-waypoint `d_left`/`d_right` track widths.
+  A raceline-centred obstacle demands the full obstacle width plus margins on BOTH sides at once;
+  when both sides are rejected with the full `obstacle_clearance_m`, retry the whole selection
+  once with the reduced `minimum_avoidance_clearance_m` (never below vehicle half-width plus the
+  hard collision margin) before declaring a safe stop.
+- When left/right candidate scores tie within `side_tie_epsilon_m`, select the side with more
+  reference-width headroom across the obstacle span. Reference widths carry no perception jitter,
+  so centred-obstacle side choices cannot flap between replans.
 - Before fitting a side's spline, reject its target when it cannot fit the waypoint track widths
   across the expanded obstacle-cluster span. This is only an early pruning gate; every surviving
   sampled spline must still pass the full transition, wall, obstacle, slope, and curvature checks.
@@ -32,7 +39,9 @@
   Count distinct `/static_obs` messages, not planning ticks, and require the configured number of
   observations for every cluster ID and the configured minimum stabilization duration unless the
   maximum wait is reached. Expand the final union by
-  `k*sqrt(s_var/d_var)` plus fixed longitudinal/lateral extent-noise floors and freeze that
+  `k*sqrt(s_var/d_var)` plus fixed longitudinal/lateral extent-noise floors, capping the lateral
+  margin at `uncertainty_max_lateral_margin_m` so fresh-detection variance cannot inflate a
+  centred obstacle's Guard beyond what either side can clear, and freeze that
   uncertainty Guard with the commitment. An obstacle already inside the stop buffer bypasses this
   wait and enters safe-stop immediately.
 - For a committed same-ID obstacle, replace the live envelope with the frozen Guard whenever the
@@ -43,7 +52,9 @@
 - Freeze committed path geometry while its remaining forward portion is still valid against the
   latest Frenet envelopes. Replan only after that validation fails. A side may be reselected before the
   configured lateral/longitudinal engagement threshold, then it is locked for the rest of the
-  maneuver. Keep the commitment until its tail merges at `d=0`, even if perception drops the passed
+  maneuver. After one pre-engagement side switch, switching back is disabled until engagement or
+  the next maneuver so a centred-obstacle tie cannot weave the car. Keep the commitment until its
+  tail merges at `d=0`, even if perception drops the passed
   obstacle.
 - After at least one valid `/static_obs` message, treat input older than
   `obstacle_stale_timeout_sec` as degraded perception, not as proof that the track is clear. Retain

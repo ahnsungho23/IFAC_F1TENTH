@@ -70,9 +70,10 @@ f110_msgs::msg::Obstacle buildUncertaintyGuard(
   const double longitudinal_margin =
     parameters.minimum_longitudinal_margin_m +
     parameters.uncertainty_sigma_scale * positionSigma(obstacle.s_var);
-  const double lateral_margin =
+  const double lateral_margin = std::min(
     parameters.minimum_lateral_margin_m +
-    parameters.uncertainty_sigma_scale * positionSigma(obstacle.d_var);
+    parameters.uncertainty_sigma_scale * positionSigma(obstacle.d_var),
+    parameters.maximum_lateral_margin_m);
 
   const double half_span = 0.5 * shortestSpan(obstacle, track_length) + longitudinal_margin;
   guard.s_start = wrapS(obstacle.s_center - half_span, track_length);
