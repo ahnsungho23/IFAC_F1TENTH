@@ -31,7 +31,6 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
     this->declare_parameter("squash_factor", 2.2);
     this->declare_parameter("max_range", 12.0);
     this->declare_parameter("max_pose_range", 10000.0);
-    this->declare_parameter("delay_compensation_factor", 1.5);
     this->declare_parameter("smoothing_alpha", 0.3);
     this->declare_parameter("smoothing_velocity_full_mps", 2.0);
     this->declare_parameter("smoothing_alpha_gain", 0.4);
@@ -50,6 +49,7 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
     this->declare_parameter("ekf_meas_yaw_std_floor", 0.02);
     this->declare_parameter("ekf_gate_chi2", 16.0);
     this->declare_parameter("ekf_gate_force_accept", 60);
+    this->declare_parameter("ekf_gate_force_accept_dist", 0.0);
     
     // Sensor model parameters
     this->declare_parameter("z_short", 0.01);
@@ -106,7 +106,6 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
     INV_SQUASH_FACTOR = 1.0 / this->get_parameter("squash_factor").as_double();
     MAX_RANGE_METERS = this->get_parameter("max_range").as_double();
     MAX_POSE_RANGE = this->get_parameter("max_pose_range").as_double();
-    DELAY_COMPENSATION_FACTOR = this->get_parameter("delay_compensation_factor").as_double();
     SMOOTHING_ALPHA = this->get_parameter("smoothing_alpha").as_double();
     SMOOTHING_VELOCITY_FULL_MPS = this->get_parameter("smoothing_velocity_full_mps").as_double();
     SMOOTHING_ALPHA_GAIN = this->get_parameter("smoothing_alpha_gain").as_double();
@@ -124,6 +123,7 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
     EKF_MEAS_YAW_STD_FLOOR = this->get_parameter("ekf_meas_yaw_std_floor").as_double();
     EKF_GATE_CHI2 = this->get_parameter("ekf_gate_chi2").as_double();
     EKF_GATE_FORCE_ACCEPT = static_cast<int>(this->get_parameter("ekf_gate_force_accept").as_int());
+    EKF_GATE_FORCE_ACCEPT_DIST = this->get_parameter("ekf_gate_force_accept_dist").as_double();
 
     // Sensor model parameters
     Z_SHORT = this->get_parameter("z_short").as_double();
@@ -1122,6 +1122,7 @@ void ParticleFilter::ekf_reset(const Eigen::Vector3d &pose)
     ekf_cov_(2, 2) = 0.05 * 0.05;
     ekf_initialized_ = true;
     ekf_reject_count_ = 0;
+    ekf_reject_dist_ = 0.0;
     ekf_prev_odom_valid_ = false;   // 다음 예측에서 원시 odom 기준점 재설정
 }
 
@@ -1205,7 +1206,12 @@ void ParticleFilter::ekf_update(const Eigen::Vector3d &z, const Eigen::Matrix3d 
     if (EKF_GATE_CHI2 > 0.0) {
         const double maha2 = innov.dot(S_inv * innov);
         if (maha2 > EKF_GATE_CHI2) {
-            if (ekf_reject_count_ < EKF_GATE_FORCE_ACCEPT) {
+            // 기각 중 누적 주행거리 추적 — 횟수 기준(40회@30Hz=1.3 s)만으로는
+            // 고속에서 너무 오래 묵보정 상태가 된다 (5 m/s면 ~7 m).
+            ekf_reject_dist_ += std::abs(current_velocity_) / TIMER_FREQUENCY;
+            const bool dist_exceeded = EKF_GATE_FORCE_ACCEPT_DIST > 0.0 &&
+                                       ekf_reject_dist_ >= EKF_GATE_FORCE_ACCEPT_DIST;
+            if (ekf_reject_count_ < EKF_GATE_FORCE_ACCEPT && !dist_exceeded) {
                 ++ekf_reject_count_;
                 return;   // MCL 순간 글리치로 판단하고 이번 보정은 건너뜀
             }
@@ -1217,16 +1223,18 @@ void ParticleFilter::ekf_update(const Eigen::Vector3d &z, const Eigen::Matrix3d 
                 RCLCPP_WARN(this->get_logger(),
                             "Pose EKF: force-accept target in occupied/unknown cell - NOT re-anchoring");
                 ekf_reject_count_ = 0;   // 일정 주기 후 재시도
+                ekf_reject_dist_ = 0.0;
                 return;
             }
             RCLCPP_WARN(this->get_logger(),
-                        "Pose EKF: %d consecutive gate rejections - re-anchoring to MCL pose",
-                        ekf_reject_count_);
+                        "Pose EKF: %d consecutive gate rejections (%.2f m rejected) - re-anchoring to MCL pose",
+                        ekf_reject_count_, ekf_reject_dist_);
             ekf_reset(z);
             return;
         }
     }
     ekf_reject_count_ = 0;
+    ekf_reject_dist_ = 0.0;
 
     const Eigen::Matrix3d K = ekf_cov_ * S_inv;
     ekf_state_ += K * innov;
@@ -1487,29 +1495,6 @@ void ParticleFilter::timer_update()
 
             mcl_executed = true;  // Mark that MCL was executed
             has_new_lidar_data_ = false;    // Mark lidar data as processed
-            
-            /*
-
-            if (iters_ % 100 == 0) {
-                RCLCPP_INFO(this->get_logger(), "MCL iter %d: [%.2f, %.2f, %.2f]", iters_,
-                           inferred_pose_[0], inferred_pose_[1], inferred_pose_[2]);
-            }
-
-            if (iters_ % 200 == 0) {
-                // Print performance stats
-                auto logger_func = [this](const std::string& msg) {
-                    RCLCPP_INFO(this->get_logger(), "%s", msg.c_str());
-                };
-                timing_stats_.print_stats(logger_func);
-
-                if (timing_stats_.measurement_count > 0) {
-                    RCLCPP_INFO(this->get_logger(),
-                        "Particles: %d, Rays/particle: %zu, Total rays: %d",
-                        MAX_PARTICLES, downsampled_angles_.size(), MAX_PARTICLES * static_cast<int>(downsampled_angles_.size()));
-                }
-                timing_stats_.reset();
-            }
-            */
         }
         // CASE 2: Only odometry available - odometry tracking
         else if (has_odom && !has_lidar && odom_tracking_active_) {

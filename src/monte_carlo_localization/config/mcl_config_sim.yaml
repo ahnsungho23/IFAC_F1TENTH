@@ -14,7 +14,6 @@ particle_filter:
     max_viz_particles: 40              # Reduced visualization particles for better performance
     max_range: 10.0                    # Set laser max range 
     max_pose_range: 10000.0           # Maximum valid pose coordinate range (m)
-    delay_compensation_factor: 1.0     # [은퇴] 코드에서 미사용 — 지연 보상은 실측 lidar age(now - scan stamp)로 대첨됨
     
     # === MODE & TF CONTROL ===
     sim_mode: false                    # Simulation mode flag (set by launch file)
@@ -66,6 +65,7 @@ particle_filter:
     ekf_meas_yaw_std_floor: 0.02       # 측정 요 표준편차 하한 [rad]
     ekf_gate_chi2: 25.0                # 마할라노비스 게이트(3자유도), 0=비활성
     ekf_gate_force_accept: 40          # 연속 기각 이 횟수 도달 시 MCL로 재고정
+    ekf_gate_force_accept_dist: 1.5    # 기각 중 누적 주행거리가 이 값[m]이어도 재고정 (고속 묵보정 방지, 0=해제)
 
     # === ROBOT GEOMETRY ===
     # Real hardware values (overridden in sim_mode)

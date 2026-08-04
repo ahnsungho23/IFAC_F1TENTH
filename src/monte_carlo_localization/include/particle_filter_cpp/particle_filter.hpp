@@ -126,7 +126,6 @@ class ParticleFilter : public rclcpp::Node
     bool USE_PARALLEL_RAYCASTING;
     int NUM_THREADS;
     double MAX_POSE_RANGE;
-    double DELAY_COMPENSATION_FACTOR;
     double SMOOTHING_ALPHA;
     double SMOOTHING_VELOCITY_FULL_MPS;   // 속도 적응 alpha가 최대 보정에 도달하는 속도
     double SMOOTHING_ALPHA_GAIN;          // 최대 속도에서 base alpha에 더해지는 폭
@@ -149,11 +148,13 @@ class ParticleFilter : public rclcpp::Node
     double EKF_MEAS_YAW_STD_FLOOR;    // 측정 요 표준편차 하한 [rad]
     double EKF_GATE_CHI2;             // 마할라노비스 게이트 (0=비활성)
     int EKF_GATE_FORCE_ACCEPT;        // 연속 기각 이 횟수 도달 시 강제 수용(재고정)
+    double EKF_GATE_FORCE_ACCEPT_DIST;  // 기각 중 누적 주행거리가 이 값[m] 도달 시에도 재고정 (0=거리 조건 해제)
 
     bool ekf_initialized_;
     Eigen::Vector3d ekf_state_;
     Eigen::Matrix3d ekf_cov_;
     int ekf_reject_count_;
+    double ekf_reject_dist_ = 0.0;    // 기각 중 누적 주행거리 [m] (고속에서의 장시간 묵보정 방지)
     bool ekf_prev_odom_valid_;
     Eigen::Vector3d ekf_prev_odom_;   // 직전 예측 시점의 원시 odom 포즈 (델타 계산용)
     double lidar_offset_x_ = 0.27;    // base_link→laser 오프셋 (TF에서 갱신, apply_tf_offset 공유)
