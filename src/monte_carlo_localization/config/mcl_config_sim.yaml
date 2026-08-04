@@ -84,8 +84,8 @@ particle_filter:
     # === RAY CASTING ===
     angle_step: 18                     # Laser downsampling factor
     squash_factor: 2.5                 # Weight normalization (지수 = 1/이값, 작을수록 대비 눌림)
-    # 상황별 squash 조정 — false=구 거동(조정 없음). 실차 YAML(mcl_config.yaml) 주석 참고.
-    use_adaptive_squash: false
+    # 상황별 squash 조정 — false=조정 없음(구 거동). 실차 YAML(mcl_config.yaml) 주석 참고.
+    use_adaptive_squash: true
     squash_factor_high_speed_curve: 3.5
     squash_factor_fast_convergence: 1.2
     use_parallel_raycasting: true      # Enable parallel processing

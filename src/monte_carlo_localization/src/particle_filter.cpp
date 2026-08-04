@@ -29,7 +29,7 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
     this->declare_parameter("max_particles", 2000);
     this->declare_parameter("max_viz_particles", 60);
     this->declare_parameter("squash_factor", 2.2);
-    this->declare_parameter("use_adaptive_squash", false);
+    this->declare_parameter("use_adaptive_squash", true);
     this->declare_parameter("squash_factor_high_speed_curve", 3.5);
     this->declare_parameter("squash_factor_fast_convergence", 1.2);
     this->declare_parameter("max_range", 12.0);
