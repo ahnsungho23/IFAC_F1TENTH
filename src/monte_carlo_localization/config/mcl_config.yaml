@@ -8,8 +8,8 @@
 particle_filter:
   ros__parameters:
     # === CORE ALGORITHM PARAMETERS ===
-    max_particles: 1000                 # Optimized particle count for real-time performance
-    max_viz_particles: 40              # Reduced visualization particles for better performance
+    max_particles: 500                 # Optimized particle count for real-time performance
+    max_viz_particles: 20              # Reduced visualization particles for better performance
     max_range: 10.0                    # Set laser max range 
     max_pose_range: 10000.0           # Maximum valid pose coordinate range (m)
     
@@ -24,9 +24,9 @@ particle_filter:
     #    0.08/0.08로 낮췄을 때 실차에서 파티클 가중치 붕괴→재분산 반복(구름이 퍼짐)으로
     #    MCL 부작동이 관측되어 복원 (2026-08-03). 진동/스캔 노이즈가 큰 실차 환경에서는
     #    모션 노이즈가 너무 작으면 파티클이 가설을 커버하지 못한다.
-    motion_dispersion_x: 0.15          # 종방향(진행방향) 노이즈 σ (m)
+    motion_dispersion_x: 0.10          # 종방향(진행방향) 노이즈 σ (m)
     motion_dispersion_y: 0.02          # 횡방향 노이즈 σ (m)
-    motion_dispersion_theta: 0.25      # 회전 노이즈 σ (rad)
+    motion_dispersion_theta: 0.20      # 회전 노이즈 σ (rad)
     
     # === POSE SMOOTHING ===
     # ── Pose EMA smoothing (0.0=max smooth, 1.0=no smooth) ─────────────────────
@@ -35,8 +35,8 @@ particle_filter:
     # 구 실차값 0.05는 저속(α≈0.05)에서 τ≈0.63 s — "MCL이 늦게 따라온다"의 주범이라
     # 0.3(τ≈77 ms)으로 상향 (2026-07-29). 지터가 늘면 0.2까지 낮춰볼 것.
     # 시뮬은 mcl_launch.py가 0.5로 오버라이드(모션 모델 튜닝과 한 세트).
-    smoothing_alpha: 0.3
-    smoothing_velocity_full_mps: 2.0   # 이 속도 이상에서 속도 적응 보정이 최대
+    smoothing_alpha: 0.2
+    smoothing_velocity_full_mps: 3.0   # 이 속도 이상에서 속도 적응 보정이 최대
     smoothing_alpha_gain: 0.4          # 최대 속도에서 base에 더해지는 폭 (0.3→0.7)
     smoothing_alpha_max: 0.8           # 유효 alpha 상한
 
@@ -52,25 +52,25 @@ particle_filter:
     use_pose_ekf: true
     # 병진 오차율: 실차 휠 odom 고유 오차는 ~0.3%지만, 30Hz 델타 적용·헤딩 결합 오차를
     # 포함한 유효값으로 1%를 쓴다(과소하면 게인이 죽어 사실상 데드레커닝이 됨).
-    ekf_trans_error_rate: 0.01         # 주행거리 대비 병진 오차율
+    ekf_trans_error_rate: 0.03         # 주행거리 대비 병진 오차율
     ekf_trans_floor_mps: 0.01          # 병진 프로세스 노이즈 시간 하한 [m/s]
     ekf_lat_error_ratio: 0.3           # 종방향 시그마 대비 횡방향 비율
-    ekf_rot_error_rate: 0.05           # 회전량 대비 요 오차율
+    ekf_rot_error_rate: 0.10           # 회전량 대비 요 오차율
     ekf_rot_floor_radps: 0.02          # 요 프로세스 노이즈 시간 하한 [rad/s]
     ekf_meas_var_inflation: 1.0        # 파티클 공분산 → R 전역 배율
     # 평행벽 복도에서 MCL이 진행방향 위치를 관측 못 해 "틀린 곳에 좁게" 수렴하므로
     # (공분산이 모호성 과소평가), 차체 종방향 R만 항상 크게 부풀린다. 복도 표류는 무시되고
     # 코너를 돌면 이전 종방향 오차가 횡방향으로 회전돼 고게인으로 보정된다.
-    ekf_meas_long_inflation: 25.0      # 종방향(진행방향) R 배율 (= 표준편차 5배)
+    ekf_meas_long_inflation: 44.0      # 종방향(진행방향) R 배율 (= 표준편차 5배)
     ekf_meas_pos_std_floor: 0.02       # 측정 위치 표준편차 하한 [m] (과신 방지)
     ekf_meas_yaw_std_floor: 0.02       # 측정 요 표준편차 하한 [rad]
     ekf_gate_chi2: 25.0                # 마할라노비스 게이트(3자유도), 0=비활성
-    ekf_gate_force_accept: 40          # 연속 기각 이 횟수 도달 시 MCL로 재고정
+    ekf_gate_force_accept: 20          # 연속 기각 이 횟수 도달 시 MCL로 재고정
     ekf_gate_force_accept_dist: 1.5    # 기각 중 누적 주행거리가 이 값[m]이어도 재고정 (고속 묵보정 방지, 0=해제)
 
     # === ROBOT GEOMETRY ===
     # lidar 오프셋은 TF(base_link→laser)에서 읽는다 (실패 시 코드 기본값 0.27 m)
-    wheelbase: 0.324                   # Distance between axles (m)
+    wheelbase: 0.33                   # Distance between axles (m)
     
     # === SENSOR MODEL (4-component beam model) ===
     z_hit: 0.80                        # Weight for correct measurements (increased for better tracking)
@@ -84,7 +84,7 @@ particle_filter:
     ray_likelihood_floor_ratio: 0.05   # per-ray likelihood 하한 (센서 모델 열 최댓값 대비).
                                        # 0=비활성. 틀린 레이 1개의 최대 벌점이 66배→20배로 제한됨
     use_scan_quality_r: true           # 스캔 품질 연동 측정 노이즈 R 부풀림 (EKF 모드)
-    scan_quality_outlier_gain: 4.0     # K_OUTLIER — outlier 비율 기반 R 부풀림 강도
+    scan_quality_outlier_gain: 1.5     # K_OUTLIER — outlier 비율 기반 R 부풀림 강도
     scan_quality_outlier_start: 0.15   # q0 — outlier 비율이 이 이하면 페널티 없음
     scan_quality_ess_gain: 2.0         # K_ESS — ESS 하락 기반 R 부풀림 강도
     scan_quality_ess_start: 0.4        # ess0 — ESS/N이 이 이하면 페널티 시작
@@ -94,7 +94,7 @@ particle_filter:
     squash_factor: 2.5                 # Weight normalization (지수 = 1/이값, 작을수록 대비 눌림)
     # 상황별 squash 조정 (2026-08-04). 과거 코드는 min/max 상수가 거꾸로라 두 분기가
     # no-op이었음 → 토글로 복원. false=조정 없음(구 거동, 문제 시 롤백용).
-    use_adaptive_squash: true          # true면 아래 두 상황별 조정 활성
+    use_adaptive_squash: false          # true면 아래 두 상황별 조정 활성
     squash_factor_high_speed_curve: 3.5  # 고속 커브(v>4 & |w|>0.3): 지수 1/3.5≈0.29로 더 눌러 소수 파티클 지배 완화
     squash_factor_fast_convergence: 1.2  # 초기 수렴 N회: 지수 1/1.2≈0.83으로 더 뾰족하게 정답 가설 빨리 선택
     use_parallel_raycasting: true      # Enable parallel processing
@@ -105,7 +105,7 @@ particle_filter:
     odom_topic: "/odom"                # Odometry input topic
     publish_odom: true                 # Publish pose as odometry message
     viz: true                          # Enable particle visualization
-    timer_frequency: 30.0              # MCL update frequency (Hz) - increased for simulation
+    timer_frequency: 20.0              # MCL update frequency (Hz) - increased for simulation
     
     # === TF FRAME NAMES ===
     map_frame: "map"                   # Global reference frame
