@@ -21,9 +21,7 @@
 #include <memory>
 #include <utility>
 
-#include <geometry_msgs/msg/point.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
-#include <visualization_msgs/msg/marker.hpp>
 
 namespace local_planning
 {
@@ -292,8 +290,6 @@ void LocalPlannerNode::initializeParameters()
     declare_parameter<double>("commitment_lock_lateral_threshold_m", 0.10);
   commitment_lock_longitudinal_m_ =
     declare_parameter<double>("commitment_lock_longitudinal_m", 0.50);
-  obstacle_marker_scale_m_ = declare_parameter<double>("obstacle_marker_scale_m", 0.35);
-  path_marker_width_m_ = declare_parameter<double>("path_marker_width_m", 0.06);
 
   global_waypoints_topic_ =
     declare_parameter<std::string>("global_waypoints_topic", "/global_waypoints");
@@ -308,10 +304,6 @@ void LocalPlannerNode::initializeParameters()
     declare_parameter<std::string>("ot_waypoints_topic", "/avoid_waypoints");
   local_path_topic_ =
     declare_parameter<std::string>("local_path_topic", "/local_planning/path");
-  compatibility_path_topic_ =
-    declare_parameter<std::string>("compatibility_path_topic", "/local_path");
-  markers_topic_ =
-    declare_parameter<std::string>("markers_topic", "/local_planning/markers");
   frame_id_ = declare_parameter<std::string>("frame_id", "map");
 
   const bool control_points_valid =
@@ -410,10 +402,6 @@ void LocalPlannerNode::initializeInterfaces()
   avoid_waypoints_pub_ =
     create_publisher<f110_msgs::msg::OTWpntArray>(ot_waypoints_topic_, volatile_qos);
   local_path_pub_ = create_publisher<nav_msgs::msg::Path>(local_path_topic_, volatile_qos);
-  compatibility_path_pub_ =
-    create_publisher<nav_msgs::msg::Path>(compatibility_path_topic_, volatile_qos);
-  markers_pub_ =
-    create_publisher<visualization_msgs::msg::MarkerArray>(markers_topic_, volatile_qos);
 
   planning_timer_ = create_wall_timer(
     std::chrono::milliseconds(planning_period_ms_),
@@ -1131,7 +1119,7 @@ void LocalPlannerNode::handleSafeStopLatch(const EgoFrenetState & ego)
         "Safe-stop released after %d consecutive feasible avoidance plans.",
         safe_stop_release_count_);
       commitAvoidance(std::move(result), ego, planning_obstacles);
-      publishResult(committed_result_, ego, static_obstacles_);
+      publishResult(committed_result_);
       return;
     }
   } else if (result.kind == SplinePlanKind::kNoObstacle) {
@@ -1142,7 +1130,7 @@ void LocalPlannerNode::handleSafeStopLatch(const EgoFrenetState & ego)
           get_logger(),
           "Safe-stop released after %d clear cycles; publishing global handoff.",
           safe_stop_release_count_);
-        publishResult(committed_result_, ego, static_obstacles_);
+        publishResult(committed_result_);
         return;
       }
       safe_stop_release_count_ = 0;
@@ -1155,7 +1143,7 @@ void LocalPlannerNode::handleSafeStopLatch(const EgoFrenetState & ego)
     safe_stop_release_count_ = 0;
   }
 
-  publishResult(safe_stop_result_, ego, static_obstacles_);
+  publishResult(safe_stop_result_);
 }
 
 bool LocalPlannerNode::commitmentComplete(const EgoFrenetState & ego)
@@ -1227,7 +1215,7 @@ void LocalPlannerNode::onPlanningTimer()
       "Frenet odometry is stale; publishing a zero-speed hold at the last known pose";
     RCLCPP_ERROR_THROTTLE(
       get_logger(), *get_clock(), 2000, "%s", emergency_hold.reason.c_str());
-    publishResult(emergency_hold, ego, static_obstacles_);
+    publishResult(emergency_hold);
     return;
   }
   if (require_obstacles_message_ && !has_obstacles_message_) {
@@ -1267,7 +1255,7 @@ void LocalPlannerNode::onPlanningTimer()
         publishEmpty("state machine confirmed global handoff");
         return;
       }
-      publishResult(committed_result_, ego, static_obstacles_);
+      publishResult(committed_result_);
       return;
     }
   }
@@ -1278,7 +1266,7 @@ void LocalPlannerNode::onPlanningTimer()
   if (has_commitment_ && !merge_geometry_confirmed_) {
     std::vector<f110_msgs::msg::Obstacle> early_next_obstacles;
     if (tryEarlyChainedManeuver(ego, early_next_obstacles)) {
-      publishResult(committed_result_, ego, static_obstacles_);
+      publishResult(committed_result_);
       return;
     }
   }
@@ -1300,7 +1288,7 @@ void LocalPlannerNode::onPlanningTimer()
     }
   }
   if (has_commitment_ && merge_geometry_confirmed_) {
-    publishResult(committed_result_, ego, static_obstacles_);
+    publishResult(committed_result_);
     return;
   }
 
@@ -1317,20 +1305,20 @@ void LocalPlannerNode::onPlanningTimer()
         const bool published_preparation = initial_prepare_published_;
         resetInitialStabilization();
         if (published_preparation && activateGlobalHandoff(ego)) {
-          publishResult(committed_result_, ego, static_obstacles_);
+          publishResult(committed_result_);
           return;
         }
       } else if (preparation.kind == SplinePlanKind::kNoSafePath) {
         resetInitialStabilization();
         latchSafeStop(std::move(preparation), ego, planning_obstacles);
-        publishResult(safe_stop_result_, ego, planning_obstacles);
+        publishResult(safe_stop_result_);
         return;
       } else {
         const bool stable = updateInitialStabilization(
           preparation.obstacle_ids, conservative_obstacles, now());
         if (!stable) {
           initial_prepare_published_ = true;
-          publishResult(preparation, ego, planning_obstacles);
+          publishResult(preparation);
           return;
         }
         // The final guard is frozen from the conservative multi-message union and its worst
@@ -1365,7 +1353,7 @@ void LocalPlannerNode::onPlanningTimer()
       resetCommitmentViolationConfirmation();
       // The committed geometry is still safe. Rebuilding six spline candidates here only makes
       // perception jitter visible downstream and repeats all geometry/curvature work.
-      publishResult(committed_result_, ego, static_obstacles_);
+      publishResult(committed_result_);
       return;
     }
 
@@ -1398,7 +1386,7 @@ void LocalPlannerNode::onPlanningTimer()
         if (commitment_soft_violation_count_ <
           commitment_soft_violation_confirm_cycles_)
         {
-          publishResult(committed_result_, ego, static_obstacles_);
+          publishResult(committed_result_);
           return;
         }
         resetCommitmentViolationConfirmation();
@@ -1423,29 +1411,29 @@ void LocalPlannerNode::onPlanningTimer()
 
   if (result.kind == SplinePlanKind::kAvoidance) {
     commitAvoidance(std::move(result), ego, planning_obstacles);
-    publishResult(committed_result_, ego, planning_obstacles);
+    publishResult(committed_result_);
     return;
   }
 
   if (has_commitment_ && result.kind == SplinePlanKind::kNoObstacle) {
     // Perception commonly drops the passed obstacle before the spline tail is reached. Keep the
     // already race-line-locked commitment until its geometric merge is complete.
-    publishResult(committed_result_, ego, static_obstacles_);
+    publishResult(committed_result_);
     return;
   }
   if (result.kind == SplinePlanKind::kSafeStop) {
     latchSafeStop(std::move(result), ego, planning_obstacles);
-    publishResult(safe_stop_result_, ego, planning_obstacles);
+    publishResult(safe_stop_result_);
     return;
   }
   if (has_commitment_) {
     latchSafeStop(std::move(result), ego, planning_obstacles);
-    publishResult(safe_stop_result_, ego, static_obstacles_);
+    publishResult(safe_stop_result_);
     return;
   }
   if (result.kind == SplinePlanKind::kNoSafePath && result.obstacle_id >= 0) {
     latchSafeStop(std::move(result), ego, planning_obstacles);
-    publishResult(safe_stop_result_, ego, planning_obstacles);
+    publishResult(safe_stop_result_);
     return;
   }
   clearCommitment();
@@ -1470,94 +1458,7 @@ nav_msgs::msg::Path LocalPlannerNode::makePath(
   return path;
 }
 
-visualization_msgs::msg::MarkerArray LocalPlannerNode::makeMarkers(
-  const RacelineSplineResult & result,
-  const EgoFrenetState & ego,
-  const std::vector<f110_msgs::msg::Obstacle> & obstacles) const
-{
-  using visualization_msgs::msg::Marker;
-  visualization_msgs::msg::MarkerArray markers;
-  Marker clear;
-  clear.header.stamp = now();
-  clear.header.frame_id = frame_id_;
-  clear.action = Marker::DELETEALL;
-  markers.markers.push_back(clear);
-
-  Marker path;
-  path.header = clear.header;
-  path.ns = "raceline_offset_spline";
-  path.id = 0;
-  path.type = Marker::LINE_STRIP;
-  path.action = Marker::ADD;
-  path.pose.orientation.w = 1.0;
-  path.scale.x = path_marker_width_m_;
-  path.color.a = 1.0F;
-  const bool stop_like =
-    result.kind == SplinePlanKind::kSafeStop ||
-    result.kind == SplinePlanKind::kPreparation;
-  path.color.g = stop_like ? 0.55F : 1.0F;
-  path.color.r = stop_like ? 1.0F : 0.05F;
-  for (const auto & waypoint : result.path.wpnts) {
-    geometry_msgs::msg::Point point;
-    point.x = waypoint.x_m;
-    point.y = waypoint.y_m;
-    point.z = 0.03;
-    path.points.push_back(point);
-  }
-  markers.markers.push_back(path);
-
-  Marker control;
-  control.header = clear.header;
-  control.ns = "spline_control_points";
-  control.id = 0;
-  control.type = Marker::SPHERE_LIST;
-  control.action = Marker::ADD;
-  control.pose.orientation.w = 1.0;
-  control.scale.x = 0.14;
-  control.scale.y = 0.14;
-  control.scale.z = 0.14;
-  control.color.a = 1.0F;
-  control.color.b = 1.0F;
-  control.color.r = 0.8F;
-  for (const auto & point_sd : result.control_points) {
-    geometry_msgs::msg::Point point;
-    double yaw = 0.0;
-    planner_.toCartesian(ego.s + point_sd.forward_s, point_sd.d, point.x, point.y, yaw);
-    point.z = 0.08;
-    control.points.push_back(point);
-  }
-  markers.markers.push_back(control);
-
-  int marker_id = 0;
-  for (const auto & obstacle : obstacles) {
-    if (!validCartesianAabb(obstacle)) {
-      continue;
-    }
-    Marker marker;
-    marker.header = clear.header;
-    marker.ns = "static_obstacles";
-    marker.id = marker_id++;
-    marker.type = Marker::CUBE;
-    marker.action = Marker::ADD;
-    marker.pose.position.x = obstacle.x_center;
-    marker.pose.position.y = obstacle.y_center;
-    marker.scale.x = std::max(0.02, obstacle.x_max - obstacle.x_min);
-    marker.scale.y = std::max(0.02, obstacle.y_max - obstacle.y_min);
-    marker.scale.z = std::max(0.02, obstacle_marker_scale_m_);
-    marker.pose.position.z = 0.5 * marker.scale.z;
-    marker.pose.orientation.w = 1.0;
-    marker.color.a = 0.85F;
-    marker.color.r = 1.0F;
-    marker.color.g = 0.1F;
-    markers.markers.push_back(marker);
-  }
-  return markers;
-}
-
-void LocalPlannerNode::publishResult(
-  const RacelineSplineResult & result,
-  const EgoFrenetState & ego,
-  const std::vector<f110_msgs::msg::Obstacle> & obstacles)
+void LocalPlannerNode::publishResult(const RacelineSplineResult & result)
 {
   f110_msgs::msg::OTWpntArray output;
   output.header.stamp = now();
@@ -1583,20 +1484,8 @@ void LocalPlannerNode::publishResult(
   last_published_side_ = current_side;
   avoid_waypoints_pub_->publish(output);
 
-  const bool publish_local_path = local_path_pub_->get_subscription_count() > 0U;
-  const bool publish_compatibility_path =
-    compatibility_path_pub_->get_subscription_count() > 0U;
-  if (publish_local_path || publish_compatibility_path) {
-    const auto path = makePath(result.path.wpnts, output.header);
-    if (publish_local_path) {
-      local_path_pub_->publish(path);
-    }
-    if (publish_compatibility_path) {
-      compatibility_path_pub_->publish(path);
-    }
-  }
-  if (markers_pub_->get_subscription_count() > 0U) {
-    markers_pub_->publish(makeMarkers(result, ego, obstacles));
+  if (local_path_pub_->get_subscription_count() > 0U) {
+    local_path_pub_->publish(makePath(result.path.wpnts, output.header));
   }
 }
 
@@ -1609,22 +1498,10 @@ void LocalPlannerNode::publishEmpty(const std::string & reason)
   output.ot_line = reason;
   avoid_waypoints_pub_->publish(output);
 
-  const bool publish_local_path = local_path_pub_->get_subscription_count() > 0U;
-  const bool publish_compatibility_path =
-    compatibility_path_pub_->get_subscription_count() > 0U;
-  if (publish_local_path || publish_compatibility_path) {
+  if (local_path_pub_->get_subscription_count() > 0U) {
     nav_msgs::msg::Path empty_path;
     empty_path.header = output.header;
-    if (publish_local_path) {
-      local_path_pub_->publish(empty_path);
-    }
-    if (publish_compatibility_path) {
-      compatibility_path_pub_->publish(empty_path);
-    }
-  }
-  if (markers_pub_->get_subscription_count() > 0U) {
-    RacelineSplineResult empty_result;
-    markers_pub_->publish(makeMarkers(empty_result, EgoFrenetState(), {}));
+    local_path_pub_->publish(empty_path);
   }
   RCLCPP_DEBUG_THROTTLE(get_logger(), *get_clock(), 2000, "%s", reason.c_str());
 }

@@ -43,5 +43,5 @@ source install/setup.zsh
 ros2 launch local_planning local_planning.launch.py
 ```
 
-출력은 `/avoid_waypoints`입니다. 최종 `/local_waypoints` 선택과 발행은 `/state`를 구독하는
-`wpnt_publisher`가 단독으로 담당합니다.
+계획 출력은 `/avoid_waypoints`, RViz 경로 출력은 `/local_planning/path`입니다. 최종
+`/local_waypoints` 선택과 발행은 `/state`를 구독하는 `wpnt_publisher`가 단독으로 담당합니다.

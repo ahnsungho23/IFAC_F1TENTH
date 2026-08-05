@@ -100,9 +100,6 @@ local_planner_node:
     commitment_lock_lateral_threshold_m: 0.10
     commitment_lock_longitudinal_m: 0.50
 
-    obstacle_marker_scale_m: 0.35
-    path_marker_width_m: 0.06
-
     global_waypoints_topic: "/global_waypoints"
     # obstacle_detector Layer 2 output. It contains provisional/confirmed static objects.
     obstacles_topic: "/static_obs"
@@ -110,6 +107,4 @@ local_planner_node:
     state_topic: "/state"
     ot_waypoints_topic: "/avoid_waypoints"
     local_path_topic: "/local_planning/path"
-    compatibility_path_topic: "/local_path"
-    markers_topic: "/local_planning/markers"
     frame_id: "map"

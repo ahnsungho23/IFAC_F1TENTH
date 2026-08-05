@@ -17,7 +17,7 @@
 - Use `f110_msgs/msg/ObstacleArray`, `WpntArray`, and `OTWpntArray`; do not create a new message.
 - Consume the detector-owned Frenet footprint on `/static_obs` without any Cartesian-to-Frenet
   conversion. Treat `s_start/s_end/d_right/d_left` as the authoritative obstacle geometry.
-  Cartesian AABB fields are optional current-observation metadata used only for RViz markers.
+  Cartesian AABB fields are optional metadata and are not consumed as planner geometry.
 - Derive each target `d` from the obstacle lateral bound plus configured clearance and the small
   commitment reserve. Reject targets outside the per-waypoint `d_left`/`d_right` track widths.
   A raceline-centred obstacle demands the full obstacle width plus margins on BOTH sides at once;
@@ -113,7 +113,7 @@
   acknowledgement.
 - Publish: `/avoid_waypoints` (`f110_msgs/msg/OTWpntArray`) as an ego-to-merge segment with
   map-frame Cartesian `x_m/y_m` populated for every waypoint.
-- Publish debug: `/local_planning/path`, `/local_path`, `/local_planning/markers`.
+- Publish debug: `/local_planning/path` (`nav_msgs/msg/Path`) only.
 - Never publish `/local_waypoints`; `wpnt_publisher` exclusively selects and publishes it according
   to `/state`.
 

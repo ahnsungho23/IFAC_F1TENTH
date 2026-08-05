@@ -31,7 +31,7 @@
    사용합니다. `obstacle_detector`가 map-frame Cartesian AABB 전체를 CLCS로 투영하고, 가까운
    Race Line 선분과 AABB 면 사이의 최단거리까지 반영합니다. local planner는 이 좌표변환을
    반복하지 않습니다. Cartesian AABB와 enclosing-circle `radius`는 회피 형상에 사용하지
-   않으며, 유효한 현재 AABB가 있을 때 RViz 표시에만 사용합니다.
+   않습니다.
 3. 한 점 apex가 아니라 장애물 군집의 앞·뒤에서 목표 `d`를 유지해 긴 정적 장애물도 처리합니다.
 4. 글로벌 waypoint 자체를 출력 표본으로 사용해 Race Line의 위상 순서를 강제합니다.
 5. 좌우 모두 불가능하면 장애물 앞 감속 경로를 발행합니다.
@@ -47,7 +47,7 @@
 4. `/static_obs`를 provisional/confirmed 정적 레이어 계약에 따라 그대로 입력받습니다.
 5. detector가 채운 Frenet 값이 유한하고 `d_right <= d_left`이며 종·횡방향 중 하나 이상의
    폭이 양수인지 검사합니다. 조건을 만족하지 않으면 해당 장애물을 제외합니다. Cartesian
-   AABB는 `has_cartesian=true`이고 값이 유효할 때만 marker metadata로 보존합니다.
+   AABB는 planner geometry로 사용하지 않습니다.
 
 ### 3.2 가장 가까운 정적 장애물 군집
 
@@ -299,8 +299,6 @@ commitment는 지우지 않으므로 odometry가 회복되면 다시 검증한 �
 | 구독 | `/state` | `f110_msgs/msg/StateMachine` | AVOID 진입 및 GLOBAL handoff 완료 확인 |
 | 발행 | `/avoid_waypoints` | `f110_msgs/msg/OTWpntArray` | ego부터 글로벌 합류 뒤 lookahead까지의 회피 세그먼트 |
 | 발행 | `/local_planning/path` | `nav_msgs/msg/Path` | RViz용 현재 안전 경로 |
-| 발행 | `/local_path` | `nav_msgs/msg/Path` | 기존 시각화 호환 토픽 |
-| 발행 | `/local_planning/markers` | `visualization_msgs/msg/MarkerArray` | 경로, spline 제어점, 입력 정적 장애물 AABB |
 
 `/avoid_waypoints.ot_line`은 최초 군집 관측용 감속 경로일 때 `raceline_static_prepare`, 정상
 회피일 때 `raceline_local_d_offset_spline`, 허용된 회피 방향이 모두 막힌 감속 경로일 때
@@ -457,13 +455,10 @@ ros2 launch local_planning local_planning.launch.py use_sim_time:=true
 ```zsh
 ros2 topic echo /avoid_waypoints --once
 ros2 topic echo /local_planning/path --once
-ros2 topic hz /local_planning/markers
 ```
 
-RViz에서 `/local_planning/markers`를 추가하면 초록 선은 검증된 spline, 주황 선은 safe stop,
-보라색 점은 spline 제어점, 빨간 직육면체는 detector가 현재 관측 metadata로 제공한 정적 장애물
-Cartesian AABB입니다. `has_cartesian=false`인 predicted-only 객체는 marker를 만들지 않지만
-Frenet 경계는 계속 계획 입력으로 사용할 수 있습니다.
+RViz에서 `Path` display에 `/local_planning/path`를 지정하면 현재 검증된 회피 경로나 safe-stop
+경로를 확인할 수 있습니다.
 
 local planner가 실제 사용하는 Frenet 장애물 영역을 그대로 확인하려면 detector의
 `/static_obs/markers`를 추가합니다. 이 토픽은 최종 `/static_obs`의
