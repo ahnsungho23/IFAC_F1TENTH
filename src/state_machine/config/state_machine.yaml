@@ -17,7 +17,7 @@ state_machine_node:
     waypoint_num: 50
 
     # false면 해당 GLOBAL -> local 상태 진입만 차단합니다. 복귀 판정은 항상 동작합니다.
-    allow_avoid_transition: false
+    allow_avoid_transition: true
     allow_overtake_transition: false
     local_path_confirmation_window_size: 5
     local_path_confirmation_min_hits: 3
