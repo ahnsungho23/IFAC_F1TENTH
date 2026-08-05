@@ -142,6 +142,72 @@ TEST(RacelineSplinePlanner, ShiftsOnlyOrderedGlobalRaceLineSamples)
   EXPECT_NEAR(result.path.wpnts.back().d_m, 0.0, 1.0e-6);
 }
 
+TEST(RacelineSplinePlanner, MovesProgressivelyThroughQuinticControlMarkers)
+{
+  auto parameters = testParameters();
+  parameters.transition_distance_scales = {1.0};
+  RacelineSplinePlanner planner(parameters);
+  ASSERT_TRUE(planner.setReference(makeStraightReference()));
+
+  const auto result = planner.plan(
+    EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(17, 8.0)}, true);
+  ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
+  ASSERT_EQ(result.control_points.size(), 8U);
+
+  const double target = result.target_d;
+  ASSERT_GT(target, 0.0);
+  EXPECT_NEAR(result.control_points[0].d, 0.0, 1.0e-9);
+  EXPECT_GT(result.control_points[1].d, 0.0);
+  EXPECT_GT(result.control_points[2].d, result.control_points[1].d);
+  EXPECT_LT(result.control_points[2].d, target);
+  EXPECT_NEAR(result.control_points[3].d, target, 1.0e-9);
+  EXPECT_NEAR(result.control_points[4].d, target, 1.0e-9);
+  EXPECT_LT(result.control_points[6].d, result.control_points[5].d);
+  EXPECT_GT(result.control_points[6].d, 0.0);
+  EXPECT_NEAR(result.control_points[7].d, 0.0, 1.0e-9);
+}
+
+TEST(RacelineSplinePlanner, PrefersLongestEntryAndShortestFeasibleExitScales)
+{
+  auto parameters = testParameters();
+  parameters.pre_apex_distances_m = {4.0, 3.0, 1.5};
+  parameters.post_apex_distances_m = {1.5, 3.0, 4.0};
+  parameters.transition_distance_scales = {1.0, 1.25, 1.5};
+  RacelineSplinePlanner planner(parameters);
+  ASSERT_TRUE(planner.setReference(makeStraightReference()));
+
+  const auto result = planner.plan(
+    EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(18, 10.0)}, true);
+  ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
+  ASSERT_FALSE(result.control_points.empty());
+
+  // Inflated obstacle start is 10.0 - (0.20 + 0.35) = 9.45 m. The longest
+  // 4.0 * 1.5 = 6.0 m entry therefore begins at 3.45 m.
+  EXPECT_NEAR(result.control_points.front().forward_s, 3.45, 1.0e-6);
+  // The independently selected shortest exit uses 4.0 * 1.0 m after the
+  // inflated obstacle end at 10.55 m.
+  EXPECT_NEAR(result.merge_s, 14.55, 1.0e-6);
+}
+
+TEST(RacelineSplinePlanner, KeepsQuinticAvoidanceValidOnCurvedReference)
+{
+  auto parameters = testParameters();
+  parameters.transition_distance_scales = {1.0};
+  RacelineSplinePlanner planner(parameters);
+  ASSERT_TRUE(planner.setReference(makeCircularReference()));
+  const EgoFrenetState ego{0.0, 0.0, 2.0};
+  const auto obstacle = makeObstacle(19, 8.0);
+
+  const auto result = planner.plan(ego, {obstacle}, true);
+  ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
+  std::string reason;
+  EXPECT_TRUE(planner.validatePath(ego, result.path, {obstacle}, &reason)) << reason;
+  for (const auto & waypoint : result.path.wpnts) {
+    EXPECT_TRUE(std::isfinite(waypoint.kappa_radpm));
+    EXPECT_LE(std::abs(waypoint.kappa_radpm), parameters.maximum_curvature_radpm);
+  }
+}
+
 TEST(RacelineSplinePlanner, AppendsSpeedAwareGlobalTailAfterActualMerge)
 {
   auto parameters = testParameters();
@@ -357,14 +423,17 @@ TEST(RacelineSplinePlanner, DistinguishesSoftEnvelopeFromHardVehicleCollision)
 
 TEST(RacelineSplinePlanner, IgnoresPostMergeTailCollisionForCurrentCommitment)
 {
-  RacelineSplinePlanner planner(testParameters());
+  auto parameters = testParameters();
+  parameters.post_apex_distances_m = {1.5, 3.0, 4.0};
+  parameters.transition_distance_scales = {1.0};
+  RacelineSplinePlanner planner(parameters);
   ASSERT_TRUE(planner.setReference(makeStraightReference()));
   const EgoFrenetState ego{0.0, 0.0, 2.0};
   const auto committed = planner.plan(ego, {makeObstacle(24, 7.0)}, true, false);
   ASSERT_EQ(committed.kind, SplinePlanKind::kAvoidance) << committed.reason;
 
-  const double next_obstacle_s = committed.merge_s + 0.5;
-  const auto next_obstacle = makeObstacle(25, next_obstacle_s, -0.60, -0.05);
+  const double next_obstacle_s = committed.merge_s + 0.7;
+  const auto next_obstacle = makeObstacle(25, next_obstacle_s, -0.20, 0.20);
   std::string reason;
   PathValidationFailure failure;
   EXPECT_FALSE(
@@ -588,12 +657,13 @@ TEST(RacelineSplinePlanner, HandlesObstacleAcrossTrackWrap)
   auto obstacle = makeObstacle(9, 0.30);
   obstacle.s_start = 0.10;
   obstacle.s_end = 0.50;
-  const auto result = planner.plan(EgoFrenetState{29.0, 0.0, 2.0}, {obstacle});
+  constexpr double kEgoS = 24.0;
+  const auto result = planner.plan(EgoFrenetState{kEgoS, 0.0, 2.0}, {obstacle});
   ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
   bool wrapped = false;
   double previous = -1.0;
   for (const auto & waypoint : result.path.wpnts) {
-    const double forward = planner.forwardDistance(29.0, waypoint.s_m);
+    const double forward = planner.forwardDistance(kEgoS, waypoint.s_m);
     EXPECT_GT(forward, previous);
     previous = forward;
     wrapped = wrapped || waypoint.s_m < 1.0;
@@ -604,7 +674,7 @@ TEST(RacelineSplinePlanner, HandlesObstacleAcrossTrackWrap)
 TEST(RacelineSplinePlanner, NeverJumpsToNearbyWrongSnakeBranch)
 {
   auto reference = makeStraightReference();
-  for (std::size_t i = 150U; i < reference.wpnts.size(); ++i) {
+  for (std::size_t i = 220U; i < reference.wpnts.size(); ++i) {
     reference.wpnts[i].x_m = 30.0 - reference.wpnts[i].s_m;
     reference.wpnts[i].y_m = 0.55;
     reference.wpnts[i].psi_rad = 3.14159265358979323846;
@@ -619,7 +689,7 @@ TEST(RacelineSplinePlanner, NeverJumpsToNearbyWrongSnakeBranch)
   const auto result = planner.plan(ego, {makeObstacle(11, 7.0)});
   ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
   for (const auto & waypoint : result.path.wpnts) {
-    EXPECT_LT(waypoint.s_m, 15.0)
+    EXPECT_LT(waypoint.s_m, 22.0)
       << "planner selected a geometrically nearby but topologically wrong snake branch";
     EXPECT_LT(waypoint.y_m, 0.55)
       << "path must remain an offset of the ordered first race-line branch";

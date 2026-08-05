@@ -15,11 +15,13 @@ local_planner_node:
     boundary_margin_m: 0.13
     fallback_track_half_width_m: 1.50
 
-    # 참고 구현의 7개 pre/apex/post 제어점 개념을 정적 장애물 상자의 앞/뒤 경계로 확장했습니다.
-    # 배열은 각각 [먼 점, 중간 점, 가까운 점], [가까운 점, 중간 점, 먼 점] 순서입니다.
-    pre_apex_distances_m: [4.0, 3.0, 1.5]
-    post_apex_distances_m: [1.5, 3.0, 4.0]
-    # 짧은 spline부터 검사하고 곡률/경계 검사에 실패하면 같은 d-offset을 더 길게 펼칩니다.
+    # 진입/복귀 quintic 프로파일의 [먼 점, 중간 점, 가까운 점]과
+    # [가까운 점, 중간 점, 먼 점] 표본 거리입니다. 먼 점은 각 프로파일의 전체 길이이고,
+    # 중간/가까운 점의 d는 quintic 진행률로 점진적으로 계산되어 RViz 제어점에 표시됩니다.
+    pre_apex_distances_m: [6.0, 4.0, 2.0]
+    post_apex_distances_m: [1.0, 2.0, 3.0]
+    # 진입은 큰 scale부터 검사해 접근 여유를 사용하고, 복귀는 작은 scale부터 검사해 빠르게
+    # 다음 maneuver를 준비합니다. 짧은 복귀가 기하 검사를 실패할 때만 복귀 scale을 늘립니다.
     transition_distance_scales: [1.0, 1.25, 1.50]
     # 코너 바깥쪽 회피는 reference 구현처럼 전환 길이를 더 늘려 조향을 완만하게 합니다.
     outside_line_transition_scale: 1.35
