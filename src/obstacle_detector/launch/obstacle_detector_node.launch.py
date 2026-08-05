@@ -9,7 +9,8 @@ Usage:
 Scan/raceline/map/TF are resolved automatically (laser->map uses TF with the scan's own frame_id,
 so the `ego_racecar/laser` vs `laser` difference needs no change).
 
-Outputs: /static_obs (Layer 2), /opp_obs (Layer 3), and their matching
+Outputs: /static_obs (Layer 2), /confirmed_static_obs (confirmed Layer 2), /opp_obs (Layer 3),
+and the matching
 /static_obs/markers and /opp_obs/markers Frenet-boundary RViz mirrors.
 """
 

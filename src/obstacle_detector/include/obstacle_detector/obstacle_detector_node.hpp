@@ -146,6 +146,7 @@ class ObstacleDetectorNode : public rclcpp::Node
     std::string map_topic_;
     std::string ego_odom_topic_;
     std::string static_obs_topic_;   // Layer 2 output (/static_obs)
+    std::string confirmed_static_obs_topic_;  // confirmed-only Layer 2 output
     std::string opp_obs_topic_;      // Layer 3 output (/opp_obs)
     std::string static_markers_topic_;
     std::string opp_markers_topic_;
@@ -213,6 +214,8 @@ class ObstacleDetectorNode : public rclcpp::Node
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr ego_odom_sub_;
 
     rclcpp::Publisher<f110_msgs::msg::ObstacleArray>::SharedPtr static_obs_pub_;  // Layer 2
+    rclcpp::Publisher<f110_msgs::msg::ObstacleArray>::SharedPtr
+        confirmed_static_obs_pub_;  // confirmed-only Layer 2
     rclcpp::Publisher<f110_msgs::msg::ObstacleArray>::SharedPtr opp_obs_pub_;     // Layer 3
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr static_markers_pub_;
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr opp_markers_pub_;

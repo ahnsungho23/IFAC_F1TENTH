@@ -150,6 +150,8 @@ class Harness(Node):
 
         self.sub_static = self.create_subscription(
             ObstacleArray, "/static_obs", self.on_static, 10)
+        self.sub_confirmed_static = self.create_subscription(
+            ObstacleArray, "/confirmed_static_obs", self.on_confirmed_static, 10)
         self.sub_opp = self.create_subscription(
             ObstacleArray, "/opp_obs", self.on_opp, 10)
         self.sub_static_markers = self.create_subscription(
@@ -160,6 +162,7 @@ class Harness(Node):
         self.max_dyn_vs = 0.0
         self.saw_dynamic = False       # opponent present in /opp_obs (near d=0, |vs|>0.3)
         self.saw_static = False        # stationary obstacle present in /static_obs
+        self.saw_confirmed_static = False  # stationary obstacle reached confirmed-only output
         self.static_size = 0.0
         self.static_wrongly_dynamic = False   # stationary obstacle leaked into /opp_obs
         self.saw_opp_provisional_static = False
@@ -339,6 +342,16 @@ class Harness(Node):
         self.max_frag_entries = max(self.max_frag_entries, frag_entries)
         self.max_premerge_entries = max(self.max_premerge_entries, premerge_entries)
 
+    def on_confirmed_static(self, msg: ObstacleArray):
+        """Require the confirmed-only Layer-2 view to contain the real static obstacle."""
+        for ob in msg.obstacles:
+            if not ob.is_static or not valid_frenet(ob):
+                self.invalid_frenet = True
+            if ob.is_visible and (not ob.has_cartesian or not valid_cartesian(ob)):
+                self.visible_cartesian_missing = True
+            if abs(ob.d_center - STATIC_OBJ[1]) < 0.5:
+                self.saw_confirmed_static = True
+
     def on_opp(self, msg: ObstacleArray):
         # Layer 3: at most one obstacle, the dynamic opponent.
         if msg.obstacles:
@@ -406,6 +419,8 @@ class Harness(Node):
         print(f"  dynamic opponent on /opp_obs (is_static=False, |vs|>0.3): {self.saw_dynamic}", flush=True)
         print(f"  max estimated |vs| of opponent [m/s]:                     {self.max_dyn_vs:.2f}  (truth {OPP_SPEED:.2f})", flush=True)
         print(f"  car-sized static obstacle on /static_obs:                 {self.saw_static}", flush=True)
+        print(f"  same obstacle on /confirmed_static_obs:                   "
+              f"{self.saw_confirmed_static}", flush=True)
         print(f"  static obstacle box size (AABB diag) [m]:                 {self.static_size:.2f}  (0.5x0.5 -> ~0.71)", flush=True)
         print(f"  static obstacle NEVER leaked into /opp_obs:               {not self.static_wrongly_dynamic}", flush=True)
         print(f"  opponent first appeared as provisional /static_obs:       "
@@ -441,7 +456,8 @@ class Harness(Node):
               f"(max simultaneous entries: {self.max_premerge_entries})", flush=True)
         print(f"  fragmented object merged into ONE /static_obs entry:      {self.saw_frag_merged} "
               f"(max simultaneous entries in region: {self.max_frag_entries})", flush=True)
-        self.ok = (self.saw_dynamic and self.saw_static and not self.static_wrongly_dynamic
+        self.ok = (self.saw_dynamic and self.saw_static and self.saw_confirmed_static
+                   and not self.static_wrongly_dynamic
                    and self.saw_opp_provisional_static and self.dynamic_id_continuity
                    and not self.opp_static_after_dynamic and self.static_size > 0.5
                    and self.opp_populated and abs(self.max_dyn_vs - OPP_SPEED) < 0.6
