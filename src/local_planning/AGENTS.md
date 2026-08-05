@@ -30,8 +30,13 @@
 - Before fitting a side's spline, reject its target when it cannot fit the waypoint track widths
   across the expanded obstacle-cluster span. This is only an early pruning gate; every surviving
   sampled spline must still pass the full transition, wall, obstacle, slope, and curvature checks.
-- Fit the local offset in unwrapped global Frenet `s`, clip cubic overshoot to the control-point
-  extrema, and convert each selected global waypoint with its own normal. Preserve `s_m` and order.
+- Build entry and exit offsets in unwrapped global Frenet `s` with a monotone quintic smoothstep.
+  Keep `d`, `dd/ds`, and `d2d/ds2` continuous at the ego/target/global-line joins, clamp the
+  profile to the ego/target extrema, and convert each selected global waypoint with its own normal.
+  Preserve `s_m` and order. Select entry and exit scales independently: try entry scales from
+  longest to shortest so a distant obstacle uses the available approach distance, and try exit
+  scales from shortest to longest so the maneuver releases promptly. Fall back only when the full
+  candidate validation fails.
 - Validate lateral slope, recomputed Cartesian curvature, curvature rate, obstacle clearance, and
   track-bound clearance before publishing.
 - Before the first lateral commitment, publish `ot_line=raceline_static_prepare` with a validated
@@ -73,15 +78,14 @@
   publish a full global loop with `ot_line=raceline_global_handoff`. Continue that non-empty
   handoff path until `/state` has entered `STATE_AVOID` for the commitment and subsequently
   confirms `STATE_GLOBAL`.
-- Treat a blocking cluster whose expanded front face begins after the active merge as the next
-  maneuver. Limit active-commitment obstacle collision validation to the actual spline merge; the
-  post-merge controller tail must not make the current maneuver fail. Stabilize the next cluster
-  concurrently while the active maneuver runs. Once the active Guard rear plus
-  `chain_release_margin_m` is behind ego, allow a feasible next spline anchored at the current
-  `ego.d` to preempt the old merge. Retire the completed IDs and release their side lock, but keep
-  `/avoid_waypoints` non-empty and `STATE_AVOID` active. A Guard that reaches before the current
-  merge remains a current-maneuver obstacle. Hand off to GLOBAL only after no unfinished blocking
-  cluster remains.
+- Stabilize every non-active blocking cluster from the current ego state concurrently while the
+  active maneuver runs; do not use the old `merge_s` as the next-cluster observation origin.
+  Once the active Guard rear plus `chain_release_margin_m` is behind ego, allow a feasible next
+  spline anchored at the current `ego.d` to preempt the old merge. Retire the completed IDs and
+  release their side lock, but keep `/avoid_waypoints` non-empty and `STATE_AVOID` active. Continue
+  validating the current commitment against obstacles that lie before its merge until a validated
+  chained path replaces it. A post-merge controller-tail obstacle must not make the current
+  maneuver fail. Hand off to GLOBAL only after no unfinished blocking cluster remains.
 - If neither side is safe, publish only a collision-checked gradual-stop prefix before the obstacle.
   During an active avoidance, derive that prefix from the remaining committed geometry so stopping
   never forces an immediate return to `d=0`. Without a usable committed prefix, keep the current

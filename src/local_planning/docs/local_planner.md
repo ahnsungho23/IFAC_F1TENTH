@@ -21,7 +21,7 @@
 
 - 참고 저장소: `git@github.com:vaithak/f1tenth-icra-race.git`
 - 분석 기준 커밋: `ac9a4c98948cc74077f0435d40017468d68d4d6c`
-- 가져온 핵심 개념: Frenet `s`를 독립변수로 하는 cubic spline, pre/apex/post 제어점,
+- 가져온 핵심 개념: Frenet `s`를 독립변수로 하는 pre/apex/post 전환 구조,
   장애물 좌우 여유에 따른 회피 방향 선택, 트랙 폭 검사
 
 현재 프로젝트에는 다음 차이를 반영해 C++17로 새로 구현했습니다.
@@ -100,7 +100,7 @@ ID가 서로 다른 `/static_obs` 메시지에서 `initial_observation_count`회
 두 후보를 모두 만들며, 각 글로벌 waypoint의 허용 중심 범위
 `[-d_right + 차량반폭 + boundary_margin, d_left - 차량반폭 - boundary_margin]`를 벗어나면
 폐기합니다. 이때 장애물 군집의 확대된 `s_start~s_end` 구간에서 `target_d` 자체가 이 범위를
-벗어나는 방향은 cubic spline을 만들기 전에 조기 폐기합니다. 이 검사는 명백히 불가능한 방향의
+벗어나는 방향은 5차 전환 프로파일을 만들기 전에 조기 폐기합니다. 이 검사는 명백히 불가능한 방향의
 최대 3개 길이 후보 생성을 생략하기 위한 gate이며, 통과한 방향도 전환 구간의 좁은 벽이나 다른
 장애물을 놓치지 않도록 기존 전체 waypoint 경계·충돌·곡률 검사를 그대로 수행합니다.
 
@@ -127,9 +127,27 @@ commitment 뒤 기존 경로가
 
 ### 3.5 로컬 d-offset spline
 
-장애물 군집 앞에는 `pre_apex_distances_m`의 세 점을 `d=0`으로, 장애물 앞·뒤에는 목표 `d`를,
-장애물 뒤에는 `post_apex_distances_m`의 세 점을 `d=0`으로 둡니다. 이 제어점 사이에 natural
-cubic spline `d(s)`를 맞춥니다. spline의 반대편 overshoot는 제어점의 최소·최대 `d`로 제한합니다.
+진입과 복귀를 서로 독립적인 5차 smoothstep 구간으로 만듭니다. 정규화된 진행률
+`u=clamp((s-s_start)/length, 0, 1)`에 대해 다음 함수를 사용합니다.
+
+```text
+q(u) = 10u^3 - 15u^4 + 6u^5
+entry d(s) = ego_d + (target_d - ego_d) * q(u)
+exit  d(s) = target_d + (0 - target_d) * q(u)
+```
+
+`q`는 양 끝에서 1차와 2차 미분이 모두 0입니다. 따라서 `ego_d` 유지 구간에서 횡이동을 시작할
+때, 장애물 앞에서 `target_d` 유지 구간에 들어갈 때, 장애물 뒤에서 글로벌 `d=0`으로 복귀할 때
+`d`, `dd/ds`, `d2d/ds2`가 연속입니다. natural cubic처럼 중간 제어점 때문에 반대 방향으로
+overshoot하지 않으며, 결과 `d`는 `ego_d`, `target_d`, `0`의 최소·최대 안에 머뭅니다.
+
+`pre_apex_distances_m=[먼 점, 중간 점, 가까운 점]`에서 먼 점은 진입 5차 구간의 전체 길이입니다.
+중간·가까운 점의 `d`는 위 식에서 계산되므로 모두 0으로 고정되지 않고 목표 쪽으로 점진적으로
+이동합니다. `post_apex_distances_m=[가까운 점, 중간 점, 먼 점]`도 같은 방식으로 복귀 구간을
+표시하며, 먼 점이 전체 복귀 길이입니다. 중간·가까운 값은 실제 프로파일을 RViz 제어점으로
+표본화하는 위치이고 프로파일 자체를 꺾지 않습니다. 기본값은 각각 `[6.0, 4.0, 2.0]`,
+`[1.0, 2.0, 3.0]` m입니다. 필요한 진입 시작점이 ego 뒤라면 현재 `ego.s`에서 `ego.d`와
+0 기울기·0 이차 미분으로 시작해 남은 거리 전체를 사용합니다.
 
 그다음 ego부터 merge 뒤 global tail까지의 글로벌 waypoint를 순서대로 복사합니다. tail 길이는
 다음처럼 거리 하한과 계획 당시 속도 기준 시간 하한 중 큰 값입니다.
@@ -159,9 +177,12 @@ y_local = y_global + d(s) * cos(psi_global)
 4. 이동된 geometry에서 계산한 곡률로 횡가속도 속도 상한 만족
 5. 전·후방 속도 패스로 종가속도와 종감속도 제한 만족
 
-짧은 전환이 실패하면 `transition_distance_scales` 순서대로 같은 목표 `d`를 더 긴 `s` 구간에
-펼칩니다. 첫 번째 유효 후보가 나오면 더 긴 후보는 계산하지 않습니다. 이것은 자유공간 후보
-탐색이 아니라 동일한 글로벌 점에 적용하는 spline 길이 조정입니다.
+`transition_distance_scales`는 진입과 복귀에 독립적으로 적용합니다. 기본
+`[1.0, 1.25, 1.5]`이면 진입은 1.5배부터 검사해 사용 가능한 접근 거리를 최대한 활용하고,
+복귀는 1.0배부터 검사해 가장 짧은 안전 복귀를 선택합니다. 짧은 복귀가 곡선의 트랙 경계,
+장애물 충돌, 횡기울기, 곡률 또는 곡률 변화율 검사를 통과하지 못할 때만 1.25배, 1.5배로
+늘립니다. 이것은 자유공간 후보 탐색이 아니라 동일한 글로벌 점에 적용하는 5차 프로파일 길이
+조정입니다.
 
 좌우가 모두 실패하면 글로벌 `d=0` 위에서 장애물 앞 `safe_stop_buffer_m`까지의 충돌 없는 prefix를
 만들고 마지막 속도를 0으로 둡니다. 회피 spline의 `minimum_path_points`보다 짧더라도 2점 이상의
@@ -216,15 +237,14 @@ ego가 마지막 `state_handoff_tail_ratio` 구간의 첫 부분에 위치하도
 
 ### 3.8 연속 장애물 maneuver 연결
 
-현재 commitment에 포함되지 않은 장애물의 팽창된 Guard 앞면이 현재 spline의 실제 merge 뒤에서
-시작하면 그 장애물은 **다음 maneuver 군집**으로 분류합니다. 현재 commitment의 충돌 검사는
-ego부터 실제 merge까지만 이 군집을 적용하고, merge 뒤에 controller 시야 확보용으로 덧붙인
-global tail은 현재 maneuver의 안전 소유 구간으로 보지 않습니다. 따라서 그 tail과 다음
-장애물이 겹친다는 이유만으로 첫 maneuver가 조기 safe-stop으로 바뀌지 않습니다.
+현재 commitment에 포함되지 않은 blocking 장애물은 기존 spline의 `merge_s` 전후와 관계없이
+현재 ego 위치를 기준으로 **다음 maneuver 후보**로 미리 관측하고 안정화합니다. 따라서 완만한
+복귀 구간 안에 다음 장애물이 들어와도 old merge 뒤로 넘어갈 때까지 관측 시작을 미루지 않습니다.
 
-반대로 장애물 Guard가 merge 전에서 시작하거나 merge와 겹치면 **현재 maneuver 장애물**입니다.
-이 경우 현재 commitment를 즉시 다시 검사하고, 충돌하면 기존 방향을 유지한 재계획 또는 진입
-전 반대 방향 재평가를 수행합니다.
+기존 merge 전의 장애물은 다음 경로가 실제로 커밋될 때까지 현재 commitment의 충돌 검사에도
+계속 포함합니다. 기존 경로가 그 장애물과 충돌한다면 안전 검사를 생략하지 않습니다. 반면 실제
+merge 뒤 controller 시야 확보용 global tail만 겹치는 장애물은 현재 maneuver를 실패시키지
+않습니다.
 
 다음 maneuver 군집은 첫 회피를 수행하는 동안에도 기존 최초 관측 조건, 즉 각 ID의 실제
 `/static_obs` 3회 관측, 최소 `initial_observation_min_duration_sec=0.15초`와 최대
@@ -355,6 +375,9 @@ colcon test-result --verbose --test-result-base build/local_planning
 16. 좁은 트랙의 정중앙 장애물에 축소 clearance fallback으로 회피하고, fallback 비활성 시
     safe-stop을 유지
 17. 정중앙 동점에서 트랙 폭 여유가 큰 쪽을 안정적으로 선택
+18. 5차 진입·복귀 표본의 `d`가 직선에서 점진적으로 증가·감소
+19. 가장 긴 안전 진입 scale과 가장 짧은 안전 복귀 scale을 독립적으로 선택
+20. 곡선 Race Line에서도 5차 회피 경로가 경계·곡률 검증을 통과
 
 `test/test_obstacle_guard.cpp`는 `s_var/d_var`의 표준편차 확장, 최소 크기 마진, 폐루프 `s` wrap,
 고정 Guard 안의 작은 중심 이동 허용, 누적 이동의 Guard 이탈, 잘못된 분산의 fallback, 횡방향
@@ -380,7 +403,9 @@ commitment가 만들어지는지 확인합니다.
 장애물을 global handoff 발행 뒤에 투입해 handoff 선점도 확인합니다.
 `test/post_merge_tail_chaining_pipeline_test.py`는 두 번째 장애물이 첫 경로의 merge 뒤
 controller tail에 놓여도 첫 경로를 safe-stop으로 바꾸지 않고, 첫 장애물을 지난 뒤 현재
-`ego.d`에서 두 번째 회피 경로로 직접 연결되는지 확인합니다.
+`ego.d`에서 두 번째 회피 경로로 직접 연결되는지 확인합니다. `--before-merge`를 주면 두 번째
+장애물을 old merge 1m 앞에 놓아, merge와 관계없이 현재 ego 기준 안정화와 조기 연결이
+동작하는지 검사합니다.
 `test/stale_obstacle_memory_pipeline_test.py`는 첫 회피 commitment 뒤 `/static_obs` 발행을
 중단해 stale timeout을 넘겨도 경로가 비지 않고 geometry가 유지되는지, merge 뒤 GLOBAL
 handoff가 완료되는지, 센서가 계속 끊긴 다음 랩에도 마지막 장애물 스냅샷으로 다시 회피하는지

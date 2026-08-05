@@ -61,93 +61,18 @@ double pointDistance(
   return std::hypot(second.x_m - first.x_m, second.y_m - first.y_m);
 }
 
-// Natural cubic interpolation in the unwrapped Frenet-s domain. The evaluated value is clipped by
-// the caller to the control-point extrema, matching the upstream spliner's no-opposite-overshoot
-// behavior while retaining a continuous cubic fit.
-class NaturalCubicSpline
+// Monotone fifth-order smoothstep. Position, first derivative, and second derivative are all
+// continuous with a constant-d segment at both ends, so entry/exit steering does not jump.
+double quinticSmoothStep(double progress)
 {
-public:
-  bool build(const std::vector<double> & x, const std::vector<double> & y)
-  {
-    if (x.size() < 2U || x.size() != y.size()) {
-      return false;
-    }
-    for (std::size_t i = 1; i < x.size(); ++i) {
-      if (!std::isfinite(x[i]) || !std::isfinite(y[i]) || x[i] <= x[i - 1]) {
-        return false;
-      }
-    }
-    if (!std::isfinite(x.front()) || !std::isfinite(y.front())) {
-      return false;
-    }
+  const double u = clamp(progress, 0.0, 1.0);
+  return u * u * u * (10.0 + u * (-15.0 + 6.0 * u));
+}
 
-    x_ = x;
-    a_ = y;
-    const std::size_t n = x.size();
-    b_.assign(n - 1U, 0.0);
-    c_.assign(n, 0.0);
-    d_.assign(n - 1U, 0.0);
-
-    std::vector<double> h(n - 1U, 0.0);
-    for (std::size_t i = 0; i + 1U < n; ++i) {
-      h[i] = x[i + 1U] - x[i];
-    }
-
-    if (n > 2U) {
-      std::vector<double> alpha(n, 0.0);
-      for (std::size_t i = 1; i + 1U < n; ++i) {
-        alpha[i] = 3.0 * (a_[i + 1U] - a_[i]) / h[i] -
-          3.0 * (a_[i] - a_[i - 1U]) / h[i - 1U];
-      }
-
-      std::vector<double> lower(n, 1.0);
-      std::vector<double> mu(n, 0.0);
-      std::vector<double> z(n, 0.0);
-      for (std::size_t i = 1; i + 1U < n; ++i) {
-        lower[i] = 2.0 * (x[i + 1U] - x[i - 1U]) - h[i - 1U] * mu[i - 1U];
-        if (std::abs(lower[i]) < kEpsilon) {
-          return false;
-        }
-        mu[i] = h[i] / lower[i];
-        z[i] = (alpha[i] - h[i - 1U] * z[i - 1U]) / lower[i];
-      }
-      for (std::size_t reverse = n - 1U; reverse > 0U; --reverse) {
-        const std::size_t j = reverse - 1U;
-        c_[j] = z[j] - mu[j] * c_[j + 1U];
-        b_[j] = (a_[j + 1U] - a_[j]) / h[j] -
-          h[j] * (c_[j + 1U] + 2.0 * c_[j]) / 3.0;
-        d_[j] = (c_[j + 1U] - c_[j]) / (3.0 * h[j]);
-      }
-    } else {
-      b_[0] = (a_[1] - a_[0]) / h[0];
-    }
-    return true;
-  }
-
-  double evaluate(double x) const
-  {
-    if (x_.empty()) {
-      return 0.0;
-    }
-    if (x <= x_.front()) {
-      return a_.front();
-    }
-    if (x >= x_.back()) {
-      return a_.back();
-    }
-    const auto upper = std::upper_bound(x_.begin(), x_.end(), x);
-    const std::size_t i = static_cast<std::size_t>(upper - x_.begin() - 1);
-    const double dx = x - x_[i];
-    return a_[i] + b_[i] * dx + c_[i] * dx * dx + d_[i] * dx * dx * dx;
-  }
-
-private:
-  std::vector<double> x_;
-  std::vector<double> a_;
-  std::vector<double> b_;
-  std::vector<double> c_;
-  std::vector<double> d_;
-};
+double quinticBlend(double start, double finish, double progress)
+{
+  return start + (finish - start) * quinticSmoothStep(progress);
+}
 
 }  // namespace
 
@@ -689,7 +614,8 @@ RacelineSplinePlanner::Candidate RacelineSplinePlanner::buildCandidate(
   const EgoFrenetState & ego,
   const std::vector<ExpandedObstacle> & visible,
   bool go_left,
-  double transition_scale,
+  double entry_transition_scale,
+  double exit_transition_scale,
   bool outside_is_left,
   double cluster_start,
   double cluster_end,
@@ -699,7 +625,8 @@ RacelineSplinePlanner::Candidate RacelineSplinePlanner::buildCandidate(
   candidate.go_left = go_left;
 
   if (go_left == outside_is_left) {
-    transition_scale *= parameters_.outside_line_transition_scale;
+    entry_transition_scale *= parameters_.outside_line_transition_scale;
+    exit_transition_scale *= parameters_.outside_line_transition_scale;
   }
 
   std::vector<double> knot_s;
@@ -715,58 +642,77 @@ RacelineSplinePlanner::Candidate RacelineSplinePlanner::buildCandidate(
       knot_d.push_back(d);
     };
 
-  const double pre_far = parameters_.pre_apex_distances_m[0] * transition_scale;
-  const double pre_middle = parameters_.pre_apex_distances_m[1] * transition_scale;
-  const double pre_near = parameters_.pre_apex_distances_m[2] * transition_scale;
-  const double post_near = parameters_.post_apex_distances_m[0] * transition_scale;
-  const double post_middle = parameters_.post_apex_distances_m[1] * transition_scale;
-  const double post_far = parameters_.post_apex_distances_m[2] * transition_scale;
+  const double pre_far = parameters_.pre_apex_distances_m[0] * entry_transition_scale;
+  const double pre_middle = parameters_.pre_apex_distances_m[1] * entry_transition_scale;
+  const double pre_near = parameters_.pre_apex_distances_m[2] * entry_transition_scale;
+  const double post_near = parameters_.post_apex_distances_m[0] * exit_transition_scale;
+  const double post_middle = parameters_.post_apex_distances_m[1] * exit_transition_scale;
+  const double post_far = parameters_.post_apex_distances_m[2] * exit_transition_scale;
 
-  append_knot(cluster_start - pre_far, ego.d);
-  append_knot(cluster_start - pre_middle, ego.d);
-  append_knot(cluster_start - pre_near, ego.d);
+  // A long candidate is allowed to consume all currently available distance, but never starts
+  // behind ego. If perception arrives late, anchoring entry at forward_s=0 still guarantees
+  // d(0)=ego.d and zero Frenet slope/curvature at the new commitment boundary.
+  if (!(cluster_start > kEpsilon)) {
+    candidate.reason = "blocking obstacle has no positive quintic entry distance";
+    return candidate;
+  }
+  const double entry_start = std::max(0.0, cluster_start - pre_far);
+  const double entry_length = cluster_start - entry_start;
+  if (!(entry_length > kEpsilon) || !(post_far > kEpsilon)) {
+    candidate.reason = "quintic transition length is not positive";
+    return candidate;
+  }
+  const double exit_end = cluster_end + post_far;
+  const auto entry_offset = [&](double forward_s) {
+      return quinticBlend(
+        ego.d, target_d, (forward_s - entry_start) / entry_length);
+    };
+  const auto exit_offset = [&](double forward_s) {
+      return quinticBlend(
+        target_d, 0.0, (forward_s - cluster_end) / post_far);
+    };
+  const auto profile_offset = [&](double forward_s) {
+      if (forward_s <= entry_start) {
+        return ego.d;
+      }
+      if (forward_s < cluster_start) {
+        return entry_offset(forward_s);
+      }
+      if (forward_s <= cluster_end) {
+        return target_d;
+      }
+      if (forward_s < exit_end) {
+        return exit_offset(forward_s);
+      }
+      return 0.0;
+    };
+
+  // Keep the familiar pre/apex/post marker layout, but sample each marker from the actual
+  // quintic profile instead of pinning all pre/post points to d=0. This makes the intended
+  // progressive lateral motion directly visible in RViz.
+  append_knot(entry_start, ego.d);
+  for (const double distance : {pre_middle, pre_near}) {
+    const double forward_s = cluster_start - distance;
+    if (forward_s > entry_start + kEpsilon && forward_s < cluster_start - kEpsilon) {
+      append_knot(forward_s, entry_offset(forward_s));
+    }
+  }
   append_knot(cluster_start, target_d);
   if (cluster_end > cluster_start + 0.05) {
     append_knot(cluster_end, target_d);
   }
-  append_knot(cluster_end + post_near, 0.0);
-  append_knot(cluster_end + post_middle, 0.0);
-  append_knot(cluster_end + post_far, 0.0);
-
-  if (std::abs(ego.d) <= kEpsilon) {
-    if (knot_s.front() > 0.05) {
-      knot_s.insert(knot_s.begin(), 0.0);
-      knot_d.insert(knot_d.begin(), ego.d);
-    } else {
-      knot_s.front() = std::min(knot_s.front(), 0.0);
+  for (const double distance : {post_near, post_middle}) {
+    const double forward_s = cluster_end + distance;
+    if (forward_s > cluster_end + kEpsilon && forward_s < exit_end - kEpsilon) {
+      append_knot(forward_s, exit_offset(forward_s));
     }
-  } else {
-    std::vector<double> forward_knot_s;
-    std::vector<double> forward_knot_d;
-    forward_knot_s.reserve(knot_s.size() + 1U);
-    forward_knot_d.reserve(knot_d.size() + 1U);
-    forward_knot_s.push_back(0.0);
-    forward_knot_d.push_back(ego.d);
-    for (std::size_t i = 0; i < knot_s.size(); ++i) {
-      if (knot_s[i] > 1.0e-3) {
-        forward_knot_s.push_back(knot_s[i]);
-        forward_knot_d.push_back(knot_d[i]);
-      }
-    }
-    knot_s = std::move(forward_knot_s);
-    knot_d = std::move(forward_knot_d);
   }
-
-  NaturalCubicSpline spline;
-  if (!spline.build(knot_s, knot_d)) {
-    candidate.reason = "cubic spline control points are not strictly ordered";
-    return candidate;
-  }
+  append_knot(exit_end, 0.0);
   for (std::size_t i = 0; i < knot_s.size(); ++i) {
     candidate.control_points.push_back({knot_s[i], knot_d[i]});
   }
 
-  const double spline_end = cluster_end + post_far;
+  const double spline_end = exit_end;
   // 고속에서 고정 2m tail은 state-machine handoff가 끝나기 전에 소진된다. 회피를 계획한
   // 순간의 ego 속도를 기준으로 최소 시간만큼 global d=0 구간을 확보하되, 저속에서는 기존
   // 거리 하한을 유지한다. 이 tail은 회피 형상을 바꾸지 않고 동일 ordered race-line 표본을
@@ -789,7 +735,7 @@ RacelineSplinePlanner::Candidate RacelineSplinePlanner::buildCandidate(
     }
     auto waypoint = global;
     waypoint.id = static_cast<int32_t>(candidate.path.wpnts.size());
-    waypoint.d_m = clamp(spline.evaluate(forward_s), clip_min, clip_max);
+    waypoint.d_m = clamp(profile_offset(forward_s), clip_min, clip_max);
     waypoint.x_m = global.x_m - waypoint.d_m * std::sin(global.psi_rad);
     waypoint.y_m = global.y_m + waypoint.d_m * std::cos(global.psi_rad);
     candidate.path.wpnts.push_back(waypoint);
@@ -809,7 +755,8 @@ RacelineSplinePlanner::Candidate RacelineSplinePlanner::buildCandidate(
   // merge_s는 발행 세그먼트 끝이 아니라 d-offset spline이 실제로 d=0에 복귀하는 지점이다.
   // tail 길이를 늘려도 합류 완료 판정 시점이 뒤로 밀리지 않아야 한다.
   candidate.merge_s = wrapS(ego.s + spline_end);
-  candidate.score = std::abs(target_d) + 0.02 * transition_scale;
+  candidate.score =
+    std::abs(target_d) + 0.02 * entry_transition_scale + 0.002 * exit_transition_scale;
   return candidate;
 }
 
@@ -960,7 +907,7 @@ bool RacelineSplinePlanner::validateCandidate(
       if (slope > parameters_.maximum_lateral_slope) {
         return reject(
           PathValidationFailureKind::kGeometry,
-          "cubic d-offset exceeds maximum_lateral_slope", i, &waypoint);
+          "quintic d-offset exceeds maximum_lateral_slope", i, &waypoint);
       }
       const double curvature_rate =
         std::abs(waypoint.kappa_radpm - previous_curvature) / ds;
@@ -1204,15 +1151,20 @@ RacelineSplineResult RacelineSplinePlanner::plan(
           {
             return last;
           }
-          // transition_distance_scales is validated as strictly increasing. The first valid
-          // candidate therefore has the minimum score and later, longer splines are redundant.
-          for (const double scale : parameters_.transition_distance_scales) {
-            last = buildCandidate(
-              ego, pass_visible, go_left, scale, outside_is_left,
-              cluster_start, cluster_end, target_d);
-            if (last.valid) {
-              last.headroom = headroom;
-              break;
+          // Entry and exit have different priorities. Use the longest feasible entry so a distant
+          // obstacle is avoided early, but pair it with the shortest feasible exit so the old
+          // maneuver releases promptly. Lengthen the exit only when validation requires it.
+          for (auto entry_scale = parameters_.transition_distance_scales.rbegin();
+            entry_scale != parameters_.transition_distance_scales.rend(); ++entry_scale)
+          {
+            for (const double exit_scale : parameters_.transition_distance_scales) {
+              last = buildCandidate(
+                ego, pass_visible, go_left, *entry_scale, exit_scale, outside_is_left,
+                cluster_start, cluster_end, target_d);
+              if (last.valid) {
+                last.headroom = headroom;
+                return last;
+              }
             }
           }
           return last;
@@ -1320,9 +1272,9 @@ RacelineSplineResult RacelineSplinePlanner::plan(
   }
   result.control_points = std::move(selected.control_points);
   result.reason = used_tight_clearance ?
-    "global race-line waypoints shifted by a local cubic d-offset "
+    "global race-line waypoints shifted by a local quintic d-offset "
     "(reduced-clearance fallback)" :
-    "global race-line waypoints shifted by a local cubic d-offset";
+    "global race-line waypoints shifted by a local quintic d-offset";
   return result;
 }
 

@@ -38,8 +38,8 @@ struct RacelineSplineParameters
   double boundary_margin_m{0.13};
   double fallback_track_half_width_m{1.50};
 
-  std::vector<double> pre_apex_distances_m{4.0, 3.0, 1.5};
-  std::vector<double> post_apex_distances_m{1.5, 3.0, 4.0};
+  std::vector<double> pre_apex_distances_m{6.0, 4.0, 2.0};
+  std::vector<double> post_apex_distances_m{1.0, 2.0, 3.0};
   std::vector<double> transition_distance_scales{1.0, 1.25, 1.50};
   double outside_line_transition_scale{1.35};
   double post_merge_lookahead_m{2.0};
@@ -207,7 +207,8 @@ private:
     const EgoFrenetState & ego,
     const std::vector<ExpandedObstacle> & visible,
     bool go_left,
-    double transition_scale,
+    double entry_transition_scale,
+    double exit_transition_scale,
     bool outside_is_left,
     double cluster_start,
     double cluster_end,

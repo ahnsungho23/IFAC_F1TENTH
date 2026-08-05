@@ -222,10 +222,10 @@ void LocalPlannerNode::initializeParameters()
     declare_parameter<double>("fallback_track_half_width_m", 1.50);
   planner_parameters_.pre_apex_distances_m =
     declare_parameter<std::vector<double>>(
-    "pre_apex_distances_m", std::vector<double>{4.0, 3.0, 1.5});
+    "pre_apex_distances_m", std::vector<double>{6.0, 4.0, 2.0});
   planner_parameters_.post_apex_distances_m =
     declare_parameter<std::vector<double>>(
-    "post_apex_distances_m", std::vector<double>{1.5, 3.0, 4.0});
+    "post_apex_distances_m", std::vector<double>{1.0, 2.0, 3.0});
   planner_parameters_.transition_distance_scales =
     declare_parameter<std::vector<double>>(
     "transition_distance_scales", std::vector<double>{1.0, 1.25, 1.50});
@@ -716,8 +716,9 @@ bool LocalPlannerNode::updateNextManeuverStabilization(
     return false;
   }
 
-  const EgoFrenetState merge_ego{committed_result_.merge_s, 0.0, ego.speed};
-  const auto cluster_ids = planner_.blockingClusterIds(merge_ego, next_obstacles);
+  // Stabilize the next cluster from the current ego state. A long, smooth return to d=0 must not
+  // hide an already-visible obstacle merely because it lies before the old maneuver's merge_s.
+  const auto cluster_ids = planner_.blockingClusterIds(ego, next_obstacles);
   if (cluster_ids.empty()) {
     resetNextManeuverStabilization();
     return false;

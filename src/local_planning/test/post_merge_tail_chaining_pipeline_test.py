@@ -13,8 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Verify that a post-merge-tail obstacle chains without stopping the first maneuver."""
+"""Verify chaining for an obstacle near either side of the first maneuver merge."""
 
+import argparse
 import math
 import sys
 import time
@@ -36,10 +37,11 @@ def latched_qos():
 
 
 class PostMergeTailProbe(Node):
-    """Add a second obstacle inside the first path's controller-only tail."""
+    """Add a second obstacle just before the merge or inside its controller-only tail."""
 
-    def __init__(self):
+    def __init__(self, before_merge):
         super().__init__('post_merge_tail_chaining_probe')
+        self.before_merge = before_merge
         self.global_pub = self.create_publisher(
             WpntArray, '/global_waypoints', latched_qos())
         self.obstacle_pub = self.create_publisher(
@@ -81,7 +83,7 @@ class PostMergeTailProbe(Node):
         return message
 
     @staticmethod
-    def obstacle(obstacle_id, center_s):
+    def obstacle(obstacle_id, center_s, d_right=-1.2, d_left=0.1):
         """Build a right-side box that requires a left maneuver."""
         obstacle = Obstacle()
         obstacle.id = obstacle_id
@@ -89,18 +91,18 @@ class PostMergeTailProbe(Node):
         obstacle.is_static = True
         obstacle.is_visible = True
         obstacle.x_center = center_s
-        obstacle.y_center = -0.55
+        obstacle.y_center = 0.5 * (d_right + d_left)
         obstacle.x_min = center_s - 0.2
         obstacle.x_max = center_s + 0.2
-        obstacle.y_min = -1.2
-        obstacle.y_max = 0.1
+        obstacle.y_min = d_right
+        obstacle.y_max = d_left
         obstacle.s_start = center_s - 0.2
         obstacle.s_end = center_s + 0.2
         obstacle.s_center = center_s
-        obstacle.d_right = -1.2
-        obstacle.d_left = 0.1
-        obstacle.d_center = -0.55
-        obstacle.radius = 0.5 * math.hypot(0.4, 1.3)
+        obstacle.d_right = d_right
+        obstacle.d_left = d_left
+        obstacle.d_center = 0.5 * (d_right + d_left)
+        obstacle.radius = 0.5 * math.hypot(0.4, d_left - d_right)
         obstacle.size = 2.0 * obstacle.radius
         return obstacle
 
@@ -122,7 +124,9 @@ class PostMergeTailProbe(Node):
         obstacles.header.frame_id = 'map'
         obstacles.obstacles.append(self.obstacle(51, 7.0))
         if self.stage == 'chaining':
-            obstacles.obstacles.append(self.obstacle(52, self.second_s))
+            second_d_left = -0.21 if self.before_merge else 0.1
+            obstacles.obstacles.append(
+                self.obstacle(52, self.second_s, d_left=second_d_left))
         self.obstacle_pub.publish(obstacles)
 
         odometry = Odometry()
@@ -154,13 +158,17 @@ class PostMergeTailProbe(Node):
                 return
             first_merge = message.wpnts[-1].s_m - 5.0
             self.first_path_end = message.wpnts[-1].s_m
-            self.second_s = first_merge + 1.0
-            self.ego_s = 8.5
+            offset = -1.45 if self.before_merge else 1.0
+            self.second_s = first_merge + offset
+            self.ego_s = 7.8 if self.before_merge else 8.5
             self.ego_d = self.path_d_at(message, self.ego_s)
             self.stage = 'chaining'
+            position = (
+                'before the first merge' if self.before_merge
+                else 'inside the first controller tail')
             self.get_logger().info(
-                f'inserted obstacle 52 at s={self.second_s:.2f} inside '
-                f'the first controller tail; ego d={self.ego_d:.2f}')
+                f'inserted obstacle 52 at s={self.second_s:.2f} {position}; '
+                f'ego d={self.ego_d:.2f}')
             return
 
         self.outputs_with_second += 1
@@ -186,8 +194,13 @@ class PostMergeTailProbe(Node):
 
 def main():
     """Run the probe against a fresh local_planner_node."""
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        '--before-merge', action='store_true',
+        help='place the next obstacle one metre before the old merge')
+    arguments = parser.parse_args()
     rclpy.init()
-    node = PostMergeTailProbe()
+    node = PostMergeTailProbe(arguments.before_merge)
     deadline = time.monotonic() + 10.0
     try:
         while (
@@ -195,8 +208,9 @@ def main():
                 not node.passed and not node.failure):
             rclpy.spin_once(node, timeout_sec=0.1)
         if node.passed:
+            position = 'pre-merge' if arguments.before_merge else 'post-merge-tail'
             print(
-                'PASS: post-merge-tail obstacle replaced the first commitment '
+                f'PASS: {position} obstacle replaced the first commitment '
                 f'directly after {node.outputs_with_second} outputs')
             return 0
         print(f'FAIL: {node.failure or "post-merge chaining did not complete"}')
