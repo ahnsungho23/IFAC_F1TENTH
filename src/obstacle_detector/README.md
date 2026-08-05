@@ -22,6 +22,7 @@
   → visible track의 Cartesian AABB 합집합과 일치하는 Frenet 경계
   → 1초 누적 perception 진단 로그
   ├─ /static_obs
+  ├─ /confirmed_static_obs
   ├─ /opp_obs
   ├─ /static_obs/markers
   └─ /opp_obs/markers
@@ -32,10 +33,12 @@
 - Layer 1: `/map`에 등록된 벽과 알려진 구조물을 제거하는 필터. 발행하지 않는다.
 - Layer 2: 3회 관측된 장애물을 우선 provisional static으로, 저속이 확정되면 confirmed static으로
   같은 ID를 유지하며 `/static_obs`에 발행한다.
+- Confirmed Layer 2: confirmed static만 `/confirmed_static_obs`에 별도로 발행한다. 장기 저장
+  노드는 이 토픽을 사용하며 기존 `/static_obs` 계약은 바뀌지 않는다.
 - Layer 3: 확정 동적 물체 중 에고 전방에서 가장 가까운 하나를 `/opp_obs`로 발행한다.
 
-두 출력은 `f110_msgs/msg/ObstacleArray`이며 매 scan마다 발행된다. 해당 레이어가 비어 있으면 빈 배열을
-발행한다.
+세 장애물 레이어 view는 `f110_msgs/msg/ObstacleArray`이며 매 scan마다 발행된다. 해당 view가
+비어 있으면 빈 배열을 발행한다.
 
 기본값에서 hits 1~2인 track은 두 토픽 모두에 나오지 않는다. hits 3부터 `/static_obs`에 바로 나오고,
 상대속도·속도 불확실성·에고 회전율을 모두 통과한 이동 증거가 25회 연속 쌓이면 같은 ID로
@@ -61,6 +64,7 @@ local planner가 실제로 판단하는 정적 장애물 영역과 같다. Predi
 | 구독 | `/map` | `nav_msgs/msg/OccupancyGrid` |
 | 구독 | `/pf/pose/odom` | `nav_msgs/msg/Odometry` |
 | 발행 | `/static_obs` | `f110_msgs/msg/ObstacleArray` |
+| 발행 | `/confirmed_static_obs` | `f110_msgs/msg/ObstacleArray` |
 | 발행 | `/opp_obs` | `f110_msgs/msg/ObstacleArray` |
 | 발행 | `/static_obs/markers` | `visualization_msgs/msg/MarkerArray` |
 | 발행 | `/opp_obs/markers` | `visualization_msgs/msg/MarkerArray` |

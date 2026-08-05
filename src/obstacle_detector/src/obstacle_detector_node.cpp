@@ -63,6 +63,8 @@ ObstacleDetectorNode::ObstacleDetectorNode(const rclcpp::NodeOptions &options)
         std::bind(&ObstacleDetectorNode::egoOdomCallback, this, std::placeholders::_1));
 
     static_obs_pub_ = this->create_publisher<f110_msgs::msg::ObstacleArray>(static_obs_topic_, 10);
+    confirmed_static_obs_pub_ =
+        this->create_publisher<f110_msgs::msg::ObstacleArray>(confirmed_static_obs_topic_, 10);
     opp_obs_pub_ = this->create_publisher<f110_msgs::msg::ObstacleArray>(opp_obs_topic_, 10);
     if (publish_markers_)
     {
@@ -75,12 +77,14 @@ ObstacleDetectorNode::ObstacleDetectorNode(const rclcpp::NodeOptions &options)
     RCLCPP_INFO(
         this->get_logger(),
         "obstacle_detector started (scan=%s, global=%s, map_filter=%s, classifier=%d, "
-        "static_obs=%s, opp_obs=%s, cluster_merge=%s[dist=%.2f, min_frag=%d], "
+        "static_obs=%s, confirmed_static_obs=%s, opp_obs=%s, "
+        "cluster_merge=%s[dist=%.2f, min_frag=%d], "
         "layer_merge=%s[gap_s=%.2f, gap_d=%.2f], mahalanobis=%s[gate=%.2f], "
         "diagnostics=%s[period=%.2fs])",
         scan_topic_.c_str(), global_wpnts_topic_.c_str(), use_map_filter_ ? "on" : "off",
         static_cast<int>(tracker_params_.classifier_mode), static_obs_topic_.c_str(),
-        opp_obs_topic_.c_str(), cluster_merge_enable_ ? "on" : "off", cluster_merge_distance_,
+        confirmed_static_obs_topic_.c_str(), opp_obs_topic_.c_str(),
+        cluster_merge_enable_ ? "on" : "off", cluster_merge_distance_,
         cluster_merge_min_fragment_points_, layer_merge_enable_ ? "on" : "off",
         layer_merge_gap_s_, layer_merge_gap_d_,
         tracker_params_.assoc_use_mahalanobis ? "on" : "off",
@@ -98,6 +102,8 @@ void ObstacleDetectorNode::declareParameters()
     this->declare_parameter<std::string>("map_topic", "/map");
     this->declare_parameter<std::string>("ego_odom_topic", "/pf/pose/odom");
     this->declare_parameter<std::string>("static_obs_topic", "/static_obs");
+    this->declare_parameter<std::string>(
+        "confirmed_static_obs_topic", "/confirmed_static_obs");
     this->declare_parameter<std::string>("opp_obs_topic", "/opp_obs");
     this->declare_parameter<std::string>("static_markers_topic", "/static_obs/markers");
     this->declare_parameter<std::string>("opp_markers_topic", "/opp_obs/markers");
@@ -183,6 +189,8 @@ void ObstacleDetectorNode::loadParameters()
     map_topic_ = this->get_parameter("map_topic").as_string();
     ego_odom_topic_ = this->get_parameter("ego_odom_topic").as_string();
     static_obs_topic_ = this->get_parameter("static_obs_topic").as_string();
+    confirmed_static_obs_topic_ =
+        this->get_parameter("confirmed_static_obs_topic").as_string();
     opp_obs_topic_ = this->get_parameter("opp_obs_topic").as_string();
     static_markers_topic_ = this->get_parameter("static_markers_topic").as_string();
     opp_markers_topic_ = this->get_parameter("opp_markers_topic").as_string();
@@ -1141,13 +1149,16 @@ void ObstacleDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
     // ============================================================================================
     // Layer assembly: gather each layer's publishable tracks, merge same-object fragments inside the
     // layer (2nd-stage clustering, mergeLayer), then publish object-level obstacles.
-    // LAYER 2 [static] -> /static_obs   : every merged static object.
-    // LAYER 3 [dynamic] -> /opp_obs      : the single merged opponent (nearest ahead of ego).
-    // Both are published EVERY scan (empty when a layer is void) so consumers tick at scan rate.
+    // LAYER 2 [static]    -> /static_obs           : every merged static object.
+    // LAYER 2 [confirmed] -> /confirmed_static_obs : confirmed merged static objects only.
+    // LAYER 3 [dynamic]   -> /opp_obs              : nearest-ahead merged opponent.
+    // All are published EVERY scan (empty when a layer is void) so consumers tick at scan rate.
     // ============================================================================================
     std::vector<const Track *> static_members;
+    std::vector<const Track *> confirmed_static_members;
     std::vector<const Track *> dynamic_members;
     static_members.reserve(tracker_.tracks().size());
+    confirmed_static_members.reserve(tracker_.tracks().size());
     dynamic_members.reserve(tracker_.tracks().size());
     for (const Track &t : tracker_.tracks())
     {
@@ -1165,9 +1176,14 @@ void ObstacleDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
             // never creates a one-scan gap in /static_obs. Fan-shaped morphing clusters never
             // reach the stability streak, so they stay out of the published layer entirely.
             static_members.push_back(&t);
+            if (t.motion_class == MotionClass::ConfirmedStatic)
+            {
+                confirmed_static_members.push_back(&t);
+            }
         }
     }
     const auto static_objs = mergeLayer(static_members, true);
+    const auto confirmed_static_objs = mergeLayer(confirmed_static_members, true);
     const auto dynamic_objs = mergeLayer(dynamic_members, false);
     const int opp = selectOpponent(dynamic_objs);
     // Layer 3 ranks opponents by forward distance from ego_s_. A stale ego odometry sample would
@@ -1185,6 +1201,15 @@ void ObstacleDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
         static_arr.obstacles.push_back(m.ob);
     }
     static_obs_pub_->publish(static_arr);
+
+    f110_msgs::msg::ObstacleArray confirmed_static_arr;
+    confirmed_static_arr.header = static_arr.header;
+    confirmed_static_arr.obstacles.reserve(confirmed_static_objs.size());
+    for (const auto &m : confirmed_static_objs)
+    {
+        confirmed_static_arr.obstacles.push_back(m.ob);
+    }
+    confirmed_static_obs_pub_->publish(confirmed_static_arr);
 
     f110_msgs::msg::ObstacleArray opp_arr;
     opp_arr.header = msg->header;

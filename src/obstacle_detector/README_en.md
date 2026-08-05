@@ -23,6 +23,7 @@ waypoints, or publish driving state.
   → matching visible-track Cartesian AABB union and Frenet bounds
   → one-second accumulated perception diagnostics
   ├─ /static_obs
+  ├─ /confirmed_static_obs
   ├─ /opp_obs
   ├─ /static_obs/markers
   └─ /opp_obs/markers
@@ -30,9 +31,10 @@ waypoints, or publish driving state.
 
 - Layer 1 removes walls and known map structure and is not published.
 - Layer 2 publishes every provisional or confirmed non-map stationary object on `/static_obs`.
+- `/confirmed_static_obs` publishes the confirmed-static subset for persistent map consumers.
 - Layer 3 publishes at most one nearest-ahead confirmed dynamic object on `/opp_obs`.
 
-Both layer topics use `f110_msgs/msg/ObstacleArray` and are published on every scan, including
+All three layer views use `f110_msgs/msg/ObstacleArray` and are published on every scan, including
 empty arrays.
 
 With the defaults, hits 1-2 remain unpublished. Hit 3 publishes the track immediately as

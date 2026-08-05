@@ -6,6 +6,7 @@
 추적한다. 확정된 장애물을 정적 레이어와 동적 레이어로 분리해 다음 토픽으로 발행한다.
 
 - `/static_obs`: 지도에는 없는 provisional/confirmed 정적 장애물 전체
+- `/confirmed_static_obs`: 장기 지도 저장용 confirmed 정적 장애물만 포함
 - `/opp_obs`: 에고 전방의 가장 가까운 동적 상대차 최대 1개
 
 이 패키지는 검출만 담당한다. 경로 계획, 회피·추월 waypoint, 주행 상태 결정은 다른 패키지의 책임이다.
@@ -117,7 +118,7 @@ velocity_m2 = v_relᵀ P_velocity⁻¹ v_rel
 
 기본 상태 전이는 다음과 같다.
 
-1. hits 1~2: `classified=false`, `PENDING`. `/static_obs`와 `/opp_obs` 모두 발행하지 않는다.
+1. hits 1~2: `classified=false`, `PENDING`. 장애물 토픽에 발행하지 않는다.
 2. hits 3: `classified=true`, `PROVISIONAL_STATIC`. 즉시 `/static_obs`에 발행한다. 단,
    envelope 안정성 게이트를 함께 통과한 track만 발행 대상이다(아래 참조).
 3. `relative_speed < dyn_vel_exit(0.25 m/s)`가 추가로 3회 연속 관측되면
@@ -136,6 +137,8 @@ velocity_m2 = v_relᵀ P_velocity⁻¹ v_rel
 `PROVISIONAL_STATIC → CONFIRMED_STATIC`은 같은 Track 객체와 ID를 유지하며 두 상태 모두
 `/static_obs`에 실리므로 전환 공백이 없다. `DYNAMIC`으로 바뀐 동일 scan부터 `/static_obs`에서
 제거하고 `/opp_obs` 후보로 옮긴다.
+`/confirmed_static_obs`에는 `CONFIRMED_STATIC`이면서 같은 envelope 안정성 게이트를 통과한
+객체만 별도로 실린다.
 
 envelope 안정성 게이트: 매칭될 때마다 측정 중심과 extent가 track의 예측/보존 값에서
 `envelope_stability_tolerance_m`(기본 0.10 m) 이내로 안정됐는지 검사하고, 연속 횟수가
@@ -160,13 +163,14 @@ extent로 박스 모서리 간격을 계산하고, 같은 레이어 안에서 �
 - `layer_merge`: 이미 별도로 추적된 같은 레이어 track들을 최종 출력에서 하나의 객체로 표현한다.
 
 - 모든 병합 static 객체를 `/static_obs`로 발행한다.
+- 그중 confirmed static만 다시 병합해 `/confirmed_static_obs`로 발행한다.
 - 병합 dynamic 객체 중 에고 전방에서 가장 가까운 하나를 `/opp_obs`로 발행한다.
 - `/static_obs/markers`는 최종 `/static_obs`의 Frenet 경계를 파란 테두리로 표시한다.
 - `/opp_obs/markers`는 최종 `/opp_obs`의 Frenet 경계를 빨간 테두리로 표시한다.
 - 마커는 `s_start/s_end/d_right/d_left`에서 직접 만들어지므로 local planner 입력과 같은
   영역을 나타낸다.
 
-두 ObstacleArray 토픽은 장애물이 없는 scan에서도 빈 배열로 발행된다. 단 `/opp_obs`(와 그 마커)는
+세 ObstacleArray 토픽은 장애물이 없는 scan에서도 빈 배열로 발행된다. 단 `/opp_obs`(와 그 마커)는
 ego odometry timestamp가 `meas_motion_timeout`보다 오래되면 전방 순위를 신뢰할 수 없으므로 해당
 scan에서 발행을 억제하고 throttled WARN을 남긴다.
 
@@ -250,6 +254,7 @@ motion(yaw_used=... fresh=... ref_vs=... ref_vd=...)
 | 토픽 파라미터 | 기본 토픽 | 메시지 타입 | 내용 |
 |---|---|---|---|
 | `static_obs_topic` | `/static_obs` | `f110_msgs/msg/ObstacleArray` | provisional/confirmed 정적 객체 전체의 Frenet 경계와 visible Cartesian AABB |
+| `confirmed_static_obs_topic` | `/confirmed_static_obs` | `f110_msgs/msg/ObstacleArray` | confirmed 정적 객체만 포함한 장기 지도 입력 |
 | `opp_obs_topic` | `/opp_obs` | `f110_msgs/msg/ObstacleArray` | 최근접 동적 상대차 최대 1개의 Frenet 경계와 visible Cartesian AABB |
 | `static_markers_topic` | `/static_obs/markers` | `visualization_msgs/msg/MarkerArray` | 최종 `/static_obs` Frenet 경계의 RViz mirror |
 | `opp_markers_topic` | `/opp_obs/markers` | `visualization_msgs/msg/MarkerArray` | 최종 `/opp_obs` Frenet 경계의 RViz mirror |
@@ -334,7 +339,7 @@ python3 ~/2026_IFAC/src/obstacle_detector/test/synthetic_opponent_test.py
 ```
 
 PASS 조건은 동적 상대차가 먼저 `/static_obs`에 provisional로 나타난 뒤 같은 ID로 `/opp_obs`에
-이동하고, 정적 장애물이 `/static_obs`에만 나타나며,
+이동하고, confirmed 정적 장애물이 `/confirmed_static_obs`에도 나타나며,
 5포인트 미만 LiDAR 파편들이 tracking 전에 하나의 detection으로 복원되고, 별도 track으로 남은
 조각난 정적 물체도 layer merge에서 하나의 출력 객체로 병합되며, 모든 출력 Frenet 경계가
 유한하고 `d_right <= d_left`인 것이다. 폐루프 경계를 넘는 객체의 `s_start > s_end`는 정상이다.

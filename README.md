@@ -192,6 +192,15 @@ Ubuntu 24.04 / ROS 2 Jazzy workspace for the 2026 IFAC F1TENTH stack. ROS packag
 │   │   ├── test/test_obstacle_tracker.cpp
 │   │   ├── AGENTS.md, CMakeLists.txt, package.xml, README(.en).md
 │   │
+│   ├── static_obstacle_map/      # persistent confirmed-static OccupancyGrid composer
+│   │   ├── config/static_obstacle_map.yaml
+│   │   ├── docs/static_obstacle_map_node.md
+│   │   ├── include/static_obstacle_map/
+│   │   ├── launch/static_obstacle_map.launch.py
+│   │   ├── src/
+│   │   ├── test/
+│   │   ├── AGENTS.md, CMakeLists.txt, package.xml, README.md
+│   │
 │   ├── state_machine/            # driving-mode state machine (GLOBAL / AVOID / OVERTAKE)
 │   │   ├── config/state_machine.yaml
 │   │   ├── include/state_machine/state_machine_node.hpp

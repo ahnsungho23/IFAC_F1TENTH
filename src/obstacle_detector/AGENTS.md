@@ -9,7 +9,8 @@ This package contains one C++ ROS 2 Jazzy runtime node:
 
 - `obstacle_detector_node` (ROS node name `obstacle_detector`) consumes 2D LiDAR, the occupancy
   map, global waypoints, ego odometry, and TF. It publishes provisional/confirmed stationary
-  objects on `/static_obs` and the nearest confirmed dynamic opponent on `/opp_obs`.
+  objects on `/static_obs`, a confirmed-only view on `/confirmed_static_obs`, and the nearest
+  confirmed dynamic opponent on `/opp_obs`.
 
 Path planning, overtaking, avoidance-waypoint generation, and driving-state arbitration are
 explicitly outside this package. Do not add an overtake planner, `/state`, `/avoid_waypoints`,
@@ -21,8 +22,9 @@ explicitly outside this package. Do not add an overtake planner, `/state`, `/avo
 - Use `sensor_msgs/msg/LaserScan`, `nav_msgs/msg/OccupancyGrid`, and
   `nav_msgs/msg/Odometry` for standard inputs.
 - Use `f110_msgs/msg/WpntArray` for `/global_waypoints`.
-- Use `f110_msgs/msg/ObstacleArray` for both `/static_obs` and `/opp_obs`; do not create a new
-  obstacle message.
+- Use `f110_msgs/msg/ObstacleArray` for `/static_obs`, `/confirmed_static_obs`, and `/opp_obs`;
+  do not create a new obstacle message. `/confirmed_static_obs` is the confirmed-only Layer-2
+  interface for persistent map consumers; it must not change the existing `/static_obs` contract.
 - Use `visualization_msgs/msg/MarkerArray` only for the RViz mirrors. `/static_obs/markers` must
   mirror the final `/static_obs` Frenet envelopes, and `/opp_obs/markers` must mirror the final
   `/opp_obs` Frenet envelope. Do not build these markers from Cartesian AABB metadata.
@@ -72,8 +74,8 @@ Keep the scan-driven pipeline ordered as follows:
     footprint as current geometry. Drop a predicted-only component whose merged envelope exceeds
     `max_obs_size`: fan-scatter ghost blobs can grow until they span the corridor and
     false-block planners.
-14. Publish all merged statics on `/static_obs` and at most one nearest-ahead dynamic object on
-    `/opp_obs`.
+14. Publish all merged statics on `/static_obs`, the confirmed-static subset on
+    `/confirmed_static_obs`, and at most one nearest-ahead dynamic object on `/opp_obs`.
 15. Build the two RViz MarkerArrays from those final published arrays' Frenet bounds. Include
     predicted-only obstacles and distinguish them with lower alpha.
 16. Keep perception diagnostics passive. Accumulate beam, cluster, rejection, and tracker event
@@ -95,6 +97,8 @@ published Frenet bounds instead of reprojecting the Cartesian metadata.
 - Layer 1 is the `/map` and corridor filter. It is never published.
 - Layer 2 is every provisional or confirmed non-map stationary object, published with
   `is_static=true`.
+- `/confirmed_static_obs` is a same-scan, confirmed-only view of Layer 2. It uses the same
+  envelope-stability gate and object-level merge as `/static_obs`.
 - Layer 3 is the nearest confirmed dynamic object ahead of the ego, published with
   `is_static=false`.
 - A fresh track must not be published until `min_hits_confirm` sets its `classified` flag. The
@@ -104,10 +108,10 @@ published Frenet bounds instead of reprojecting the Cartesian metadata.
 - Layer merge uses the independent Frenet longitudinal/lateral extents. When a visible Cartesian
   AABB union exists, reproject it so the published Frenet envelope describes exactly the same
   current footprint shown by the marker.
-- Publish both layer topics every scan, including empty arrays, so downstream consumers receive a
-  deterministic scan-rate tick. The only exception: `/opp_obs` (and its marker) is suppressed with
-  a throttled warning while the ego odometry stamp is stale beyond `meas_motion_timeout`, because
-  the ahead-ranking would be misplaced.
+- Publish `/static_obs`, `/confirmed_static_obs`, and `/opp_obs` every scan, including empty
+  arrays, so downstream consumers receive a deterministic scan-rate tick. The only exception:
+  `/opp_obs` (and its marker) is suppressed with a throttled warning while the ego odometry stamp
+  is stale beyond `meas_motion_timeout`, because the ahead-ranking would be misplaced.
 
 ## Map filtering
 
@@ -156,8 +160,9 @@ published Frenet bounds instead of reprojecting the Cartesian metadata.
 - Confirm that only `obstacle_detector_node` is installed by this package.
 - Launch in an isolated `ROS_DOMAIN_ID` and verify clean startup and shutdown.
 - Run `test/synthetic_opponent_test.py` against a fresh detector process.
-- Confirm `/static_obs` contains provisional/confirmed stationary objects, a moving provisional
-  object moves to `/opp_obs` with the same ID, and confirmed stationary objects never leak into
+- Confirm `/static_obs` contains provisional/confirmed stationary objects,
+  `/confirmed_static_obs` contains only confirmed stationary objects, a moving provisional object
+  moves to `/opp_obs` with the same ID, and confirmed stationary objects never leak into
   `/opp_obs`.
 - Confirm every published object has finite Frenet bounds with `d_right <= d_left`; a closed-track
   wrap may make `s_start > s_end`. Visible merged objects must also have a matching current

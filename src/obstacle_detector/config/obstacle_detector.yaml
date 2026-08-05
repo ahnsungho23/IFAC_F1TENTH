@@ -5,6 +5,7 @@
 # ego_odom_topic based on the `simulator:=` launch argument.
 #   Layer 1 [map]     -> filter (remove walls / known static structure), not published
 #   Layer 2 [static]  -> /static_obs  (f110_msgs/ObstacleArray, every merged static OBJECT)
+#   Layer 2 confirmed -> /confirmed_static_obs (confirmed-only persistent-map input)
 #   Layer 3 [dynamic] -> /opp_obs     (f110_msgs/ObstacleArray, <=1 merged opponent, nearest ahead)
 # Inside each layer, tracks within layer_merge_gap_s/_d of each other are merged into ONE
 # object-level obstacle before publishing (occlusion/corner fragments -> one entry).
@@ -18,6 +19,7 @@ obstacle_detector:
     map_topic: "/map"                          # nav_msgs/OccupancyGrid (latched) from MCL
     ego_odom_topic: "/pf/pose/odom"            # ego pose in map frame (MCL). Sim: /ego_racecar/odom
     static_obs_topic: "/static_obs"            # Layer 2 output (ObstacleArray, is_static=true)
+    confirmed_static_obs_topic: "/confirmed_static_obs" # confirmed-only Layer 2 output
     opp_obs_topic: "/opp_obs"                  # Layer 3 output (ObstacleArray, <=1 opponent)
     static_markers_topic: "/static_obs/markers" # RViz mirror of the final /static_obs Frenet bounds
     opp_markers_topic: "/opp_obs/markers"       # RViz mirror of the final /opp_obs Frenet bounds
