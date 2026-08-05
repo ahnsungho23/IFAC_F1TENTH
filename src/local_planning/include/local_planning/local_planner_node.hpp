@@ -31,7 +31,6 @@
 #include <nav_msgs/msg/path.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/header.hpp>
-#include <visualization_msgs/msg/marker_array.hpp>
 
 #include "local_planning/obstacle_guard.hpp"
 #include "local_planning/raceline_spline_planner.hpp"
@@ -100,18 +99,11 @@ private:
     const std::string & severity,
     const PathValidationFailure & failure,
     int confirmation_count = 0) const;
-  void publishResult(
-    const RacelineSplineResult & result,
-    const EgoFrenetState & ego,
-    const std::vector<f110_msgs::msg::Obstacle> & obstacles);
+  void publishResult(const RacelineSplineResult & result);
   void publishEmpty(const std::string & reason);
   nav_msgs::msg::Path makePath(
     const std::vector<f110_msgs::msg::Wpnt> & waypoints,
     const std_msgs::msg::Header & header) const;
-  visualization_msgs::msg::MarkerArray makeMarkers(
-    const RacelineSplineResult & result,
-    const EgoFrenetState & ego,
-    const std::vector<f110_msgs::msg::Obstacle> & obstacles) const;
 
   rclcpp::CallbackGroup::SharedPtr planning_callback_group_;
   rclcpp::CallbackGroup::SharedPtr odometry_callback_group_;
@@ -121,8 +113,6 @@ private:
   rclcpp::Subscription<f110_msgs::msg::StateMachine>::SharedPtr state_sub_;
   rclcpp::Publisher<f110_msgs::msg::OTWpntArray>::SharedPtr avoid_waypoints_pub_;
   rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr local_path_pub_;
-  rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr compatibility_path_pub_;
-  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr markers_pub_;
   rclcpp::TimerBase::SharedPtr planning_timer_;
 
   RacelineSplineParameters planner_parameters_;
@@ -191,8 +181,6 @@ private:
   double chain_release_margin_m_{0.20};
   double commitment_lock_lateral_threshold_m_{0.10};
   double commitment_lock_longitudinal_m_{0.50};
-  double obstacle_marker_scale_m_{0.35};
-  double path_marker_width_m_{0.06};
 
   std::string global_waypoints_topic_{"/global_waypoints"};
   std::string obstacles_topic_{"/static_obs"};
@@ -200,8 +188,6 @@ private:
   std::string state_topic_{"/state"};
   std::string ot_waypoints_topic_{"/avoid_waypoints"};
   std::string local_path_topic_{"/local_planning/path"};
-  std::string compatibility_path_topic_{"/local_path"};
-  std::string markers_topic_{"/local_planning/markers"};
   std::string frame_id_{"map"};
 };
 

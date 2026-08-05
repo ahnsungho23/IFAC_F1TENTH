@@ -562,7 +562,7 @@ ros2 launch local_planning local_planning.launch.py \
      ┌──────────────────────────────────┘
      ▼
 [터미널 4] local_planning
-     ├──► /local_path, /local_planning/path, /local_planning/markers
+     ├──► /local_planning/path
      └──► /avoid_waypoints
                     │
                     ▼
