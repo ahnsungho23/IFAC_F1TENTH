@@ -140,7 +140,7 @@ def declare_common_args():
         # ── 종방향 감속: 두 개의 서로 다른 감속도 (튜닝 방향이 정반대라 분리했다) ──
         #   base_max_decel = 명령 속도를 초당 얼마나 빨리 떨어뜨릴 수 있나(램프 rate limit) → 높게
         #   prebrake_decel = 차가 **실제로** 낼 수 있는 감속도(제동거리 v²/2a) → 실측값에 맞춤
-
+        
         DeclareLaunchArgument(
             'base_max_decel', default_value='8.0',
             description='명령 속도 하강 rate limit [m/s^2]. 낮추면 감속 명령이 늦게 도달하므로 높게 유지'
@@ -215,7 +215,7 @@ def declare_common_args():
         # ⚠️ s_pid_ramp_erpms_s가 2000→21160으로 오른 뒤로는 이 킥이 훨씬 사납다(즉시 큰 ERPM
         #    오차 → 큰 전류). 부스트 속도를 올릴 땐 반드시 잭업 상태에서 먼저 볼 것.
         DeclareLaunchArgument(
-            'launch_boost_enable', default_value='false',
+            'launch_boost_enable', default_value='true',
             description='런치 킥 on/off (자율 정지출발 데드존 관통 펀치)'
         ),
         DeclareLaunchArgument(
@@ -247,9 +247,9 @@ def declare_common_args():
 
 
 def build_control_map_node(*, odom_topic, max_speed, max_lateral_accel, base_max_accel,
-                           imu_angular_scale, imu_linear_scale,
-                           max_steering_left, max_steering_right,
-                           lookup_table_file='', remappings=None):
+                            imu_angular_scale, imu_linear_scale,
+                            max_steering_left, max_steering_right,
+                            lookup_table_file='', remappings=None):
     """control_map_node — 환경별로 다른 값만 인자로 받고 나머지는 공용 정의.
     remappings: 실차에서만 필요한 토픽 리매핑(예: vesc_driver의 sensors/imu/raw →
     코드에 하드코딩된 /imu/data). 시뮬은 sim_imu_bridge_node가 /imu/data로 바로 발행하므로 불필요."""
