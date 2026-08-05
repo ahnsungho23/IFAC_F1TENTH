@@ -17,9 +17,9 @@
 #include <nav_msgs/srv/get_map.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/laser_scan.hpp>
-#include <tf2_ros/transform_broadcaster.h>
-#include <tf2_ros/transform_listener.h>
-#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_broadcaster.hpp>
+#include <tf2_ros/transform_listener.hpp>
+#include <tf2_ros/buffer.hpp>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
 #include <Eigen/Dense>
@@ -117,6 +117,9 @@ class ParticleFilter : public rclcpp::Node
     int MAX_PARTICLES;
     int MAX_VIZ_PARTICLES;
     double INV_SQUASH_FACTOR;
+    bool USE_ADAPTIVE_SQUASH;                 // true면 아래 두 상황별 squash 조정 활성 (false=구 거동)
+    double SQUASH_FACTOR_HIGH_SPEED_CURVE;    // 고속 커브에서 squash 지수 = 1/이값 (base보다 크게 → 더 눌림)
+    double SQUASH_FACTOR_FAST_CONVERGENCE;    // 초기 수렴 시 squash 지수 = 1/이값 (base보다 작게 → 더 뾰족)
     double MAX_RANGE_METERS;
     bool PUBLISH_ODOM;
     bool PUBLISH_MAP_ODOM_TF;
@@ -126,11 +129,60 @@ class ParticleFilter : public rclcpp::Node
     bool USE_PARALLEL_RAYCASTING;
     int NUM_THREADS;
     double MAX_POSE_RANGE;
-    double DELAY_COMPENSATION_FACTOR;
     double SMOOTHING_ALPHA;
+    double SMOOTHING_VELOCITY_FULL_MPS;   // 속도 적응 alpha가 최대 보정에 도달하는 속도
+    double SMOOTHING_ALPHA_GAIN;          // 최대 속도에서 base alpha에 더해지는 폭
+    double SMOOTHING_ALPHA_MAX;           // 속도 적응 alpha 상한
+
+    // ------------------------- POSE FUSION EKF (odom 예측 + MCL 보정) -------------------------
+    // 복도처럼 진행방향 관측성이 없는 구간에서 파티클 기대값이 종방향으로 표류하는 문제를
+    // 출력단에서 해결한다: odom(주행거리 대비 ~0.3% 오차)으로 매 주기 예측하고, MCL 기대
+    // 포즈를 측정으로 보정하되 측정 노이즈 R에 "파티클 가중 공분산"을 그대로 사용 —
+    // 복도에선 종방향 분산이 커져 자동으로 odom을 더 믿고, 코너에선 분산이 줄어 MCL을 믿는다.
+    bool USE_POSE_EKF;
+    double EKF_TRANS_ERROR_RATE;      // 주행거리 대비 병진 오차율 (실차 실측 ~0.003)
+    double EKF_TRANS_FLOOR_MPS;       // 병진 프로세스 노이즈 시간 하한 [m/s]
+    double EKF_LAT_ERROR_RATIO;       // 종방향 시그마 대비 횡방향 비율
+    double EKF_ROT_ERROR_RATE;        // 회전량 대비 요 오차율
+    double EKF_ROT_FLOOR_RADPS;       // 요 프로세스 노이즈 시간 하한 [rad/s]
+    double EKF_MEAS_VAR_INFLATION;    // 파티클 공분산 → R 배율
+    double EKF_MEAS_LONG_INFLATION;   // 차체 종방향(진행방향) R 추가 배율 — 복도 표류 차단
+    double EKF_MEAS_POS_STD_FLOOR;    // 측정 위치 표준편차 하한 [m]
+    double EKF_MEAS_YAW_STD_FLOOR;    // 측정 요 표준편차 하한 [rad]
+    double EKF_GATE_CHI2;             // 마할라노비스 게이트 (0=비활성)
+    int EKF_GATE_FORCE_ACCEPT;        // 연속 기각 이 횟수 도달 시 강제 수용(재고정)
+    double EKF_GATE_FORCE_ACCEPT_DIST;  // 기각 중 누적 주행거리가 이 값[m] 도달 시에도 재고정 (0=거리 조건 해제)
+
+    bool ekf_initialized_;
+    Eigen::Vector3d ekf_state_;
+    Eigen::Matrix3d ekf_cov_;
+    int ekf_reject_count_;
+    double ekf_reject_dist_ = 0.0;    // 기각 중 누적 주행거리 [m] (고속에서의 장시간 묵보정 방지)
+    bool ekf_prev_odom_valid_;
+    Eigen::Vector3d ekf_prev_odom_;   // 직전 예측 시점의 원시 odom 포즈 (델타 계산용)
+    double lidar_offset_x_ = 0.27;    // base_link→laser 오프셋 (TF에서 갱신, apply_tf_offset 공유)
+    double lidar_offset_y_ = 0.0;
+
+    void ekf_reset(const Eigen::Vector3d &pose);
+    void ekf_predict_from_odom(const Eigen::Vector3d &odom_now);
+    void ekf_update(const Eigen::Vector3d &z, const Eigen::Matrix3d &R);
+    Eigen::Matrix3d particle_covariance(const Eigen::Vector3d &mean);
+    // 포즈가 맵의 free 공간에 있는지 (반경 3셀≈15 cm 내 free 1개 이상이면 허용 — 벽 스침/맵 오차 허용)
+    bool is_pose_permissible(const Eigen::Vector3d& pose) const;
 
     // --------------------------------- SENSOR MODEL PARAMETERS ---------------------------------
     double Z_SHORT, Z_MAX, Z_RAND, Z_HIT, SIGMA_HIT;
+
+    // --------------------------------- SCAN ROBUSTNESS (다이낯믹 환경 대응) ---------------------------------
+    double RAY_LIKELIHOOD_FLOOR_RATIO;      // per-ray likelihood 하한 (열 최댓값 대비, 0=비활성)
+    std::vector<double> sensor_model_col_max_;  // 센서 모델 열(기대 거리)별 최댓값
+    bool USE_SCAN_QUALITY_R;                // 스캔 품질 연동 측정 노이즈 부풀림
+    double SCAN_QUALITY_OUTLIER_GAIN;       // K_OUTLIER
+    double SCAN_QUALITY_OUTLIER_START;      // q0
+    double SCAN_QUALITY_ESS_GAIN;           // K_ESS
+    double SCAN_QUALITY_ESS_START;          // ess0
+    double outlier_fraction_ = 0.0;         // 최대 가중치 파티클 기준 outlier 레이 비율
+    double ess_ratio_ = 1.0;                // ESS / N
 
     // --------------------------------- MOTION MODEL PARAMETERS ---------------------------------
     double MOTION_DISPERSION_X, MOTION_DISPERSION_Y, MOTION_DISPERSION_THETA;

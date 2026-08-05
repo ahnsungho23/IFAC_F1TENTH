@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""검출기가 제공한 Frenet 장애물이 Cartesian 회피 경로로 이어지는 계약을 검사한다."""
+"""Exercise the detector-provided Frenet-obstacle to Cartesian-path contract."""
 
 import argparse
 import csv
@@ -29,7 +29,7 @@ from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 
 
 def load_waypoints(path):
-    """표준 global_waypoints CSV를 읽는다."""
+    """Load the standard global_waypoints CSV."""
     result = []
     with open(path, newline='', encoding='utf-8') as stream:
         for row in csv.DictReader(stream):
@@ -49,7 +49,7 @@ def load_waypoints(path):
 
 
 def make_straight_waypoints(count=300, spacing=0.2):
-    """입력 CSV가 없을 때 테스트 자체에서 직선 기준 경로를 만든다."""
+    """Build a self-contained straight reference when no CSV is supplied."""
     result = []
     for index in range(count):
         waypoint = Wpnt()
@@ -67,7 +67,7 @@ def make_straight_waypoints(count=300, spacing=0.2):
 
 
 class FrenetPipelineProbe(Node):
-    """검출기 형식의 Frenet 장애물을 발행하고 Cartesian 경로를 기다린다."""
+    """Publish one detector-style Frenet obstacle and wait for a Cartesian path."""
 
     def __init__(self, waypoints):
         super().__init__('frenet_static_pipeline_probe')
@@ -93,7 +93,7 @@ class FrenetPipelineProbe(Node):
         self.timer = self.create_timer(0.05, self.publish_inputs)
 
     def publish_inputs(self):
-        """기준 경로, ego odometry와 장애물을 동기화해 발행한다."""
+        """Publish synchronized test inputs."""
         now = self.get_clock().now().to_msg()
         global_message = WpntArray()
         global_message.wpnts = self.waypoints
@@ -104,8 +104,8 @@ class FrenetPipelineProbe(Node):
         self.publish_count += 1
         obstacle = Obstacle()
         obstacle.id = 1
-        # Cartesian metadata를 의도적으로 생략한다. 그래도 경로가 생성되면 local_planning이
-        # x/y를 재투영하지 않고 detector 소유의 Frenet footprint를 사용한다는 뜻이다.
+        # Deliberately omit Cartesian metadata. A valid plan proves that local_planning consumes
+        # the detector-owned Frenet footprint instead of reprojecting x/y.
         obstacle.has_cartesian = False
         obstacle.s_center = reference.s_m + jitter
         obstacle.s_start = obstacle.s_center - 0.20
@@ -133,7 +133,7 @@ class FrenetPipelineProbe(Node):
         self.odom_pub.publish(odometry)
 
     def on_path(self, message):
-        """비어 있지 않고 모든 좌표가 유한한 Cartesian 회피 경로만 성공으로 인정한다."""
+        """Accept only a non-empty, finite Cartesian avoidance path."""
         if not message.wpnts:
             return
         if not all(
@@ -165,7 +165,7 @@ class FrenetPipelineProbe(Node):
 
 
 def main():
-    """이미 실행 중인 local_planner_node를 대상으로 probe를 실행한다."""
+    """Run the probe against an already running local_planner_node."""
     parser = argparse.ArgumentParser()
     parser.add_argument('--waypoints-csv')
     parser.add_argument('--timeout', type=float, default=8.0)

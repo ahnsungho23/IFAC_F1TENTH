@@ -1,5 +1,5 @@
 // ================================================================================================
-// Frenet 트랙 보조기 구현
+// FRENET PROJECTOR implementation
 // ================================================================================================
 
 #include "obstacle_detector/frenet_projector.hpp"
@@ -26,8 +26,8 @@ void FrenetProjector::build(
         return;
     }
 
-    // CLCS 길이가 주어지면 추적, 발행 경계, marker wrap이 같은 s 영역을 공유하도록 사용한다.
-    // 단독 사용 시에는 마지막 s에 시작-끝 폐곡선 선분의 기하 길이를 더해 전체 길이를 구한다.
+    // Use the CLCS length when supplied so tracking, published bounds, and marker wrapping share
+    // one s-domain. Standalone users fall back to the final s plus the geometric closing segment.
     const Waypoint &front = wpnts_.front();
     const Waypoint &back = wpnts_.back();
     const double closing = std::hypot(front.x - back.x, front.y - back.y);
@@ -42,7 +42,6 @@ void FrenetProjector::build(
 
 double FrenetProjector::wrapDelta(double a, double b) const
 {
-    // 두 방향 후보 중 절댓값이 반 바퀴 이하인 부호 거리를 남긴다.
     double diff = a - b;
     if (!closed_ || length_ <= 0.0)
     {
@@ -67,7 +66,6 @@ bool FrenetProjector::toCartesian(
         return false;
     }
 
-    // 폐루프는 s를 전체 길이로 wrap하고, 열린 경로는 양 끝 범위로 clamp한다.
     double query_s = s;
     if (closed_ && length_ > 0.0)
     {
@@ -88,7 +86,6 @@ bool FrenetProjector::toCartesian(
     double segment_s = wpnts_[1].s - wpnts_[0].s;
     double progress_s = query_s - first_s;
 
-    // 마지막 waypoint 이후라면 끝점과 첫점을 잇는 폐곡선 선분에서 보간한다.
     if (closed_ && query_s >= wpnts_.back().s)
     {
         first = wpnts_.size() - 1;
@@ -123,13 +120,11 @@ bool FrenetProjector::toCartesian(
         return false;
     }
 
-    // waypoint의 s 간격이 퇴화했을 때는 실제 선분 길이를 보간 분모로 사용한다.
     const double denominator =
         segment_s > std::numeric_limits<double>::epsilon() ? segment_s : geometric_length;
     const double ratio = std::clamp(progress_s / denominator, 0.0, 1.0);
     const double base_x = a.x + ratio * dx;
     const double base_y = a.y + ratio * dy;
-    // 보간한 raceline 점을 좌측 법선(-sin(yaw), cos(yaw)) 방향으로 d만큼 이동한다.
     yaw = std::atan2(dy, dx);
     x = base_x - d * std::sin(yaw);
     y = base_y + d * std::cos(yaw);
@@ -145,7 +140,7 @@ void FrenetProjector::boundsAtS(double s, double &d_left, double &d_right) const
         return;
     }
 
-    // s가 단조 증가하더라도 누락 구간에 안전하도록 전체를 선형 탐색해 최근접 waypoint를 찾는다.
+    // nearest waypoint by s (linear scan; s is monotonic but a scan keeps this robust to gaps).
     std::size_t best = 0;
     double best_ds = std::numeric_limits<double>::max();
     for (std::size_t i = 0; i < wpnts_.size(); ++i)

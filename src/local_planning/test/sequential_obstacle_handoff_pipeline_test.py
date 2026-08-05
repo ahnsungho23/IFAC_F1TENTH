@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""인계 전/중 두 번째 장애물이 나타날 때 AVOID가 직접 연결되는지 검사한다."""
+"""Verify direct AVOID chaining when a second obstacle appears before or during handoff."""
 
 import argparse
 import math
@@ -29,7 +29,7 @@ from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 
 
 def latched_qos():
-    """글로벌 waypoint와 state에 사용하는 transient-local QoS를 반환한다."""
+    """Return the transient-local QoS used by global waypoints and state."""
     qos = QoSProfile(depth=1)
     qos.reliability = ReliabilityPolicy.RELIABLE
     qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
@@ -37,7 +37,7 @@ def latched_qos():
 
 
 class SequentialObstacleProbe(Node):
-    """첫 maneuver는 왼쪽, 바로 다음 maneuver는 오른쪽으로 강제한다."""
+    """Force the first maneuver left and its immediate successor right."""
 
     def __init__(self, during_handoff):
         super().__init__('sequential_obstacle_handoff_probe')
@@ -66,7 +66,7 @@ class SequentialObstacleProbe(Node):
 
     @staticmethod
     def reference():
-        """유한한 트랙 폭을 갖는 직선 순서 레이스 라인을 만든다."""
+        """Create an ordered straight race line with finite track widths."""
         message = WpntArray()
         message.header.frame_id = 'map'
         for index in range(300):
@@ -85,7 +85,7 @@ class SequentialObstacleProbe(Node):
 
     @staticmethod
     def obstacle(obstacle_id, center_s, d_right, d_left):
-        """직선 기준 경로용 detector 형식 Frenet 장애물을 만든다."""
+        """Build a detector-style Frenet obstacle for the straight reference."""
         obstacle = Obstacle()
         obstacle.id = obstacle_id
         obstacle.has_cartesian = True
@@ -110,7 +110,7 @@ class SequentialObstacleProbe(Node):
         return obstacle
 
     def publish_inputs(self):
-        """입력 freshness timeout이 발생하지 않도록 메시지를 연속 발행한다."""
+        """Publish a continuous, fresh input stream."""
         stamp = self.get_clock().now().to_msg()
         reference = self.reference()
         reference.header.stamp = stamp
@@ -119,10 +119,10 @@ class SequentialObstacleProbe(Node):
         obstacles = ObstacleArray()
         obstacles.header.stamp = stamp
         obstacles.header.frame_id = 'map'
-        # 이 상자는 오른쪽을 막으므로 첫 commitment는 반드시 왼쪽으로 가야 한다.
+        # This box blocks the right side, so the first committed maneuver must go left.
         obstacles.obstacles.append(self.obstacle(31, 7.0, -1.2, 0.2))
         if self.stage == 'chaining':
-            # 뒤쪽 상자는 왼쪽을 막는다. 이전 왼쪽 commitment를 유지해서는 피할 수 없다.
+            # This later box blocks the left side. A stale left commitment cannot avoid it.
             obstacles.obstacles.append(
                 self.obstacle(32, self.second_s, -0.2, 1.2))
             if self.second_first_publish_time is None:
@@ -145,13 +145,13 @@ class SequentialObstacleProbe(Node):
 
     @staticmethod
     def merge_s(message):
-        """설정된 5 m post-merge controller tail로부터 merge s를 역산한다."""
+        """Recover merge s from the configured 5 m post-merge controller tail."""
         if not message.wpnts:
             return None
         return message.wpnts[-1].s_m - 5.0
 
     def on_avoid(self, message):
-        """왼쪽 회피 → 안정화된 직접 연결 → 오른쪽 회피 순서를 요구한다."""
+        """Require left avoidance -> stabilized direct chain -> right avoidance."""
         if not message.wpnts:
             if self.stage != 'first':
                 self.failure = 'avoid waypoints became empty while chaining maneuvers'
@@ -189,7 +189,7 @@ class SequentialObstacleProbe(Node):
         if message.ot_line != 'raceline_local_d_offset_spline':
             return
         if min(waypoint.d_m for waypoint in message.wpnts) > -0.4:
-            # merge 확인 횟수가 누적되는 동안 첫 commitment는 계속 유효해야 한다.
+            # The first commitment remains valid while merge confirmation accumulates.
             return
         if self.second_first_publish_time is None:
             self.failure = 'second maneuver committed before its obstacle was published'
@@ -204,7 +204,7 @@ class SequentialObstacleProbe(Node):
 
 
 def main():
-    """새로 실행한 local_planner_node를 대상으로 probe를 실행한다."""
+    """Run the probe against a fresh local_planner_node."""
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '--during-handoff', action='store_true',

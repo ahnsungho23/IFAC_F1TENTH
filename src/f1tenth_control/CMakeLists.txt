@@ -13,9 +13,9 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # ==============================================================================
 # 임베디드 제어 성능 극대화를 위한 컴파일 최적화 플래그 (-O3, -march=native)
 # ==============================================================================
+# (2026-08-01: MPPI GPU 솔버 제거로 CUDA(.cu) 빌드 유닛이 없어져 CXX 언어 스코프 제한이
+#  더 이상 필수는 아니지만, 순수 C++ 패키지로 남는 한 부작용이 없어 그대로 둔다.)
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-  # ⚠️ CXX 전용으로 스코프 제한 — nvcc(CUDA)는 -march=native/-flto를 직접 못 알아들어
-  #    CUDA 활성화 시 .cu 컴파일이 실패한다. .cu용 최적화는 아래 CUDA 블록에서 별도 지정.
   add_compile_options(
     "$<$<COMPILE_LANGUAGE:CXX>:-O3>"          # 최대 런타임 속도 최적화
     "$<$<COMPILE_LANGUAGE:CXX>:-march=native>" # 구동 하드웨어(Jetson, PC) CPU 명령어셋 맞춤
@@ -32,25 +32,8 @@ find_package(nav_msgs REQUIRED)
 find_package(ackermann_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(f110_msgs REQUIRED)
-find_package(geometry_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(ament_index_cpp REQUIRED)
-
-# ==============================================================================
-# 1. Xbox Teleop Monitor 노드 빌드
-# ==============================================================================
-add_executable(joy_teleop_monitor control_code/joy_teleop_monitor.cpp)
-target_include_directories(joy_teleop_monitor PUBLIC
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  $<INSTALL_INTERFACE:include>
-)
-ament_target_dependencies(joy_teleop_monitor
-  rclcpp
-  sensor_msgs
-  nav_msgs
-  ackermann_msgs
-  std_msgs
-)
 
 # ==============================================================================
 # 2. Control MAP 노드 빌드 (L1 Guidance + Steering LUT)
@@ -58,201 +41,80 @@ ament_target_dependencies(joy_teleop_monitor
 add_executable(control_map_node
   control_code/control_map_node.cpp
   control_code/gap_follower.cpp
-  control_code/imu_stability_controller.cpp
 )
+# ⚠️ StabilityController는 2026-07-29 롤 인지 ESC 제거와 함께 **헤더 전용**(.hpp)이 됐다 —
+#    imu_stability_controller.cpp는 삭제됐으므로 여기 다시 추가하지 말 것.
 target_include_directories(control_map_node PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
-ament_target_dependencies(control_map_node
-  rclcpp
-  sensor_msgs
-  nav_msgs
-  ackermann_msgs
-  std_msgs
-  f110_msgs
-  geometry_msgs
-  visualization_msgs
-  ament_index_cpp
-)
-
-# ==============================================================================
-# 3. Teleop Dashboard 뷰어 노드 빌드 (대시보드를 별도 터미널에서 렌더링)
-# ==============================================================================
-add_executable(teleop_dashboard_node control_code/teleop_dashboard_node.cpp)
-ament_target_dependencies(teleop_dashboard_node
-  rclcpp
-  std_msgs
-)
-
-# ==============================================================================
-# 4. LUT Calibrator 노드 빌드 (실차 주행 기반 Steering LUT 실측 보정, 관찰 전용)
-# ==============================================================================
-add_executable(lut_calibrator_node control_code/lut_calibrator_node.cpp)
-target_include_directories(lut_calibrator_node PUBLIC
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  $<INSTALL_INTERFACE:include>
-)
-ament_target_dependencies(lut_calibrator_node
-  rclcpp
-  sensor_msgs
-  nav_msgs
-  ackermann_msgs
-  std_msgs
-  ament_index_cpp
+target_link_libraries(control_map_node
+  rclcpp::rclcpp
+  ${sensor_msgs_TARGETS}
+  ${nav_msgs_TARGETS}
+  ${ackermann_msgs_TARGETS}
+  ${std_msgs_TARGETS}
+  ${f110_msgs_TARGETS}
+  ${visualization_msgs_TARGETS}
+  ament_index_cpp::ament_index_cpp
 )
 
 # ==============================================================================
 # 5. Sim IMU Bridge 노드 빌드 (시뮬 전용 — odom 요레이트 → /imu/data 중계)
 # ==============================================================================
 add_executable(sim_imu_bridge_node control_code/sim_imu_bridge_node.cpp)
-ament_target_dependencies(sim_imu_bridge_node
-  rclcpp
-  sensor_msgs
-  nav_msgs
+target_link_libraries(sim_imu_bridge_node
+  rclcpp::rclcpp
+  ${sensor_msgs_TARGETS}
+  ${nav_msgs_TARGETS}
 )
 
 # ==============================================================================
-# 6. MPPI 컨트롤러 노드 (control_mppi_node) — control_map_node와 동급 상시 구동
-#    샘플링 기반 MPPI(동역학 자전거+Pacejka, 조향+가속 동시)로 글로벌 경로 추종,
-#    결과를 /drive_mppi로 발행. Mux(joy_teleop_monitor)가 RB로 MAP↔MPPI 라우팅.
-#    솔버는 컴파일 타임 자동선택: CUDA 있으면 GPU(아래 6-B에서 USE_MPPI_GPU 정의 +
-#    control_mppi_gpu_solver 링크), 없으면 CPU(control_mppi_node.cpp가
-#    control_mppi_solver_cpu.cpp를 직접 include). 어느 쪽이든 실행파일은 항상 빌드된다.
-# ==============================================================================
-add_executable(control_mppi_node
-  control_code/control_mppi_node.cpp
-)
-target_include_directories(control_mppi_node PUBLIC
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  $<INSTALL_INTERFACE:include>
-)
-# CPU 경로에서 control_mppi_node.cpp가 #include "control_mppi_solver_cpu.cpp" 하므로
-# control_code를 include 경로에 추가(GPU 경로에선 mppi_gpu.hpp만 쓰므로 무해).
-target_include_directories(control_mppi_node PRIVATE
-  ${CMAKE_CURRENT_SOURCE_DIR}/control_code
-)
-ament_target_dependencies(control_mppi_node
-  rclcpp
-  sensor_msgs
-  nav_msgs
-  ackermann_msgs
-  std_msgs
-  f110_msgs
-  ament_index_cpp
-)
-
-# ==============================================================================
-# 6-B. MPPI GPU 솔버 (CUDA, 선택적 빌드)
-#   control_mppi_solver_gpu.cu — control_mppi_solver_cpu.cpp(CPU)의 롤아웃 코어를 CUDA로
-#   포팅한 것.
-#   ⚠️ CUDA 미설치 환경(팀원 PC, CI)에서도 colcon build가 깨지지 않도록 check_language로
-#      감지 후에만 활성화. 나머지 실행파일/CPU 경로는 CUDA 유무와 무관하게 빌드됨.
-#   Jetson Orin Nano(sm_87) + 개발PC RTX 4060(sm_89) 포함, 합리적 하위호환 커버리지.
-#   cmake 3.22엔 "native" 아키텍처 키워드(3.24+ 전용)가 없어 명시적 목록을 쓴다.
-# ==============================================================================
-include(CheckLanguage)
-check_language(CUDA)
-if(CMAKE_CUDA_COMPILER)
-  enable_language(CUDA)
-  find_package(CUDAToolkit REQUIRED)  # Thrust 헤더도 CUDAToolkit include 경로로 딸려옴
-
-  if(NOT DEFINED CMAKE_CUDA_STANDARD)
-    set(CMAKE_CUDA_STANDARD 17)
-    set(CMAKE_CUDA_STANDARD_REQUIRED ON)
-  endif()
-  if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
-    set(CMAKE_CUDA_ARCHITECTURES "75;80;86;87;89")
-  endif()
-
-  add_library(control_mppi_gpu_solver STATIC
-    control_code/control_mppi_solver_gpu.cu
-  )
-  target_include_directories(control_mppi_gpu_solver PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:include>
-  )
-  target_link_libraries(control_mppi_gpu_solver PUBLIC CUDA::cudart)
-
-  # control_mppi_node를 GPU 솔버로 전환: USE_MPPI_GPU 정의 + GPU 솔버/런타임 링크.
-  # (CUDA 없으면 이 블록이 스킵돼 노드는 CPU 솔버로 그대로 빌드됨.)
-  # ⚠️ ament_target_dependencies가 이미 plain-signature target_link_libraries를 이 타겟에
-  #    썼으므로 여기서도 plain(키워드 PRIVATE 없이)으로 맞춰야 함(혼용 시 CMake 에러).
-  target_compile_definitions(control_mppi_node PRIVATE USE_MPPI_GPU)
-  target_link_libraries(control_mppi_node control_mppi_gpu_solver CUDA::cudart)
-
-  install(TARGETS control_mppi_gpu_solver
-    DESTINATION lib/${PROJECT_NAME}
-  )
-else()
-  message(STATUS "f1tenth_control: CUDA 컴파일러 없음 — GPU MPPI 솔버 빌드 스킵(CPU 타겟 영향 없음)")
-endif()
-
-# ==============================================================================
-# 7. Drive Source Selector 노드 (실차 전용 MAP/MPPI 슬림 셀렉터)
-#    실차는 수동/자율/E-stop Mux를 f1tenth_stack(drive_mode_manager+ackermann_mux)이 맡고,
-#    joy_teleop_monitor는 실차 런치에서 제외된다. 그 스택엔 MAP/MPPI 개념이 없으므로 이 노드가
-#    RB로 /drive_autonomous(MAP)↔/drive_mppi(MPPI)를 골라 /drive(navigation 채널)로 포워딩한다.
+# 6. Drive Source Selector 노드 (자율 명령 포워더 — sim/real 공용)
+#    수동/자율/E-stop Mux(teleop)는 이 저장소 밖 담당이다: 실차는 f1tenth_stack
+#    (drive_mode_manager+ackermann_mux), 시뮬은 Mux 없이 이 노드가 자율 명령을 /drive로
+#    직결한다. control_map_node의 /drive_autonomous를 그대로 /drive로 포워딩한다.
+#    (2026-08-01: MPPI 노드/솔버 전체 제거와 함께 MAP/MPPI 셀렉터 기능도 걷어냄 — 대회
+#    준비 기간 동안 MAP 하나에만 집중하기로 함. MPPI 코드는 git 이력에서 꺼낼 수 있음.)
 # ==============================================================================
 add_executable(drive_source_selector control_code/drive_source_selector.cpp)
-ament_target_dependencies(drive_source_selector
-  rclcpp
-  sensor_msgs
-  ackermann_msgs
-  std_msgs
+target_link_libraries(drive_source_selector
+  rclcpp::rclcpp
+  ${ackermann_msgs_TARGETS}
 )
 
 # ==============================================================================
-# 7-B. Real-car Dashboard 노드 (실차 젯슨 원격 모니터링 — 우리 컴에서 실행)
-#    젯슨 원시 토픽(/drive_mode,/mppi_active,/drive,odom,/joy)을 직접 구독해 로컬에서
-#    렌더링(젯슨 렌더 연산 0). 시뮬용 teleop_dashboard_node(문자열 뷰어)와 별개 노드.
-# ==============================================================================
-add_executable(realcar_dashboard_node control_code/realcar_dashboard_node.cpp)
-ament_target_dependencies(realcar_dashboard_node
-  rclcpp
-  std_msgs
-  sensor_msgs
-  nav_msgs
-)
-
-# ==============================================================================
-# 7-C. Odom 거리 스케일 보정 노드 (실차 원격 — 우리 컴에서 실행)
+# 6-B. Odom 거리 스케일 보정 노드 (실차 원격 — 우리 컴에서 실행)
 #    "명령 주고 자로 재기" 테스트 자동화. odom 한 토픽 안의 twist(VESC 휠 패스스루)와
 #    pose(MCL 스캔매칭)를 따로 적분해 명령/휠/맵 세 거리를 동시 측정 → 어느 게인이
 #    틀렸는지 분리해준다. /drive 미발행(순수 관찰자).
 # ==============================================================================
 add_executable(odom_calib_node control_code/odom_calib_node.cpp)
-ament_target_dependencies(odom_calib_node
-  rclcpp
-  std_msgs
-  nav_msgs
-  ackermann_msgs
+target_link_libraries(odom_calib_node
+  rclcpp::rclcpp
+  ${std_msgs_TARGETS}
+  ${nav_msgs_TARGETS}
+  ${ackermann_msgs_TARGETS}
 )
 
 # ==============================================================================
 # 8. 파일 설치 (Install) 규칙
 # ==============================================================================
 install(TARGETS
-  joy_teleop_monitor
   drive_source_selector
-  realcar_dashboard_node
   odom_calib_node
   control_map_node
-  control_mppi_node
-  teleop_dashboard_node
-  lut_calibrator_node
   sim_imu_bridge_node
   DESTINATION lib/${PROJECT_NAME}
 )
 
 install(DIRECTORY launch
   DESTINATION share/${PROJECT_NAME}
-  PATTERN "__pycache__" EXCLUDE
 )
 
 # Steering Lookup Table(LUT) CSV — 패키지 share에 설치해 이식성 있는 ament 경로로 로드
 # (control_map_node가 get_package_share_directory("f1tenth_control")+"/cfg/..."로 조회)
-install(FILES control_code/NUC6_glc_pacejka_lookup_table.csv
+install(FILES control_code/LUT_calibrated.csv
   DESTINATION share/${PROJECT_NAME}/cfg
 )
 

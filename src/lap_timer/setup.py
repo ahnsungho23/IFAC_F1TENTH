@@ -12,7 +12,6 @@ setup(
         ('share/' + package_name + '/launch', ['launch/lap_timer.launch.py']),
         ('share/' + package_name + '/config', ['config/params.yaml']),
         ('share/' + package_name + '/rviz', ['rviz/lap_hud.rviz']),
-        ('share/' + package_name + '/docs', ['docs/lap_timer_node.md']),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -27,3 +26,4 @@ setup(
         ],
     },
 )
+

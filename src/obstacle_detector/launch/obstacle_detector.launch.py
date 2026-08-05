@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""계층형 LiDAR 장애물 검출기의 패키지 진입점이며 RViz를 선택적으로 실행한다.
+"""Package entry point for the layered LiDAR obstacle detector (+ optional RViz).
 
-사용 예:
-  실차:        ros2 launch obstacle_detector obstacle_detector.launch.py
-  시뮬레이터:  ros2 launch obstacle_detector obstacle_detector.launch.py simulator:=true
-  RViz 포함:   ros2 launch obstacle_detector obstacle_detector.launch.py rviz:=true
+Usage:
+  Real car:  ros2 launch obstacle_detector obstacle_detector.launch.py
+  Simulator: ros2 launch obstacle_detector obstacle_detector.launch.py simulator:=true
+  With RViz: ros2 launch obstacle_detector obstacle_detector.launch.py rviz:=true
 
-이 launch는 ``obstacle_detector_node``만 시작한다. 경로 계획과 상태 기계는 이 패키지의
-책임 범위가 아니다.
+This launch starts only ``obstacle_detector_node``. Path planning and state-machine behavior are
+outside this package.
 """
 
 import os

@@ -19,7 +19,7 @@
 - `/local_waypoints`: `f110_msgs/WpntArray`
 - pose topic: `nav_msgs/Odometry`
 - speed topic: `nav_msgs/Odometry`
-- `/state`: `std_msgs/String`
+- `/state`: `f110_msgs/StateMachine` (state_machine 패키지와 동일, QoS는 transient_local)
 - imu topic: `sensor_msgs/Imu`
 
 토픽 이름은 모두 `config/config.yaml`에서 바꿀 수 있다. `pose_topic`, `speed_topic`, `drive_topic`, `imu_topic`을 비워두면 `simulator` 값에 따라 simulator topic profile 또는 vehicle topic profile을 자동으로 사용한다.
@@ -90,10 +90,10 @@ ros2 launch new_map_con new_map_con.launch.py simulator:=true
 
 f1sim과 같이 실행할 때는 f1sim의 `sim.yaml`에 설정된 `map_path`와 `global_waypoints_csv`가 같은 map YAML에서 만들어진 파일인지 먼저 확인한다. 현재 기본 설정은 둘 다 `fuck_f1` map 기준이다.
 
-다른 CSV를 쓰려면 `config/config.yaml`의 `global_waypoints_csv`를 바꾼다. 예를 들어 offline trajectory generator 출력 파일을 직접 쓰려면 절대 경로를 넣는다.
+다른 CSV를 쓰려면 `config/config.yaml`의 `global_waypoints_csv`를 바꾼다. 예를 들어 offline trajectory generator 출력 파일을 직접 쓰려면 홈 기준 경로를 넣는다. 노드가 선행 `~`/`$HOME`을 직접 펼치므로 사용자 이름을 박아 넣을 필요가 없다.
 
 ```yaml
-global_waypoints_csv: /home/sungho/2026_IFAC/offline_trajectory_generator/output/fuck_f1_1/global_waypoints.csv
+global_waypoints_csv: $HOME/2026_IFAC/offline_trajectory_generator/output/fuck_f1_1/global_waypoints.csv
 ```
 
 ## 7. offline trajectory generator와의 연결

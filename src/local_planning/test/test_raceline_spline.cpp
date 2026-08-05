@@ -27,7 +27,6 @@ namespace local_planning
 namespace
 {
 
-// 직선 트랙에서 d-offset과 경계 판정을 쉽게 검증하기 위한 기준 경로 fixture
 f110_msgs::msg::WpntArray makeStraightReference(
   int count = 300, double spacing = 0.1,
   double left_width = 1.5, double right_width = 1.5)
@@ -51,7 +50,6 @@ f110_msgs::msg::WpntArray makeStraightReference(
   return reference;
 }
 
-// 폐곡선 wrap과 글로벌 handoff를 검증하기 위한 원형 기준 경로 fixture
 f110_msgs::msg::WpntArray makeCircularReference(
   int count = 200, double radius = 5.0)
 {
@@ -76,7 +74,6 @@ f110_msgs::msg::WpntArray makeCircularReference(
   return reference;
 }
 
-// detector가 제공하는 Frenet AABB 계약을 간단히 구성하는 장애물 fixture
 f110_msgs::msg::Obstacle makeObstacle(
   int id, double s, double d_right = -0.20, double d_left = 0.20)
 {
@@ -93,7 +90,6 @@ f110_msgs::msg::Obstacle makeObstacle(
   return obstacle;
 }
 
-// 개별 테스트가 기하 조건에 집중하도록 다소 여유 있게 설정한 공통 planner 파라미터
 RacelineSplineParameters testParameters()
 {
   RacelineSplineParameters parameters;
@@ -106,7 +102,6 @@ RacelineSplineParameters testParameters()
   return parameters;
 }
 
-// 글로벌 waypoint의 s_m 순서가 중복되거나 역전되면 reference 자체를 거부해야 한다.
 TEST(RacelineSplinePlanner, RejectsNonMonotonicGlobalReference)
 {
   auto reference = makeStraightReference(20);
@@ -117,7 +112,6 @@ TEST(RacelineSplinePlanner, RejectsNonMonotonicGlobalReference)
   EXPECT_FALSE(error.empty());
 }
 
-// 회피 경로가 새 Cartesian branch를 찾지 않고 원래 글로벌 표본의 s/order만 보존하는지 검사한다.
 TEST(RacelineSplinePlanner, ShiftsOnlyOrderedGlobalRaceLineSamples)
 {
   const auto reference = makeStraightReference();
@@ -148,7 +142,6 @@ TEST(RacelineSplinePlanner, ShiftsOnlyOrderedGlobalRaceLineSamples)
   EXPECT_NEAR(result.path.wpnts.back().d_m, 0.0, 1.0e-6);
 }
 
-// 실제 d=0 merge 뒤에 속도 기반 controller tail이 추가되는지 검사한다.
 TEST(RacelineSplinePlanner, AppendsSpeedAwareGlobalTailAfterActualMerge)
 {
   auto parameters = testParameters();
@@ -168,7 +161,6 @@ TEST(RacelineSplinePlanner, AppendsSpeedAwareGlobalTailAfterActualMerge)
   EXPECT_NEAR(result.path.wpnts.back().d_m, 0.0, 1.0e-6);
 }
 
-// 글로벌 인계 경로가 폐곡선 한 바퀴이며 ego가 state 확인용 tail 시작에 놓이는지 검사한다.
 TEST(RacelineSplinePlanner, BuildsClosedGlobalHandoffWithEgoInStateTail)
 {
   const auto reference = makeCircularReference();
@@ -210,7 +202,6 @@ TEST(RacelineSplinePlanner, BuildsClosedGlobalHandoffWithEgoInStateTail)
   EXPECT_LE(closing_gap, 2.0 * average_spacing);
 }
 
-// 왼쪽 트랙 폭이 부족하면 가능한 오른쪽 회피를 선택하는지 검사한다.
 TEST(RacelineSplinePlanner, UsesRightSideWhenLeftTrackSpaceIsInsufficient)
 {
   auto reference = makeStraightReference(300, 0.1, 0.55, 1.5);
@@ -222,7 +213,6 @@ TEST(RacelineSplinePlanner, UsesRightSideWhenLeftTrackSpaceIsInsufficient)
   EXPECT_LT(result.target_d, 0.0);
 }
 
-// 목표 d가 장애물 span의 벽을 넘으면 spline fitting 전에 해당 방향을 제거하는지 검사한다.
 TEST(RacelineSplinePlanner, RejectsWallBlockedTargetsBeforeSplineConstruction)
 {
   auto reference = makeStraightReference(300, 0.1, 0.55, 0.55);
@@ -241,7 +231,55 @@ TEST(RacelineSplinePlanner, RejectsWallBlockedTargetsBeforeSplineConstruction)
     std::string::npos);
 }
 
-// 기존 commitment 방향이 계속 안전하면 재계획에서도 같은 방향을 유지하는지 검사한다.
+TEST(RacelineSplinePlanner, FallsBackToTightClearanceForCentredObstacleOnNarrowTrack)
+{
+  auto reference = makeStraightReference(300, 0.1, 0.65, 0.65);
+  RacelineSplinePlanner planner(testParameters());
+  ASSERT_TRUE(planner.setReference(reference));
+
+  // Centred obstacle: the full-clearance target (0.50) exceeds the 0.45 track gate on BOTH
+  // sides at once. The reduced-clearance fallback target (0.43) still fits, so the planner
+  // avoids instead of stopping.
+  const auto result = planner.plan(
+    EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(3, 7.0)});
+  ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
+  EXPECT_TRUE(result.go_left);
+  EXPECT_NEAR(result.target_d, 0.43, 1.0e-9);
+  EXPECT_NE(result.reason.find("reduced-clearance fallback"), std::string::npos);
+}
+
+TEST(RacelineSplinePlanner, KeepsSafeStopWhenReducedClearanceFallbackIsDisabled)
+{
+  auto parameters = testParameters();
+  parameters.minimum_avoidance_clearance_m = parameters.obstacle_clearance_m;
+  auto reference = makeStraightReference(300, 0.1, 0.65, 0.65);
+  RacelineSplinePlanner planner(parameters);
+  ASSERT_TRUE(planner.setReference(reference));
+
+  const auto result = planner.plan(
+    EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(3, 7.0)});
+  EXPECT_EQ(result.kind, SplinePlanKind::kSafeStop) << result.reason;
+}
+
+TEST(RacelineSplinePlanner, BreaksCentredObstacleScoreTieWithTrackHeadroom)
+{
+  auto reference = makeCircularReference();
+  for (auto & waypoint : reference.wpnts) {
+    waypoint.d_left = 0.9;
+  }
+  RacelineSplinePlanner planner(testParameters());
+  ASSERT_TRUE(planner.setReference(reference));
+
+  // Centred obstacle: both targets are +/-0.50 and the scores tie within
+  // side_tie_epsilon_m. The wider right side offers more headroom, so the tie resolves to
+  // the right even though the raw score marginally favours the left.
+  const auto result = planner.plan(
+    EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(3, 8.0)});
+  ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
+  EXPECT_FALSE(result.go_left);
+  EXPECT_NEAR(result.target_d, -0.50, 1.0e-9);
+}
+
 TEST(RacelineSplinePlanner, HonorsCommittedSideWhenItRemainsFeasible)
 {
   RacelineSplinePlanner planner(testParameters());
@@ -252,7 +290,6 @@ TEST(RacelineSplinePlanner, HonorsCommittedSideWhenItRemainsFeasible)
   EXPECT_TRUE(result.go_left);
 }
 
-// uncertainty Guard 바깥에 commitment_clearance_reserve가 별도로 더해지는지 검사한다.
 TEST(RacelineSplinePlanner, AddsReserveOutsideValidatedObstacleClearance)
 {
   auto parameters = testParameters();
@@ -265,7 +302,6 @@ TEST(RacelineSplinePlanner, AddsReserveOutsideValidatedObstacleClearance)
   EXPECT_NEAR(result.target_d, 0.50, 1.0e-9);
 }
 
-// 작은 AABB jitter가 기존 동결 경로를 불필요하게 무효화하지 않는지 검사한다.
 TEST(RacelineSplinePlanner, KeepsCommittedPathValidAcrossSmallAabbJitter)
 {
   auto parameters = testParameters();
@@ -287,7 +323,6 @@ TEST(RacelineSplinePlanner, KeepsCommittedPathValidAcrossSmallAabbJitter)
       {makeObstacle(2, 7.0, -0.35, 0.35)}, &reason));
 }
 
-// uncertainty envelope의 soft 충돌과 차량 폭 기준 hard 충돌을 구분할 수 있는지 검사한다.
 TEST(RacelineSplinePlanner, DistinguishesSoftEnvelopeFromHardVehicleCollision)
 {
   auto parameters = testParameters();
@@ -320,7 +355,6 @@ TEST(RacelineSplinePlanner, DistinguishesSoftEnvelopeFromHardVehicleCollision)
   EXPECT_EQ(failure.kind, PathValidationFailureKind::kNone);
 }
 
-// 현재 merge 뒤 controller tail의 장애물이 활성 commitment를 실패시키지 않는지 검사한다.
 TEST(RacelineSplinePlanner, IgnoresPostMergeTailCollisionForCurrentCommitment)
 {
   RacelineSplinePlanner planner(testParameters());
@@ -346,7 +380,6 @@ TEST(RacelineSplinePlanner, IgnoresPostMergeTailCollisionForCurrentCommitment)
       std::nullopt, merge_horizon)) << reason;
 }
 
-// 연속 maneuver가 0이 아닌 현재 ego.d에서 불연속 없이 시작하는지 검사한다.
 TEST(RacelineSplinePlanner, StartsNextManeuverContinuouslyFromNonzeroEgoD)
 {
   RacelineSplinePlanner planner(testParameters());
@@ -371,7 +404,6 @@ TEST(RacelineSplinePlanner, StartsNextManeuverContinuouslyFromNonzeroEgoD)
   EXPECT_NEAR(result.path.wpnts.front().d_m, ego.d, 0.02);
 }
 
-// 방향 잠금 뒤 선택 방향이 막히면 반대쪽으로 뒤집지 않고 정지하는지 검사한다.
 TEST(RacelineSplinePlanner, DoesNotReverseCommittedSideWhenItBecomesBlocked)
 {
   auto reference = makeStraightReference(300, 0.1, 0.55, 1.5);
@@ -386,7 +418,6 @@ TEST(RacelineSplinePlanner, DoesNotReverseCommittedSideWhenItBecomesBlocked)
   EXPECT_EQ(locked.kind, SplinePlanKind::kSafeStop) << locked.reason;
 }
 
-// 원 장애물 경계가 레이스 라인에서 충분히 떨어져 있으면 blocking으로 보지 않는지 검사한다.
 TEST(RacelineSplinePlanner, IgnoresObstacleWithEnoughRawRacelineClearance)
 {
   RacelineSplinePlanner planner(testParameters());
@@ -397,7 +428,6 @@ TEST(RacelineSplinePlanner, IgnoresObstacleWithEnoughRawRacelineClearance)
   EXPECT_TRUE(result.path.wpnts.empty());
 }
 
-// 좌우가 모두 닫혔을 때 충돌하지 않는 감속 prefix를 만드는지 검사한다.
 TEST(RacelineSplinePlanner, BuildsCollisionFreeStopWhenBothSidesAreClosed)
 {
   auto parameters = testParameters();
@@ -414,7 +444,6 @@ TEST(RacelineSplinePlanner, BuildsCollisionFreeStopWhenBothSidesAreClosed)
   }
 }
 
-// safe-stop이 글로벌 d=0으로 점프하지 않고 현재 횡방향 offset을 유지하는지 검사한다.
 TEST(RacelineSplinePlanner, BuildsSafeStopAtCurrentLateralOffset)
 {
   auto parameters = testParameters();
@@ -432,7 +461,6 @@ TEST(RacelineSplinePlanner, BuildsSafeStopAtCurrentLateralOffset)
   EXPECT_NEAR(result.path.wpnts.back().vx_mps, 0.0, 1.0e-9);
 }
 
-// 활성 commitment가 있으면 그 남은 기하 위에서 먼저 제동하는지 검사한다.
 TEST(RacelineSplinePlanner, BrakesOnCommittedGeometryBeforeEmergencyHold)
 {
   RacelineSplinePlanner planner(testParameters());
@@ -469,7 +497,6 @@ TEST(RacelineSplinePlanner, BrakesOnCommittedGeometryBeforeEmergencyHold)
     std::string::npos);
 }
 
-// 최초 군집 안정화 중 장애물 앞 preparation 감속 경로를 만드는지 검사한다.
 TEST(RacelineSplinePlanner, BuildsPreparationStopForInitialBlockingCluster)
 {
   RacelineSplinePlanner planner(testParameters());
@@ -488,7 +515,6 @@ TEST(RacelineSplinePlanner, BuildsPreparationStopForInitialBlockingCluster)
   }
 }
 
-// 계획 결과에 가장 가까운 blocking 군집의 모든 ID가 포함되는지 검사한다.
 TEST(RacelineSplinePlanner, ReportsWholeBlockingClusterInAvoidanceResult)
 {
   RacelineSplinePlanner planner(testParameters());
@@ -501,7 +527,6 @@ TEST(RacelineSplinePlanner, ReportsWholeBlockingClusterInAvoidanceResult)
   EXPECT_EQ(result.obstacle_ids, (std::vector<int>{5, 6}));
 }
 
-// 다음 maneuver 연결에 사용할 가장 가까운 blocking cluster ID를 반환하는지 검사한다.
 TEST(RacelineSplinePlanner, ReportsNearestBlockingClusterIdsForManeuverChaining)
 {
   RacelineSplinePlanner planner(testParameters());
@@ -517,7 +542,6 @@ TEST(RacelineSplinePlanner, ReportsNearestBlockingClusterIdsForManeuverChaining)
   EXPECT_EQ(cluster_ids, (std::vector<int>{5, 6}));
 }
 
-// 장애물이 이미 safe-stop buffer 안이면 안정화 대기 없이 즉시 정지 실패로 처리하는지 검사한다.
 TEST(RacelineSplinePlanner, RefusesPreparationDelayInsideSafeStopBuffer)
 {
   RacelineSplinePlanner planner(testParameters());
@@ -530,7 +554,6 @@ TEST(RacelineSplinePlanner, RefusesPreparationDelayInsideSafeStopBuffer)
   EXPECT_NE(result.reason.find("inside the safe-stop buffer"), std::string::npos);
 }
 
-// minimum_path_points보다 짧더라도 안전 정지에 충분한 2점 prefix를 허용하는지 검사한다.
 TEST(RacelineSplinePlanner, AllowsShortValidatedSafeStopPrefix)
 {
   auto parameters = testParameters();
@@ -545,7 +568,6 @@ TEST(RacelineSplinePlanner, AllowsShortValidatedSafeStopPrefix)
   EXPECT_LT(result.path.wpnts.size(), 8U);
 }
 
-// 경로 prefix조차 만들 수 없을 때 현재 d의 zero-speed hold를 생성하는지 검사한다.
 TEST(RacelineSplinePlanner, BuildsZeroSpeedEmergencyHold)
 {
   RacelineSplinePlanner planner(testParameters());
@@ -559,7 +581,6 @@ TEST(RacelineSplinePlanner, BuildsZeroSpeedEmergencyHold)
   }
 }
 
-// s=0을 걸친 장애물의 span과 회피 경로가 정상 계산되는지 검사한다.
 TEST(RacelineSplinePlanner, HandlesObstacleAcrossTrackWrap)
 {
   RacelineSplinePlanner planner(testParameters());
@@ -580,7 +601,6 @@ TEST(RacelineSplinePlanner, HandlesObstacleAcrossTrackWrap)
   EXPECT_TRUE(wrapped);
 }
 
-// 가까이 붙은 뱀 모양 반대 branch로 점프하지 않고 ordered race-line만 이동하는 회귀 검사다.
 TEST(RacelineSplinePlanner, NeverJumpsToNearbyWrongSnakeBranch)
 {
   auto reference = makeStraightReference();

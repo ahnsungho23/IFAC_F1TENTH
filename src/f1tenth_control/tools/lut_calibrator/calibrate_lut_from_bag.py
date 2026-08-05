@@ -18,17 +18,22 @@ calibrate_lut_from_bag.py — rosbag → Steering LUT 실측 보정 CSV (오프�
 누적해도 된다.
 
 사용법:
-  source /opt/ros/jazzy/setup.bash           # 메시지 디시리얼라이즈에 필요
+  source /opt/ros/<distro>/setup.bash        # 메시지 디시리얼라이즈에 필요 (humble/jazzy 등)
   python3 calibrate_lut_from_bag.py ~/rosbag_log/0725/rosbag_*
   python3 calibrate_lut_from_bag.py <bag> --fresh      # 누적 무시하고 새로 시작
 
 산출물(기본 ~/f1tenth_lut_calibration/):
-  NUC6_glc_pacejka_lookup_table_calibrated.csv   ← control_map_node에 넘길 LUT
-  calibration_state.csv                          ← 누적 상태(다음 실행에 이어짐)
+  LUT_calibrated.csv     ← control_map_node에 넘길 LUT. 이름이 control_code/LUT_calibrated.csv와
+                            같아서, 그대로 그 자리에 덮어쓰면 재시동만으로 디폴트가 바뀐다.
+  calibration_state.csv  ← 누적 상태(다음 실행에 이어짐)
 
-적용:
+적용 A) 임시로 이 파일만 켜보기:
   ros2 launch f1tenth_control control_real.launch.py \
-      lookup_table_file:=$HOME/f1tenth_lut_calibration/NUC6_glc_pacejka_lookup_table_calibrated.csv
+      lookup_table_file:=$HOME/f1tenth_lut_calibration/LUT_calibrated.csv
+
+적용 B) 디폴트로 확정(검증 끝난 뒤):
+  cp $HOME/f1tenth_lut_calibration/LUT_calibrated.csv <repo>/control_code/LUT_calibrated.csv
+  # → 동기화 + colcon build --symlink-install --packages-select f1tenth_control
 """
 import argparse
 import glob
@@ -43,7 +48,13 @@ WHEELBASE = 0.33           # 단위 검증용 기구학 기대 요레이트 계�
 # 토픽 자동 판별 우선순위. 앞에 있을수록 우선.
 IMU_TOPIC_PREFS = ["/imu/data", "/sensors/imu/raw"]
 ODOM_TOPIC_PREFS = ["/pf/pose/odom", "/odom"]
-DRIVE_TOPIC_PREFS = ["/drive", "/drive_autonomous"]
+# ⚠️ /ackermann_cmd가 1순위다(2026-08-05 변경). 이게 ackermann_mux가 수동(/teleop)·자율
+#    (/drive)·E-stop을 중재한 뒤 실제로 ackermann_to_vesc → 서보로 나간 **최종** 명령이다.
+#    /drive는 자율 채널의 요청일 뿐이라, 수동 구간이 섞인 bag에서 그걸 쓰면 수동 주행의
+#    요레이트를 자율 조향명령에 짝지어 LUT를 조용히 오염시킨다.
+#    LUT 상단(조향 >0.3897) 실측은 **수동 풀락 주행으로만** 얻을 수 있으므로(자율은 LUT가
+#    saturate해서 그 각을 못 만든다 = 닭-달걀) 이 우선순위가 축 확장의 전제조건이다.
+DRIVE_TOPIC_PREFS = ["/ackermann_cmd", "/drive", "/drive_autonomous"]
 
 # 시뮬 bag 판별용. LUT는 실차 sysid 자산이라 시뮬 데이터가 섞이면 안 된다.
 SIM_TOPIC_MARKERS = ["/ego_racecar/odom"]
@@ -81,7 +92,7 @@ def load_messages(db3_files, wanted_topics):
                 sys.exit(
                     f"[에러] 메시지 타입 '{ttype}'을 불러올 수 없습니다: {e}\n"
                     "       ROS 2와 워크스페이스를 소싱했는지 확인하세요 "
-                    "(source /opt/ros/jazzy/setup.bash; source ~/2026_IFAC/install/setup.bash)"
+                    "(source /opt/ros/<distro>/setup.bash; source ~/2026_IFAC/install/setup.bash)"
                 )
         if topics:
             placeholders = ",".join("?" * len(topics))
@@ -171,15 +182,16 @@ def find_base_lut(explicit):
     here = os.path.dirname(os.path.abspath(__file__))
     cands = [
         # 저장소 원본 (이 도구와 같이 다니는 가장 확실한 경로)
-        os.path.join(here, "..", "..", "control_code", "NUC6_glc_pacejka_lookup_table.csv"),
+        os.path.join(here, "..", "..", "control_code", "LUT_calibrated.csv"),
     ]
-    # 설치된 ament share (control_map_node의 폴백 순서와 동일)
+    # 설치된 ament share (control_map_node의 폴백 순서와 동일 — f1tenth_control 우선.
+    # steering_lookup은 서드파티 패키지라 이 파일명을 갖고 있지 않다)
     for prefix in os.environ.get("AMENT_PREFIX_PATH", "").split(":"):
         if not prefix:
             continue
-        for pkg in ("steering_lookup", "f1tenth_control"):
+        for pkg in ("f1tenth_control", "steering_lookup"):
             cands.append(os.path.join(prefix, "share", pkg, "cfg",
-                                      "NUC6_glc_pacejka_lookup_table.csv"))
+                                      "LUT_calibrated.csv"))
     for c in cands:
         c = os.path.normpath(c)
         if os.path.exists(c):
@@ -388,7 +400,7 @@ def main():
 
     os.makedirs(args.out_dir, exist_ok=True)
     state_path = os.path.join(args.out_dir, "calibration_state.csv")
-    out_path = os.path.join(args.out_dir, "NUC6_glc_pacejka_lookup_table_calibrated.csv")
+    out_path = os.path.join(args.out_dir, "LUT_calibrated.csv")
 
     prior = None if args.fresh else load_state(state_path, n_steer, n_vel)
     if prior:

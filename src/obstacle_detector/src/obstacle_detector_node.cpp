@@ -1,5 +1,5 @@
 // ================================================================================================
-// 계층형 LiDAR 장애물 검출 노드 구현
+// OBSTACLE DETECTOR NODE implementation (layered LiDAR obstacle detection)
 // ================================================================================================
 
 #include "obstacle_detector/obstacle_detector_node.hpp"
@@ -24,13 +24,11 @@ namespace obstacle_detector
 
 namespace
 {
-// ROS 메시지 시각을 추적기에서 쓰는 초 단위 실수로 변환한다.
 double stampToSec(const builtin_interfaces::msg::Time &t)
 {
     return static_cast<double>(t.sec) + static_cast<double>(t.nanosec) * 1e-9;
 }
 
-// 정규화된 quaternion에서 평면 회전 yaw만 추출한다.
 double yawFromQuat(const geometry_msgs::msg::Quaternion &q)
 {
     return std::atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z));
@@ -48,7 +46,7 @@ ObstacleDetectorNode::ObstacleDetectorNode(const rclcpp::NodeOptions &options)
     tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
     tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 
-    // 늦게 참여한 노드도 마지막 raceline과 map을 받을 수 있도록 latched QoS를 사용한다.
+    // latched (transient_local) QoS for the raceline and the map
     auto latched_qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local();
 
     scan_sub_ = this->create_subscription<sensor_msgs::msg::LaserScan>(
@@ -91,7 +89,7 @@ ObstacleDetectorNode::ObstacleDetectorNode(const rclcpp::NodeOptions &options)
 }
 
 // ------------------------------------------------------------------------------------------------
-// 파라미터 선언
+// Parameters
 // ------------------------------------------------------------------------------------------------
 void ObstacleDetectorNode::declareParameters()
 {
@@ -105,22 +103,22 @@ void ObstacleDetectorNode::declareParameters()
     this->declare_parameter<std::string>("opp_markers_topic", "/opp_obs/markers");
     this->declare_parameter<std::string>("map_frame", "map");
 
-    this->declare_parameter<double>("max_range", 10.0);
+    this->declare_parameter<double>("max_range", 14.0);
 
-    // 적응형 breakpoint 군집화
+    // clustering
     this->declare_parameter<double>("lambda_deg", 10.0);
     this->declare_parameter<double>("cluster_sigma", 0.03);
     this->declare_parameter<double>("min_2_points_dist", 0.01);
     this->declare_parameter<int>("min_cluster_points", 5);
-    // 가장 큰 차량/정적 장애물의 대각선보다 커야 한다. 예: 0.5 x 0.5 m 상자는 0.707 m이다.
+    // must exceed the diagonal of the largest car / static obstacle: a 0.5x0.5 m box is 0.707 m
     this->declare_parameter<double>("max_obs_size", 0.8);
-    // CLCS 투영과 추적 전에 가까운 파편을 다시 연결한다. 최종 군집은 min_cluster_points를
-    // 만족해야 하며 병합 AABB도 max_obs_size 안에 있어야 한다.
+    // Rejoin close fragments before CLCS projection/tracking. Final clusters must still satisfy
+    // min_cluster_points, and their merged AABB must stay within max_obs_size.
     this->declare_parameter<bool>("cluster_merge_enable", true);
     this->declare_parameter<double>("cluster_merge_distance", 0.12);
     this->declare_parameter<int>("cluster_merge_min_fragment_points", 2);
 
-    // 거리·점 밀도·자차 회전에 따라 검출별로 조절하는 Kalman 측정 공분산
+    // Detection-specific Kalman measurement covariance.
     this->declare_parameter<double>("meas_range_var_scale", 2.0);
     this->declare_parameter<double>("meas_sparse_var_scale", 1.5);
     this->declare_parameter<double>("meas_yaw_rate_var_scale", 0.25);
@@ -128,8 +126,8 @@ void ObstacleDetectorNode::declareParameters()
     this->declare_parameter<double>("meas_variance_scale_max", 10.0);
     this->declare_parameter<double>("meas_motion_timeout", 0.1);
 
-    // 계층 1 가시 거리·트랙 경계·점유 지도 필터
-    this->declare_parameter<double>("max_viewing_distance", 9.0);
+    // Layer-1 filtering
+    this->declare_parameter<double>("max_viewing_distance", 13.0);
     this->declare_parameter<double>("view_behind_distance", 1.0);
     this->declare_parameter<double>("boundaries_inflation", 0.1);
     this->declare_parameter<double>("fallback_track_halfwidth", 1.5);
@@ -138,17 +136,17 @@ void ObstacleDetectorNode::declareParameters()
     this->declare_parameter<int>("map_inflation_cells", 1);
     this->declare_parameter<double>("map_point_reject_ratio", 0.6);
 
-    // 계층별 2차 병합: 여러 트랙 파편을 물체 단위 출력으로 묶는다.
+    // per-layer 2nd-stage merge (object-level output)
     this->declare_parameter<bool>("layer_merge_enable", true);
     this->declare_parameter<double>("layer_merge_gap_s", 0.4);
     this->declare_parameter<double>("layer_merge_gap_d", 0.3);
 
-    // 출력과 주기 진단
+    // output
     this->declare_parameter<bool>("publish_markers", true);
     this->declare_parameter<bool>("diagnostics_enable", true);
     this->declare_parameter<double>("diagnostics_period_sec", 1.0);
 
-    // 등속 Kalman 추적 및 정적/동적 분류
+    // tracker
     this->declare_parameter<double>("meas_var_s", 0.002);
     this->declare_parameter<double>("meas_var_d", 0.002);
     this->declare_parameter<double>("process_var_vs", 2.0);
@@ -173,11 +171,13 @@ void ObstacleDetectorNode::declareParameters()
     this->declare_parameter<double>("min_std", 0.16);
     this->declare_parameter<double>("max_std", 0.20);
     this->declare_parameter<double>("dt_max", 0.5);
+    this->declare_parameter<double>("extent_shrink_alpha", 0.25);
+    this->declare_parameter<double>("envelope_stability_tolerance_m", 0.10);
+    this->declare_parameter<int>("envelope_stability_frames", 2);
 }
 
 void ObstacleDetectorNode::loadParameters()
 {
-    // ROS 인터페이스 이름과 기준 좌표계를 먼저 읽는다.
     scan_topic_ = this->get_parameter("scan_topic").as_string();
     global_wpnts_topic_ = this->get_parameter("global_waypoints_topic").as_string();
     map_topic_ = this->get_parameter("map_topic").as_string();
@@ -188,7 +188,6 @@ void ObstacleDetectorNode::loadParameters()
     opp_markers_topic_ = this->get_parameter("opp_markers_topic").as_string();
     map_frame_ = this->get_parameter("map_frame").as_string();
 
-    // 스캔 전처리와 군집 파라미터
     max_range_ = this->get_parameter("max_range").as_double();
 
     lambda_rad_ = this->get_parameter("lambda_deg").as_double() * M_PI / 180.0;
@@ -203,7 +202,6 @@ void ObstacleDetectorNode::loadParameters()
         std::clamp(static_cast<int>(
                        this->get_parameter("cluster_merge_min_fragment_points").as_int()),
                    1, std::max(1, min_cluster_points_));
-    // 잘못된 음수 배율이 공분산을 줄이지 못하도록 품질 배율을 안전 범위로 제한한다.
     meas_range_var_scale_ =
         std::max(0.0, this->get_parameter("meas_range_var_scale").as_double());
     meas_sparse_var_scale_ =
@@ -217,7 +215,6 @@ void ObstacleDetectorNode::loadParameters()
     meas_motion_timeout_ =
         std::max(0.0, this->get_parameter("meas_motion_timeout").as_double());
 
-    // 계층 1 필터와 계층 내 병합 파라미터
     max_viewing_distance_ = this->get_parameter("max_viewing_distance").as_double();
     view_behind_distance_ = this->get_parameter("view_behind_distance").as_double();
     boundaries_inflation_ = this->get_parameter("boundaries_inflation").as_double();
@@ -236,7 +233,6 @@ void ObstacleDetectorNode::loadParameters()
     diagnostics_period_sec_ =
         std::max(0.1, this->get_parameter("diagnostics_period_sec").as_double());
 
-    // 추적기 설정은 별도 구조체로 모아 configure()에 한 번 전달한다.
     tracker_params_.meas_var_s = this->get_parameter("meas_var_s").as_double();
     tracker_params_.meas_var_d = this->get_parameter("meas_var_d").as_double();
     tracker_params_.process_var_vs = this->get_parameter("process_var_vs").as_double();
@@ -268,8 +264,14 @@ void ObstacleDetectorNode::loadParameters()
     tracker_params_.min_std = this->get_parameter("min_std").as_double();
     tracker_params_.max_std = this->get_parameter("max_std").as_double();
     tracker_params_.dt_max = this->get_parameter("dt_max").as_double();
+    tracker_params_.extent_shrink_alpha =
+        std::clamp(this->get_parameter("extent_shrink_alpha").as_double(), 0.0, 1.0);
+    tracker_params_.envelope_stability_tolerance_m =
+        std::max(0.0, this->get_parameter("envelope_stability_tolerance_m").as_double());
+    tracker_params_.envelope_stability_frames =
+        std::max(0, static_cast<int>(
+            this->get_parameter("envelope_stability_frames").as_int()));
 
-    // 문자열 설정을 내부 enum으로 변환한다. 알 수 없는 값은 기본 velocity 방식으로 되돌린다.
     const std::string cm = this->get_parameter("classifier_mode").as_string();
     if (cm == "std")
     {
@@ -286,7 +288,7 @@ void ObstacleDetectorNode::loadParameters()
 }
 
 // ------------------------------------------------------------------------------------------------
-// 입력 콜백: raceline / 점유 지도 / 자차 자세
+// Input callbacks (raceline / map / ego pose)
 // ------------------------------------------------------------------------------------------------
 void ObstacleDetectorNode::globalWpntsCallback(const f110_msgs::msg::WpntArray::SharedPtr msg)
 {
@@ -297,7 +299,7 @@ void ObstacleDetectorNode::globalWpntsCallback(const f110_msgs::msg::WpntArray::
         return;
     }
 
-    // 트랙 경계, 폐루프 s 연산, 최종 Frenet marker 보간에 쓸 경량 waypoint를 만든다.
+    // Lightweight helper for track boundaries, s-wrap, and final Frenet-marker interpolation.
     std::vector<FrenetProjector::Waypoint> wpnts;
     std::vector<global_planning::ReferenceWaypoint> ref;
     wpnts.reserve(msg->wpnts.size());
@@ -318,18 +320,18 @@ void ObstacleDetectorNode::globalWpntsCallback(const f110_msgs::msg::WpntArray::
         rw.s = w.s_m;
         ref.push_back(rw);
     }
-    // 군집과 자차의 정확한 (x, y) -> (s, d) 변환에 쓸 CLCS 변환기를 새로 만든다.
+    // CLCS converter: the accurate (x,y) -> (s,d) projection used for clusters and ego.
     try
     {
-        // 기본 설정은 폐루프와 안전한 투영 탐색 범위를 제공한다.
-        global_planning::ClcsFrenetConfig cfg;
+        global_planning::ClcsFrenetConfig cfg;  // closed_loop=true + sane projection-domain defaults
         auto conv = global_planning::ClcsFrenetConverter::create(ref, cfg, ++clcs_version_);
         FrenetProjector next_frenet;
         next_frenet.build(std::move(wpnts), true, conv->stats().track_length);
         frenet_ = std::move(next_frenet);
         converter_ = conv;
-        // 기준 경로가 바뀌었으므로 새 CLCS에 대해 odometry가 다시 투영될 때까지 기다린다.
-        ego_s_ = -1.0;
+        tracker_.clear();  // old tracks live in the previous reference's s-domain
+        ego_s_ = -1.0;  // wait for an odometry sample projected against the new CLCS reference
+        ego_s_stamp_ = -1.0;
         RCLCPP_INFO_ONCE(this->get_logger(),
                          "CLCS converter built from %zu waypoints (track length %.2f m).",
                          ref.size(), conv->stats().track_length);
@@ -343,7 +345,6 @@ void ObstacleDetectorNode::globalWpntsCallback(const f110_msgs::msg::WpntArray::
 
 void ObstacleDetectorNode::mapCallback(const nav_msgs::msg::OccupancyGrid::SharedPtr msg)
 {
-    // transient_local 구독이므로 map server가 먼저 실행됐어도 마지막 지도를 받을 수 있다.
     map_msg_ = msg;
     RCLCPP_INFO_ONCE(this->get_logger(), "Occupancy map received (%u x %u @ %.3f m).",
                      msg->info.width, msg->info.height, msg->info.resolution);
@@ -351,7 +352,6 @@ void ObstacleDetectorNode::mapCallback(const nav_msgs::msg::OccupancyGrid::Share
 
 void ObstacleDetectorNode::egoOdomCallback(const nav_msgs::msg::Odometry::SharedPtr msg)
 {
-    // 최신 yaw rate는 급회전 중 잘못된 동적 판정을 억제하고 측정 공분산을 키우는 데 사용한다.
     const double yaw_rate = msg->twist.twist.angular.z;
     if (std::isfinite(yaw_rate))
     {
@@ -374,11 +374,12 @@ void ObstacleDetectorNode::egoOdomCallback(const nav_msgs::msg::Odometry::Shared
     if (cr.valid)
     {
         ego_s_ = cr.s;
+        ego_s_stamp_ = stampToSec(msg->header.stamp);
     }
 }
 
 // ------------------------------------------------------------------------------------------------
-// TF 조회: scan 좌표계 -> map 좌표계
+// TF: scan frame -> map frame
 // ------------------------------------------------------------------------------------------------
 bool ObstacleDetectorNode::lookupScanToMap(const std_msgs::msg::Header &scan_header, double &tx,
                                            double &ty, double &yaw)
@@ -386,13 +387,11 @@ bool ObstacleDetectorNode::lookupScanToMap(const std_msgs::msg::Header &scan_hea
     geometry_msgs::msg::TransformStamped tf;
     try
     {
-        // 우선 스캔 취득 시각의 정확한 변환을 짧게 기다린다.
         tf = tf_buffer_->lookupTransform(map_frame_, scan_header.frame_id, scan_header.stamp,
                                          tf2::durationFromSec(0.05));
     }
     catch (const tf2::TransformException &)
     {
-        // 과거 시각 TF가 버퍼에 없으면 최신 변환으로 한 번 더 시도해 스캔 유실을 줄인다.
         try
         {
             tf = tf_buffer_->lookupTransform(map_frame_, scan_header.frame_id, tf2::TimePointZero);
@@ -412,7 +411,7 @@ bool ObstacleDetectorNode::lookupScanToMap(const std_msgs::msg::Header &scan_hea
 }
 
 // ------------------------------------------------------------------------------------------------
-// 적응형 breakpoint 군집화: 입력 점은 이미 map 좌표로 변환되어 있다.
+// Adaptive-breakpoint clustering (points already in map frame)
 // ------------------------------------------------------------------------------------------------
 std::vector<std::vector<ObstacleDetectorNode::ScanPoint>>
 ObstacleDetectorNode::clusterScan(const sensor_msgs::msg::LaserScan &scan, double tx, double ty,
@@ -421,7 +420,6 @@ ObstacleDetectorNode::clusterScan(const sensor_msgs::msg::LaserScan &scan, doubl
     std::vector<std::vector<ScanPoint>> clusters;
     std::vector<ScanPoint> current;
     const double dphi = scan.angle_increment;
-    // Borges/Aldon 임계식에서 반복되는 항을 스캔당 한 번만 계산한다.
     const double denom = std::sin(lambda_rad_ - dphi);
     const double cyaw = std::cos(yaw);
     const double syaw = std::sin(yaw);
@@ -430,7 +428,6 @@ ObstacleDetectorNode::clusterScan(const sensor_msgs::msg::LaserScan &scan, doubl
     ScanPoint prev{};
     int prev_index = -1000;
 
-    // 현재 파편을 저장한다. 병합 기능을 켰다면 작은 파편도 일단 후보로 보존한다.
     auto flush = [&]() {
         const int required_points =
             cluster_merge_enable_ ? cluster_merge_min_fragment_points_ : min_cluster_points_;
@@ -448,7 +445,7 @@ ObstacleDetectorNode::clusterScan(const sensor_msgs::msg::LaserScan &scan, doubl
         if (!std::isfinite(r))
         {
             ++stats.nonfinite_rejected;
-            continue;  // 유효하지 않은 beam은 아래 index gap 검사에서 연속성을 끊는다.
+            continue;  // invalid beam breaks contiguity (handled by index gap below)
         }
         if (r < scan.range_min)
         {
@@ -458,10 +455,9 @@ ObstacleDetectorNode::clusterScan(const sensor_msgs::msg::LaserScan &scan, doubl
         if (r >= max_range_)
         {
             ++stats.at_or_above_max_range_rejected;
-            continue;  // 유효하지 않은 beam은 아래 index gap 검사에서 연속성을 끊는다.
+            continue;  // invalid beam breaks contiguity (handled by index gap below)
         }
         ++stats.valid_beams;
-        // scan 극좌표 점을 센서 좌표에서 map 좌표로 회전·이동한다.
         const double ang = scan.angle_min + static_cast<double>(i) * scan.angle_increment;
         const double lx = r * std::cos(ang);
         const double ly = r * std::sin(ang);
@@ -473,7 +469,7 @@ ObstacleDetectorNode::clusterScan(const sensor_msgs::msg::LaserScan &scan, doubl
         bool same_cluster = false;
         if (have_prev && static_cast<int>(i) == prev_index + 1)
         {
-            // 거리가 멀수록 인접 beam 간 간격이 커지는 Borges/Aldon 적응 임계값
+            // adaptive breakpoint threshold (Borges/Aldon)
             double d_max = 3.0 * cluster_sigma_;
             if (denom > 1e-6)
             {
@@ -498,7 +494,7 @@ ObstacleDetectorNode::clusterScan(const sensor_msgs::msg::LaserScan &scan, doubl
 }
 
 // ------------------------------------------------------------------------------------------------
-// 추적 전 파편 병합: 스캔 군집을 완전한 검출 단위로 복원한다.
+// Pre-tracking fragment merge: scan clusters -> complete detections
 // ------------------------------------------------------------------------------------------------
 std::vector<std::vector<ObstacleDetectorNode::ScanPoint>>
 ObstacleDetectorNode::mergeClusters(std::vector<std::vector<ScanPoint>> clusters,
@@ -520,7 +516,6 @@ ObstacleDetectorNode::mergeClusters(std::vector<std::vector<ScanPoint>> clusters
     };
 
     const double merge_distance_sq = cluster_merge_distance_ * cluster_merge_distance_;
-    // AABB만 겹치는 오목/대각 형상을 잘못 합치지 않도록 실제 점 간 거리를 확인한다.
     const auto hasClosePointPair =
         [merge_distance_sq](const std::vector<ScanPoint> &a,
                             const std::vector<ScanPoint> &b) {
@@ -541,8 +536,9 @@ ObstacleDetectorNode::mergeClusters(std::vector<std::vector<ScanPoint>> clusters
 
     if (cluster_merge_enable_ && clusters.size() > 1)
     {
-        // AABB는 한 번 계산해 캐시하고 병합된 연결 요소만 갱신한다. 반복 루프가 같은 표면의
-        // 여러 파편을 연쇄적으로 합칠 수 있게 하되, max_obs_size로 과도한 전이 병합을 막는다.
+        // Cache bounds once and update only the accepted component. The loop intentionally permits
+        // multiple fragments of one surface to join, while max_obs_size bounds any transitive
+        // chain.
         std::vector<Bounds> cluster_bounds;
         cluster_bounds.reserve(clusters.size());
         for (const auto &cluster : clusters)
@@ -568,8 +564,9 @@ ObstacleDetectorNode::mergeClusters(std::vector<std::vector<ScanPoint>> clusters
                     {
                         continue;
                     }
-                    // 겹치거나 가까운 AABB는 broad-phase 후보일 뿐이다. 실제 점 쌍도 가까워야
-                    // 대각선/오목 AABB 중첩 때문에 물리적으로 떨어진 파편이 합쳐지는 일을 막는다.
+                    // Overlapping/nearby axis-aligned boxes are only a broad-phase candidate.
+                    // Requiring a close real point pair prevents diagonal/concave AABB overlap
+                    // from merging physically separated fragments.
                     if (!hasClosePointPair(clusters[i], clusters[j]))
                     {
                         continue;
@@ -599,7 +596,7 @@ ObstacleDetectorNode::mergeClusters(std::vector<std::vector<ScanPoint>> clusters
         }
     }
 
-    // 작은 파편은 병합 후보로만 허용했으므로, 끝까지 단독으로 남으면 검출로 만들지 않는다.
+    // Small fragments exist only as merge candidates. They never become detections alone.
     const std::size_t clusters_before_final_filter = clusters.size();
     clusters.erase(
         std::remove_if(
@@ -614,7 +611,7 @@ ObstacleDetectorNode::mergeClusters(std::vector<std::vector<ScanPoint>> clusters
 }
 
 // ------------------------------------------------------------------------------------------------
-// 계층 1 점유 지도 필터를 위한 좌표 조회
+// Occupancy-grid lookup for the Layer-1 map filter
 // ------------------------------------------------------------------------------------------------
 bool ObstacleDetectorNode::occupiedInMap(double x, double y) const
 {
@@ -627,12 +624,10 @@ bool ObstacleDetectorNode::occupiedInMap(double x, double y) const
     {
         return false;
     }
-    // map 좌표를 occupancy grid의 정수 셀 좌표로 변환한다.
     const int gx = static_cast<int>(std::floor((x - info.origin.position.x) / info.resolution));
     const int gy = static_cast<int>(std::floor((y - info.origin.position.y) / info.resolution));
     const int w = static_cast<int>(info.width);
     const int h = static_cast<int>(info.height);
-    // 지도 해상도 오차를 고려해 주변 inflation 셀 중 하나라도 점유되면 참으로 본다.
     for (int dy = -map_inflation_cells_; dy <= map_inflation_cells_; ++dy)
     {
         for (int dx = -map_inflation_cells_; dx <= map_inflation_cells_; ++dx)
@@ -654,7 +649,7 @@ bool ObstacleDetectorNode::occupiedInMap(double x, double y) const
 }
 
 // ------------------------------------------------------------------------------------------------
-// 계층별 2차 군집화: 같은 계층의 트랙을 물체 단위 장애물로 병합한다.
+// Per-layer 2nd-stage clustering: tracks of ONE layer -> object-level obstacles
 // ------------------------------------------------------------------------------------------------
 std::vector<ObstacleDetectorNode::MergedObstacle>
 ObstacleDetectorNode::mergeLayer(const std::vector<const Track *> &members,
@@ -668,9 +663,9 @@ ObstacleDetectorNode::mergeLayer(const std::vector<const Track *> &members,
     }
     out.reserve(n);
 
-    // Union-find로 두 Frenet 상자의 s와 d 모서리 간격이 모두 기준 이내일 때 연결한다.
-    // Cartesian 대각선을 s/d 양쪽에 똑같이 늘리지 않고, 각 AABB에서 독립적으로 투영한
-    // 종·횡방향 범위를 그대로 사용한다.
+    // Union-find: link two track boxes when BOTH Frenet edge-to-edge gaps are within the merge
+    // gaps. Each box retains the independently projected AABB extents instead of expanding the
+    // Cartesian diagonal equally along s and d.
     std::vector<std::size_t> parent(n);
     for (std::size_t i = 0; i < n; ++i)
     {
@@ -679,7 +674,7 @@ ObstacleDetectorNode::mergeLayer(const std::vector<const Track *> &members,
     auto find = [&parent](std::size_t i) {
         while (parent[i] != i)
         {
-            parent[i] = parent[parent[i]];  // 경로 절반 줄이기로 후속 탐색을 빠르게 한다.
+            parent[i] = parent[parent[i]];  // path halving
             i = parent[i];
         }
         return i;
@@ -732,9 +727,8 @@ ObstacleDetectorNode::mergeLayer(const std::vector<const Track *> &members,
         {
             continue;
         }
-        // s 외곽은 첫 멤버에 대한 상대 거리로 계산해 시작/끝 경계 wrap을 안전하게 처리한다.
-        // 모든 멤버가 짧은 가시 구간 안에 있으므로 반 바퀴 이상 떨어진 모호한 경우는 없다.
-        // d 외곽은 폐루프가 없으므로 절대값 범위에서 바로 계산한다.
+        // envelope in s relative to the first member (wrap-safe: all members sit within the
+        // viewing window, far from half a lap apart), envelope in d directly
         const double s0 = comp.front()->s();
         double lo = std::numeric_limits<double>::max();
         double hi = std::numeric_limits<double>::lowest();
@@ -761,22 +755,20 @@ ObstacleDetectorNode::mergeLayer(const std::vector<const Track *> &members,
             hi = std::max(hi, rel + t->s_half_extent);
             d_left = std::max(d_left, t->d() + t->d_left_offset);
             d_right = std::min(d_right, t->d() + t->d_right_offset);
-            // 더 큰 관측 형상에 더 큰 가중치를 주어 병합 물체의 속도를 계산한다.
-            const double w = std::max(t->size, 1e-3);
+            const double w = std::max(t->size, 1e-3);  // size-weighted merged velocity
             w_sum += w;
             vs += w * t->vs();
             vd += w * t->vd();
-            // 병합 후 불확실성을 과소평가하지 않도록 멤버 중 가장 큰 분산을 사용한다.
-            s_var = std::max(s_var, t->P(0, 0));
+            s_var = std::max(s_var, t->P(0, 0));  // conservative: worst member uncertainty
             vs_var = std::max(vs_var, t->P(1, 1));
             d_var = std::max(d_var, t->P(2, 2));
             vd_var = std::max(vd_var, t->P(3, 3));
-            id = std::min(id, t->id);  // 가장 오래된 ID를 써서 프레임 간 식별자를 안정화한다.
+            id = std::min(id, t->id);  // oldest member id -> stable across frames
             visible = visible || t->is_visible;
 
-            // Frenet 예측은 마지막 원시 Cartesian 스캔 상자를 이동시키지 않는다. 이번 스캔에서
-            // 실제 측정된 트랙만 Cartesian 형상에 포함해, TTL로 살아 있는 동적 트랙이 오래된
-            // map 좌표 충돌 영역을 발행하지 않게 한다.
+            // Frenet prediction does not move the last raw Cartesian scan box. Only a track
+            // measured in this scan contributes Cartesian geometry, preventing a dynamic track
+            // retained by TTL from publishing a stale map-frame collision footprint.
             const bool valid_aabb =
                 t->is_visible &&
                 std::isfinite(t->x_min_map) && std::isfinite(t->x_max_map) &&
@@ -822,14 +814,14 @@ ObstacleDetectorNode::mergeLayer(const std::vector<const Track *> &members,
             m.ob.x_center = 0.5 * (x_min + x_max);
             m.ob.y_center = 0.5 * (y_min + y_max);
             m.ob.radius = 0.5 * std::hypot(width, height);
-            // 정확한 Frenet->Cartesian 공분산 회전에는 국소 CLCS 접선이 필요하다. 현재는
-            // 위치 분산 중 큰 값을 두 Cartesian 축에 사용해 불확실성을 과소평가하지 않는다.
+            // A full Frenet-to-Cartesian covariance rotation needs the local CLCS tangent.
+            // Until then, use the worst positional variance on both Cartesian axes.
             m.ob.x_var = std::max(s_var, d_var);
             m.ob.y_var = m.ob.x_var;
 
-            // 현재 보이는 Cartesian 합집합을 최종 형상으로 간주한다. 계층 병합 후 한 번 다시
-            // 투영하여 /static_obs와 /opp_obs의 Frenet 경계가 RViz에 보이는 동일 AABB를
-            // 설명하도록 출력 형상 계약을 일치시킨다.
+            // The current visible Cartesian union is the authoritative footprint. Reproject it
+            // once after layer merging so /static_obs and /opp_obs expose one geometry contract:
+            // their Frenet bounds describe the same AABB shown by the RViz marker.
             const auto projected = projectCartesianAabb(
                 *converter_, x_min, x_max, y_min, y_max);
             if (projected.has_value())
@@ -842,6 +834,13 @@ ObstacleDetectorNode::mergeLayer(const std::vector<const Track *> &members,
                 m.ob.d_center = projected->d_center;
                 m.ob.size = projected->diagonal;
             }
+        }
+        // A component with no currently-measured member is pure prediction. Fan-shaped scatter
+        // merging into one ghost blob can grow its envelope past the physical object gate until
+        // it spans the corridor and false-blocks planners; drop those oversized ghost blobs.
+        if (!visible && m.ob.size > max_obs_size_)
+        {
+            continue;
         }
         out.push_back(m);
     }
@@ -861,13 +860,19 @@ int ObstacleDetectorNode::selectOpponent(const std::vector<MergedObstacle> &dyna
             double ahead = frenet_.wrapDelta(ob.s_center, ego_s_);
             if (ahead < 0.0)
             {
-                ahead += frenet_.raceline_length();  // 뒤쪽 음수 거리를 다음 바퀴의 전방 거리로 바꾼다.
+                ahead += frenet_.raceline_length();  // wrap-aware forward distance from the ego
+            }
+            // Only the forward half-lap counts as "ahead": the closed-track wrap would otherwise
+            // rank an opponent just behind the ego as L - eps "ahead".
+            if (ahead <= 0.0 || ahead >= 0.5 * frenet_.raceline_length())
+            {
+                continue;
             }
             key = ahead;
         }
         else
         {
-            key = ob.s_var + ob.d_var;  // 자차 s가 없으면 위치 불확실성이 가장 작은 물체를 고른다.
+            key = ob.s_var + ob.d_var;  // lowest positional uncertainty
         }
         if (key < best_key)
         {
@@ -879,7 +884,8 @@ int ObstacleDetectorNode::selectOpponent(const std::vector<MergedObstacle> &dyna
 }
 
 // ------------------------------------------------------------------------------------------------
-// 수동형 주기 진단: 사건 수는 주기 동안 누적하고, 트랙/분류 수는 최신 갱신의 snapshot을 쓴다.
+// Passive 1-second diagnostics. Event counters are accumulated; live track/classification counts
+// remain a current snapshot from the most recent tracker update.
 // ------------------------------------------------------------------------------------------------
 void ObstacleDetectorNode::updateDiagnostics(const ScanProcessingStats &scan_stats,
                                              const TrackerUpdateStats *tracker_stats,
@@ -945,7 +951,7 @@ void ObstacleDetectorNode::updateDiagnostics(const ScanProcessingStats &scan_sta
         "beam(valid=%zu/%zu nonfinite=%zu below_min=%zu at_or_above_max=%zu) "
         "cluster=%zu->%zu fragment_drop=%zu detections=%zu "
         "reject(size=%zu clcs_projection=%zu view=%zu boundary=%zu map=%zu) "
-        "track(total=%zu visible=%zu hit_pending=%zu class_pending=%zu "
+        "track(total=%zu visible=%zu hit_pending=%zu "
         "provisional=%zu static=%zu dynamic=%zu motion_gated=%zu) "
         "assoc(pairs=%zu match=%zu spawn=%zu retire=%zu euclid_reject=%zu maha_reject=%zu) "
         "motion(yaw_used=%.3f fresh=%s ref_vs=%.3f ref_vd=%.3f)",
@@ -957,7 +963,7 @@ void ObstacleDetectorNode::updateDiagnostics(const ScanProcessingStats &scan_sta
         total.size_rejected, total.projection_rejected, total.viewing_window_rejected,
         total.track_boundary_rejected, total.map_rejected, snapshot.total_tracks,
         snapshot.visible_tracks, snapshot.hit_confirmation_pending,
-        snapshot.classification_pending, snapshot.provisional_static,
+        snapshot.provisional_static,
         snapshot.confirmed_static, snapshot.confirmed_dynamic,
         snapshot.dynamic_motion_gated, events.candidate_pairs, events.matched, events.spawned,
         events.retired, events.euclidean_pair_rejected,
@@ -970,14 +976,13 @@ void ObstacleDetectorNode::updateDiagnostics(const ScanProcessingStats &scan_sta
 }
 
 // ------------------------------------------------------------------------------------------------
-// 메인 인지 파이프라인: LaserScan이 들어올 때마다 한 주기를 실행한다.
+// Main pipeline (scan-driven)
 // ------------------------------------------------------------------------------------------------
 void ObstacleDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::SharedPtr msg)
 {
     ScanProcessingStats stats;
     stats.scans_received = 1;
 
-    // 기준 경로 없이 Cartesian 점을 일관된 Frenet 좌표로 바꿀 수 없으므로 스캔을 보류한다.
     if (!frenet_.ready() || !converter_)
     {
         stats.clcs_unavailable = 1;
@@ -997,7 +1002,6 @@ void ObstacleDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
         return;
     }
 
-    // 측정 시각과 가까운 odometry만 사용해 오래된 회전률이 공분산/분류를 오염시키지 않게 한다.
     const double stamp = stampToSec(msg->header.stamp);
     double measurement_yaw_rate = 0.0;
     const bool yaw_rate_fresh =
@@ -1009,17 +1013,17 @@ void ObstacleDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
     }
 
     // ============================================================================================
-    // 계층 1 [map]: 스캔을 군집화한 뒤 벽·알려진 정적 구조물처럼 지도 자체인 군집과
-    // 주행 경계/가시 구간 밖 군집을 제거한다. 남은 군집만 지도에 속하지 않는 장애물 후보다.
-    // 지도 계층은 필터 전용이며 별도 장애물 출력으로 발행하지 않는다.
+    // LAYER 1 [map]: cluster the scan, then reject everything that IS the map (walls / known
+    // static structure) plus everything outside the drivable corridor / viewing window. What
+    // survives is a candidate obstacle NOT part of the map. The map layer is a filter only.
     // ============================================================================================
     const auto clusters = clusterScan(*msg, tx, ty, yaw, stats);
     std::vector<Detection> detections;
     detections.reserve(clusters.size());
     for (const auto &cluster : clusters)
     {
-        // map 좌표 축 정렬 상자를 계산한다. 중심과 네 모서리를 함께 투영해야 발행할 Frenet
-        // 형상에서 종방향·횡방향 크기가 서로 독립적으로 보존된다.
+        // Map-frame axis-aligned box. Its centre and all four corners are projected together so
+        // the published Frenet footprint preserves independent longitudinal/lateral extents.
         double minx = cluster.front().x;
         double maxx = cluster.front().x;
         double miny = cluster.front().y;
@@ -1037,7 +1041,7 @@ void ObstacleDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
         if (size > max_obs_size_)
         {
             ++stats.size_rejected;
-            continue;  // F1TENTH 차량이나 cone으로 보기에는 지나치게 큰 군집이다.
+            continue;  // too big to be an F1TENTH car / cone
         }
 
         const auto bounds = projectCartesianAabb(
@@ -1047,7 +1051,7 @@ void ObstacleDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
             ++stats.projection_rejected;
             continue;
         }
-        // 자차 기준 전방/후방 가시 거리 게이트
+        // viewing-distance gate (ahead of ego)
         if (ego_s_ >= 0.0)
         {
             const double ds = frenet_.wrapDelta(bounds->s_center, ego_s_);
@@ -1058,20 +1062,22 @@ void ObstacleDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
             }
         }
 
-        // 주행 가능 트랙 경계 게이트: waypoint 경계가 없으면 기본 반폭을 사용한다.
+        // track-boundary corridor gate (falls back to a default half-width if bounds are unset).
+        // Test the inflated envelope EDGES, not just the centre: wall-hugging fan scatter keeps
+        // its centre inside the corridor while its AABB edge already pokes into the wall.
         double dl = 0.0;
         double dr = 0.0;
         frenet_.boundsAtS(bounds->s_center, dl, dr);
         const double left_bound = (dl > 0.05 ? dl : fallback_track_halfwidth_) - boundaries_inflation_;
         const double right_bound =
             (dr > 0.05 ? dr : fallback_track_halfwidth_) - boundaries_inflation_;
-        if (bounds->d_center > left_bound || bounds->d_center < -right_bound)
+        if (bounds->d_left > left_bound || bounds->d_right < -right_bound)
         {
             ++stats.track_boundary_rejected;
             continue;
         }
 
-        // 점유 지도 필터: 군집 점 중 설정 비율 이상이 알려진 구조물 위에 있으면 제거한다.
+        // map-based filter: drop clusters that sit on known static structure (the map itself)
         if (use_map_filter_ && map_msg_)
         {
             int occ = 0;
@@ -1108,7 +1114,6 @@ void ObstacleDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
         det.x_max = maxx;
         det.y_min = miny;
         det.y_max = maxy;
-        // 먼 거리, 성긴 군집, 빠른 자차 회전일수록 측정 신뢰도가 낮다고 보고 공분산을 키운다.
         const double mean_range = range_sum / static_cast<double>(cluster.size());
         const double range_ratio = max_range_ > 1e-6 ?
             std::clamp(mean_range / max_range_, 0.0, 1.0) : 0.0;
@@ -1127,18 +1132,18 @@ void ObstacleDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
         ++stats.detections;
     }
 
-    // 추적 단계: 각 생존 군집에 Frenet 흐름 속도와 map-flow 대비 정적/동적 라벨을 부여한다.
-    // 자세한 분류 조건은 obstacle_tracker.hpp의 계층 설명을 참고한다.
+    // ---- tracking: gives every surviving cluster its Frenet flow velocity + a static/dynamic
+    //      label (flow vs the map-flow reference; see obstacle_tracker.hpp) ----
     tracker_.update(detections, stamp, measurement_yaw_rate, yaw_rate_fresh);
     stats.scans_processed = 1;
     updateDiagnostics(stats, &tracker_.lastStats(), measurement_yaw_rate, yaw_rate_fresh);
 
     // ============================================================================================
-    // 계층 조립: 발행 가능한 트랙을 분류별로 모은 뒤 같은 물체의 파편을 계층 안에서 2차
-    // 병합하고 물체 단위로 발행한다.
-    // 계층 2 [static]  -> /static_obs : 병합된 모든 정적 물체
-    // 계층 3 [dynamic] -> /opp_obs    : 병합 후 자차 전방에 가장 가까운 상대 차량 하나
-    // 계층이 비어도 매 스캔 빈 배열을 발행하므로 소비 노드의 갱신 주기가 끊기지 않는다.
+    // Layer assembly: gather each layer's publishable tracks, merge same-object fragments inside the
+    // layer (2nd-stage clustering, mergeLayer), then publish object-level obstacles.
+    // LAYER 2 [static] -> /static_obs   : every merged static object.
+    // LAYER 3 [dynamic] -> /opp_obs      : the single merged opponent (nearest ahead of ego).
+    // Both are published EVERY scan (empty when a layer is void) so consumers tick at scan rate.
     // ============================================================================================
     std::vector<const Track *> static_members;
     std::vector<const Track *> dynamic_members;
@@ -1154,16 +1159,22 @@ void ObstacleDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
         {
             dynamic_members.push_back(&t);
         }
-        else
+        else if (t.envelope_stable_streak >= tracker_params_.envelope_stability_frames)
         {
-            // 임시 정적과 확정 정적은 같은 트랙과 ID를 공유한다. 상태 승격 순간에도
-            // /static_obs에서 한 스캔 동안 장애물이 사라지는 현상이 생기지 않는다.
+            // Provisional and confirmed static share the same track and ID. Promotion therefore
+            // never creates a one-scan gap in /static_obs. Fan-shaped morphing clusters never
+            // reach the stability streak, so they stay out of the published layer entirely.
             static_members.push_back(&t);
         }
     }
     const auto static_objs = mergeLayer(static_members, true);
     const auto dynamic_objs = mergeLayer(dynamic_members, false);
     const int opp = selectOpponent(dynamic_objs);
+    // Layer 3 ranks opponents by forward distance from ego_s_. A stale ego odometry sample would
+    // misplace that ranking, so /opp_obs is suppressed until fresh odometry arrives.
+    const bool ego_s_fresh =
+        ego_s_ < 0.0 ||
+        (ego_s_stamp_ >= 0.0 && std::abs(stamp - ego_s_stamp_) <= meas_motion_timeout_);
 
     f110_msgs::msg::ObstacleArray static_arr;
     static_arr.header = msg->header;
@@ -1182,25 +1193,36 @@ void ObstacleDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
     {
         opp_arr.obstacles.push_back(dynamic_objs[opp].ob);
     }
-    opp_obs_pub_->publish(opp_arr);
+    if (ego_s_fresh)
+    {
+        opp_obs_pub_->publish(opp_arr);
+    }
+    else
+    {
+        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                             "Ego odometry stale beyond meas_motion_timeout; suppressing /opp_obs");
+    }
 
-    // RViz marker는 내부 중간값이 아니라 최종 발행 Frenet 배열에서 만든다. 따라서 예측 전용
-    // 물체까지 포함해 하위 planner가 실제로 받는 s/d 외곽을 그대로 시각화한다.
+    // RViz mirrors are built from the final published Frenet arrays. They therefore visualize the
+    // exact s/d envelopes consumed by downstream planners, including predicted-only objects.
     if (publish_markers_ && static_markers_pub_ && opp_markers_pub_)
     {
         static_markers_pub_->publish(
             buildFrenetObstacleMarkers(
                 static_arr, frenet_, "static_obs_frenet", 0.2F, 0.6F, 1.0F));
-        opp_markers_pub_->publish(
-            buildFrenetObstacleMarkers(
-                opp_arr, frenet_, "opp_obs_frenet", 1.0F, 0.2F, 0.2F));
+        if (ego_s_fresh)
+        {
+            opp_markers_pub_->publish(
+                buildFrenetObstacleMarkers(
+                    opp_arr, frenet_, "opp_obs_frenet", 1.0F, 0.2F, 0.2F));
+        }
     }
 }
 
 }  // namespace obstacle_detector
 
 // ------------------------------------------------------------------------------------------------
-// ROS 2 프로세스 진입점
+// main
 // ------------------------------------------------------------------------------------------------
 int main(int argc, char **argv)
 {

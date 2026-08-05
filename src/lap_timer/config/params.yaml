@@ -1,8 +1,6 @@
 lap_timer:
   ros__parameters:
     odom_topic: /car_state/frenet/odom
-    drive_topic: /drive
-    drive_msg_type: ackermann
     start_window: 0.5
     wrap_threshold: 10.0
     min_lap_time: 3.0
@@ -11,6 +9,4 @@ lap_timer:
     rviz_text: true
     exact_zero_mode: false
     exact_zero_eps: 0.05
-    hud_rate: 10.0
-    speed_unit: mps
-    steer_in_deg: false
+

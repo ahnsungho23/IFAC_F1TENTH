@@ -1,0 +1,116 @@
+# ================================================================================================
+# MONTE CARLO LOCALIZATION (MCL) CONFIGURATION — SIMULATION 전용
+# ================================================================================================
+# mod:=sim일 때 mcl_launch.py가 mcl_config.yaml 대신 이 파일을 로드한다.
+# gym 시뮬 전용 튜닝 근거: 합성 복도 맵이 near-symmetric이라 큰 dispersion은 코너에서
+# 파티클 구름 180° 플립을 유발하고, 무거운 스묻싱은 요 지연을 유발한다.
+# (2026-08-03 launch 오버라이드 폐지 — 튜닝값은 전부 YAML이 단일 소스)
+# ================================================================================================
+
+particle_filter:
+  ros__parameters:
+    # === CORE ALGORITHM PARAMETERS ===
+    max_particles: 1000                 # Optimized particle count for real-time performance
+    max_viz_particles: 40              # Reduced visualization particles for better performance
+    max_range: 10.0                    # Set laser max range 
+    max_pose_range: 10000.0           # Maximum valid pose coordinate range (m)
+    
+    # === MODE & TF CONTROL ===
+    publish_map_odom_tf: true          # Publish map->odom transform (real mode only)
+    publish_odom_base_tf: false        # Let F1Tenth stack handle odom->base_link
+    auto_init_from_waypoints: true     # Auto-initialize particles from /global_waypoints start pose
+    
+    # === MOTION MODEL NOISE ===
+    # ※ 차체 프레임 기준 (D6 수정으로 body-frame 회전 적용). sim 전용 값 — 0.08/0.08은
+    #    gym에서 주행 시작 직후 발산 확인됨 (2026-08-03 시뮬 A/B).
+    motion_dispersion_x: 0.05          # 종방향(진행방향) 노이즈 σ (m)
+    motion_dispersion_y: 0.02          # 횡방향 노이즈 σ (m)
+    motion_dispersion_theta: 0.04      # 회전 노이즈 σ (rad)
+    
+    # === POSE SMOOTHING ===
+    # ── Pose EMA smoothing (0.0=max smooth, 1.0=no smooth) ─────────────────────
+    # 유효 alpha = min(alpha_max, smoothing_alpha + min(1, |v|/velocity_full)·alpha_gain)
+    # 출력 지연 시정수 τ ≈ (1/timer_frequency)·(1-α)/α.
+    # 구 실차값 0.05는 저속(α≈0.05)에서 τ≈0.63 s — "MCL이 늦게 따라온다"의 주범이라
+    # 0.3(τ≈77 ms)으로 상향 (2026-07-29). 지터가 늘면 0.2까지 낮춰볼 것.
+    # 시뮬은 0.5 (이 파일이 sim 전용이므로 launch 오버라이드 없이 여기서 결정).
+    smoothing_alpha: 0.5
+    smoothing_velocity_full_mps: 2.0   # 이 속도 이상에서 속도 적응 보정이 최대
+    smoothing_alpha_gain: 0.4          # 최대 속도에서 base에 더해지는 폭 (0.3→0.7)
+    smoothing_alpha_max: 0.8           # 유효 alpha 상한
+
+    # ── Pose fusion EKF (odom 예측 + MCL 보정, 2026-07-29) ─────────────────────
+    # 장복도(평행벽)에서 라이다가 진행방향을 관측하지 못해 파티클 기대값이 종방향으로
+    # 표류하는 문제의 해법: 휠 odom(주행거리 대비 ~0.3% 오차)으로 매 주기 예측하고 MCL
+    # 기대 포즈로 보정하되, 측정 노이즈 R = 파티클 가중 공분산 — 복도에선 종방향 분산이
+    # 커서 자동으로 odom 유지, 코너에선 분산이 작아 MCL로 재고정된다.
+    # true면 EMA 스무딩 대신 EKF 출력이 /pf/pose/odom이 된다 (false = 구 EMA 거동).
+    # sim은 EKF off (2026-08-03 시뮬 검증 p50 4.4 cm/p95 8.8 cm 당시 설정과 동일하게 유지).
+    # 실차(mcl_config.yaml)는 직진 후방 스냅 사고(run_0803_180758) 대응으로 true.
+    use_pose_ekf: false
+    # 병진 오차율: 실차 휠 odom 고유 오차는 ~0.3%지만, 30Hz 델타 적용·헤딩 결합 오차를
+    # 포함한 유효값으로 1%를 쓴다(과소하면 게인이 죽어 사실상 데드레커닝이 됨).
+    ekf_trans_error_rate: 0.01         # 주행거리 대비 병진 오차율
+    ekf_trans_floor_mps: 0.01          # 병진 프로세스 노이즈 시간 하한 [m/s]
+    ekf_lat_error_ratio: 0.3           # 종방향 시그마 대비 횡방향 비율
+    ekf_rot_error_rate: 0.05           # 회전량 대비 요 오차율
+    ekf_rot_floor_radps: 0.02          # 요 프로세스 노이즈 시간 하한 [rad/s]
+    ekf_meas_var_inflation: 1.0        # 파티클 공분산 → R 전역 배율
+    # 평행벽 복도에서 MCL이 진행방향 위치를 관측 못 해 "틀린 곳에 좁게" 수렴하므로
+    # (공분산이 모호성 과소평가), 차체 종방향 R만 항상 크게 부풀린다. 복도 표류는 무시되고
+    # 코너를 돌면 이전 종방향 오차가 횡방향으로 회전돼 고게인으로 보정된다.
+    ekf_meas_long_inflation: 25.0      # 종방향(진행방향) R 배율 (= 표준편차 5배)
+    ekf_meas_pos_std_floor: 0.02       # 측정 위치 표준편차 하한 [m] (과신 방지)
+    ekf_meas_yaw_std_floor: 0.02       # 측정 요 표준편차 하한 [rad]
+    ekf_gate_chi2: 25.0                # 마할라노비스 게이트(3자유도), 0=비활성
+    ekf_gate_force_accept: 40          # 연속 기각 이 횟수 도달 시 MCL로 재고정
+    ekf_gate_force_accept_dist: 1.5    # 기각 중 누적 주행거리가 이 값[m]이어도 재고정 (고속 묵보정 방지, 0=해제)
+
+    # === ROBOT GEOMETRY ===
+    # lidar 오프셋은 TF(base_link→laser)에서 읽는다 (실패 시 코드 기본값 0.27 m)
+    wheelbase: 0.324                   # Distance between axles (m)
+    
+    # === SENSOR MODEL (4-component beam model) ===
+    z_hit: 0.80                        # Weight for correct measurements (increased for better tracking)
+    z_short: 0.01                      # Weight for unexpected obstacles
+    z_max: 0.05                        # Weight for max range readings (reduced)
+    z_rand: 0.14                       # Weight for random noise (reduced)
+    sigma_hit: 7.0                     # Measurement noise std dev (tightened)
+
+    # === 스캔 강건화 (다이낯믹 환경 대응) — sim은 비활성 (기존 거동 유지) ===
+    ray_likelihood_floor_ratio: 0.0
+    use_scan_quality_r: false
+    
+    # === RAY CASTING ===
+    angle_step: 18                     # Laser downsampling factor
+    squash_factor: 2.5                 # Weight normalization (지수 = 1/이값, 작을수록 대비 눌림)
+    # 상황별 squash 조정 — false=조정 없음(구 거동). 실차 YAML(mcl_config.yaml) 주석 참고.
+    use_adaptive_squash: true
+    squash_factor_high_speed_curve: 3.5
+    squash_factor_fast_convergence: 1.2
+    use_parallel_raycasting: true      # Enable parallel processing
+    num_threads: 0                     # Auto-detect threads
+    
+    # === ROS INTERFACE ===
+    scan_topic: "/scan"                # LaserScan input topic
+    odom_topic: "/odom"                # Odometry input topic
+    publish_odom: true                 # Publish pose as odometry message
+    viz: true                          # Enable particle visualization
+    timer_frequency: 30.0              # MCL update frequency (Hz) - increased for simulation
+    
+    # === TF FRAME NAMES ===
+    map_frame: "map"                   # Global reference frame
+    odom_frame: "odom"                 # Odometry frame
+    base_frame: "base_link"            # Robot base frame
+    laser_frame: "laser"               # Laser scanner frame
+    
+    # === PERFORMANCE & DEBUGGING ===
+    # (fine_timing 삭제 — 코드에서 읽지 않는 dead 파라미터였음)
+
+# ================================================================================================
+# MAP SERVER CONFIGURATION
+# ================================================================================================
+map_server:
+  ros__parameters:
+    # Default map file (override with launch argument: map_name:='your_map')
+    map: 'oct_25_1'                      # Map name without .yaml extension

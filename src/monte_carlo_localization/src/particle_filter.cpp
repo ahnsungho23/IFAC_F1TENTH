@@ -29,10 +29,30 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
     this->declare_parameter("max_particles", 2000);
     this->declare_parameter("max_viz_particles", 60);
     this->declare_parameter("squash_factor", 2.2);
+    this->declare_parameter("use_adaptive_squash", true);
+    this->declare_parameter("squash_factor_high_speed_curve", 3.5);
+    this->declare_parameter("squash_factor_fast_convergence", 1.2);
     this->declare_parameter("max_range", 12.0);
     this->declare_parameter("max_pose_range", 10000.0);
-    this->declare_parameter("delay_compensation_factor", 1.5);
     this->declare_parameter("smoothing_alpha", 0.3);
+    this->declare_parameter("smoothing_velocity_full_mps", 2.0);
+    this->declare_parameter("smoothing_alpha_gain", 0.4);
+    this->declare_parameter("smoothing_alpha_max", 0.8);
+
+    // Pose fusion EKF (odom 예측 + MCL 보정) — 헤더 주석 참고
+    this->declare_parameter("use_pose_ekf", true);
+    this->declare_parameter("ekf_trans_error_rate", 0.003);
+    this->declare_parameter("ekf_trans_floor_mps", 0.01);
+    this->declare_parameter("ekf_lat_error_ratio", 0.3);
+    this->declare_parameter("ekf_rot_error_rate", 0.05);
+    this->declare_parameter("ekf_rot_floor_radps", 0.01);
+    this->declare_parameter("ekf_meas_var_inflation", 1.0);
+    this->declare_parameter("ekf_meas_long_inflation", 25.0);
+    this->declare_parameter("ekf_meas_pos_std_floor", 0.02);
+    this->declare_parameter("ekf_meas_yaw_std_floor", 0.02);
+    this->declare_parameter("ekf_gate_chi2", 16.0);
+    this->declare_parameter("ekf_gate_force_accept", 60);
+    this->declare_parameter("ekf_gate_force_accept_dist", 0.0);
     
     // Sensor model parameters
     this->declare_parameter("z_short", 0.01);
@@ -40,6 +60,14 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
     this->declare_parameter("z_rand", 0.12);
     this->declare_parameter("z_hit", 0.80);
     this->declare_parameter("sigma_hit", 8.0);
+
+    // Scan robustness (다이낯믹 환경 대응)
+    this->declare_parameter("ray_likelihood_floor_ratio", 0.0);
+    this->declare_parameter("use_scan_quality_r", false);
+    this->declare_parameter("scan_quality_outlier_gain", 4.0);
+    this->declare_parameter("scan_quality_outlier_start", 0.15);
+    this->declare_parameter("scan_quality_ess_gain", 2.0);
+    this->declare_parameter("scan_quality_ess_start", 0.4);
     
     // Motion model parameters
     this->declare_parameter("motion_dispersion_x", 0.05);
@@ -79,10 +107,29 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
     MAX_PARTICLES = this->get_parameter("max_particles").as_int();
     MAX_VIZ_PARTICLES = this->get_parameter("max_viz_particles").as_int();
     INV_SQUASH_FACTOR = 1.0 / this->get_parameter("squash_factor").as_double();
+    USE_ADAPTIVE_SQUASH = this->get_parameter("use_adaptive_squash").as_bool();
+    SQUASH_FACTOR_HIGH_SPEED_CURVE = this->get_parameter("squash_factor_high_speed_curve").as_double();
+    SQUASH_FACTOR_FAST_CONVERGENCE = this->get_parameter("squash_factor_fast_convergence").as_double();
     MAX_RANGE_METERS = this->get_parameter("max_range").as_double();
     MAX_POSE_RANGE = this->get_parameter("max_pose_range").as_double();
-    DELAY_COMPENSATION_FACTOR = this->get_parameter("delay_compensation_factor").as_double();
     SMOOTHING_ALPHA = this->get_parameter("smoothing_alpha").as_double();
+    SMOOTHING_VELOCITY_FULL_MPS = this->get_parameter("smoothing_velocity_full_mps").as_double();
+    SMOOTHING_ALPHA_GAIN = this->get_parameter("smoothing_alpha_gain").as_double();
+    SMOOTHING_ALPHA_MAX = this->get_parameter("smoothing_alpha_max").as_double();
+
+    USE_POSE_EKF = this->get_parameter("use_pose_ekf").as_bool();
+    EKF_TRANS_ERROR_RATE = this->get_parameter("ekf_trans_error_rate").as_double();
+    EKF_TRANS_FLOOR_MPS = this->get_parameter("ekf_trans_floor_mps").as_double();
+    EKF_LAT_ERROR_RATIO = this->get_parameter("ekf_lat_error_ratio").as_double();
+    EKF_ROT_ERROR_RATE = this->get_parameter("ekf_rot_error_rate").as_double();
+    EKF_ROT_FLOOR_RADPS = this->get_parameter("ekf_rot_floor_radps").as_double();
+    EKF_MEAS_VAR_INFLATION = this->get_parameter("ekf_meas_var_inflation").as_double();
+    EKF_MEAS_LONG_INFLATION = this->get_parameter("ekf_meas_long_inflation").as_double();
+    EKF_MEAS_POS_STD_FLOOR = this->get_parameter("ekf_meas_pos_std_floor").as_double();
+    EKF_MEAS_YAW_STD_FLOOR = this->get_parameter("ekf_meas_yaw_std_floor").as_double();
+    EKF_GATE_CHI2 = this->get_parameter("ekf_gate_chi2").as_double();
+    EKF_GATE_FORCE_ACCEPT = static_cast<int>(this->get_parameter("ekf_gate_force_accept").as_int());
+    EKF_GATE_FORCE_ACCEPT_DIST = this->get_parameter("ekf_gate_force_accept_dist").as_double();
 
     // Sensor model parameters
     Z_SHORT = this->get_parameter("z_short").as_double();
@@ -90,6 +137,14 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
     Z_RAND = this->get_parameter("z_rand").as_double();
     Z_HIT = this->get_parameter("z_hit").as_double();
     SIGMA_HIT = this->get_parameter("sigma_hit").as_double();
+
+    // Scan robustness parameters
+    RAY_LIKELIHOOD_FLOOR_RATIO = this->get_parameter("ray_likelihood_floor_ratio").as_double();
+    USE_SCAN_QUALITY_R = this->get_parameter("use_scan_quality_r").as_bool();
+    SCAN_QUALITY_OUTLIER_GAIN = this->get_parameter("scan_quality_outlier_gain").as_double();
+    SCAN_QUALITY_OUTLIER_START = this->get_parameter("scan_quality_outlier_start").as_double();
+    SCAN_QUALITY_ESS_GAIN = this->get_parameter("scan_quality_ess_gain").as_double();
+    SCAN_QUALITY_ESS_START = this->get_parameter("scan_quality_ess_start").as_double();
 
     // Motion model parameters
     MOTION_DISPERSION_X = this->get_parameter("motion_dispersion_x").as_double();
@@ -130,6 +185,12 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
     odom_initialized_ = false;
     first_sensor_update_ = true;
     current_velocity_ = 0.0;
+    ekf_initialized_ = false;
+    ekf_state_ = Eigen::Vector3d::Zero();
+    ekf_cov_ = Eigen::Matrix3d::Identity();
+    ekf_reject_count_ = 0;
+    ekf_prev_odom_valid_ = false;
+    ekf_prev_odom_ = Eigen::Vector3d::Zero();
     current_angular_vel_ = 0.0;
     has_new_lidar_data_ = false;
     last_lidar_time_ = rclcpp::Time(0);
@@ -187,6 +248,9 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
         odom_pub_ = this->create_publisher<nav_msgs::msg::Odometry>("/pf/pose/odom", 1);
     }
 
+    // Map publisher
+    map_pub_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>("/map", rclcpp::QoS(1).transient_local());
+
     // TF broadcaster and listener
     pub_tf_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
     tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
@@ -230,6 +294,12 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
     );
     startup_timer_interval_ = timer_interval_ms;
     full_timer_interval_ = static_cast<int>(1000.0 / TIMER_FREQUENCY);
+
+    // Map publisher timer
+    map_timer_ = this->create_wall_timer(
+        std::chrono::milliseconds(200),
+        std::bind(&ParticleFilter::publish_map_periodically, this)
+    );
 
 
     RCLCPP_INFO(this->get_logger(), "Particle filter initialized - %.1fHz, %s threading (%d threads)", 
@@ -356,6 +426,13 @@ void ParticleFilter::precompute_sensor_model()
         }
     }
 
+    // per-ray likelihood floor용 열(기대 거리)별 최댓값 — 틀린 레이 하나의 벌점을
+    // peak/floor 비율(약 66배)에서 floor_ratio 배로 제한해, 맵과 일부 다른 레이가
+    // 있어도 정답 가설이 급사하지 않게 한다 (다이낯믹 환경 대응)
+    sensor_model_col_max_.resize(table_width);
+    for (int d = 0; d < table_width; ++d)
+        sensor_model_col_max_[d] = sensor_model_table_.col(d).maxCoeff();
+
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
     RCLCPP_INFO(this->get_logger(), "Sensor model ready (%ld ms)", duration.count());
@@ -406,28 +483,30 @@ void ParticleFilter::lidarCB(const sensor_msgs::msg::LaserScan::SharedPtr msg)
 
 void ParticleFilter::odomCB(const nav_msgs::msg::Odometry::SharedPtr msg)
 {
-    // Store velocity information
-    current_velocity_ = msg->twist.twist.linear.x;
-    current_angular_vel_ = msg->twist.twist.angular.z;
-
     // Store pose data
     Eigen::Vector3d position(msg->pose.pose.position.x, msg->pose.pose.position.y,
                              utils::geometry::quaternion_to_yaw(msg->pose.pose.orientation));
 
-    // Update odometry tracking if active
-    bool can_use_odom_tracking = pose_initialized_from_rviz_ || 
-                               (map_initialized_ && iters_ > 0 && is_pose_valid(inferred_pose_));
-    
-    if (can_use_odom_tracking && odom_tracking_active_) {
-        update_odom_pose(msg);
-    }
-
-    // Store pose and timestamp - protected by mutex
+    // 공유 상태(속도/odom 추적/포즈) 쓰기는 전부 락 안에서 수행
     {
         std::lock_guard<std::mutex> lock(state_lock_);
+
+        // Store velocity information
+        current_velocity_ = msg->twist.twist.linear.x;
+        current_angular_vel_ = msg->twist.twist.angular.z;
+
+        // Update odometry tracking if active
+        bool can_use_odom_tracking = pose_initialized_from_rviz_ ||
+                                   (map_initialized_ && iters_ > 0 && is_pose_valid(inferred_pose_));
+
+        if (can_use_odom_tracking && odom_tracking_active_) {
+            update_odom_pose(msg);
+        }
+
+        // Store pose and timestamp
         if (last_pose_.norm() <= 0)
         {
-            RCLCPP_INFO(this->get_logger(), "Odometry initialized");
+            RCLCPP_INFO_ONCE(this->get_logger(), "Odometry initialized");
         }
         last_pose_ = position;
         last_stamp_ = msg->header.stamp;
@@ -448,6 +527,10 @@ void ParticleFilter::clicked_pose(const geometry_msgs::msg::PoseWithCovarianceSt
 
     // Initialize odometry-based tracking from this pose
     initialize_odom_tracking(pose);
+
+    // Pose EKF는 다음 MCL 측정(laser frame)에서 재시드 — RViz 포즈(base_link)를 그대로
+    // 시드하면 lidar 오프셋만큼 종방향 편차로 시작해 종방향 저게인 탓에 오래 남는다.
+    ekf_initialized_ = false;
 
     // Set inferred pose immediately for visualization
     inferred_pose_ = pose;
@@ -490,6 +573,7 @@ void ParticleFilter::waypointsCB(const f110_msgs::msg::WpntArray::ConstSharedPtr
 
     initialize_particles_pose(start_pose);
     initialize_odom_tracking(start_pose, false);
+    ekf_initialized_ = false;   // 다음 MCL 측정(laser frame)에서 시드
 
     inferred_pose_ = start_pose;
     fast_convergence_mode_ = true;
@@ -568,6 +652,9 @@ void ParticleFilter::initialize_global()
     }
 
     std::fill(weights_.begin(), weights_.end(), 1.0 / MAX_PARTICLES);
+
+    // 전역 초기화는 어디에 수렴할지 모르므로 EKF는 다음 MCL 보정에서 재시드
+    ekf_initialized_ = false;
 
     RCLCPP_INFO(this->get_logger(), "Initialized %d particles globally", MAX_PARTICLES);
 }
@@ -660,9 +747,15 @@ void ParticleFilter::motion_model(Eigen::MatrixXd &proposal_dist, const MotionCo
             proposal_dist(i, 2) = new_theta;
         }
 
-        // Add adaptive motion noise
-        proposal_dist(i, 0) += normal_dist_(rng_) * MOTION_DISPERSION_X * noise_factor;
-        proposal_dist(i, 1) += normal_dist_(rng_) * MOTION_DISPERSION_Y * noise_factor;
+        // Add adaptive motion noise — 차체 프레임(종/횡)에서 생성 후 갱신된 헤딩으로 회전.
+        // (이전에는 map 좌표축에 직접 더해져 헤딩에 따라 종/횡 의도가 뒤집혔다)
+        const double n_long = normal_dist_(rng_) * MOTION_DISPERSION_X * noise_factor;
+        const double n_lat  = normal_dist_(rng_) * MOTION_DISPERSION_Y * noise_factor;
+        const double th_new = proposal_dist(i, 2);
+        const double cn = std::cos(th_new), sn = std::sin(th_new);
+
+        proposal_dist(i, 0) += cn * n_long - sn * n_lat;
+        proposal_dist(i, 1) += sn * n_long + cn * n_lat;
         proposal_dist(i, 2) += normal_dist_(rng_) * MOTION_DISPERSION_THETA * noise_factor;
 
         // Normalize angle
@@ -707,6 +800,24 @@ void ParticleFilter::sensor_model(const Eigen::MatrixXd &proposal_dist, const st
     calculate_particle_weights(obs, num_rays, weights);
     timing_stats_.sensor_model_time += std::chrono::duration<double, std::milli>(
         std::chrono::high_resolution_clock::now() - sensor_eval_start).count();
+
+    // === SCAN QUALITY METRIC ===
+    // 최대 가중치 파티클의 기대 거리와 관측이 3·sigma_hit 이상 어긋나는 레이 비율.
+    // 맵과 환경이 다른(다이낯믹) 구간에서 급등 → 측정 노이즈 R 부풀림의 입력이 된다.
+    if (!weights.empty()) {
+        const int best = static_cast<int>(std::distance(
+            weights.begin(), std::max_element(weights.begin(), weights.end())));
+        const double outlier_thresh = 3.0 * SIGMA_HIT * map_resolution_;
+        int outliers = 0, valid = 0;
+        for (int j = 0; j < num_rays; ++j) {
+            const float o = obs[j];
+            if (!std::isfinite(o) || o <= 0.0f) continue;
+            ++valid;
+            if (std::abs(static_cast<double>(o) - ranges_[best * num_rays + j]) > outlier_thresh)
+                ++outliers;
+        }
+        outlier_fraction_ = valid > 0 ? static_cast<double>(outliers) / valid : 0.0;
+    }
 }
 
 void ParticleFilter::initialize_sensor_arrays(int num_rays, int total_queries)
@@ -748,7 +859,14 @@ void ParticleFilter::calculate_particle_weights(const std::vector<float> &obs, i
     // Convert observations to pixel units
     obs_px_.resize(obs.size());
     for (size_t i = 0; i < obs.size(); ++i) {
-        obs_px_[i] = std::min(static_cast<double>(MAX_RANGE_PX), obs[i] / map_resolution_);
+        // 무효 레이(NaN/inf/0 등)는 max range로 취급 — 무효값이 "매우 가까운 벽"으로
+        // 해석돼 전체 파티클 가중치를 붕괴시키는 것을 방지
+        const float r = obs[i];
+        if (!std::isfinite(r) || r <= 0.0f) {
+            obs_px_[i] = static_cast<double>(MAX_RANGE_PX);
+        } else {
+            obs_px_[i] = std::min(static_cast<double>(MAX_RANGE_PX), r / map_resolution_);
+        }
     }
 
     // Convert expected ranges to pixel units
@@ -757,14 +875,26 @@ void ParticleFilter::calculate_particle_weights(const std::vector<float> &obs, i
         ranges_px_[i] = std::min(static_cast<double>(MAX_RANGE_PX), ranges_[i] / map_resolution_);
     }
 
-    // Calculate adaptive squash factor for high-speed maneuvers and fast convergence
-    const bool is_high_speed_curve = (current_velocity_ > 4.0 && std::abs(current_angular_vel_) > 0.3);
-    double squash_factor = is_high_speed_curve ?
-        std::min(INV_SQUASH_FACTOR, 1.0 / 1.8) : INV_SQUASH_FACTOR;
+    // 상황별 squash 조정 — use_adaptive_squash=true일 때만 적용 (false면 구 거동 그대로).
+    // 지수가 작을수록 가중치 대비가 눌리고(소프트), 클수록 뾰족해진다.
+    // ※ 과거엔 std::min(INV, 1/1.8)처럼 INV보다 큰 상수와 min을 해서 두 분기 모두
+    //    no-op이었다 — min은 INV보다 작은 값과, max는 INV보다 큰 값과 쌍을 이뤄야 한다.
+    double squash_factor = INV_SQUASH_FACTOR;
+    if (USE_ADAPTIVE_SQUASH) {
+        // 고속 커브: 이례적 소수 파티클의 지배를 막기 위해 가중치를 더 눌러준다 (지수↓)
+        const bool is_high_speed_curve = (current_velocity_ > 4.0 && std::abs(current_angular_vel_) > 0.3);
+        if (is_high_speed_curve) {
+            squash_factor = std::min(squash_factor, 1.0 / SQUASH_FACTOR_HIGH_SPEED_CURVE);
+        }
 
-    // Apply stronger weighting during fast convergence mode for faster particle selection
+        // 초기 수렴(RViz/자동 초기화 직후 N회): 가중치를 더 뾰족하게 해 정답 가설을 빨리 선택
+        if (fast_convergence_mode_ && fast_convergence_remaining_ > 0) {
+            squash_factor = std::max(squash_factor, 1.0 / SQUASH_FACTOR_FAST_CONVERGENCE);
+        }
+    }
+
+    // fast convergence 카운터는 토글과 무관하게 소진 (모드 종료 로그 유지)
     if (fast_convergence_mode_ && fast_convergence_remaining_ > 0) {
-        squash_factor = std::min(squash_factor, 1.0 / 1.2); // More aggressive weighting
         --fast_convergence_remaining_;
         if (fast_convergence_remaining_ <= 0) {
             fast_convergence_mode_ = false;
@@ -781,7 +911,12 @@ void ParticleFilter::calculate_particle_weights(const std::vector<float> &obs, i
             const int obs_idx = std::max(0, std::min(static_cast<int>(std::round(obs_px_[j])), MAX_RANGE_PX));
             const int range_idx = std::max(0, std::min(static_cast<int>(std::round(ranges_px_[base_idx + j])), MAX_RANGE_PX));
 
-            weight *= sensor_model_table_(obs_idx, range_idx);
+            const double p = sensor_model_table_(obs_idx, range_idx);
+            if (RAY_LIKELIHOOD_FLOOR_RATIO > 0.0) {
+                weight *= std::max(p, RAY_LIKELIHOOD_FLOOR_RATIO * sensor_model_col_max_[range_idx]);
+            } else {
+                weight *= p;
+            }
         }
 
         weights[i] = std::pow(weight, squash_factor);
@@ -910,6 +1045,7 @@ void ParticleFilter::MCL(const MotionCommand &motion_cmd, const std::vector<floa
             effective_particles += w * w;
         }
         effective_particles = 1.0 / effective_particles;
+        ess_ratio_ = effective_particles / MAX_PARTICLES;   // 스캔 품질 연동 R 입력용으로 보존
 
         // Emergency recovery: inject random particles during high-speed maneuvers if diversity is too low
         if (effective_particles < MAX_PARTICLES * 0.15 && std::abs(current_velocity_) > 4.0) {
@@ -971,11 +1107,15 @@ Eigen::Vector3d ParticleFilter::smooth_pose(const Eigen::Vector3d &raw_pose)
         return smoothed_pose_;
     }
     
-    // EMA filter with adaptive alpha based on velocity
+    // EMA filter with adaptive alpha based on velocity.
+    // 출력 지연 시정수 τ ≈ T·(1-α)/α (T = 1/timer_frequency). 저속에서 α가 작을수록
+    // 노이즈는 줄지만 pose가 실제를 뒤따르는 지연이 커진다 — base alpha 0.05는 30 Hz에서
+    // τ ≈ 0.63 s로 실차 저속 체감 지연의 주범이었다(2026-07-29 sim 실측 근거는 README §6).
     double base_alpha = SMOOTHING_ALPHA;  // Base smoothing factor from config
-    double velocity_factor = std::min(1.0, std::abs(current_velocity_) / 2.0);  // Scale with velocity
-    double alpha = base_alpha + velocity_factor * 0.4;  // base_alpha to (base_alpha + 0.4) range
-    alpha = std::min(0.8, alpha);  // Cap at 0.8
+    double velocity_factor =
+        std::min(1.0, std::abs(current_velocity_) / SMOOTHING_VELOCITY_FULL_MPS);
+    double alpha = base_alpha + velocity_factor * SMOOTHING_ALPHA_GAIN;
+    alpha = std::min(SMOOTHING_ALPHA_MAX, alpha);
     
     // Smooth x, y
     smoothed_pose_[0] = alpha * raw_pose[0] + (1.0 - alpha) * smoothed_pose_[0];
@@ -988,6 +1128,182 @@ Eigen::Vector3d ParticleFilter::smooth_pose(const Eigen::Vector3d &raw_pose)
     return smoothed_pose_;
 }
 
+
+// ================================================================================================
+// POSE FUSION EKF — odom 예측 + MCL 보정 (설계 배경은 헤더 주석 참고)
+// ================================================================================================
+void ParticleFilter::ekf_reset(const Eigen::Vector3d &pose)
+{
+    ekf_state_ = pose;
+    ekf_cov_ = Eigen::Matrix3d::Zero();
+    ekf_cov_(0, 0) = ekf_cov_(1, 1) = 0.05 * 0.05;
+    ekf_cov_(2, 2) = 0.05 * 0.05;
+    ekf_initialized_ = true;
+    ekf_reject_count_ = 0;
+    ekf_reject_dist_ = 0.0;
+    ekf_prev_odom_valid_ = false;   // 다음 예측에서 원시 odom 기준점 재설정
+}
+
+void ParticleFilter::ekf_predict_from_odom(const Eigen::Vector3d &odom_now)
+{
+    if (!ekf_initialized_)
+        return;
+
+    // twist 적분(30Hz 희소 샘플) 대신 소스가 전속으로 적분해 둔 odom "포즈 델타"를 쓴다 —
+    // 실효 오차가 휠 odom 고유 오차율(~0.3%/거리)에 수렴한다.
+    if (!ekf_prev_odom_valid_) {
+        ekf_prev_odom_ = odom_now;
+        ekf_prev_odom_valid_ = true;
+        return;
+    }
+
+    const double prev_theta = ekf_prev_odom_[2];
+    const double dx_map = odom_now[0] - ekf_prev_odom_[0];
+    const double dy_map = odom_now[1] - ekf_prev_odom_[1];
+    // odom 프레임 델타를 직전 odom 헤딩 기준 body 프레임으로 회전
+    const double cp = std::cos(prev_theta), sp = std::sin(prev_theta);
+    double dx_body = cp * dx_map + sp * dy_map;
+    double dy_body = -sp * dx_map + cp * dy_map;
+    const double dtheta = utils::geometry::normalize_angle(odom_now[2] - prev_theta);
+    ekf_prev_odom_ = odom_now;
+
+    // 텔레포트(재초기화 등) 감지 — 한 주기 1 m 이상 점프는 델타로 쓰지 않는다
+    double ds = std::hypot(dx_body, dy_body);
+    if (ds > 1.0) {
+        return;
+    }
+
+    // EKF 상태는 MCL과 같은 laser 프레임이므로 base_link 델타를 laser 델타로 변환:
+    // Δ_laser = T(L)^-1 · Δ_base · T(L), 병진 = Δt + (R(dθ)-I)·L. 회전 중 laser가
+    // 오프셋 L만큼 추가 호를 그리는 효과 — 빼먹으면 코너마다 ~L·Δθ 만큼 계통 오차가 쌓인다.
+    {
+        const double cd = std::cos(dtheta), sd = std::sin(dtheta);
+        dx_body += (cd - 1.0) * lidar_offset_x_ - sd * lidar_offset_y_;
+        dy_body += sd * lidar_offset_x_ + (cd - 1.0) * lidar_offset_y_;
+        ds = std::hypot(dx_body, dy_body);
+    }
+
+    const double theta = ekf_state_[2];
+    const double c = std::cos(theta), s = std::sin(theta);
+    ekf_state_[0] += c * dx_body - s * dy_body;
+    ekf_state_[1] += s * dx_body + c * dy_body;
+    ekf_state_[2] = utils::geometry::normalize_angle(theta + dtheta);
+
+    Eigen::Matrix3d F = Eigen::Matrix3d::Identity();
+    F(0, 2) = -(s * dx_body + c * dy_body);
+    F(1, 2) = (c * dx_body - s * dy_body);
+
+    // 프로세스 노이즈: 이동량 비례(휠 odom 오차율) + 미소 하한(1주기분), body → map 회전
+    const double dt_nom = 1.0 / TIMER_FREQUENCY;
+    const double sigma_long = EKF_TRANS_ERROR_RATE * ds + EKF_TRANS_FLOOR_MPS * dt_nom;
+    const double sigma_lat = EKF_LAT_ERROR_RATIO * sigma_long + 0.5 * EKF_TRANS_FLOOR_MPS * dt_nom;
+    const double sigma_yaw = EKF_ROT_ERROR_RATE * std::abs(dtheta) + EKF_ROT_FLOOR_RADPS * dt_nom;
+    Eigen::Matrix2d rot;
+    rot << c, -s, s, c;
+    Eigen::Matrix2d q_body = Eigen::Matrix2d::Zero();
+    q_body(0, 0) = sigma_long * sigma_long;
+    q_body(1, 1) = sigma_lat * sigma_lat;
+    Eigen::Matrix3d Q = Eigen::Matrix3d::Zero();
+    Q.topLeftCorner<2, 2>() = rot * q_body * rot.transpose();
+    Q(2, 2) = sigma_yaw * sigma_yaw;
+
+    ekf_cov_ = F * ekf_cov_ * F.transpose() + Q;
+}
+
+void ParticleFilter::ekf_update(const Eigen::Vector3d &z, const Eigen::Matrix3d &R)
+{
+    if (!ekf_initialized_) {
+        ekf_reset(z);
+        return;
+    }
+
+    Eigen::Vector3d innov = z - ekf_state_;
+    innov[2] = utils::geometry::normalize_angle(innov[2]);
+    const Eigen::Matrix3d S = ekf_cov_ + R;   // H = I
+    const Eigen::Matrix3d S_inv = S.inverse();
+
+    if (EKF_GATE_CHI2 > 0.0) {
+        const double maha2 = innov.dot(S_inv * innov);
+        if (maha2 > EKF_GATE_CHI2) {
+            // 기각 중 누적 주행거리 추적 — 횟수 기준(40회@30Hz=1.3 s)만으로는
+            // 고속에서 너무 오래 묵보정 상태가 된다 (5 m/s면 ~7 m).
+            ekf_reject_dist_ += std::abs(current_velocity_) / TIMER_FREQUENCY;
+            const bool dist_exceeded = EKF_GATE_FORCE_ACCEPT_DIST > 0.0 &&
+                                       ekf_reject_dist_ >= EKF_GATE_FORCE_ACCEPT_DIST;
+            if (ekf_reject_count_ < EKF_GATE_FORCE_ACCEPT && !dist_exceeded) {
+                ++ekf_reject_count_;
+                return;   // MCL 순간 글리치로 판단하고 이번 보정은 건너뜀
+            }
+            // 연속 기각이 길어지면 EKF 자신이 틀렸다고 보고 측정에 재고정.
+            // 단, 재고정 대상이 물리적으로 불가능한 위치(벽/미지 깊숙이)면 재고정하지 않는다 —
+            // 갭/맵 불일치 후 MCL이 벽 속 모드로 수렴했을 때 추정 전체를 벽 속에 박는
+            // 최악 경로(run_0803_210100 t≈24-25, 점유율 0.8 셀에 34회 보고)를 차단.
+            if (!is_pose_permissible(z)) {
+                RCLCPP_WARN(this->get_logger(),
+                            "Pose EKF: force-accept target in occupied/unknown cell - NOT re-anchoring");
+                ekf_reject_count_ = 0;   // 일정 주기 후 재시도
+                ekf_reject_dist_ = 0.0;
+                return;
+            }
+            RCLCPP_WARN(this->get_logger(),
+                        "Pose EKF: %d consecutive gate rejections (%.2f m rejected) - re-anchoring to MCL pose",
+                        ekf_reject_count_, ekf_reject_dist_);
+            ekf_reset(z);
+            return;
+        }
+    }
+    ekf_reject_count_ = 0;
+    ekf_reject_dist_ = 0.0;
+
+    const Eigen::Matrix3d K = ekf_cov_ * S_inv;
+    ekf_state_ += K * innov;
+    ekf_state_[2] = utils::geometry::normalize_angle(ekf_state_[2]);
+    ekf_cov_ = (Eigen::Matrix3d::Identity() - K) * ekf_cov_;
+}
+
+Eigen::Matrix3d ParticleFilter::particle_covariance(const Eigen::Vector3d &mean)
+{
+    Eigen::Matrix3d cov = Eigen::Matrix3d::Zero();
+    for (int i = 0; i < MAX_PARTICLES; ++i) {
+        const double wgt = weights_[i];
+        const double dx = particles_(i, 0) - mean[0];
+        const double dy = particles_(i, 1) - mean[1];
+        const double dth = utils::geometry::normalize_angle(particles_(i, 2) - mean[2]);
+        cov(0, 0) += wgt * dx * dx;
+        cov(0, 1) += wgt * dx * dy;
+        cov(1, 1) += wgt * dy * dy;
+        cov(0, 2) += wgt * dx * dth;
+        cov(1, 2) += wgt * dy * dth;
+        cov(2, 2) += wgt * dth * dth;
+    }
+    cov(1, 0) = cov(0, 1);
+    cov(2, 0) = cov(0, 2);
+    cov(2, 1) = cov(1, 2);
+    return cov;
+}
+
+bool ParticleFilter::is_pose_permissible(const Eigen::Vector3d& pose) const
+{
+    if (!map_initialized_ || !map_msg_)
+        return true;
+
+    const int width = map_msg_->info.width;
+    const int height = map_msg_->info.height;
+    const int gx = static_cast<int>((pose[0] - map_origin_[0]) / map_resolution_);
+    const int gy = static_cast<int>((pose[1] - map_origin_[1]) / map_resolution_);
+
+    // 반경 3셀(약 15 cm) 안에 free가 하나라도 있으면 허용 — 벽에 바짝 붙은 정상 주행
+    // (맵 오차/벽 스침)은 용인하고, 벽 깊숙한 곳(불가능)만 판정한다.
+    constexpr int TOL = 3;
+    for (int dy = -TOL; dy <= TOL; ++dy) {
+        for (int dx = -TOL; dx <= TOL; ++dx) {
+            const int x = gx + dx, y = gy + dy;
+            if (x >= 0 && y >= 0 && x < width && y < height && permissible_region_(y, x) == 1)
+                return true;
+        }
+    }
+    return false;
+}
 
 // ================================================================================================
 // TIMER UPDATE
@@ -1052,8 +1368,10 @@ void ParticleFilter::timer_update()
         return;
     }
 
-    // Skip excessive time steps
+    // Skip excessive time steps — 단, 기준 시각은 갱신해야 한다. 갱신 없이 리턴하면
+    // 이후 dt가 영원히 >1.0이라 노드가 조용히 정지한다 (bag 일시정지/CPU 스파이크 후 사고).
     if (dt > 1.0) {
+        last_steady_time = current_steady_time;
         return;
     }
 
@@ -1062,6 +1380,11 @@ void ParticleFilter::timer_update()
     bool mcl_executed = false;  // Track if MCL was executed this cycle
 
     if (state_lock_.try_lock()) {
+
+        // Pose EKF 예측 — 라이다 유무와 무관하게 원시 odom 포즈 델타로 매 주기 전파
+        if (USE_POSE_EKF && has_odom && apply_motion) {
+            ekf_predict_from_odom(last_pose_);
+        }
 
         // CASE 1 & 3: Process LiDAR data (with or without odometry)
         if (has_lidar && !downsampled_ranges_.empty()) {
@@ -1104,7 +1427,56 @@ void ParticleFilter::timer_update()
             // Execute MCL pipeline
             MCL(motion_cmd, observation);
             Eigen::Vector3d raw_pose = expected_pose();
-            inferred_pose_ = smooth_pose(raw_pose);
+            // 실측 지연(스캔 시각 → 지금). 스캔 스윕+전송+타이머 큐 대기+MCL 연산을 모두 포함하므로
+            // 별도 계수 없이 그대로 쓴다 (delay_compensation_factor 은퇴 — 곱하던 base인
+            // mcl_processing_time_은 실제 지연과 무관했다).
+            const double lidar_age = std::clamp((current_time - last_lidar_time_).seconds(), 0.0, 0.2);
+            if (USE_POSE_EKF) {
+                // EKF 상태는 "지금"이고 MCL 기대 포즈는 스캔 시점(과거)이므로, 기존 지연 보상을
+                // 측정에 먼저 적용해 시점을 맞춘다(속도×지연 계통 편차 → 게이트 상시 기각 방지).
+                Eigen::Vector3d z = raw_pose;
+                const double comp_t = lidar_age;
+                z[0] += current_velocity_ * comp_t * std::cos(raw_pose[2]);
+                z[1] += current_velocity_ * comp_t * std::sin(raw_pose[2]);
+                z[2] = utils::geometry::normalize_angle(z[2] + current_angular_vel_ * comp_t);
+
+                // 측정 노이즈 = 파티클 가중 공분산 + "종방향 선택 불신". 평행벽 복도에선 MCL이
+                // 진행방향 위치를 관측하지 못해 틀린 곳에 좁게 수렴하므로(공분산이 모호성을
+                // 과소평가), 차체 종방향 성분만 항상 크게 부풀린다 — 복도 표류는 무시되고,
+                // 코너를 돌면 이전 종방향 오차가 횡방향으로 회전되어 고게인으로 보정된다.
+                Eigen::Matrix3d meas_cov = particle_covariance(raw_pose) * EKF_MEAS_VAR_INFLATION;
+                const double cy = std::cos(raw_pose[2]), sy = std::sin(raw_pose[2]);
+                Eigen::Matrix2d to_body;
+                to_body << cy, sy, -sy, cy;
+                Eigen::Matrix2d cov_body = to_body * meas_cov.topLeftCorner<2, 2>() * to_body.transpose();
+                cov_body(0, 0) = std::max(cov_body(0, 0) * EKF_MEAS_LONG_INFLATION,
+                                          EKF_MEAS_POS_STD_FLOOR * EKF_MEAS_POS_STD_FLOOR);
+                cov_body(1, 1) = std::max(cov_body(1, 1), EKF_MEAS_POS_STD_FLOOR * EKF_MEAS_POS_STD_FLOOR);
+                meas_cov.topLeftCorner<2, 2>() = to_body.transpose() * cov_body * to_body;
+                meas_cov(0, 2) = meas_cov(2, 0) = meas_cov(1, 2) = meas_cov(2, 1) = 0.0;
+                meas_cov(2, 2) = std::max(meas_cov(2, 2), EKF_MEAS_YAW_STD_FLOOR * EKF_MEAS_YAW_STD_FLOOR);
+
+                // 스캔 품질 연동 R 부풀림: 맵과 환경이 다른(다이낯믹) 구간에서 outlier 비율이
+                // 급등하고 ESS가 묻히므로, 그때는 MCL 측정을 연속적으로 불신해 odom 우세로
+                // 버틴다. 하드 게이트와 달리 부분 신뢰라 복구 불능이 없고, R이 커지면
+                // S=P+R도 커져 게이트 과민 기각도 함께 완화된다.
+                if (USE_SCAN_QUALITY_R) {
+                    const double q_term = std::clamp(
+                        (outlier_fraction_ - SCAN_QUALITY_OUTLIER_START) / (1.0 - SCAN_QUALITY_OUTLIER_START),
+                        0.0, 1.0);
+                    const double ess_term = std::clamp(
+                        (SCAN_QUALITY_ESS_START - ess_ratio_) / SCAN_QUALITY_ESS_START, 0.0, 1.0);
+                    const double s_scan = 1.0
+                        + SCAN_QUALITY_OUTLIER_GAIN * q_term
+                        + SCAN_QUALITY_ESS_GAIN * ess_term;
+                    meas_cov *= s_scan * s_scan;
+                }
+
+                ekf_update(z, meas_cov);
+                inferred_pose_ = ekf_state_;
+            } else {
+                inferred_pose_ = smooth_pose(raw_pose);
+            }
 
             // Calculate MCL processing time for timestamp compensation
             auto mcl_end_time = std::chrono::steady_clock::now();
@@ -1120,10 +1492,12 @@ void ParticleFilter::timer_update()
                     RCLCPP_INFO(this->get_logger(), "Odometry tracking initialized");
                 }
 
-                // Apply delay compensation for motion during MCL processing using actual processing time
+                // Apply delay compensation using measured latency
+                // (EKF 모드는 측정 단계에서 이미 시점 보상됨 — 이중 보상 방지 위해 0)
                 Eigen::Vector3d compensated_pose = inferred_pose_;
-                double longitudinal_displacement = current_velocity_ * mcl_processing_time_ * DELAY_COMPENSATION_FACTOR;
-                double angular_displacement = current_angular_vel_ * mcl_processing_time_ * DELAY_COMPENSATION_FACTOR;
+                const double comp_t = USE_POSE_EKF ? 0.0 : lidar_age;
+                double longitudinal_displacement = current_velocity_ * comp_t;
+                double angular_displacement = current_angular_vel_ * comp_t;
 
                 // Apply compensation in vehicle's forward direction
                 compensated_pose[0] += longitudinal_displacement * std::cos(inferred_pose_[2]);
@@ -1142,34 +1516,20 @@ void ParticleFilter::timer_update()
 
             mcl_executed = true;  // Mark that MCL was executed
             has_new_lidar_data_ = false;    // Mark lidar data as processed
-            
-            /*
-
-            if (iters_ % 100 == 0) {
-                RCLCPP_INFO(this->get_logger(), "MCL iter %d: [%.2f, %.2f, %.2f]", iters_,
-                           inferred_pose_[0], inferred_pose_[1], inferred_pose_[2]);
-            }
-
-            if (iters_ % 200 == 0) {
-                // Print performance stats
-                auto logger_func = [this](const std::string& msg) {
-                    RCLCPP_INFO(this->get_logger(), "%s", msg.c_str());
-                };
-                timing_stats_.print_stats(logger_func);
-
-                if (timing_stats_.measurement_count > 0) {
-                    RCLCPP_INFO(this->get_logger(),
-                        "Particles: %d, Rays/particle: %zu, Total rays: %d",
-                        MAX_PARTICLES, downsampled_angles_.size(), MAX_PARTICLES * static_cast<int>(downsampled_angles_.size()));
-                }
-                timing_stats_.reset();
-            }
-            */
         }
         // CASE 2: Only odometry available - odometry tracking
         else if (has_odom && !has_lidar && odom_tracking_active_) {
             // Update pose based on odometry when no new lidar data is available
             if (apply_motion && (std::abs(current_velocity_) > 0.0001 || std::abs(current_angular_vel_) > 0.0001)) {
+                // 라이다 갭 동안 파티클 구름도 odom 기반 모션 모델로 전파한다.
+                // 전파하지 않으면 파티클이 갭 시작 시점 위치에 얼어붙어, 갭 종료 후
+                // 첫 MCL이 수 초 전 위치로 평가돼 가중치 붕괴 → 포즈 스냅이 발생한다
+                // (run_0803_210100: 스캔 갭 13회 중 16회의 점프가 갭 직후에 발생).
+                if (iters_ > 0) {
+                    MotionCommand gap_motion_cmd(current_velocity_, current_angular_vel_, dt);
+                    motion_model(particles_, gap_motion_cmd);
+                }
+
                 // Dead reckoning based on current velocities
                 Eigen::Vector3d current_pose_estimate = get_current_pose();
 
@@ -1210,7 +1570,10 @@ void ParticleFilter::timer_update()
         rclcpp::Time timestamp;
         {
             std::lock_guard<std::mutex> lock(state_lock_);
-            if (mcl_executed && last_lidar_time_.nanoseconds() != 0) {
+            if (USE_POSE_EKF && has_odom && last_stamp_.nanoseconds() != 0) {
+                // EKF 모드: 내용이 odom 최신 시각(≈now)이므로 stamp도 odom 시각으로 맞춘다
+                timestamp = last_stamp_;
+            } else if (mcl_executed && last_lidar_time_.nanoseconds() != 0) {
                 // Use compensated timestamp: LiDAR time + processing time
                 int64_t compensation_ns = static_cast<int64_t>(mcl_processing_time_ * 1e9);
                 timestamp = last_lidar_time_ + rclcpp::Duration::from_nanoseconds(compensation_ns);
@@ -1229,13 +1592,7 @@ void ParticleFilter::timer_update()
         if (mcl_executed || (has_odom && !has_lidar && odom_tracking_active_)) {
             visualize(timestamp);
         }
-
-        state_lock_.unlock();
     }
-
-    // Update timing for next iteration
-    last_steady_time = current_steady_time;
-    
 }
 
 void ParticleFilter::publish_map_periodically()
@@ -1324,11 +1681,15 @@ void ParticleFilter::publish_tf(const Eigen::Vector3d &pose, const rclcpp::Time 
 
 Eigen::Vector3d ParticleFilter::get_current_pose()
 {
-    // Priority 1: Use odometry-based tracking if active and valid
+    // Priority 1: EKF 융합 결과 (EKF 모드) — 융합 출력이 최종 포즈
+    if (USE_POSE_EKF && ekf_initialized_ && is_pose_valid(ekf_state_))
+        return ekf_state_;
+
+    // Priority 2: Use odometry-based tracking if active and valid
     if (odom_tracking_active_ && is_pose_valid(odom_pose_))
         return odom_pose_;
-    
-    // Priority 2: Use particle filter estimate if valid
+
+    // Priority 3: Use particle filter estimate if valid
     if (is_pose_valid(inferred_pose_))
         return inferred_pose_;
     
@@ -1442,12 +1803,23 @@ void ParticleFilter::initialize_odom_tracking(const Eigen::Vector3d& initial_pos
 void ParticleFilter::update_odom_pose(const nav_msgs::msg::Odometry::SharedPtr& msg)
 {
     if (!odom_tracking_active_) return;
-    
+
     Eigen::Vector3d current_odom(msg->pose.pose.position.x, msg->pose.pose.position.y,
                                  utils::geometry::quaternion_to_yaw(msg->pose.pose.orientation));
-    
-    Eigen::Vector3d odom_delta = current_odom - odom_reference_odom_;
-    odom_pose_ = odom_reference_pose_ + odom_delta;
+
+    // odom 프레임 델타를 map 프레임으로 회전해 합성 (SE(2) 합성).
+    // odom 프레임 → map 프레임 요 차이는 기준(앵커) 시점에 고정된다.
+    const double dyaw_frame = utils::geometry::normalize_angle(
+        odom_reference_pose_[2] - odom_reference_odom_[2]);
+    const double c = std::cos(dyaw_frame), s = std::sin(dyaw_frame);
+
+    const double dx  = current_odom[0] - odom_reference_odom_[0];
+    const double dy  = current_odom[1] - odom_reference_odom_[1];
+    const double dth = utils::geometry::normalize_angle(current_odom[2] - odom_reference_odom_[2]);
+
+    odom_pose_[0] = odom_reference_pose_[0] + (c * dx - s * dy);
+    odom_pose_[1] = odom_reference_pose_[1] + (s * dx + c * dy);
+    odom_pose_[2] = utils::geometry::normalize_angle(odom_reference_pose_[2] + dth);
 }
 
 // ================================================================================================
@@ -1456,8 +1828,9 @@ void ParticleFilter::update_odom_pose(const nav_msgs::msg::Odometry::SharedPtr& 
 Eigen::Vector3d ParticleFilter::apply_tf_offset(const Eigen::Vector3d& pose_in_laser_frame)
 {
     // Get the offset from F1Tenth system's static transform
-    static double lidar_offset_x = 0.27;  // Default fallback
-    static double lidar_offset_y = 0.0;
+    // (멤버 lidar_offset_x_/y_는 EKF의 base→laser 델타 변환에서도 공유)
+    double &lidar_offset_x = lidar_offset_x_;
+    double &lidar_offset_y = lidar_offset_y_;
     static bool offset_read = false;
     static int tf_retry_count = 0;
     static std::chrono::steady_clock::time_point last_tf_attempt = std::chrono::steady_clock::now();
@@ -1514,5 +1887,13 @@ Eigen::Vector3d ParticleFilter::apply_tf_offset(const Eigen::Vector3d& pose_in_l
 // ================================================================================================
 // PROGRAM ENTRY POINT
 // ================================================================================================
+int main(int argc, char *argv[])
+{
+    rclcpp::init(argc, argv);
+    rclcpp::spin(std::make_shared<particle_filter_cpp::ParticleFilter>());
+    rclcpp::shutdown();
+    return 0;
+}
+
 #include "rclcpp_components/register_node_macro.hpp"
 RCLCPP_COMPONENTS_REGISTER_NODE(particle_filter_cpp::ParticleFilter)

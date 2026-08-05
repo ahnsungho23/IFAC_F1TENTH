@@ -28,7 +28,6 @@ namespace
 
 constexpr double kGeometryEpsilon = 1.0e-12;
 
-// 폐루프 s를 [0, track_length) 범위로 정규화한다.
 double wrapS(double s, double track_length)
 {
   if (!(track_length > 0.0) || !std::isfinite(track_length)) {
@@ -38,7 +37,6 @@ double wrapS(double s, double track_length)
   return s < 0.0 ? s + track_length : s;
 }
 
-// 한 점과 축 정렬 상자 사이의 제곱 거리를 계산한다. 점이 내부이면 0이다.
 double squaredDistanceToAabb(
   double x, double y, double x_min, double x_max, double y_min, double y_max)
 {
@@ -47,7 +45,6 @@ double squaredDistanceToAabb(
   return dx * dx + dy * dy;
 }
 
-// 한 점과 유한 선분 사이의 최근접 제곱 거리를 계산한다.
 double squaredDistanceToSegment(
   double x, double y, double x0, double y0, double x1, double y1)
 {
@@ -67,7 +64,6 @@ double squaredDistanceToSegment(
   return error_x * error_x + error_y * error_y;
 }
 
-// slab clipping으로 선분이 AABB 내부를 지나거나 경계에 닿는지 검사한다.
 bool segmentIntersectsAabb(
   double x0, double y0, double x1, double y1,
   double x_min, double x_max, double y_min, double y_max)
@@ -92,7 +88,6 @@ bool segmentIntersectsAabb(
          clip_axis(y0, y1 - y0, y_min, y_max);
 }
 
-// 선분-AABB 교차를 먼저 확인한 뒤 끝점과 네 모서리 후보의 최소 제곱 거리를 구한다.
 double squaredDistanceBetweenSegmentAndAabb(
   double x0, double y0, double x1, double y1,
   double x_min, double x_max, double y_min, double y_max)
@@ -119,7 +114,6 @@ double squaredDistanceBetweenSegmentAndAabb(
   return best;
 }
 
-// s가 선분의 종방향 구간에서 얼마나 떨어졌는지 폐루프를 고려해 계산한다.
 double distanceToLongitudinalInterval(
   double s, double start, double end, double track_length, bool closed_loop)
 {
@@ -140,8 +134,6 @@ double distanceToLongitudinalInterval(
   return best;
 }
 
-// AABB 중심이 투영된 CLCS 선분 주변의 같은 경로 가지에서 raceline-AABB 최소 거리를 구한다.
-// 공간상 가깝지만 s상 멀리 떨어진 뱀 모양 트랙의 다른 가지는 탐색에서 제외한다.
 std::optional<double> closestBranchLockedAabbDistance(
   const global_planning::ClcsFrenetConverter & converter,
   const global_planning::ClcsConversionResult & center,
@@ -170,8 +162,8 @@ std::optional<double> closestBranchLockedAabbDistance(
     reference.front().x - reference.back().x,
     reference.front().y - reference.back().y) <= 1.0e-6;
   const double center_s = wrapS(center.s, reference_length);
-  // AABB의 모든 점은 중심에서 대각선 길이 이내에 있다. 여기에 최장 선분 길이를 더하면
-  // waypoint 양쪽 선분은 포함하면서 공간상 가까울 뿐 s상 먼 다른 경로 가지는 제외할 수 있다.
+  // Every AABB point is at most one diagonal from its centre. The extra longest segment includes
+  // both segments adjacent to a waypoint while excluding a spatially close, distant snake branch.
   const double branch_window = diagonal + maximum_segment_length;
 
   double best_squared_distance = std::numeric_limits<double>::infinity();
@@ -210,7 +202,6 @@ std::optional<FrenetAabbBounds> projectCartesianAabb(
   double y_min,
   double y_max)
 {
-  // 역전된 범위, NaN/Inf, 면적 없는 상자는 유효한 장애물 형상으로 투영할 수 없다.
   if (!std::isfinite(x_min) || !std::isfinite(x_max) ||
     !std::isfinite(y_min) || !std::isfinite(y_max) ||
     x_min > x_max || y_min > y_max)
@@ -231,7 +222,6 @@ std::optional<FrenetAabbBounds> projectCartesianAabb(
   bounds.diagonal = diagonal;
   const double track_length = converter.stats().track_length;
 
-  // AABB 중심을 먼저 CLCS에 투영해 사용할 경로 가지와 국소 접선 방향을 고정한다.
   global_planning::ClcsConversionInput center_input;
   center_input.x = bounds.x_center;
   center_input.y = bounds.y_center;
@@ -245,7 +235,6 @@ std::optional<FrenetAabbBounds> projectCartesianAabb(
   bounds.s_center = wrapS(center.s, track_length);
   bounds.d_center = center.d;
 
-  // 중심의 접선/좌측 법선 축으로 네 모서리를 투영해 독립적인 s/d 범위를 얻는다.
   const double tangent_x = std::cos(center.reference_yaw);
   const double tangent_y = std::sin(center.reference_yaw);
   const double normal_x = -tangent_y;
@@ -279,16 +268,15 @@ std::optional<FrenetAabbBounds> projectCartesianAabb(
   bounds.longitudinal_half_extent =
     0.5 * (max_longitudinal - min_longitudinal);
 
-  // 단일 접선 근사 대신 실제 곡선 선분과 AABB 사이 최근접 거리를 추가로 계산한다.
   const auto closest_abs_d = closestBranchLockedAabbDistance(
     converter, center, x_min, x_max, y_min, y_max, diagonal);
   if (!closest_abs_d.has_value()) {
     return std::nullopt;
   }
   bounds.closest_abs_d = closest_abs_d.value();
-  // 회피 목표 생성에 필요한 바깥쪽 면은 중심 접선 외곽으로 보존하고, raceline을 향한 안쪽 면만
-  // 실제 곡선-AABB 거리로 교체한다. 이로써 차단 판정은 단일 접선 근사가 아니라 중심에 고정된
-  // 경로 가지에서 실제로 가장 가까운 AABB 면을 사용한다.
+  // Preserve the far side of the centre-tangent envelope for avoidance target construction, but
+  // replace its race-line-facing side with the exact curve-to-AABB distance. Blocking therefore
+  // uses the closest face on the centre-locked branch instead of a single-tangent approximation.
   if (bounds.closest_abs_d <= kGeometryEpsilon) {
     bounds.d_right = std::min(bounds.d_right, 0.0);
     bounds.d_left = std::max(bounds.d_left, 0.0);

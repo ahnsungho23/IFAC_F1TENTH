@@ -7,21 +7,16 @@
   <license>Apache-2.0</license>
 
   <exec_depend>rclpy</exec_depend>
-  <exec_depend>ackermann_msgs</exec_depend>
-  <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>nav_msgs</exec_depend>
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>visualization_msgs</exec_depend>
   <exec_depend>builtin_interfaces</exec_depend>
-  <exec_depend>std_srvs</exec_depend> 
-  <exec_depend>rviz_2d_overlay_msgs</exec_depend>
-  <exec_depend>rviz_2d_overlay_plugins</exec_depend>
-  <exec_depend>ament_index_python</exec_depend>
-  <exec_depend>launch</exec_depend>
-  <exec_depend>launch_ros</exec_depend>
-  <exec_depend>rviz2</exec_depend>
+  <exec_depend>std_srvs</exec_depend>
+  <!-- rviz_2d_overlay_msgs/plugins: Jazzy 바이너리 미배포 — 노드에서 선택적 import로 처리 -->
+
 
   <export>
     <build_type>ament_python</build_type>
   </export>
 </package>
+

@@ -23,7 +23,6 @@ namespace local_planning
 namespace
 {
 
-// 테스트마다 필요한 Frenet 경계만 간단히 설정하는 장애물 fixture
 f110_msgs::msg::Obstacle makeObstacle(
   double s_center,
   double s_start,
@@ -43,7 +42,6 @@ f110_msgs::msg::Obstacle makeObstacle(
   return obstacle;
 }
 
-// 고정 오차 하한과 k·표준편차가 종/횡방향에 정확히 더해지는지 검사한다.
 TEST(ObstacleGuard, AddsFixedMarginAndKalmanStandardDeviation)
 {
   auto obstacle = makeObstacle(10.0, 9.8, 10.2);
@@ -54,6 +52,7 @@ TEST(ObstacleGuard, AddsFixedMarginAndKalmanStandardDeviation)
   parameters.uncertainty_sigma_scale = 3.0;
   parameters.minimum_longitudinal_margin_m = 0.05;
   parameters.minimum_lateral_margin_m = 0.03;
+  parameters.maximum_lateral_margin_m = 1.0;  // test the uncapped margin formula
   const auto guard = buildUncertaintyGuard(obstacle, 100.0, parameters);
 
   EXPECT_NEAR(guard.s_start, 9.45, 1.0e-9);
@@ -62,7 +61,6 @@ TEST(ObstacleGuard, AddsFixedMarginAndKalmanStandardDeviation)
   EXPECT_NEAR(guard.d_left, 0.38, 1.0e-9);
 }
 
-// 작은 같은-ID 이동은 동결 Guard 안에 남고 누적 이동은 결국 Guard를 벗어나는지 검사한다.
 TEST(ObstacleGuard, KeepsSmallSameIdMotionInsideFrozenGuard)
 {
   auto initial = makeObstacle(10.0, 9.8, 10.2);
@@ -81,7 +79,6 @@ TEST(ObstacleGuard, KeepsSmallSameIdMotionInsideFrozenGuard)
   EXPECT_FALSE(obstacleEnvelopeContained(breached_envelope, frozen_guard, 100.0));
 }
 
-// s=0을 가로지르는 장애물도 팽창과 포함 판정이 폐곡선 방향으로 이어지는지 검사한다.
 TEST(ObstacleGuard, HandlesClosedTrackWrap)
 {
   ObstacleGuardParameters parameters;
@@ -99,7 +96,6 @@ TEST(ObstacleGuard, HandlesClosedTrackWrap)
   EXPECT_TRUE(obstacleEnvelopeContained(shifted_envelope, frozen_guard, 100.0));
 }
 
-// NaN/음수 분산은 0으로 취급하고 고정 margin만 적용하는 안전 fallback을 검사한다.
 TEST(ObstacleGuard, FallsBackToFixedMarginForInvalidVariance)
 {
   auto obstacle = makeObstacle(10.0, 9.8, 10.2);
@@ -112,6 +108,24 @@ TEST(ObstacleGuard, FallsBackToFixedMarginForInvalidVariance)
   EXPECT_NEAR(guard.s_end, 10.25, 1.0e-9);
   EXPECT_NEAR(guard.d_right, -0.23, 1.0e-9);
   EXPECT_NEAR(guard.d_left, 0.23, 1.0e-9);
+}
+
+TEST(ObstacleGuard, CapsLateralMarginAtConfiguredMaximum)
+{
+  auto obstacle = makeObstacle(10.0, 9.8, 10.2);
+  obstacle.s_var = 0.01;
+  obstacle.d_var = 4.0;
+
+  ObstacleGuardParameters parameters;
+  parameters.maximum_lateral_margin_m = 0.20;
+  const auto guard = buildUncertaintyGuard(obstacle, 100.0, parameters);
+
+  // 3 * sqrt(4.0) = 6 m of lateral inflation is capped at maximum_lateral_margin_m (0.20);
+  // the longitudinal margin stays uncapped.
+  EXPECT_NEAR(guard.d_right, -0.40, 1.0e-9);
+  EXPECT_NEAR(guard.d_left, 0.40, 1.0e-9);
+  EXPECT_NEAR(guard.s_start, 9.45, 1.0e-9);
+  EXPECT_NEAR(guard.s_end, 10.55, 1.0e-9);
 }
 
 }  // namespace

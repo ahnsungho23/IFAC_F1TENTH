@@ -8,7 +8,7 @@
     completion, collision, off-track, stuck, and timeout from ROS-observable
     signals and writes per-rollout metrics consumed by the DL speed optimizer.
   </description>
-  <maintainer email="sungho@hanyang.ac.kr">parkm</maintainer>
+  <maintainer email="parkm04@hanyang.ac.kr">parkm</maintainer>
   <license>TODO: License declaration</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
@@ -18,9 +18,7 @@
   <depend>sensor_msgs</depend>
   <depend>ackermann_msgs</depend>
 
-  <exec_depend>ament_index_python</exec_depend>
-  <exec_depend>launch</exec_depend>
-  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>ros2launch</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

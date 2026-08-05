@@ -27,10 +27,10 @@
   <depend>tf2_geometry_msgs</depend>
   <depend>f110_msgs</depend>
   <depend>eigen</depend>
-  <!-- global_planning이 export_global_planning으로 내보내는 CLCS Frenet 변환기 -->
+  <!-- CLCS Frenet converter library (exported by global_planning as export_global_planning) -->
   <depend>global_planning</depend>
 
-  <!-- launch 전용: rviz:=true 및 선택적 clean-map 서버(detector_map_yaml:=...) -->
+  <!-- launch-only: rviz:=true and the optional clean-map server (detector_map_yaml:=...) -->
   <exec_depend>rviz2</exec_depend>
   <exec_depend>nav2_map_server</exec_depend>
   <exec_depend>nav2_lifecycle_manager</exec_depend>
@@ -38,7 +38,7 @@
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
 
-  <!-- test/의 시나리오 harness는 수동 rclpy 통합 테스트로 유지한다. -->
+  <!-- The scenario harnesses in test/ remain manual rclpy integration tests. -->
   <test_depend>ament_cmake_gtest</test_depend>
   <test_depend>ament_lint_auto</test_depend>
 

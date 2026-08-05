@@ -1,5 +1,5 @@
 // ================================================================================================
-// Frenet 장애물 추적기 구현
+// OBSTACLE TRACKER implementation
 // ================================================================================================
 
 #include "obstacle_detector/obstacle_tracker.hpp"
@@ -8,8 +8,19 @@
 #include <cmath>
 #include <limits>
 
+#include <rclcpp/rclcpp.hpp>
+
 namespace obstacle_detector
 {
+
+namespace
+{
+rclcpp::Clock &warnThrottleClock()
+{
+    static rclcpp::Clock clock(RCL_SYSTEM_TIME);
+    return clock;
+}
+}  // namespace
 
 void ObstacleTracker::configure(const TrackerParams &params, const FrenetProjector *frenet)
 {
@@ -17,9 +28,16 @@ void ObstacleTracker::configure(const TrackerParams &params, const FrenetProject
     frenet_ = frenet;
 }
 
+void ObstacleTracker::clear()
+{
+    // Called when the CLCS reference is rebuilt: existing tracks live in the old s-domain and
+    // must not be predicted or published against the new reference.
+    tracks_.clear();
+    has_last_stamp_ = false;
+}
+
 double ObstacleTracker::frenetDistSquared(double s1, double d1, double s2, double d2) const
 {
-    // s에는 폐루프 최소 거리를, d에는 일반 직선 거리를 적용한다.
     const double ds = frenet_ ? frenet_->wrapDelta(s1, s2) : (s1 - s2);
     const double dd = d1 - d2;
     return ds * ds + dd * dd;
@@ -27,24 +45,23 @@ double ObstacleTracker::frenetDistSquared(double s1, double d1, double s2, doubl
 
 void ObstacleTracker::predict(Track &t, double dt) const
 {
-    // 지나치게 긴 입력 간격이 한 번에 공분산을 폭증시키지 않도록 예측 시간을 제한한다.
     dt = std::clamp(dt, 0.0, p_.dt_max);
 
     Eigen::Matrix4d F = Eigen::Matrix4d::Identity();
-    F(0, 1) = dt;  // s += vs * dt
-    F(2, 3) = dt;  // d += vd * dt
+    F(0, 1) = dt;  // s  += vs*dt
+    F(2, 3) = dt;  // d  += vd*dt
 
-    // 이산 백색 가속도 프로세스 잡음을 (s, vs)와 (d, vd) 축에 독립적으로 적용한다.
+    // discrete white-noise acceleration process noise, applied per axis (s,vs) and (d,vd)
     const double dt2 = dt * dt;
     const double dt3 = dt2 * dt;
     const double dt4 = dt2 * dt2;
     Eigen::Matrix4d Q = Eigen::Matrix4d::Zero();
-    // 종방향 s / vs 블록
+    // s / vs block
     Q(0, 0) = 0.25 * dt4 * p_.process_var_vs;
     Q(0, 1) = 0.5 * dt3 * p_.process_var_vs;
     Q(1, 0) = 0.5 * dt3 * p_.process_var_vs;
     Q(1, 1) = dt2 * p_.process_var_vs;
-    // 횡방향 d / vd 블록
+    // d / vd block
     Q(2, 2) = 0.25 * dt4 * p_.process_var_vd;
     Q(2, 3) = 0.5 * dt3 * p_.process_var_vd;
     Q(3, 2) = 0.5 * dt3 * p_.process_var_vd;
@@ -56,7 +73,6 @@ void ObstacleTracker::predict(Track &t, double dt) const
 
 Eigen::Matrix2d ObstacleTracker::measurementCovariance(const Detection &detection) const
 {
-    // 검출 단계에서 계산한 품질 배율을 기본 s/d 측정 분산에 적용한다.
     const double scale =
         std::isfinite(detection.variance_scale) ? std::max(1.0, detection.variance_scale) : 1.0;
     Eigen::Matrix2d R = Eigen::Matrix2d::Zero();
@@ -77,7 +93,6 @@ double ObstacleTracker::innovationDistanceSquared(
         frenet_->wrapDelta(detection.s, t.x(0)) : detection.s - t.x(0);
     innovation(1) = detection.d - t.x(2);
 
-    // innovation 공분산 S가 양의 정부호가 아니면 안전하게 연관 후보에서 제외한다.
     const Eigen::Matrix2d S =
         H * t.P * H.transpose() + measurementCovariance(detection);
     const Eigen::LDLT<Eigen::Matrix2d> solver(S);
@@ -93,16 +108,33 @@ double ObstacleTracker::innovationDistanceSquared(
     return innovation.dot(solved);
 }
 
+double ObstacleTracker::smoothExtent(double previous, double current) const
+{
+    // Fast-grow/slow-shrink on the offset MAGNITUDE: the envelope expands to a larger
+    // measurement immediately but relaxes toward a smaller one over ~1/alpha matched frames.
+    // Per-scan AABB flapping (square box vs real shape) then stops flicking the published
+    // Frenet envelope across the raceline and back.
+    if (std::abs(current) >= std::abs(previous) || p_.extent_shrink_alpha >= 1.0)
+    {
+        return current;
+    }
+    if (p_.extent_shrink_alpha <= 0.0)
+    {
+        return previous;
+    }
+    return previous + p_.extent_shrink_alpha * (current - previous);
+}
+
 void ObstacleTracker::kalmanUpdate(Track &t, const Detection &detection) const
 {
-    // 측정 행렬 H는 상태 [s, vs, d, vd] 중 s와 d만 선택한다.
+    // H selects s (row0) and d (row2)
     Eigen::Matrix<double, 2, 4> H = Eigen::Matrix<double, 2, 4>::Zero();
     H(0, 0) = 1.0;
     H(1, 2) = 1.0;
 
     const Eigen::Matrix2d R = measurementCovariance(detection);
 
-    // s innovation에는 시작/끝 경계를 넘을 때의 폐루프 차이를 적용한다.
+    // innovation with s-wrap handling
     Eigen::Vector2d z;
     z << detection.s, detection.d;
     Eigen::Vector2d hx;
@@ -114,12 +146,35 @@ void ObstacleTracker::kalmanUpdate(Track &t, const Detection &detection) const
     }
 
     Eigen::Matrix2d S = H * t.P * H.transpose() + R;
-    Eigen::Matrix<double, 4, 2> K = t.P * H.transpose() * S.inverse();
+    // Solve through LDLT like the association gate instead of inverting S blindly: a degraded
+    // covariance must skip this update (predicted state kept), not poison the track.
+    const Eigen::LDLT<Eigen::Matrix2d> solver(S);
+    if (solver.info() != Eigen::Success || !solver.isPositive())
+    {
+        RCLCPP_WARN_THROTTLE(rclcpp::get_logger("obstacle_tracker"), warnThrottleClock(), 2000,
+                             "Kalman update skipped: innovation covariance not positive definite");
+        return;
+    }
+    const Eigen::Matrix<double, 2, 4> solved = solver.solve(H * t.P);
+    if (solver.info() != Eigen::Success || !solved.allFinite())
+    {
+        RCLCPP_WARN_THROTTLE(rclcpp::get_logger("obstacle_tracker"), warnThrottleClock(), 2000,
+                             "Kalman update skipped: innovation covariance solve failed");
+        return;
+    }
+    const Eigen::Matrix<double, 4, 2> K = solved.transpose();
     t.x = t.x + K * y;
     Eigen::Matrix4d I = Eigen::Matrix4d::Identity();
     t.P = (I - K * H) * t.P;
+    // The simple covariance form drifts asymmetric over long runs; re-symmetrize it and keep the
+    // variances non-negative.
+    t.P = 0.5 * (t.P + t.P.transpose());
+    for (int i = 0; i < 4; ++i)
+    {
+        t.P(i, i) = std::max(0.0, t.P(i, i));
+    }
 
-    // 갱신된 s를 폐루프의 정규 범위 [0, track_length)로 되돌린다.
+    // keep s within [0, length)
     if (frenet_ && frenet_->raceline_length() > 0.0)
     {
         const double L = frenet_->raceline_length();
@@ -134,21 +189,24 @@ void ObstacleTracker::kalmanUpdate(Track &t, const Detection &detection) const
 double ObstacleTracker::velocityMahalanobisSquared(
     const Track &t, double rel_vs, double rel_vd) const
 {
-    // 속도 상태의 2x2 부분 공분산으로 map-flow 대비 속도가 0과 얼마나 유의하게 다른지 본다.
     Eigen::Matrix2d velocity_covariance;
     velocity_covariance << t.P(1, 1), t.P(1, 3),
                            t.P(3, 1), t.P(3, 3);
     const Eigen::LDLT<Eigen::Matrix2d> solver(velocity_covariance);
     if (solver.info() != Eigen::Success || !solver.isPositive())
     {
-        return 0.0;
+        RCLCPP_WARN_THROTTLE(rclcpp::get_logger("obstacle_tracker"), warnThrottleClock(), 2000,
+                             "Velocity covariance not positive definite; motion not confident");
+        return std::numeric_limits<double>::quiet_NaN();
     }
 
     const Eigen::Vector2d relative_velocity(rel_vs, rel_vd);
     const Eigen::Vector2d solved = solver.solve(relative_velocity);
     if (solver.info() != Eigen::Success || !solved.allFinite())
     {
-        return 0.0;
+        RCLCPP_WARN_THROTTLE(rclcpp::get_logger("obstacle_tracker"), warnThrottleClock(), 2000,
+                             "Velocity covariance solve failed; motion not confident");
+        return std::numeric_limits<double>::quiet_NaN();
     }
     return std::max(0.0, relative_velocity.dot(solved));
 }
@@ -156,9 +214,9 @@ double ObstacleTracker::velocityMahalanobisSquared(
 void ObstacleTracker::classify(
     Track &t, double ego_yaw_rate, bool yaw_rate_fresh) const
 {
-    // 검출 확인과 움직임 분류는 의도적으로 별도 상태 기계로 관리한다.
-    // 1..(min_hits_confirm-1)번째 관측은 발행하지 않는다. 확인 관측이 들어오면 즉시 임시 정적
-    // 트랙으로 발행하고, 이후 관측부터 정적/동적 움직임 증거를 누적한다.
+    // Detection confirmation and motion classification deliberately use separate state machines.
+    // Hits 1..(min_hits_confirm-1) are completely hidden. The confirming observation publishes the
+    // track immediately as provisional static, then later observations collect motion evidence.
     if (!t.classified)
     {
         t.motion_class = MotionClass::Pending;
@@ -176,7 +234,7 @@ void ObstacleTracker::classify(
         return;
     }
 
-    // 움직임 증거는 연속된 실제 측정에서만 얻으며 예측만 수행한 프레임에서는 누적하지 않는다.
+    // Evidence must come from consecutive measurements, never from prediction-only frames.
     if (!t.is_visible)
     {
         t.dyn_streak = 0;
@@ -186,7 +244,7 @@ void ObstacleTracker::classify(
         return;
     }
 
-    // 속도 증거: map-flow 기준에 대한 상대 속도와 히스테리시스를 사용한다.
+    // ---- velocity evidence: flow RELATIVE to the map-flow reference, with hysteresis ----
     const double rel_vs = t.vs() - static_ref_vs_;
     const double rel_vd = t.vd() - static_ref_vd_;
     const double rel_speed = std::hypot(rel_vs, rel_vd);
@@ -199,13 +257,14 @@ void ObstacleTracker::classify(
          std::abs(ego_yaw_rate) <= p_.dyn_max_abs_yaw_rate);
     const bool velocity_confident =
         p_.dyn_velocity_mahalanobis_gate <= 0.0 ||
-        t.velocity_mahalanobis_sq >= p_.dyn_velocity_mahalanobis_gate;
+        (std::isfinite(t.velocity_mahalanobis_sq) &&
+         t.velocity_mahalanobis_sq >= p_.dyn_velocity_mahalanobis_gate);
     const bool vel_dynamic =
         rel_speed > p_.dyn_vel_enter && velocity_confident && yaw_reliable;
     const bool vel_static = rel_speed < p_.dyn_vel_exit;
     t.dynamic_motion_reliable = vel_dynamic;
 
-    // 위치 분산 투표: 최근 (s, d) 이력의 표준편차를 쓰는 ForzaETH 방식
+    // ---- positional-spread vote (ForzaETH style) ----
     bool std_dynamic = false;
     bool std_static = false;
     const bool uses_std_classifier = p_.classifier_mode != ClassifierMode::Velocity;
@@ -273,8 +332,8 @@ void ObstacleTracker::classify(
     }
     else
     {
-        // 히스테리시스 중간 구간, 낮은 속도 신뢰도, 급격하거나 오래된 자차 yaw는 모호한 관측이다.
-        // 이런 관측을 조용히 누적하지 않고 연속 증거 streak를 끊는다.
+        // The hysteresis band, weak velocity confidence, and rapid/stale ego yaw all break a
+        // consecutive-evidence streak rather than silently accumulating ambiguous observations.
         t.dyn_streak = 0;
         t.static_streak = 0;
     }
@@ -306,10 +365,11 @@ void ObstacleTracker::classify(
 
 void ObstacleTracker::updateStaticReference()
 {
-    // map-flow 기준은 명확히 느린 트랙들의 평균 Frenet 속도다. 벽은 계층 1 지도 필터에서 이미
-    // 제거되므로 주로 정지 장애물과 남은 정적 구조물이 이 집합을 구성한다. 이들의 공통 겉보기
-    // 속도를 기준으로 상대 차량의 움직임을 측정한다. 속도 게이트가 빠른 상대 차량을 평균에서
-    // 제외하므로 상대 차량이 자기 자신을 기준 속도로 만들어 버리지 않는다.
+    // The map-flow reference velocity is the mean Frenet velocity of the clearly-slow tracks. Walls
+    // are already removed by the Layer-1 map filter, so these are stationary obstacles (and any
+    // residual static structure) — the layer that flows WITH the map. Their shared apparent
+    // velocity is the reference the dynamic opponent is measured against. The gate keeps the
+    // fast-moving opponent out of the reference (it must not define its own baseline).
     double sum_vs = 0.0;
     double sum_vd = 0.0;
     int n = 0;
@@ -354,14 +414,14 @@ void ObstacleTracker::update(
     last_stamp_ = stamp;
     has_last_stamp_ = true;
 
-    // 1) 모든 기존 트랙을 현재 측정 시각까지 예측한다.
+    // 1) predict all existing tracks to this stamp
     for (auto &t : tracks_)
     {
         predict(t, dt);
         t.is_visible = false;
     }
 
-    // 2) 예측된 (s, d)에서 greedy 최근접 이웃 방식으로 검출을 1:1 연관한다.
+    // 2) greedy nearest-neighbour association on predicted (s, d)
     const std::size_t nt = tracks_.size();
     const std::size_t nd = detections.size();
     std::vector<int> det_assigned(nd, -1);
@@ -399,9 +459,8 @@ void ObstacleTracker::update(
                     continue;
                 }
             }
-            // 후보 정렬은 실제 Frenet 거리 기준을 유지하고 Mahalanobis는 게이트로만 쓴다.
-            // 적응형 R이 큰 원거리 저품질 검출이 정규화 m2가 작다는 이유로 가까운 검출보다
-            // 먼저 선택되는 것을 막기 위함이다.
+            // Keep the existing Frenet-distance ordering. Mahalanobis is a gate only: adaptive R
+            // must not make a noisier far detection win merely because its normalized m2 is small.
             pairs.push_back({ti, di, cost_sq});
         }
     }
@@ -418,19 +477,38 @@ void ObstacleTracker::update(
         ++last_stats_.matched;
     }
 
-    // 3) 연결된 트랙을 측정값으로 갱신하고 최신 형상과 관측 이력을 저장한다.
+    // 3) update matched tracks
     for (std::size_t ti = 0; ti < nt; ++ti)
     {
         Track &t = tracks_[ti];
         if (trk_assigned[ti] >= 0)
         {
             const Detection &det = detections[trk_assigned[ti]];
+            // Envelope-stability streak: compare this measurement with the predicted centre and
+            // the retained (smoothed) extents BEFORE updating them. Morphing scatter keeps
+            // resetting the streak; stable physical obstacles reach the publish gate
+            // within min_hits_confirm frames.
+            const double center_shift = std::sqrt(
+                frenetDistSquared(t.s(), t.d(), det.s, det.d));
+            const double envelope_shift = std::max(
+                {std::abs(det.s_half_extent - t.s_half_extent),
+                 std::abs(det.d_right_offset - t.d_right_offset),
+                 std::abs(det.d_left_offset - t.d_left_offset)});
+            if (center_shift <= p_.envelope_stability_tolerance_m &&
+                envelope_shift <= p_.envelope_stability_tolerance_m)
+            {
+                ++t.envelope_stable_streak;
+            }
+            else
+            {
+                t.envelope_stable_streak = 0;
+            }
             kalmanUpdate(t, det);
             t.hits++;
             t.is_visible = true;
-            t.s_half_extent = det.s_half_extent;
-            t.d_right_offset = det.d_right_offset;
-            t.d_left_offset = det.d_left_offset;
+            t.s_half_extent = smoothExtent(t.s_half_extent, det.s_half_extent);
+            t.d_right_offset = smoothExtent(t.d_right_offset, det.d_right_offset);
+            t.d_left_offset = smoothExtent(t.d_left_offset, det.d_left_offset);
             t.size = det.size;
             t.x_min_map = det.x_min;
             t.x_max_map = det.x_max;
@@ -451,7 +529,7 @@ void ObstacleTracker::update(
         }
     }
 
-    // 4) 어떤 트랙에도 연결되지 않은 검출에서 새 트랙을 만든다.
+    // 4) spawn new tracks from unmatched detections
     for (std::size_t di = 0; di < nd; ++di)
     {
         if (det_assigned[di] >= 0)
@@ -486,27 +564,27 @@ void ObstacleTracker::update(
         ++last_stats_.spawned;
     }
 
-    // 4b) 저속 트랙으로 map-flow 기준을 갱신한 뒤 모든 트랙을 그 기준에 상대적으로 분류한다.
-    //     계층 2는 map과 함께 흐르는 정적 물체, 계층 3은 명확히 벗어나는 동적 상대 차량이다.
+    // 4b) refresh the map-flow reference from slow tracks, then classify every track relative to it
+    //     (Layer 2 = flows with the map -> static; Layer 3 = clearly deviates -> dynamic opponent)
     updateStaticReference();
     for (auto &t : tracks_)
     {
         classify(t, ego_yaw_rate, yaw_rate_fresh);
-        if (t.is_visible)  // 이번 프레임에서 연결됐거나 새로 생성된 트랙
+        if (t.is_visible)  // matched or freshly spawned this frame
         {
             t.ttl = t.is_static ? p_.ttl_static : p_.ttl_dynamic;
         }
     }
 
-    // 5) 연속 미관측으로 TTL이 소진된 트랙을 폐기한다.
+    // 5) retire dead tracks
     const std::size_t tracks_before_retirement = tracks_.size();
     tracks_.erase(std::remove_if(tracks_.begin(), tracks_.end(),
                                  [](const Track &t) { return t.ttl <= 0; }),
                   tracks_.end());
     last_stats_.retired = tracks_before_retirement - tracks_.size();
 
-    // 위의 사건 누적 수와 분리해 갱신 후 트랙 상태를 snapshot으로 기록한다. 1초 진단 구간에서
-    // 같은 생존 트랙을 매 스캔마다 더해 실제보다 많은 것처럼 보이는 일을 막는다.
+    // Snapshot the post-update state separately from the event counters above. This prevents a
+    // 1-second diagnostics window from misleadingly summing the same live tracks every scan.
     last_stats_.total_tracks = tracks_.size();
     for (const Track &t : tracks_)
     {
@@ -517,10 +595,6 @@ void ObstacleTracker::update(
         if (t.hits < p_.min_hits_confirm)
         {
             ++last_stats_.hit_confirmation_pending;
-        }
-        else if (!t.classified)
-        {
-            ++last_stats_.classification_pending;
         }
         else if (t.motion_class == MotionClass::ProvisionalStatic)
         {

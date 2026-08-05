@@ -54,7 +54,9 @@ detection으로 복원해 하나의 Kalman track이 생성되도록 하는 segme
 5. 투영된 AABB 중심을 detection `(s,d)`로 사용하고, 종방향 반폭 및 중심 기준 좌·우 offset을
    함께 tracker에 전달한다.
 6. 에고 기준 `view_behind_distance`부터 `max_viewing_distance`까지의 관측 창만 남긴다.
-7. waypoint의 `d_left/d_right` 안에 있는 클러스터만 남긴다.
+7. waypoint의 `d_left/d_right` 안에 있는 클러스터만 남긴다. 이때 중심이 아니라 팽창된
+   envelope의 좌·우 가장자리(`d_left`, `d_right`)를 복도와 비교한다. 벽에 붙은 부채꼴 산란은
+   중심은 복도 안이지만 AABB 가장자리는 이미 벽을 파고들기 때문이다.
 8. 클러스터 점 중 `/map` occupied cell 위의 비율이 `map_point_reject_ratio` 이상이면 제거한다.
 
 Layer 1은 벽과 알려진 지도 구조물을 제거하는 필터이며 별도 토픽으로 발행하지 않는다.
@@ -116,7 +118,8 @@ velocity_m2 = v_relᵀ P_velocity⁻¹ v_rel
 기본 상태 전이는 다음과 같다.
 
 1. hits 1~2: `classified=false`, `PENDING`. `/static_obs`와 `/opp_obs` 모두 발행하지 않는다.
-2. hits 3: `classified=true`, `PROVISIONAL_STATIC`. 즉시 `/static_obs`에 발행한다.
+2. hits 3: `classified=true`, `PROVISIONAL_STATIC`. 즉시 `/static_obs`에 발행한다. 단,
+   envelope 안정성 게이트를 함께 통과한 track만 발행 대상이다(아래 참조).
 3. `relative_speed < dyn_vel_exit(0.25 m/s)`가 추가로 3회 연속 관측되면
    `CONFIRMED_STATIC`이 된다.
 4. 아래 조건을 모두 만족하는 관측이 25회 연속 쌓이면 `DYNAMIC`이 된다.
@@ -133,6 +136,14 @@ velocity_m2 = v_relᵀ P_velocity⁻¹ v_rel
 `PROVISIONAL_STATIC → CONFIRMED_STATIC`은 같은 Track 객체와 ID를 유지하며 두 상태 모두
 `/static_obs`에 실리므로 전환 공백이 없다. `DYNAMIC`으로 바뀐 동일 scan부터 `/static_obs`에서
 제거하고 `/opp_obs` 후보로 옮긴다.
+
+envelope 안정성 게이트: 매칭될 때마다 측정 중심과 extent가 track의 예측/보존 값에서
+`envelope_stability_tolerance_m`(기본 0.10 m) 이내로 안정됐는지 검사하고, 연속 횟수가
+`envelope_stability_frames`(기본 2)에 못 미치는 정적 track은 발행 레이어에서 제외한다.
+정사각형 AABB와 실제 형태의 괴리로 형태가 계속 변하는 부채꼴 산란 클러스터는 이 streak를
+채우지 못해 `/static_obs`에 나타나지 않는다. envelope가 안정적인 실제 장애물은 hits 3시점에
+streak 2를 함께 만족하므로 발행 지연이 추가되지 않는다. prediction-only 프레임에는 streak가
+유지되므로, 한번 안정화된 track의 ghost 발행은 계속 허용된다.
 
 기본 `classifier_mode=velocity`에서는 사용하지 않는 positional-std 이력을 저장하거나 분산을 계산하지
 않는다. `classifier_mode=std` 또는 `both`일 때만 `std_window` 길이의 `(s,d)` 이력을 유지한다.
@@ -155,13 +166,22 @@ extent로 박스 모서리 간격을 계산하고, 같은 레이어 안에서 �
 - 마커는 `s_start/s_end/d_right/d_left`에서 직접 만들어지므로 local planner 입력과 같은
   영역을 나타낸다.
 
-두 ObstacleArray 토픽은 장애물이 없는 scan에서도 빈 배열로 발행된다.
+두 ObstacleArray 토픽은 장애물이 없는 scan에서도 빈 배열로 발행된다. 단 `/opp_obs`(와 그 마커)는
+ego odometry timestamp가 `meas_motion_timeout`보다 오래되면 전방 순위를 신뢰할 수 없으므로 해당
+scan에서 발행을 억제하고 throttled WARN을 남긴다.
 
 ### 2.7 Cartesian AABB와 authoritative Frenet 경계
 
 각 cluster의 map-frame `x_min/x_max/y_min/y_max`와 투영된 독립 Frenet extent를 Detection과
-Track에 보존한다. 같은 레이어에서 여러 track이 한 객체로 병합되면 현재 scan에서 실제로 측정된
+Track에 보존한다. 매칭될 때마다 Frenet extent의 크기는 fast-grow/slow-shrink로 완화한다
+(`extent_shrink_alpha`): 더 큰 측정에는 즉시 확장하고, 더 작은 측정에는 약 `1/alpha`
+프레임에 걸쳐 서서히 축소한다. 정사각형 AABB와 실제 형태의 괴리로 스캔마다 출렁이던
+발행 envelope가 raceline을 오가며 플래너를 흔드는 것을 막는다. 같은 레이어에서 여러
+track이 한 객체로 병합되면 현재 scan에서 실제로 측정된
 `is_visible=true` 멤버들의 AABB 합집합을 만든 뒤 그 완전한 합집합을 한 번 다시 투영한다.
+또한 visible 멤버가 하나도 없는 predicted-only component는 병합 envelope 대각선이
+`max_obs_size`를 넘으면 발행하지 않는다. 부채꼴 산란이 ghost blob으로 합쳐지며 복도 전체를
+덮는 가짜 blocking을 방지한다.
 따라서 visible 출력의 Cartesian AABB와 `s_start/s_end/d_right/d_left`는 같은 footprint를
 표현한다. 이 투영은 detector에서만 수행하며 downstream planner는 결과를 그대로 사용한다.
 
@@ -190,7 +210,7 @@ DIAG perception [1.00s scans=40/40 drop(clcs=0 tf=0)]
 beam(valid=.../... nonfinite=... below_min=... at_or_above_max=...)
 cluster=...->... fragment_drop=... detections=...
 reject(size=... clcs_projection=... view=... boundary=... map=...)
-track(total=... visible=... hit_pending=... class_pending=... provisional=...
+track(total=... visible=... hit_pending=... provisional=...
       static=... dynamic=... motion_gated=...)
 assoc(pairs=... match=... spawn=... retire=... euclid_reject=... maha_reject=...)
 motion(yaw_used=... fresh=... ref_vs=... ref_vd=...)
@@ -205,8 +225,7 @@ motion(yaw_used=... fresh=... ref_vs=... ref_vd=...)
 - `assoc`는 1초 동안 누적한 tracker event다. `pairs`, `euclid_reject`, `maha_reject`는 장애물 수가
   아니라 `track × detection` 후보 쌍 수다.
 - `track`은 누적합이 아니라 로그 시점의 최신 snapshot이다. `hit_pending`은
-  `min_hits_confirm` 미달이다. 정상 상태기계에서는 hit 조건을 채우는 즉시 provisional이 되므로
-  `class_pending=0`이다. `motion_gated`는 속도가 `dyn_vel_enter`를 넘었지만 속도 Mahalanobis
+  `min_hits_confirm` 미달이다. `motion_gated`는 속도가 `dyn_vel_enter`를 넘었지만 속도 Mahalanobis
   신뢰도 또는 ego yaw 조건을 통과하지 못한 visible track 수다.
 - `yaw_used`는 adaptive covariance 계산에 실제 사용한 yaw rate다. odometry timestamp가
   `meas_motion_timeout`을 넘으면 `yaw_used=0`, `fresh=false`가 된다.
@@ -249,7 +268,7 @@ motion(yaw_used=... fresh=... ref_vs=... ref_vd=...)
 | 지도 | `use_map_filter`, `map_occupied_thresh`, `map_inflation_cells`, `map_point_reject_ratio` | 점유지도 필터 |
 | 측정 불확실성 | `meas_range_var_scale`, `meas_sparse_var_scale`, `meas_yaw_rate_var_scale`, `meas_reference_points`, `meas_variance_scale_max`, `meas_motion_timeout` | Detection별 adaptive Kalman `R` |
 | 추적 | `meas_var_s/d`, `process_var_vs/vd`, `assoc_gate`, `aggro_multi`, `assoc_use_mahalanobis`, `assoc_mahalanobis_gate` | Kalman 및 2단계 association |
-| 수명 | `ttl_dynamic`, `ttl_static`, `min_hits_confirm` | track 유지와 발행 확정. `ttl_static=25`는 약 250 Hz 입력에서 약 0.1초의 정적 track 검출 공백을 허용 |
+| 수명 | `ttl_dynamic`, `ttl_static`, `min_hits_confirm`, `extent_shrink_alpha`, `envelope_stability_tolerance_m`, `envelope_stability_frames` | track 유지와 발행 확정, envelope extent 완화(1.0=기존 덮어쓰기), 정적 레이어 발행 안정성 게이트(측정 중심+envelope가 tolerance 이내로 frames회 연속 안정일 때만 /static_obs 발행). `ttl_static=25`는 약 250 Hz 입력에서 약 0.1초의 정적 track 검출 공백을 허용 |
 | 분류 | `classifier_mode`, `dyn_vel_enter/exit`, `static_confirm_frames`, `dynamic_confirm_frames`, `dyn_velocity_mahalanobis_gate`, `dyn_max_abs_yaw_rate`, `static_ref_gate` | provisional/static/dynamic 판정 |
 | 레이어 병합 | `layer_merge_enable`, `layer_merge_gap_s/d` | tracking 후 같은 레이어 객체 병합 |
 | 진단 | `diagnostics_enable`, `diagnostics_period_sec` | 누적 perception INFO 로그 활성화와 주기 |

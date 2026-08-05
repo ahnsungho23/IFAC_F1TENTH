@@ -19,10 +19,10 @@ def generate_launch_description():
         description="Path to global planning parameter yaml",
     )
     # 맵 이름 단일화: F1_MAP 환경변수로 MCL/global/local 이 같은 맵을 보게 한다.
-    # yaml 의 map_name 을 이 인자로 덮어쓴다(미설정 시 패키지 기본 지도).
+    # yaml 의 map_name 을 이 인자로 덮어쓴다(미설정 시 'map').
     map_name_arg = DeclareLaunchArgument(
         "map_name",
-        default_value=os.environ.get("F1_MAP", "ifac_track"),
+        default_value=os.environ.get("F1_MAP", "map"),
         description="Map name (overrides map_name in yaml). Shared via F1_MAP env var.",
     )
 

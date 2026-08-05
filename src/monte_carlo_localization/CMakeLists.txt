@@ -26,7 +26,6 @@ find_package(tf2_geometry_msgs REQUIRED)
 find_package(tf2_eigen REQUIRED)
 find_package(eigen3_cmake_module REQUIRED)
 find_package(Eigen3 REQUIRED)
-find_package(angles REQUIRED)
 find_package(OpenMP REQUIRED)
 # find_package(rclcpp_parameters REQUIRED)
 
@@ -36,7 +35,7 @@ find_package(nav2_map_server QUIET)
 # Include directories
 include_directories(include)
 
-# Set dependencies list
+# Dependency package list (used for ament_export_dependencies below)
 set(dependencies
   rclcpp
   rclcpp_components
@@ -51,8 +50,24 @@ set(dependencies
   tf2_geometry_msgs
   tf2_eigen
   Eigen3
-  angles
   # rclcpp_parameters
+)
+
+# Modern CMake targets of the dependencies above (message pkgs export ${pkg}_TARGETS)
+set(dependency_targets
+  rclcpp::rclcpp
+  rclcpp_components::component
+  ${std_msgs_TARGETS}
+  ${sensor_msgs_TARGETS}
+  ${geometry_msgs_TARGETS}
+  ${nav_msgs_TARGETS}
+  ${visualization_msgs_TARGETS}
+  ${f110_msgs_TARGETS}
+  tf2::tf2
+  tf2_ros::tf2_ros
+  tf2_geometry_msgs::tf2_geometry_msgs
+  tf2_eigen::tf2_eigen
+  Eigen3::Eigen
 )
 
 # Create particle filter library
@@ -61,20 +76,19 @@ add_library(${PROJECT_NAME}_lib SHARED
   src/utils.cpp
 )
 
-ament_target_dependencies(${PROJECT_NAME}_lib ${dependencies})
+target_link_libraries(${PROJECT_NAME}_lib PUBLIC ${dependency_targets})
 
 # Create executable for particle filter
 add_executable(particle_filter_node
-  src/particle_filter_main.cpp
+  src/particle_filter.cpp
 )
 
-target_link_libraries(particle_filter_node ${PROJECT_NAME}_lib)
-ament_target_dependencies(particle_filter_node ${dependencies})
+# Dependency usage requirements propagate transitively via the lib's PUBLIC links
+target_link_libraries(particle_filter_node PUBLIC ${PROJECT_NAME}_lib)
 
 # Link OpenMP
 if(OpenMP_CXX_FOUND)
-    target_link_libraries(${PROJECT_NAME}_lib OpenMP::OpenMP_CXX)
-    target_link_libraries(particle_filter_node OpenMP::OpenMP_CXX)
+    target_link_libraries(${PROJECT_NAME}_lib PUBLIC OpenMP::OpenMP_CXX)
 endif()
 
 # No external ray casting library - using built-in implementation
@@ -100,7 +114,6 @@ install(DIRECTORY include/
 install(DIRECTORY launch/
   DESTINATION share/${PROJECT_NAME}/launch/
   FILES_MATCHING PATTERN "*.py" PATTERN "*.xml" PATTERN "*.yaml"
-  PATTERN "__pycache__" EXCLUDE
 )
 
 # Install config files
@@ -121,12 +134,6 @@ install(DIRECTORY rviz/
   FILES_MATCHING PATTERN "*.rviz"
 )
 
-# Install operator documentation
-install(DIRECTORY docs/
-  DESTINATION share/${PROJECT_NAME}/docs/
-  FILES_MATCHING PATTERN "*.md"
-)
-
 # Export dependencies - Fixed the export call
 ament_export_dependencies(${dependencies})
 ament_export_include_directories(include)
@@ -134,11 +141,10 @@ ament_export_libraries(${PROJECT_NAME}_lib)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
-
-  # Keep this distro port focused; reformatting the legacy MCL implementation is a separate change.
+  
+  # Linting only (no unit tests for now) 
   set(ament_cmake_copyright_FOUND TRUE)
   set(ament_cmake_cpplint_FOUND TRUE)
-  set(ament_cmake_uncrustify_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
 endif()
 

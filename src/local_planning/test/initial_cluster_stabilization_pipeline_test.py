@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""늦게 들어온 군집 구성원이 횡방향 commitment 전에 포함되는지 검사한다."""
+"""Verify that a late cluster member is included before lateral commitment."""
 
 import math
 import sys
@@ -27,7 +27,7 @@ from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 
 
 def latched_qos():
-    """글로벌 waypoint에 사용하는 transient-local QoS를 반환한다."""
+    """Return the transient-local QoS used by global waypoints."""
     qos = QoSProfile(depth=1)
     qos.reliability = ReliabilityPolicy.RELIABLE
     qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
@@ -35,7 +35,7 @@ def latched_qos():
 
 
 class InitialClusterProbe(Node):
-    """첫 검출 직후 왼쪽을 막는 두 번째 군집 구성원을 추가한다."""
+    """Add a left-blocking cluster member shortly after the first detection."""
 
     def __init__(self):
         super().__init__('initial_cluster_stabilization_probe')
@@ -57,7 +57,7 @@ class InitialClusterProbe(Node):
 
     @staticmethod
     def reference():
-        """순서가 증가하는 s를 가진 직선 기준 경로를 만든다."""
+        """Create an ordered straight reference."""
         message = WpntArray()
         message.header.frame_id = 'map'
         for index in range(300):
@@ -76,7 +76,7 @@ class InitialClusterProbe(Node):
 
     @staticmethod
     def obstacle(obstacle_id, x_min, x_max, y_min, y_max):
-        """직선 기준 경로용 detector 형식 Frenet 장애물을 만든다."""
+        """Create one detector-style Frenet obstacle for the straight reference."""
         obstacle = Obstacle()
         obstacle.id = obstacle_id
         obstacle.has_cartesian = True
@@ -99,7 +99,7 @@ class InitialClusterProbe(Node):
         return obstacle
 
     def publish_inputs(self):
-        """첫 장애물 0.1초 뒤에 두 번째 군집 구성원을 발행한다."""
+        """Publish the second member 0.1 s after the first one."""
         stamp = self.get_clock().now().to_msg()
         reference = self.reference()
         reference.header.stamp = stamp
@@ -128,7 +128,7 @@ class InitialClusterProbe(Node):
         self.odom_pub.publish(odometry)
 
     def on_path(self, message):
-        """먼저 preparation을 확인하고 지연된 오른쪽 commitment를 요구한다."""
+        """Require prepare first, then a delayed right-side commitment."""
         if not message.wpnts:
             return
         if message.ot_line == 'raceline_static_prepare':
@@ -163,7 +163,7 @@ class InitialClusterProbe(Node):
 
 
 def main():
-    """이미 실행 중인 local_planner_node를 대상으로 probe를 실행한다."""
+    """Run the probe against an already running local_planner_node."""
     rclpy.init()
     node = InitialClusterProbe()
     deadline = time.monotonic() + 8.0

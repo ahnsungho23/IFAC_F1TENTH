@@ -23,12 +23,12 @@ find_package(tf2_ros REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(f110_msgs REQUIRED)
 find_package(Eigen3 REQUIRED)
-# CLCS Frenet 변환기 라이브러리. src/global_planning이 include/를 설치하고
-# HAS_LIBRARY_TARGET이 설정된 `export_global_planning` target을 내보낸다. 따라서 아래
-# ament_target_dependencies()가 헤더와 라이브러리를 함께 연결한다.
+# CLCS Frenet converter library. src/global_planning installs include/ and exports the
+# `export_global_planning` target set with HAS_LIBRARY_TARGET, so ament_target_dependencies()
+# below pulls in both the headers (global_planning/clcs_frenet_converter.hpp) and the library.
 find_package(global_planning REQUIRED)
 
-# 계층형 LiDAR 장애물 검출 실행 파일(/static_obs, /opp_obs)
+# ---- obstacle_detector_node: layered LiDAR obstacle detection (/static_obs, /opp_obs) ----
 set(detector_deps
   rclcpp
   sensor_msgs
@@ -71,7 +71,6 @@ install(DIRECTORY
 )
 
 if(BUILD_TESTING)
-  # 추적 상태 전이, AABB 투영, 최종 marker 형상은 각각 독립 gtest로 검증한다.
   find_package(ament_cmake_gtest REQUIRED)
   find_package(ament_lint_auto REQUIRED)
 
@@ -84,7 +83,7 @@ if(BUILD_TESTING)
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   )
   target_link_libraries(test_obstacle_tracker Eigen3::Eigen)
-  ament_target_dependencies(test_obstacle_tracker global_planning)
+  ament_target_dependencies(test_obstacle_tracker global_planning rclcpp)
 
   ament_add_gtest(test_aabb_frenet_projector
     test/test_aabb_frenet_projector.cpp

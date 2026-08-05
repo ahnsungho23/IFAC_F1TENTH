@@ -10,6 +10,7 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 endif()
 
 find_package(ament_cmake REQUIRED)
+find_package(geometry_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
@@ -21,11 +22,12 @@ target_include_directories(state_machine_node
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
 )
-ament_target_dependencies(state_machine_node
-  rclcpp
-  nav_msgs
-  std_msgs
-  f110_msgs
+target_link_libraries(state_machine_node
+  rclcpp::rclcpp
+  ${geometry_msgs_TARGETS}
+  ${nav_msgs_TARGETS}
+  ${std_msgs_TARGETS}
+  ${f110_msgs_TARGETS}
 )
 
 install(TARGETS
@@ -40,10 +42,9 @@ install(DIRECTORY
 
 install(DIRECTORY
   config
-  launch
   docs
+  launch
   DESTINATION share/${PROJECT_NAME}
-  PATTERN "__pycache__" EXCLUDE
 )
 
 ament_package()

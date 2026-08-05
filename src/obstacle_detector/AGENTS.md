@@ -42,7 +42,9 @@ Keep the scan-driven pipeline ordered as follows:
    `aabb_frenet_projector`. Use the projected AABB centre as the detection `(s,d)`, preserve
    independent longitudinal and lateral extents, and use the closest race-line/AABB-face
    distance for the race-line-facing lateral bound.
-7. Apply the viewing-window and track-boundary gates.
+7. Apply the viewing-window and track-boundary gates. Test the projected envelope's lateral
+   EDGES against the corridor, not just its centre: wall-hugging fan scatter keeps the centre
+   inside while its AABB edge already pokes into the wall.
 8. Remove clusters that belong to known occupied map structure.
 9. Scale each detection's Kalman measurement covariance by its range, point sparsity, and fresh
    ego-odometry yaw rate. Bound the scale and ignore stale/non-finite motion data.
@@ -54,13 +56,22 @@ Keep the scan-driven pipeline ordered as follows:
     confirming hit, publish the same track/ID immediately as `ProvisionalStatic`. Promote it to
     `ConfirmedStatic` after consecutive low-relative-speed observations, or to `Dynamic` only
     after consecutive velocity-confident motion observations with fresh, bounded ego yaw rate.
+    Additionally, a static track enters the published layer only while its envelope-stability
+    streak reaches `envelope_stability_frames`: consecutive matched frames whose measured centre
+    and extents stay within `envelope_stability_tolerance_m`. Fan-shaped morphing clusters never
+    settle and stay unpublished; stable real obstacles pass at the same hit as before.
 12. Merge confirmed tracks only within the same static/dynamic layer.
 13. Preserve each measured cluster's independent Frenet footprint and map-frame Cartesian AABB
-    through Detection and Track. For each same-layer component, union only currently visible
+    through Detection and Track. Smooth the Frenet extents per matched measurement with
+    fast-grow/slow-shrink magnitude filtering (`extent_shrink_alpha`) so per-scan AABB flapping
+    (square box vs real shape) does not flick the published envelope; expand immediately, relax
+    gradually. For each same-layer component, union only currently visible
     member AABBs, reproject that complete union once, and publish matching Cartesian and Frenet
     bounds. A predicted-only component keeps its last measured Frenet footprint around the
     predicted Kalman centre but must set `has_cartesian=false`; never expose a stale raw scan
-    footprint as current geometry.
+    footprint as current geometry. Drop a predicted-only component whose merged envelope exceeds
+    `max_obs_size`: fan-scatter ghost blobs can grow until they span the corridor and
+    false-block planners.
 14. Publish all merged statics on `/static_obs` and at most one nearest-ahead dynamic object on
     `/opp_obs`.
 15. Build the two RViz MarkerArrays from those final published arrays' Frenet bounds. Include
@@ -94,7 +105,9 @@ published Frenet bounds instead of reprojecting the Cartesian metadata.
   AABB union exists, reproject it so the published Frenet envelope describes exactly the same
   current footprint shown by the marker.
 - Publish both layer topics every scan, including empty arrays, so downstream consumers receive a
-  deterministic scan-rate tick.
+  deterministic scan-rate tick. The only exception: `/opp_obs` (and its marker) is suppressed with
+  a throttled warning while the ego odometry stamp is stale beyond `meas_motion_timeout`, because
+  the ahead-ranking would be misplaced.
 
 ## Map filtering
 
@@ -108,8 +121,6 @@ published Frenet bounds instead of reprojecting the Cartesian metadata.
 
 - All tunables belong in `config/obstacle_detector.yaml` and must be declared with safe defaults
   in the C++ node.
-- Keep explanatory comments and Python docstrings in Korean. Preserve standard license text,
-  identifiers, topic names, formulas, and external API terminology when translating comments.
 - `diagnostics_enable` and `diagnostics_period_sec` control the passive INFO diagnostics; they must
   not change scan, detection, association, or Kalman state.
 - `launch/obstacle_detector_node.launch.py` is the direct node launch.

@@ -29,7 +29,6 @@ namespace
 
 constexpr double kTolerance = 1.0e-9;
 
-// 직선 구간과 마지막-첫점 폐곡선 구간을 함께 시험하는 projector를 만든다.
 FrenetProjector makeStraightProjector()
 {
   FrenetProjector projector;
@@ -43,7 +42,6 @@ FrenetProjector makeStraightProjector()
   return projector;
 }
 
-// 일반 d 오프셋과 마지막 waypoint 이후의 폐곡선 보간을 모두 검증한다.
 TEST(FrenetProjector, ConvertsOffsetAndClosingSegmentsToCartesian)
 {
   auto projector = makeStraightProjector();
@@ -70,7 +68,6 @@ TEST(FrenetProjector, ConvertsOffsetAndClosingSegmentsToCartesian)
   EXPECT_NEAR(yaw, -0.5 * std::acos(-1.0), kTolerance);
 }
 
-// Cartesian 메타데이터가 없는 예측 트랙도 최종 Frenet 외곽만으로 그릴 수 있어야 한다.
 TEST(FrenetMarkerBuilder, DrawsPublishedFrenetEnvelopeWithoutCartesianMetadata)
 {
   const auto projector = makeStraightProjector();
@@ -110,7 +107,6 @@ TEST(FrenetMarkerBuilder, DrawsPublishedFrenetEnvelopeWithoutCartesianMetadata)
   EXPECT_NEAR(marker.points.back().y, marker.points.front().y, kTolerance);
 }
 
-// 빈 계층에서도 DELETEALL을 보내 이전 프레임 marker를 지워야 한다.
 TEST(FrenetMarkerBuilder, PublishesDeleteAllWhenTheLayerIsEmpty)
 {
   const auto projector = makeStraightProjector();

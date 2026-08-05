@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""장애물 perception이 stale일 때 commitment 유지, 인계와 다음 lap 기억을 검사한다."""
+"""Verify stale-perception commitment retention, handoff, and next-lap memory."""
 
 import math
 import sys
@@ -28,7 +28,7 @@ from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 
 
 def latched_qos():
-    """글로벌 waypoint와 state에 사용하는 transient-local QoS를 반환한다."""
+    """Return the transient-local QoS used by global waypoints and state."""
     qos = QoSProfile(depth=1)
     qos.reliability = ReliabilityPolicy.RELIABLE
     qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
@@ -36,7 +36,7 @@ def latched_qos():
 
 
 class StaleObstacleMemoryProbe(Node):
-    """경로 commitment 뒤 perception을 끊고 한 lap의 전체 상태 전이를 실행한다."""
+    """Stop perception after commitment and exercise one complete lap cycle."""
 
     def __init__(self):
         super().__init__('stale_obstacle_memory_probe')
@@ -65,7 +65,7 @@ class StaleObstacleMemoryProbe(Node):
 
     @staticmethod
     def reference():
-        """유한한 트랙 폭을 갖는 직선 순서 레이스 라인을 만든다."""
+        """Create an ordered straight race line with finite track widths."""
         message = WpntArray()
         message.header.frame_id = 'map'
         for index in range(300):
@@ -84,7 +84,7 @@ class StaleObstacleMemoryProbe(Node):
 
     @staticmethod
     def obstacle():
-        """레이스 라인 근처에 detector 형식 정적 장애물 하나를 만든다."""
+        """Create one detector-style static obstacle near the race line."""
         obstacle = Obstacle()
         obstacle.id = 41
         obstacle.has_cartesian = True
@@ -108,7 +108,7 @@ class StaleObstacleMemoryProbe(Node):
 
     @staticmethod
     def geometry(message):
-        """장애물 perception이 stale인 동안 바뀌면 안 되는 경로 기하를 추출한다."""
+        """Extract the fields that must remain frozen while perception is stale."""
         return [
             (
                 waypoint.s_m,
@@ -122,7 +122,7 @@ class StaleObstacleMemoryProbe(Node):
 
     @staticmethod
     def same_geometry(first, second):
-        """직렬화한 두 경로 기하를 작은 부동소수점 허용 오차로 비교한다."""
+        """Compare two serialized paths with a tight floating-point tolerance."""
         if len(first) != len(second):
             return False
         return all(
@@ -131,7 +131,7 @@ class StaleObstacleMemoryProbe(Node):
         )
 
     def publish_inputs(self):
-        """장애물 입력은 의도적으로 끊되 localization은 계속 최신으로 유지한다."""
+        """Keep localization fresh while deliberately stopping obstacle input."""
         stamp = self.get_clock().now().to_msg()
         reference = self.reference()
         reference.header.stamp = stamp
@@ -163,7 +163,7 @@ class StaleObstacleMemoryProbe(Node):
         self.state_pub.publish(state)
 
     def fail_if_empty(self, message):
-        """전역 GLOBAL 인계 확인 전에 fail-open 빈 경로가 나오는 것을 거부한다."""
+        """Reject fail-open empty output before GLOBAL handoff confirmation."""
         if message.wpnts:
             return False
         if self.stage in ('stale_hold', 'merge', 'wait_handoff'):
@@ -173,7 +173,7 @@ class StaleObstacleMemoryProbe(Node):
         return True
 
     def on_avoid(self, message):
-        """입력 stale 유지, merge 인계와 다음 lap 재계획 단계를 진행한다."""
+        """Advance through stale hold, merge handoff, and next-lap replan."""
         if self.fail_if_empty(message):
             if self.stage == 'confirm_global' and self.saw_handoff:
                 self.stage = 'next_lap'
@@ -236,7 +236,7 @@ class StaleObstacleMemoryProbe(Node):
 
 
 def main():
-    """새로 실행한 local_planner_node를 대상으로 probe를 실행한다."""
+    """Run the probe against a fresh local_planner_node."""
     rclpy.init()
     node = StaleObstacleMemoryProbe()
     deadline = time.monotonic() + 12.0

@@ -3,28 +3,18 @@ import sys
 sys.path.insert(0, os.path.dirname(__file__))
 
 from launch import LaunchDescription
-from launch.conditions import IfCondition
 from launch_ros.actions import Node
-from launch_ros.parameter_descriptions import ParameterValue
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 import _control_common as common
 
 
 def generate_launch_description():
-    # 실차용 joy.launch.py(제거됨)와 달리, 시뮬은 편의상 joy_node를 여기 함께 번들한다
-    # (device_id로 장치 선택). force_autonomous:=false로 켜서 조이스틱 수동 개입/오버라이드를
-    # 시험하고 싶을 때 이 파일 하나로 끝나게 하기 위함(ifac_sim 등 일괄 실행 스크립트 연계).
-    device_id_arg = DeclareLaunchArgument(
-        'device_id',
-        default_value='0',
-        description='조이스틱 디바이스 번호 (/dev/input/js<device_id>)'
-    )
-    launch_joy_arg = DeclareLaunchArgument(
-        'launch_joy',
-        default_value='true',
-        description='조이스틱 드라이버 실행 여부 (헤드리스 자율주행은 false)'
-    )
+    # teleop(조이스틱 수동/자율/E-stop Mux)은 이 저장소 담당이 아니다(2026-07-29 제거) —
+    # 실차는 f1tenth_stack(drive_mode_manager + ackermann_mux), 시뮬은 Mux 없이
+    # drive_source_selector가 자율 명령(/drive_autonomous)을 /drive로 직결한다.
+    # 기동 즉시 자율주행이며 별도 인자가 필요 없다(구 force_autonomous 폐지).
+    # (MPPI 컨트롤러 노드는 2026-08-01 제거 — 대회 준비 기간 동안 MAP에만 집중)
 
     # 종방향 최대 가속도 한계 [m/s^2] — real과 값이 갈릴 수 있어 진입점 파일에 각자 둔다.
     # 공격적 속도 프로파일(fuck_f1 재생성분)을 직선에서 놓치지 않도록 상향된 값(폐루프 6.97s
@@ -48,7 +38,7 @@ def generate_launch_description():
     # 속도를 낮춰 원인분리를 하려다 발견 — 두 컨트롤러 모두에 같은 값이 가야 비교가 성립한다.
     max_speed_arg = DeclareLaunchArgument(
         'max_speed', default_value='12.0',
-        description='직선 최고속도 캡 [m/s] (control_map_node의 max_speed = control_mppi_node의 v_max)'
+        description='직선 최고속도 캡 [m/s] (control_map_node의 max_speed)'
     )
 
     steering_control = common.build_control_map_node(
@@ -68,13 +58,6 @@ def generate_launch_description():
         imu_linear_scale=common.IMU_LINEAR_SCALE_SIM,
     )
 
-    # MPPI 컨트롤러 노드 — control_map_node와 나란히 상시 구동(/drive_mppi 발행).
-    # 실차 전 시뮬 검증용. 조이스틱 RB로 MAP↔MPPI 즉시 전환.
-    mppi_control = common.build_control_mppi_node(
-        odom_topic='/ego_racecar/odom',
-        max_speed=LaunchConfiguration('max_speed'),
-    )
-
     # 시뮬 전용: odom 요레이트 → /imu/data 중계 (gym_bridge는 IMU를 발행하지 않음)
     sim_imu_bridge = Node(
         package='f1tenth_control',
@@ -87,32 +70,21 @@ def generate_launch_description():
         }]
     )
 
-    joy_teleop_monitor = common.build_joy_teleop_monitor()
-
-    # 시뮬 전용 joy_node 번들 — 실차는 f1tenth_stack이 별도로 띄우므로 여기 없음.
-    joy_node = Node(
-        package='joy',
-        executable='joy_node',
-        name='joy_node',
+    # 자율 명령(/drive_autonomous) → /drive 포워딩(gym_bridge가 구독).
+    # (2026-08-01: MPPI 제거로 MAP/MPPI 셀렉터 기능도 걷어냄 — 순수 포워더)
+    drive_source_selector = Node(
+        package='f1tenth_control',
+        executable='drive_source_selector',
+        name='drive_source_selector',
         output='screen',
-        parameters=[{
-            'device_id': ParameterValue(LaunchConfiguration('device_id'), value_type=int),
-            'deadzone': 0.05,
-            'autorepeat_rate': 20.0,   # 트리거를 계속 당기고 있어도 /joy·/drive 명령 지속되게 재발행
-        }],
-        condition=IfCondition(LaunchConfiguration('launch_joy')),
     )
 
     return LaunchDescription([
         *common.declare_common_args(),
-        device_id_arg,
-        launch_joy_arg,
         base_max_accel_arg,
         max_lateral_accel_arg,
         max_speed_arg,
         sim_imu_bridge,
         steering_control,
-        mppi_control,
-        joy_teleop_monitor,
-        joy_node,
+        drive_source_selector,
     ])

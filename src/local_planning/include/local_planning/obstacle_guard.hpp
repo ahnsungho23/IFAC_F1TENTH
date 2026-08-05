@@ -20,23 +20,25 @@
 namespace local_planning
 {
 
-// detector 분산과 AABB 크기 오차를 Frenet 안전 envelope에 반영하는 설정
 struct ObstacleGuardParameters
 {
   double uncertainty_sigma_scale{3.0};
   double minimum_longitudinal_margin_m{0.05};
   double minimum_lateral_margin_m{0.03};
+  // Fresh detections can carry a large centre variance; cap the lateral inflation so a
+  // raceline-centred obstacle does not demand an impossible d-offset on both sides at once.
+  double maximum_lateral_margin_m{0.15};
 };
 
-// 투영된 Frenet AABB를 고정 크기 오차 하한 + Kalman 중심 위치의 kσ만큼 확장한다.
-// Cartesian 필드는 RViz/진단에 쓸 원 측정 AABB이므로 변경하지 않는다.
+// Expand a projected Frenet AABB by a fixed extent-noise floor plus k standard deviations of the
+// Kalman centre-position estimate. Cartesian fields remain the raw measured AABB for diagnostics.
 f110_msgs::msg::Obstacle buildUncertaintyGuard(
   const f110_msgs::msg::Obstacle & obstacle,
   double track_length,
   const ObstacleGuardParameters & parameters);
 
-// 후보 Frenet envelope 전체가 commitment 시점에 동결한 Guard 안에 있을 때만 true를 반환한다.
-// 종방향 포함 검사는 폐곡선의 s=0 wrap을 고려한다.
+// Return true only when the complete candidate Frenet envelope is contained in the frozen guard.
+// Longitudinal containment is closed-track/wrap aware.
 bool obstacleEnvelopeContained(
   const f110_msgs::msg::Obstacle & candidate,
   const f110_msgs::msg::Obstacle & guard,
