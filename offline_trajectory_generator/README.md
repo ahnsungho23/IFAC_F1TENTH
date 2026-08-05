@@ -146,7 +146,7 @@ python3 offline_trajectory_generator/trajectory_gui.py \
   --map-yaml monte_carlo_localization/maps/slam_map.yaml
 ```
 
-화면 왼쪽에는 map 경로, 저장 위치, trajectory 파라미터가 표시된다. 숫자 파라미터는 `Sampling`, `Track & safety`, `Speed profile`, `Map cleanup`, `Centerline`, `Min-curvature`, `Straightening` 그룹별 소제목으로 묶여 있어 원하는 항목을 빠르게 찾을 수 있다. 오른쪽에는 map 이미지 위에 centerline과 RT lane이 함께 표시된다. 슬라이더나 체크박스를 바꾸면 잠시 후 자동으로 다시 계산되어 overlay가 갱신된다.
+화면 왼쪽에는 map 경로, 저장 위치, `Velocity limits` CSV 경로와 trajectory 파라미터가 표시된다. 숫자 파라미터는 `Sampling`, `Track & safety`, `Speed profile`, `Map cleanup`, `Centerline`, `Min-curvature`, `Straightening` 그룹별 소제목으로 묶여 있어 원하는 항목을 빠르게 찾을 수 있다. 오른쪽에는 map 이미지 위에 centerline과 RT lane이 함께 표시된다. 슬라이더·체크박스·CSV 경로를 바꾸면 잠시 후 자동으로 다시 계산되어 overlay가 갱신된다.
 
 `AI Optimize` 버튼을 누르면 옵티마이저가 `ai`로 전환되고, GPU 경사하강 포트폴리오 + 정확 재채점 + 진화 탐색(ES) 폴리싱을 `AI epochs`(Optimizer 탭)만큼 반복해 랩타임이 가장 짧은 라인을 자동으로 찾는다(자세한 동작은 3장의 `--optimizer ai` 설명 참고). torch 또는 MLX가 설치되어 있어야 한다. 최적화 진행 로그(`[laptime] iter ...`, `[ai] epoch ...`)는 실행 중 상태바에 실시간으로 표시되므로, 반복 수가 커서 수십 초가 걸려도 멈춘 것이 아니다.
 
@@ -173,6 +173,7 @@ CLI로 바로 파일만 생성하려면 다음 명령을 사용한다.
 python3 offline_trajectory_generator/generate_global_trajectory.py \
   --map-yaml monte_carlo_localization/maps/slam_map.yaml \
   --output-dir /tmp/offline_traj_slam_map \
+  --velocity-limits-csv offline_trajectory_generator/config/velocity_limits.csv \
   --debug-image
 ```
 
@@ -189,8 +190,12 @@ offline_trajectory_generator/output/<map_yaml_file_name>/
 - `--safety-width`: 차량 폭과 안전 여유를 포함한 폭이다.
 - `--boundary-margin`: 벽에서 추가로 띄울 거리이다.
 - `--max-speed`: waypoint 속도 상한이다. 기본값은 `4.0` m/s이다.
-- `--min-speed`: waypoint 속도 하한이다. 기본값은 `1.0` m/s이다.
-- `--max-lateral-accel`: 곡률 기반 속도 계산에 쓰는 횡가속도 한계이다.
+- `--min-speed`: waypoint 속도 하한이다. 기본값은 `1.0` m/s이다. 이 하한이 횡가속 테이블로
+  계산한 코너 허용 속도보다 높으면 하한을 우선하되 경고한다. 물리 제약을 엄격히 지키려면 경고가
+  없어질 때까지 낮춰야 한다.
+- `--velocity-limits-csv`: 속도별 최대 가속·감속·횡가속 한계를 읽는 4열 CSV이다. 기본값은
+  `offline_trajectory_generator/config/velocity_limits.csv`이다. 첫 속도는 `0.0`, 속도 열은 엄격한
+  오름차순이어야 하고 마지막 속도는 `--max-speed` 이상을 덮어야 한다. 중간값은 선형 보간한다.
 - `--max-curvature`: 차량 조향 한계를 경로 최대 곡률[rad/m]로 지정한다(= `tan(최대조향각)/휠베이스`,
   F1TENTH 기준 약 `1.2`). 속도 모델은 급커브에서 감속만 할 뿐 "그 커브를 아예 돌 수 없다"는 사실을
   모르기 때문에, 이 한계가 없으면 옵티마이저가 차가 물리적으로 추종 불가능한 꺾임(회전반경 수 cm)으로
@@ -217,8 +222,8 @@ offline_trajectory_generator/output/<map_yaml_file_name>/
 - `--optimizer centerline`: 기본값이다. SLAM map에서 안정적으로 동작한다.
 - `--optimizer mincurv`: scipy 기반 최소 곡률 보정을 시도한다. map 품질에 따라 튜닝이 필요할 수 있다.
 - `--optimizer laptime`: **랩타임 자체를 손실함수로 GPU에서 직접 경사하강**하는 옵티마이저다(`optimize_laptime.py`).
-  mincurv처럼 곡률·평활·길이 가중치를 손으로 맞춰 간접적으로 시간을 줄이는 대신, 곡률 제한 속도
-  `v=√(a_lat/|κ|)`와 가감속 한계까지 미분 가능하게 모델링한 랩타임을 직접 최소화한다. 경계는
+  mincurv처럼 곡률·평활·길이 가중치를 손으로 맞춰 간접적으로 시간을 줄이는 대신, CSV의 속도별
+  횡가속·가감속 한계까지 미분 가능하게 모델링한 랩타임을 직접 최소화한다. 경계는
   sigmoid 재매개변수화로 하드 보장되어 트랙을 절대 벗어나지 않는다. `--laptime-restarts`개의 후보
   라인을 GPU에서 **동시에** 최적화(멀티스타트)하고 가장 빠른 라인을 선택하며, 한 후보는 mincurv
   해로 웜스타트한다(`--laptime-no-warm-start`로 끔). torch(CUDA) 또는 Apple MLX(Metal)가 필요하고
@@ -249,6 +254,24 @@ offline_trajectory_generator/output/<map_yaml_file_name>/
 - `--straight-clearance-margin`: 직선 보정 검증에 추가로 요구하는 벽 여유 거리이다.
 - `--straight-blend-length`: 직선 보정 구간 양끝에서 원래 경로와 직선을 부드럽게 섞는 길이이다.
 
+### 속도 제한 CSV 형식
+
+```csv
+# speed_mps,max_accel_mps2,max_decel_mps2,max_lateral_accel_mps2
+0.0,3.7,2.0,5.5
+2.0,3.7,2.0,5.5
+4.0,3.7,2.0,5.5
+6.5,3.7,2.0,5.5
+9.0,3.7,2.0,5.5
+```
+
+각 행은 해당 속도에서 차량에 최종 적용할 순가속도 한계이며 `mass`, `dragcoeff`를 별도로 적용하지
+않는다. Forward pass는 현재 속도의 `max_accel`, backward pass는 다음 waypoint 속도의
+`max_decel`을 보간한다. 곡률 제한은 `v²|κ| <= max_lateral_accel(v)`를 만족하는 가장 높은 속도를
+각 CSV 구간에서 구한다. 단, `--min-speed`가 이 값보다 높으면 기존 동작과 같이 `min-speed`를
+우선하고 명시적인 경고를 출력한다. 기본 파일은 기존 GUI의 `3.7/2.0/5.5 m/s²` 결과를 그대로 보존하기 위해
+모든 속도 knot에 같은 값을 넣었다. 실차 데이터가 준비되면 행별 값만 교체한다.
+
 ROS map의 trinary 회색 unknown 영역은 기본적으로 주행 가능 영역에서 제외된다. 회색 unknown까지 free-space로 쓰고 싶을 때만 GUI의 `Unknown as free`를 켠다.
 
 직선 보정은 곡률이 낮은 구간의 내부 waypoint를 endpoint 직선 위로 당긴 뒤, distance transform으로 전체 직선이 free-space와 clearance 조건을 만족하는 경우에만 적용한다. 따라서 SLAM 노이즈 때문에 직선 구간의 곡률이 흔들리는 경우 속도 프로파일이 더 높게 잡힌다. 경로가 너무 많이 당겨지면 `straight_kappa_threshold`를 낮추고, 직선화가 부족하면 값을 올린다.
@@ -259,7 +282,7 @@ ROS map의 trinary 회색 unknown 영역은 기본적으로 주행 가능 영역
 2. 위 실행 명령으로 `global_waypoints.json`을 만든다.
 3. `debug_overlay.png`를 열어서 경로가 트랙 중앙을 따라가는지 확인한다.
 4. 방향이 반대이면 같은 명령에 `--reverse`를 추가해서 다시 생성한다.
-5. 속도가 너무 높거나 낮으면 `--max-speed`, `--min-speed`, `--max-lateral-accel`을 조정한다.
+5. 속도가 너무 높거나 낮으면 `--max-speed`, `--min-speed`와 `velocity_limits.csv`의 해당 속도 구간을 조정한다.
 
 GUI를 사용할 때는 3-5단계를 화면에서 바로 확인한 뒤 `Save`만 누르면 된다.
 

@@ -14,6 +14,9 @@ Rules:
 ## Layout
 
 - `generate_global_trajectory.py` — map -> centerline -> raceline -> speed profile pipeline (CLI).
+  The standard speed profile reads `config/velocity_limits.csv` with columns
+  `[speed_mps, max_accel_mps2, max_decel_mps2, max_lateral_accel_mps2]`; keep the CLI, GUI,
+  saved YAML, and differentiable laptime surrogate on the same table semantics.
   Extraction robustness invariants (keep when refactoring): centerline candidates are ranked by
   ENCLOSED contour area (not arc length — noise scribbles are long but enclose nothing); skeleton
   pixels in corridors narrower than `min_track_width` are dropped; the Zhang-Suen fallback keeps
@@ -56,6 +59,8 @@ Rules:
   live progress in the status bar instead of a frozen "Generating...". Keep that wiring.
   Because of it, `vars(args)` can contain callables: `write_outputs`' metadata dump must keep
   filtering non-JSON-safe values (a raw `json.dumps(vars(args))` broke the GUI Save button once).
+- `config/velocity_limits.csv` — speed-dependent net acceleration limits for the standard GUI/CLI.
+  It intentionally does not use the Forza/TUM `ggv.csv` + `ax_max_machines.csv` split.
 - `forza_trajectory_gui.py` — standalone port of the ForzaETH `race_stack` `ros2-jazzy`
   centerline and `mincurv_iqp` branches. Keep its source commit IDs in the module docstring.
   Its pipeline intentionally differs from `generate_global_trajectory.py`: keep shortest closed
