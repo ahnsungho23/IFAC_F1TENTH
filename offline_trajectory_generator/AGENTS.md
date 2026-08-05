@@ -56,3 +56,24 @@ Rules:
   live progress in the status bar instead of a frozen "Generating...". Keep that wiring.
   Because of it, `vars(args)` can contain callables: `write_outputs`' metadata dump must keep
   filtering non-JSON-safe values (a raw `json.dumps(vars(args))` broke the GUI Save button once).
+- `forza_trajectory_gui.py` — standalone port of the ForzaETH `race_stack` `ros2-jazzy`
+  centerline and `mincurv_iqp` branches. Keep its source commit IDs in the module docstring.
+  Its pipeline intentionally differs from `generate_global_trajectory.py`: keep shortest closed
+  skeleton contour selection, two-pass Savitzky-Golay smoothing, watershed/DT bounds, and the
+  vendored TUM IQP + GGV profile behavior aligned with upstream. Do not add the Forza shortest-path
+  branch unless explicitly requested. Since an offline map has no live initial vehicle pose,
+  direction is determined by contour order plus the `reverse` option; document this adaptation.
+  Import `interp_track.py` and `prep_track.py` directly from `helper_funcs_glob/src`; importing the
+  package root eagerly loads unused mintime, sklearn, pandas, and Matplotlib modules. The unused
+  Matplotlib import in vendored `prep_track.py` must stay removed so the offline mincurv pipeline
+  does not depend on plotting binaries or their NumPy ABI. IQP infeasibility must remain non-modal:
+  replace the map preview with an actionable warning while keeping parameters and Rebuild usable;
+  keep the full traceback in the terminal for debugging. Keep the red Forza raceline exactly one
+  output-image pixel wide without changing the standard GUI renderer's line widths.
+- `forza_gui_params.yaml` — independent persisted settings for `forza_trajectory_gui.py`; do not
+  reuse or overwrite the standard GUI's `gui_params.yaml`. Keep the GUI/CLI `max_curvature`
+  parameter wired to both the IQP curvature bound and final curvature-violation validation;
+  document that increasing it is only valid within the physical steering limit. Speed-profile
+  controls must override the loaded GGV/motor arrays in memory; never rewrite the vendored INI or
+  CSV inputs when saving map-specific GUI parameters. Keep `0` as the disabled value for the
+  optional velocity-filter window and pass an enabled window to TPH only when it is odd and >= 3.

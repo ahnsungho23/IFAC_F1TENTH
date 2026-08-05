@@ -5,7 +5,7 @@ occupancy_grid_threshold: 23.28571429
 filter_kernel_size: 7
 expected_centerline_length: 36.96428571
 safety_width: 0.7
-max_curvature: 0.94
+max_curvature: 0.8
 max_speed: 6.5
 longitudinal_accel_scale: 3.7
 lateral_accel_scale: 6.5
