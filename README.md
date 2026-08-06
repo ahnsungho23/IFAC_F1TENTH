@@ -162,7 +162,7 @@ ROS 2 Jazzy workspace for the 2026 IFAC F1TENTH stack. ROS packages live under `
 │   │   ├── test/                       # synthetic_opponent
 │   │   ├── AGENTS.md, CMakeLists.txt, package.xml, README(.en).md
 │   │
-│   ├── static_obstacle_map/      # persistent confirmed-static OccupancyGrid composer
+│   ├── static_obstacle_map/      # persistent confirmed-static memory + RViz markers
 │   │   ├── config/static_obstacle_map.yaml
 │   │   ├── docs/static_obstacle_map_node.md
 │   │   ├── include/static_obstacle_map/

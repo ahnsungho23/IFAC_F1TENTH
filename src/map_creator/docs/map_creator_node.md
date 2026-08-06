@@ -29,8 +29,10 @@ IDLE ──(lap_count ≥ trigger, 원장 freeze)──▶ 판정+페인팅+저�
    polygon을 0으로 채움. "비주행" 판정은 픽셀 < 250 (생성기 free 판정의 보수).
    벽을 못 찾으면(`wall_not_found`) 전체 중단 — 장애물 단독 페인팅은 cleanup의
    speckle 보호(25 px)에 지워질 수 있어 금지.
-4. **저장 = 생성기 입력**: `output/obstacle_map/obstacle_map.{png,yaml}` 저장 위치가
-   그대로 드라이버의 `--map-yaml` 입력이 됨 (복사·수동 단계 없음).
+4. **저장 = 생성기 입력**: `output/obstacle_map/obstacle_map.{png,yaml}` 저장 직후 두
+   경로가 모두 일반 파일인지 확인한다. 하나라도 없으면 pipeline을 중단해 optimizer를
+   실행하지 않는다. 검증된 YAML 위치가 그대로 드라이버의 `--map-yaml` 입력이 된다
+   (복사·수동 단계 없음).
 5. **재생성**: 드라이버가 GUI와 동일한 `load_gui_params(gui_params.yaml)` 값으로
    `generate_trajectory` 실행 → 물리 게이트(폐곡선, off_map=0, s 순증가, |κ|≤3.2,
    장애물 이격 ≥0.42 m) 통과 시 `global_waypoints.json` + `gate_report.json` 기록.

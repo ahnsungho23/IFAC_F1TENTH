@@ -21,6 +21,8 @@ map_creator package rules. These instructions apply to `src/map_creator`.
   Do not invoke `trajectory_gui.py` as a process.
 - Any failure at any stage keeps the previous global line (local avoidance keeps
   covering). No partial bakes: either all decided obstacles are painted or none.
+- After painting, verify both `obstacle_map.png` and `obstacle_map.yaml` are regular files before
+  starting regeneration. A missing artifact must abort the pipeline without invoking the optimizer.
 
 ## Package Layout
 

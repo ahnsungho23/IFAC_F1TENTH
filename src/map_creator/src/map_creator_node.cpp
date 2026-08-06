@@ -375,6 +375,26 @@ private:
       abort("map save failed: " + error);
       return false;
     }
+    const fs::path output_dir(outputDir());
+    const fs::path png_path = output_dir / (output_map_name_ + ".png");
+    const fs::path yaml_path = output_dir / (output_map_name_ + ".yaml");
+    std::error_code png_error;
+    std::error_code yaml_error;
+    const bool png_ready = fs::is_regular_file(png_path, png_error);
+    const bool yaml_ready = fs::is_regular_file(yaml_path, yaml_error);
+    if (!png_ready || !yaml_ready) {
+      std::ostringstream reason;
+      reason << "map artifact verification failed: "
+             << png_path.string() << "="
+             << (png_ready ? "ready" : png_error ? png_error.message() : "missing") << ", "
+             << yaml_path.string() << "="
+             << (yaml_ready ? "ready" : yaml_error ? yaml_error.message() : "missing");
+      abort(reason.str());
+      return false;
+    }
+    RCLCPP_INFO(
+      get_logger(), "verified optimizer map inputs: %s, %s",
+      png_path.c_str(), yaml_path.c_str());
 
     json obstacles = json::array();
     for (const auto & entry : baked_) {
