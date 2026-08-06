@@ -1,7 +1,7 @@
 map_controller:
   ros__parameters:
     # 상대 경로는 패키지 share 기준으로 해석되고, `~`/`$HOME`으로 시작하면 홈으로 펼쳐진다.
-    global_waypoints_csv: /home/miru/2026_IFAC/offline_trajectory_generator/output/map/global_waypoints.csv
+    global_waypoints_csv: /home/tenmeneat/2026_IFAC/offline_trajectory_generator/output/map/global_waypoints.csv
     package_resource_root: ''
     frame_id: map
     base_frame_id: base_link
