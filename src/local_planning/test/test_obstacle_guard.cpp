@@ -42,7 +42,7 @@ f110_msgs::msg::Obstacle makeObstacle(
   return obstacle;
 }
 
-TEST(ObstacleGuard, AddsFixedMarginAndKalmanStandardDeviation)
+TEST(ObstacleGuard, AddsFixedInflationAndKalmanStandardDeviation)
 {
   auto obstacle = makeObstacle(10.0, 9.8, 10.2);
   obstacle.s_var = 0.01;
@@ -50,9 +50,9 @@ TEST(ObstacleGuard, AddsFixedMarginAndKalmanStandardDeviation)
 
   ObstacleGuardParameters parameters;
   parameters.uncertainty_sigma_scale = 3.0;
-  parameters.minimum_longitudinal_margin_m = 0.05;
-  parameters.minimum_lateral_margin_m = 0.03;
-  parameters.maximum_lateral_margin_m = 1.0;  // test the uncapped margin formula
+  parameters.minimum_longitudinal_inflation_m = 0.05;
+  parameters.minimum_lateral_inflation_m = 0.03;
+  parameters.maximum_lateral_inflation_m = 1.0;  // test the uncapped inflation formula
   const auto guard = buildUncertaintyGuard(obstacle, 100.0, parameters);
 
   EXPECT_NEAR(guard.s_start, 9.45, 1.0e-9);
@@ -83,8 +83,8 @@ TEST(ObstacleGuard, HandlesClosedTrackWrap)
 {
   ObstacleGuardParameters parameters;
   parameters.uncertainty_sigma_scale = 0.0;
-  parameters.minimum_longitudinal_margin_m = 0.10;
-  parameters.minimum_lateral_margin_m = 0.05;
+  parameters.minimum_longitudinal_inflation_m = 0.10;
+  parameters.minimum_lateral_inflation_m = 0.05;
 
   const auto initial = makeObstacle(0.05, 99.85, 0.25);
   const auto frozen_guard = buildUncertaintyGuard(initial, 100.0, parameters);
@@ -96,7 +96,7 @@ TEST(ObstacleGuard, HandlesClosedTrackWrap)
   EXPECT_TRUE(obstacleEnvelopeContained(shifted_envelope, frozen_guard, 100.0));
 }
 
-TEST(ObstacleGuard, FallsBackToFixedMarginForInvalidVariance)
+TEST(ObstacleGuard, FallsBackToFixedInflationForInvalidVariance)
 {
   auto obstacle = makeObstacle(10.0, 9.8, 10.2);
   obstacle.s_var = std::numeric_limits<double>::quiet_NaN();
@@ -110,18 +110,19 @@ TEST(ObstacleGuard, FallsBackToFixedMarginForInvalidVariance)
   EXPECT_NEAR(guard.d_left, 0.23, 1.0e-9);
 }
 
-TEST(ObstacleGuard, CapsLateralMarginAtConfiguredMaximum)
+TEST(ObstacleGuard, CapsLateralInflationAtConfiguredMaximum)
 {
   auto obstacle = makeObstacle(10.0, 9.8, 10.2);
   obstacle.s_var = 0.01;
   obstacle.d_var = 4.0;
 
   ObstacleGuardParameters parameters;
-  parameters.maximum_lateral_margin_m = 0.20;
+  parameters.maximum_lateral_inflation_m = 0.20;
   const auto guard = buildUncertaintyGuard(obstacle, 100.0, parameters);
 
-  // 3 * sqrt(4.0) = 6 m of lateral inflation is capped at maximum_lateral_margin_m (0.20);
-  // the longitudinal margin stays uncapped.
+  // 3 * sqrt(4.0) = 6 m of lateral inflation is capped at
+  // maximum_lateral_inflation_m (0.20);
+  // the longitudinal inflation stays uncapped.
   EXPECT_NEAR(guard.d_right, -0.40, 1.0e-9);
   EXPECT_NEAR(guard.d_left, 0.40, 1.0e-9);
   EXPECT_NEAR(guard.s_start, 9.45, 1.0e-9);

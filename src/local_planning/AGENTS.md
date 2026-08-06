@@ -18,12 +18,11 @@
 - Consume the detector-owned Frenet footprint on `/static_obs` without any Cartesian-to-Frenet
   conversion. Treat `s_start/s_end/d_right/d_left` as the authoritative obstacle geometry.
   Cartesian AABB fields are optional metadata and are not consumed as planner geometry.
-- Derive each target `d` from the obstacle lateral bound plus configured clearance and the small
-  commitment reserve. Reject targets outside the per-waypoint `d_left`/`d_right` track widths.
-  A raceline-centred obstacle demands the full obstacle width plus margins on BOTH sides at once;
-  when both sides are rejected with the full `obstacle_clearance_m`, retry the whole selection
-  once with the reduced `minimum_avoidance_clearance_m` (never below vehicle half-width plus the
-  hard collision margin) before declaring a safe stop.
+- Use one physical lateral-clearance formula everywhere:
+  `vehicle_half_width_m + safety_margin_m`. Apply that same centre clearance to obstacle target
+  generation, raceline-blocking detection, track-bound checks, frozen-path validation, and raw
+  hard-collision validation. Do not add a boundary margin, commitment reserve, hard margin, or
+  reduced-clearance fallback. Reject infeasible sides and safe-stop when neither side fits.
 - When left/right candidate scores tie within `side_tie_epsilon_m`, select the side with more
   reference-width headroom across the obstacle span. Reference widths carry no perception jitter,
   so centred-obstacle side choices cannot flap between replans.
@@ -45,7 +44,7 @@
   observations for every cluster ID and the configured minimum stabilization duration unless the
   maximum wait is reached. Expand the final union by
   `k*sqrt(s_var/d_var)` plus fixed longitudinal/lateral extent-noise floors, capping the lateral
-  margin at `uncertainty_max_lateral_margin_m` so fresh-detection variance cannot inflate a
+  inflation at `uncertainty_max_lateral_inflation_m` so fresh-detection variance cannot inflate a
   centred obstacle's Guard beyond what either side can clear, and freeze that
   uncertainty Guard with the commitment. An obstacle already inside the stop buffer bypasses this
   wait and enters safe-stop immediately.
@@ -68,9 +67,10 @@
   obstacle array, including an explicitly empty array, replaces that memory. Rejecting a wrong-frame
   array must not erase it. Do not wait for repeated observations when replanning solely from retained
   stale memory because no new samples can arrive.
-- Separate commitment violations into hard physical collisions and soft uncertainty/clearance
-  collisions. Test hard collisions against detector bounds plus vehicle half-width and the
-  configured hard margin, and replan immediately. Require the configured consecutive planning
+- Separate commitment violations into hard physical collisions and soft uncertainty-envelope
+  collisions. Both checks use the same unified physical clearance. Test hard collisions against
+  raw detector bounds and replan immediately; test soft collisions against uncertainty Guards.
+  Require the configured consecutive planning
   cycles before acting on a soft-only collision, clearing the count as soon as the frozen path is
   valid again. Never debounce track-bound, path-exhaustion, or geometry failures. Log the offending
   obstacle ID, waypoint `s/d`, obstacle `s/d` bounds, and applied clearance.
@@ -80,7 +80,7 @@
   confirms `STATE_GLOBAL`.
 - Stabilize every non-active blocking cluster from the current ego state concurrently while the
   active maneuver runs; do not use the old `merge_s` as the next-cluster observation origin.
-  Once the active Guard rear plus `chain_release_margin_m` is behind ego, allow a feasible next
+  Once the active Guard rear plus `chain_release_distance_m` is behind ego, allow a feasible next
   spline anchored at the current `ego.d` to preempt the old merge. Retire the completed IDs and
   release their side lock, but keep `/avoid_waypoints` non-empty and `STATE_AVOID` active. Continue
   validating the current commitment against obstacles that lie before its merge until a validated

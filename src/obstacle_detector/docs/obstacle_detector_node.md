@@ -5,8 +5,8 @@
 `obstacle_detector_node`는 2D LiDAR scan에서 트랙 위의 비지도 장애물을 검출하고 Frenet 프레임에서
 추적한다. 확정된 장애물을 정적 레이어와 동적 레이어로 분리해 다음 토픽으로 발행한다.
 
-- `/static_obs`: 지도에는 없는 provisional/confirmed 정적 장애물 전체
-- `/confirmed_static_obs`: 장기 지도 저장용 confirmed 정적 장애물만 포함
+- `/static_obs`: 존재가 확정된 motion `UNKNOWN` 또는 `STATIC` 장애물
+- `/confirmed_static_obs`: 존재와 정지 상태가 모두 확정된 `STATIC` 장애물
 - `/opp_obs`: 에고 전방의 가장 가까운 동적 상대차 최대 1개
 
 이 패키지는 검출만 담당한다. 경로 계획, 회피·추월 waypoint, 주행 상태 결정은 다른 패키지의 책임이다.
@@ -105,40 +105,61 @@ Mahalanobis distance는 gate로만 사용하고 정렬 기준은 Frenet 거리�
 adaptive `R`로 Kalman 측정 갱신하고, 연결되지 않은 track은 TTL을 감소시키며, 남은 detection은
 새 track으로 생성한다.
 
-### 2.5 정적/동적 분류
+### 2.5 존재 상태와 motion 상태 분리
 
-느린 track들의 평균 Frenet 속도를 static-field reference로 계산한다. 각 track의 속도가 이 기준에서
-얼마나 벗어나는지로 정적/동적을 분류한다.
+기존 Frenet KF와 별도로 각 track에 분류 전용 map-frame 등속 KF를 둔다.
 
 ```text
-v_rel = [vs - static_ref_vs, vd - static_ref_vd]
-relative_speed = ||v_rel||
-velocity_m2 = v_relᵀ P_velocity⁻¹ v_rel
+association/output KF: [s, vs, d, vd]
+classification KF:     [x, vx, y, vy]
 ```
 
-기본 상태 전이는 다음과 같다.
+map KF의 measurement는 현재 detection AABB 중심이다. Prediction 위치는 위치 이력이나 vote에
+추가하지 않는다. 이 구조는 기존 closed-track Frenet association과 출력 geometry를 유지하면서,
+헤어핀에서 `s` projection이 변하는 현상이 motion 판정을 직접 흔들지 않게 한다.
 
-1. hits 1~2: `classified=false`, `PENDING`. 장애물 토픽에 발행하지 않는다.
-2. hits 3: `classified=true`, `PROVISIONAL_STATIC`. 즉시 `/static_obs`에 발행한다. 단,
-   envelope 안정성 게이트를 함께 통과한 track만 발행 대상이다(아래 참조).
-3. `relative_speed < dyn_vel_exit(0.25 m/s)`가 추가로 3회 연속 관측되면
-   `CONFIRMED_STATIC`이 된다.
-4. 아래 조건을 모두 만족하는 관측이 25회 연속 쌓이면 `DYNAMIC`이 된다.
-   - `relative_speed > dyn_vel_enter(0.5 m/s)`
-   - `velocity_m2 >= dyn_velocity_mahalanobis_gate(9.21)`
-   - ego odometry가 `meas_motion_timeout` 안의 최신 값
-   - `|yaw_rate| <= dyn_max_abs_yaw_rate(1.5 rad/s)`
-5. `DYNAMIC` track에서 저속 조건이 3회 연속 확인되면 `CONFIRMED_STATIC`으로 복귀한다.
+존재 상태는 최근 scan association만 사용한다.
 
-`0.25~0.5 m/s` hysteresis 구간, 속도 신뢰도 부족, 빠르거나 오래된 ego 회전 정보, detection miss는
-연속 이동 증거를 끊는다. 빠른 회전 중 발생한 Frenet 속도 오차가 dynamic으로 누적되지 않게 하기
-위함이다. 반면 저속 정적 증거는 회전율 gate 때문에 지연하지 않아 정적 장애물을 빠르게 확정한다.
+```text
+RAW → TENTATIVE → CONFIRMED
+기본값: 최근 confirmation_window=5 scan에서 measurement 3회
+```
 
-`PROVISIONAL_STATIC → CONFIRMED_STATIC`은 같은 Track 객체와 ID를 유지하며 두 상태 모두
-`/static_obs`에 실리므로 전환 공백이 없다. `DYNAMIC`으로 바뀐 동일 scan부터 `/static_obs`에서
-제거하고 `/opp_obs` 후보로 옮긴다.
-`/confirmed_static_obs`에는 `CONFIRMED_STATIC`이면서 같은 envelope 안정성 게이트를 통과한
-객체만 별도로 실린다.
+`RAW/TENTATIVE`는 항상 motion `UNKNOWN`이며 발행하지 않는다. `CONFIRMED`가 된 뒤에만 아래
+motion evidence를 누적한다.
+
+map KF 속도와 속도 공분산 블록으로 다음 통계량을 계산한다.
+
+```text
+v  = [vx, vy]
+Pv = map KF covariance의 [vx, vy] 2×2 block
+Tv = vᵀ Pv⁻¹ v
+```
+
+행렬 inverse는 만들지 않고 Eigen `LDLT.solve()`를 사용한다. 공분산은 대칭화한 뒤
+`minimum_velocity_covariance`와 `covariance_regularization_epsilon`으로 작은 고윳값을
+regularize한다. NaN/Inf 또는 명백한 음의 고윳값은 해당 measurement를 `UNCERTAIN`으로 처리한다.
+
+- `Tv > dynamic_chi2_threshold(9.21)`: dynamic evidence
+- `Tv < static_chi2_threshold(5.99)`: static evidence
+- 그 사이: uncertain evidence
+
+한 measurement의 evidence만으로 상태를 바꾸지 않는다.
+
+- 최근 5개 중 dynamic evidence 3개: `UNKNOWN/STATIC → DYNAMIC`
+- 최근 15개 중 static evidence 10개, map 위치 이력 10개 이상,
+  `position_rms <= 0.10 m`: `UNKNOWN → STATIC`
+- `DYNAMIC → STATIC`: DYNAMIC 진입 후 measurement 20개 이상, 최근 static vote 15개,
+  `position_rms <= 0.08 m`를 모두 요구한다.
+
+따라서 잠시 멈춘 상대차는 곧바로 STATIC이 되지 않는다. Measurement miss는 vote와 위치 이력을
+추가하지 않고 `static_confidence`만 forgetting factor로 감소시킨다. Confidence는 static
+evidence, 작은 위치 RMS, 반복 association에서 증가하고 dynamic evidence와 큰 RMS에서 감소한다.
+현재 detector에는 ray-traced free-space contradiction 입력이 없어서 해당 감점은 TODO로 남겨뒀다.
+
+호환성과 안전을 위해 `CONFIRMED+UNKNOWN`은 provisional 객체로 `/static_obs`에 포함한다.
+`DYNAMIC`으로 바뀐 동일 scan부터 `/static_obs`에서 빠지고 `/opp_obs` 후보로 이동한다.
+`/confirmed_static_obs`에는 `CONFIRMED+STATIC`이면서 envelope 안정성 게이트를 통과한 객체만 실린다.
 
 envelope 안정성 게이트: 매칭될 때마다 측정 중심과 extent가 track의 예측/보존 값에서
 `envelope_stability_tolerance_m`(기본 0.10 m) 이내로 안정됐는지 검사하고, 연속 횟수가
@@ -147,9 +168,6 @@ envelope 안정성 게이트: 매칭될 때마다 측정 중심과 extent가 tra
 채우지 못해 `/static_obs`에 나타나지 않는다. envelope가 안정적인 실제 장애물은 hits 3시점에
 streak 2를 함께 만족하므로 발행 지연이 추가되지 않는다. prediction-only 프레임에는 streak가
 유지되므로, 한번 안정화된 track의 ghost 발행은 계속 허용된다.
-
-기본 `classifier_mode=velocity`에서는 사용하지 않는 positional-std 이력을 저장하거나 분산을 계산하지
-않는다. `classifier_mode=std` 또는 `both`일 때만 `std_window` 길이의 `(s,d)` 이력을 유지한다.
 
 ### 2.6 레이어 병합과 발행
 
@@ -214,10 +232,10 @@ DIAG perception [1.00s scans=40/40 drop(clcs=0 tf=0)]
 beam(valid=.../... nonfinite=... below_min=... at_or_above_max=...)
 cluster=...->... fragment_drop=... detections=...
 reject(size=... clcs_projection=... view=... boundary=... map=...)
-track(total=... visible=... hit_pending=... provisional=...
-      static=... dynamic=... motion_gated=...)
+track(total=... visible=... raw=... tentative=...
+      unknown=... static=... dynamic=... predicted=... invalid_Pv=...)
 assoc(pairs=... match=... spawn=... retire=... euclid_reject=... maha_reject=...)
-motion(yaw_used=... fresh=... ref_vs=... ref_vd=...)
+motion(yaw_used=... fresh=...)
 ```
 
 - `scans=processed/received`는 수신 scan 중 전체 파이프라인을 끝까지 처리한 개수다.
@@ -228,9 +246,10 @@ motion(yaw_used=... fresh=... ref_vs=... ref_vd=...)
 - `reject(...)`는 detection 생성 전 각 Layer 1 gate에서 탈락한 클러스터 수다.
 - `assoc`는 1초 동안 누적한 tracker event다. `pairs`, `euclid_reject`, `maha_reject`는 장애물 수가
   아니라 `track × detection` 후보 쌍 수다.
-- `track`은 누적합이 아니라 로그 시점의 최신 snapshot이다. `hit_pending`은
-  `min_hits_confirm` 미달이다. `motion_gated`는 속도가 `dyn_vel_enter`를 넘었지만 속도 Mahalanobis
-  신뢰도 또는 ego yaw 조건을 통과하지 못한 visible track 수다.
+- `track`은 누적합이 아니라 로그 시점의 최신 snapshot이다. `raw/tentative`는 존재 확인 상태,
+  `unknown/static/dynamic`은 CONFIRMED track의 motion 상태다. `predicted`는 이번 scan에
+  measurement가 없었던 track, `invalid_Pv`는 map 속도 공분산이 유효하지 않았던 visible
+  CONFIRMED track 수다.
 - `yaw_used`는 adaptive covariance 계산에 실제 사용한 yaw rate다. odometry timestamp가
   `meas_motion_timeout`을 넘으면 `yaw_used=0`, `fresh=false`가 된다.
 
@@ -253,8 +272,8 @@ motion(yaw_used=... fresh=... ref_vs=... ref_vd=...)
 
 | 토픽 파라미터 | 기본 토픽 | 메시지 타입 | 내용 |
 |---|---|---|---|
-| `static_obs_topic` | `/static_obs` | `f110_msgs/msg/ObstacleArray` | provisional/confirmed 정적 객체 전체의 Frenet 경계와 visible Cartesian AABB |
-| `confirmed_static_obs_topic` | `/confirmed_static_obs` | `f110_msgs/msg/ObstacleArray` | confirmed 정적 객체만 포함한 장기 지도 입력 |
+| `static_obs_topic` | `/static_obs` | `f110_msgs/msg/ObstacleArray` | CONFIRMED+UNKNOWN 또는 STATIC 객체의 Frenet 경계와 visible Cartesian AABB |
+| `confirmed_static_obs_topic` | `/confirmed_static_obs` | `f110_msgs/msg/ObstacleArray` | CONFIRMED+STATIC만 포함한 장기 지도 입력 |
 | `opp_obs_topic` | `/opp_obs` | `f110_msgs/msg/ObstacleArray` | 최근접 동적 상대차 최대 1개의 Frenet 경계와 visible Cartesian AABB |
 | `static_markers_topic` | `/static_obs/markers` | `visualization_msgs/msg/MarkerArray` | 최종 `/static_obs` Frenet 경계의 RViz mirror |
 | `opp_markers_topic` | `/opp_obs/markers` | `visualization_msgs/msg/MarkerArray` | 최종 `/opp_obs` Frenet 경계의 RViz mirror |
@@ -273,10 +292,12 @@ motion(yaw_used=... fresh=... ref_vs=... ref_vd=...)
 | 지도 | `use_map_filter`, `map_occupied_thresh`, `map_inflation_cells`, `map_point_reject_ratio` | 점유지도 필터 |
 | 측정 불확실성 | `meas_range_var_scale`, `meas_sparse_var_scale`, `meas_yaw_rate_var_scale`, `meas_reference_points`, `meas_variance_scale_max`, `meas_motion_timeout` | Detection별 adaptive Kalman `R` |
 | 추적 | `meas_var_s/d`, `process_var_vs/vd`, `assoc_gate`, `aggro_multi`, `assoc_use_mahalanobis`, `assoc_mahalanobis_gate` | Kalman 및 2단계 association |
-| 수명 | `ttl_dynamic`, `ttl_static`, `min_hits_confirm`, `extent_shrink_alpha`, `envelope_stability_tolerance_m`, `envelope_stability_frames` | track 유지와 발행 확정, envelope extent 완화(1.0=기존 덮어쓰기), 정적 레이어 발행 안정성 게이트(측정 중심+envelope가 tolerance 이내로 frames회 연속 안정일 때만 /static_obs 발행). `ttl_static=25`는 약 250 Hz 입력에서 약 0.1초의 정적 track 검출 공백을 허용 |
-| 분류 | `classifier_mode`, `dyn_vel_enter/exit`, `static_confirm_frames`, `dynamic_confirm_frames`, `dyn_velocity_mahalanobis_gate`, `dyn_max_abs_yaw_rate`, `static_ref_gate` | provisional/static/dynamic 판정 |
+| 수명 | `ttl_dynamic`, `ttl_static`, `min_hits_confirm`, `confirmation_window`, `extent_shrink_alpha`, `envelope_stability_tolerance_m`, `envelope_stability_frames` | 3-of-5 존재 확인, track 유지, extent 완화와 정적 레이어 envelope 안정성 gate |
+| 분류 | `motion_classification.dynamic_chi2_threshold`, `static_chi2_threshold`, `dynamic_vote_*`, `static_vote_*` | map 속도의 통계적 evidence와 최근 voting |
+| 위치 지속성 | `motion_classification.position_history_size`, `static_min_observations`, `static_max_position_rms`, `dynamic_to_static_*` | STATIC 진입과 보수적인 DYNAMIC→STATIC 복귀 |
+| 분류 수치 안정성 | `motion_classification.covariance_regularization_epsilon`, `minimum_velocity_covariance`, `static_score_forgetting_factor` | 속도 공분산 regularization과 confidence decay |
 | 레이어 병합 | `layer_merge_enable`, `layer_merge_gap_s/d` | tracking 후 같은 레이어 객체 병합 |
-| 진단 | `diagnostics_enable`, `diagnostics_period_sec` | 누적 perception INFO 로그 활성화와 주기 |
+| 진단 | `diagnostics_enable`, `diagnostics_period_sec`, `motion_classification.debug_enable`, `debug_period_sec` | 누적 perception 로그와 track별 motion debug 로그 |
 
 ## 6. 빌드
 
@@ -307,6 +328,19 @@ RViz 포함:
 ros2 launch obstacle_detector obstacle_detector.launch.py rviz:=true
 ```
 
+Track별 motion 통계를 확인하려면
+`config/obstacle_detector.yaml`의 `motion_classification.debug_enable`을 `true`로 바꾸거나
+직접 실행 시 parameter override를 사용한다.
+
+```bash
+ros2 run obstacle_detector obstacle_detector_node --ros-args \
+  --params-file "$(ros2 pkg prefix obstacle_detector)/share/obstacle_detector/config/obstacle_detector.yaml" \
+  -p motion_classification.debug_enable:=true
+```
+
+출력 한 줄에는 ID, `TrackStatus/MotionStatus`, map `vx/vy`, `Tv`, static/dynamic vote,
+위치 RMS와 이력 수, static confidence, 마지막 measurement 경과시간이 포함된다.
+
 장애물이 포함된 live map과 분리된 clean map을 Layer 1에 사용:
 
 ```bash
@@ -336,6 +370,13 @@ export ROS_DOMAIN_ID=87
 source /opt/ros/jazzy/setup.zsh
 source ~/2026_IFAC/install/setup.zsh
 python3 ~/2026_IFAC/src/obstacle_detector/test/synthetic_opponent_test.py
+```
+
+단위 테스트:
+
+```bash
+colcon test --packages-select obstacle_detector
+colcon test-result --verbose
 ```
 
 PASS 조건은 동적 상대차가 먼저 `/static_obs`에 provisional로 나타난 뒤 같은 ID로 `/opp_obs`에

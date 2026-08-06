@@ -177,8 +177,7 @@ private:
   double initial_observation_min_duration_sec_{0.15};
   double initial_observation_max_wait_sec_{0.35};
   int commitment_soft_violation_confirm_cycles_{3};
-  double hard_collision_margin_m_{0.03};
-  double chain_release_margin_m_{0.20};
+  double chain_release_distance_m_{0.20};
   double commitment_lock_lateral_threshold_m_{0.10};
   double commitment_lock_longitudinal_m_{0.50};
 

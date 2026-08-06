@@ -16,8 +16,9 @@
   → Cartesian AABB 전체의 Frenet 경계 투영
   → 크기·관측거리·트랙경계·점유지도 필터
   → 거리·희소도·회전량 기반 adaptive 측정 공분산
-  → Frenet 등속 Kalman tracking
-  → PENDING / PROVISIONAL_STATIC / CONFIRMED_STATIC / DYNAMIC 분류
+  → Frenet 등속 Kalman association + map-frame 등속 Kalman motion 추정
+  → RAW / TENTATIVE / CONFIRMED 존재 상태
+  → UNKNOWN / STATIC / DYNAMIC motion 상태
   → 레이어 내부 객체 병합
   → visible track의 Cartesian AABB 합집합과 일치하는 Frenet 경계
   → 1초 누적 perception 진단 로그
@@ -31,18 +32,20 @@
 ### 레이어
 
 - Layer 1: `/map`에 등록된 벽과 알려진 구조물을 제거하는 필터. 발행하지 않는다.
-- Layer 2: 3회 관측된 장애물을 우선 provisional static으로, 저속이 확정되면 confirmed static으로
-  같은 ID를 유지하며 `/static_obs`에 발행한다.
-- Confirmed Layer 2: confirmed static만 `/confirmed_static_obs`에 별도로 발행한다. 장기 저장
+- Layer 2: 최근 5 scan 중 3회 관측된 `CONFIRMED` 장애물 가운데 motion이 `UNKNOWN` 또는
+  `STATIC`인 객체를 같은 ID로 `/static_obs`에 발행한다.
+- Confirmed Layer 2: 위치 지속성과 속도 통계 voting으로 확정된 `STATIC`만
+  `/confirmed_static_obs`에 별도로 발행한다. 장기 저장
   노드는 이 토픽을 사용하며 기존 `/static_obs` 계약은 바뀌지 않는다.
 - Layer 3: 확정 동적 물체 중 에고 전방에서 가장 가까운 하나를 `/opp_obs`로 발행한다.
 
 세 장애물 레이어 view는 `f110_msgs/msg/ObstacleArray`이며 매 scan마다 발행된다. 해당 view가
 비어 있으면 빈 배열을 발행한다.
 
-기본값에서 hits 1~2인 track은 두 토픽 모두에 나오지 않는다. hits 3부터 `/static_obs`에 바로 나오고,
-상대속도·속도 불확실성·에고 회전율을 모두 통과한 이동 증거가 25회 연속 쌓이면 같은 ID로
-`/opp_obs`로 이동한다.
+분류는 기존 Frenet KF와 별도의 map-frame KF `[x,vx,y,vy]`를 사용한다. 속도 통계
+`Tv=vᵀPv⁻¹v`와 map 위치 RMS를 최근 measurement history에서 voting하며, prediction-only scan은
+vote로 세지 않는다. 기본값에서 최근 5개 중 dynamic evidence 3개면 같은 ID로 `/opp_obs`로
+이동한다. STATIC은 최근 15개 중 static evidence 10개와 위치 RMS 0.10 m 이하를 함께 요구한다.
 
 각 visible 객체는 map-frame AABB 전체를 CLCS에 투영한
 `s_start/s_end/d_right/d_left`를 authoritative geometry로 제공한다. 같은 footprint의
@@ -124,9 +127,10 @@ ros2 launch obstacle_detector obstacle_detector.launch.py \
   `meas_yaw_rate_var_scale`, `meas_reference_points`
 - 추적: `meas_var_s/d`, `process_var_vs/vd`, `assoc_gate`,
   `assoc_use_mahalanobis`, `assoc_mahalanobis_gate`, `ttl_dynamic/static`
-- 분류: `classifier_mode`, `dyn_vel_enter/exit`, `static_confirm_frames`,
-  `dynamic_confirm_frames`, `dyn_velocity_mahalanobis_gate`, `dyn_max_abs_yaw_rate`,
-  `static_ref_gate`
+- 존재 확인: `min_hits_confirm`, `confirmation_window`
+- 분류: `motion_classification.dynamic_chi2_threshold`, `static_chi2_threshold`,
+  `dynamic_vote_*`, `static_vote_*`, `position_history_size`, `static_max_position_rms`,
+  `dynamic_to_static_*`
 - 레이어 출력 병합: `layer_merge_enable`, `layer_merge_gap_s/d`
 - 진단: `diagnostics_enable`, `diagnostics_period_sec`
 

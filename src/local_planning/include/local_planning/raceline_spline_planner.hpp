@@ -32,10 +32,10 @@ struct RacelineSplineParameters
   double detection_lookahead_m{12.0};
   double obstacle_cluster_gap_m{0.8};
   double obstacle_longitudinal_padding_m{0.35};
-  double obstacle_clearance_m{0.25};
-  double blocking_margin_m{0.10};
   double vehicle_half_width_m{0.121};
-  double boundary_margin_m{0.13};
+  // The only tunable lateral safety margin. Every physical-clearance check uses
+  // lateralSafetyClearance() = vehicle_half_width_m + safety_margin_m.
+  double safety_margin_m{0.03};
   double fallback_track_half_width_m{1.50};
 
   std::vector<double> pre_apex_distances_m{6.0, 4.0, 2.0};
@@ -46,12 +46,6 @@ struct RacelineSplineParameters
   double post_merge_min_time_sec{1.0};
   double minimum_target_offset_m{0.20};
   double maximum_target_offset_m{1.50};
-  double commitment_clearance_reserve_m{0.05};
-  // Last-resort pass when both sides are rejected with the full clearance: retry with a
-  // tighter lateral inflation so a raceline-centred obstacle still yields a feasible offset.
-  // Must stay above vehicle_half_width_m + hard_collision_margin_m and below
-  // obstacle_clearance_m.
-  double minimum_avoidance_clearance_m{0.18};
   // When left/right candidate scores differ by less than this, pick the side with more track
   // headroom instead; reference widths are jitter-free, so centred-obstacle ties stay stable.
   double side_tie_epsilon_m{0.02};
@@ -59,9 +53,14 @@ struct RacelineSplineParameters
   double maximum_curvature_radpm{3.20};
   double maximum_curvature_rate_radpm2{20.0};
 
-  double safe_stop_buffer_m{0.80};
+  double safe_stop_buffer_m{0.40};
   double safe_stop_deceleration_mps2{2.5};
   int minimum_path_points{8};
+
+  double lateralSafetyClearance() const
+  {
+    return vehicle_half_width_m + safety_margin_m;
+  }
 };
 
 struct EgoFrenetState
@@ -166,7 +165,6 @@ public:
     const std::vector<f110_msgs::msg::Obstacle> & obstacles,
     std::string * error = nullptr,
     PathValidationFailure * failure = nullptr,
-    const std::optional<double> & obstacle_clearance = std::nullopt,
     const std::optional<double> & maximum_collision_forward_m = std::nullopt) const;
 
   void toCartesian(double s, double d, double & x, double & y, double & yaw) const;
@@ -180,8 +178,7 @@ private:
   std::size_t nearestReferenceIndex(double s) const;
   std::vector<ExpandedObstacle> expandVisibleObstacles(
     const EgoFrenetState & ego,
-    const std::vector<f110_msgs::msg::Obstacle> & obstacles,
-    const std::optional<double> & obstacle_clearance = std::nullopt) const;
+    const std::vector<f110_msgs::msg::Obstacle> & obstacles) const;
   bool isBlockingRaceline(const ExpandedObstacle & obstacle) const;
   std::vector<ExpandedObstacle> nearestCluster(
     const std::vector<ExpandedObstacle> & obstacles) const;

@@ -208,14 +208,10 @@ void LocalPlannerNode::initializeParameters()
     declare_parameter<double>("obstacle_cluster_gap_m", 0.8);
   planner_parameters_.obstacle_longitudinal_padding_m =
     declare_parameter<double>("obstacle_longitudinal_padding_m", 0.35);
-  planner_parameters_.obstacle_clearance_m =
-    declare_parameter<double>("obstacle_clearance_m", 0.25);
-  planner_parameters_.blocking_margin_m =
-    declare_parameter<double>("blocking_margin_m", 0.10);
   planner_parameters_.vehicle_half_width_m =
     declare_parameter<double>("vehicle_half_width_m", 0.121);
-  planner_parameters_.boundary_margin_m =
-    declare_parameter<double>("boundary_margin_m", 0.13);
+  planner_parameters_.safety_margin_m =
+    declare_parameter<double>("safety_margin_m", 0.03);
   planner_parameters_.fallback_track_half_width_m =
     declare_parameter<double>("fallback_track_half_width_m", 1.50);
   planner_parameters_.pre_apex_distances_m =
@@ -237,10 +233,6 @@ void LocalPlannerNode::initializeParameters()
     declare_parameter<double>("minimum_target_offset_m", 0.20);
   planner_parameters_.maximum_target_offset_m =
     declare_parameter<double>("maximum_target_offset_m", 1.50);
-  planner_parameters_.commitment_clearance_reserve_m =
-    declare_parameter<double>("commitment_clearance_reserve_m", 0.05);
-  planner_parameters_.minimum_avoidance_clearance_m =
-    declare_parameter<double>("minimum_avoidance_clearance_m", 0.18);
   planner_parameters_.side_tie_epsilon_m =
     declare_parameter<double>("side_tie_epsilon_m", 0.02);
   planner_parameters_.maximum_lateral_slope =
@@ -250,7 +242,7 @@ void LocalPlannerNode::initializeParameters()
   planner_parameters_.maximum_curvature_rate_radpm2 =
     declare_parameter<double>("maximum_curvature_rate_radpm2", 20.0);
   planner_parameters_.safe_stop_buffer_m =
-    declare_parameter<double>("safe_stop_buffer_m", 0.80);
+    declare_parameter<double>("safe_stop_buffer_m", 0.40);
   planner_parameters_.safe_stop_deceleration_mps2 =
     declare_parameter<double>("safe_stop_deceleration_mps2", 2.5);
   planner_parameters_.minimum_path_points =
@@ -274,18 +266,16 @@ void LocalPlannerNode::initializeParameters()
     declare_parameter<double>("initial_observation_max_wait_sec", 0.35);
   commitment_soft_violation_confirm_cycles_ =
     declare_parameter<int>("commitment_soft_violation_confirm_cycles", 3);
-  hard_collision_margin_m_ =
-    declare_parameter<double>("hard_collision_margin_m", 0.03);
-  chain_release_margin_m_ =
-    declare_parameter<double>("chain_release_margin_m", 0.20);
+  chain_release_distance_m_ =
+    declare_parameter<double>("chain_release_distance_m", 0.20);
   guard_parameters_.uncertainty_sigma_scale =
     declare_parameter<double>("uncertainty_sigma_scale", 3.0);
-  guard_parameters_.minimum_longitudinal_margin_m =
-    declare_parameter<double>("uncertainty_min_longitudinal_margin_m", 0.05);
-  guard_parameters_.minimum_lateral_margin_m =
-    declare_parameter<double>("uncertainty_min_lateral_margin_m", 0.03);
-  guard_parameters_.maximum_lateral_margin_m =
-    declare_parameter<double>("uncertainty_max_lateral_margin_m", 0.15);
+  guard_parameters_.minimum_longitudinal_inflation_m =
+    declare_parameter<double>("uncertainty_min_longitudinal_inflation_m", 0.05);
+  guard_parameters_.minimum_lateral_inflation_m =
+    declare_parameter<double>("uncertainty_min_lateral_inflation_m", 0.03);
+  guard_parameters_.maximum_lateral_inflation_m =
+    declare_parameter<double>("uncertainty_max_lateral_inflation_m", 0.15);
   commitment_lock_lateral_threshold_m_ =
     declare_parameter<double>("commitment_lock_lateral_threshold_m", 0.10);
   commitment_lock_longitudinal_m_ =
@@ -332,7 +322,10 @@ void LocalPlannerNode::initializeParameters()
   }
   if (planning_period_ms_ <= 0 || merge_confirm_cycles_ <= 0 ||
     safe_stop_release_cycles_ <= 0 ||
-    planner_parameters_.commitment_clearance_reserve_m < 0.0 ||
+    !std::isfinite(planner_parameters_.vehicle_half_width_m) ||
+    !(planner_parameters_.vehicle_half_width_m > 0.0) ||
+    !std::isfinite(planner_parameters_.safety_margin_m) ||
+    planner_parameters_.safety_margin_m < 0.0 ||
     planner_parameters_.post_merge_lookahead_m < 0.0 ||
     planner_parameters_.post_merge_min_time_sec < 0.0 ||
     !(state_handoff_tail_ratio_ > 0.0) || state_handoff_tail_ratio_ > 1.0 ||
@@ -344,24 +337,16 @@ void LocalPlannerNode::initializeParameters()
     initial_observation_max_wait_sec_ < 0.0 ||
     initial_observation_max_wait_sec_ < initial_observation_min_duration_sec_ ||
     commitment_soft_violation_confirm_cycles_ <= 0 ||
-    !std::isfinite(hard_collision_margin_m_) ||
-    hard_collision_margin_m_ < 0.0 ||
-    planner_parameters_.vehicle_half_width_m + hard_collision_margin_m_ >
-    planner_parameters_.obstacle_clearance_m ||
-    !std::isfinite(chain_release_margin_m_) ||
-    chain_release_margin_m_ < 0.0 ||
+    !std::isfinite(chain_release_distance_m_) ||
+    chain_release_distance_m_ < 0.0 ||
     !std::isfinite(guard_parameters_.uncertainty_sigma_scale) ||
     guard_parameters_.uncertainty_sigma_scale < 0.0 ||
-    !std::isfinite(guard_parameters_.minimum_longitudinal_margin_m) ||
-    guard_parameters_.minimum_longitudinal_margin_m < 0.0 ||
-    !std::isfinite(guard_parameters_.minimum_lateral_margin_m) ||
-    guard_parameters_.minimum_lateral_margin_m < 0.0 ||
-    guard_parameters_.maximum_lateral_margin_m <
-    guard_parameters_.minimum_lateral_margin_m ||
-    planner_parameters_.minimum_avoidance_clearance_m <
-    planner_parameters_.vehicle_half_width_m + hard_collision_margin_m_ ||
-    planner_parameters_.minimum_avoidance_clearance_m >
-    planner_parameters_.obstacle_clearance_m ||
+    !std::isfinite(guard_parameters_.minimum_longitudinal_inflation_m) ||
+    guard_parameters_.minimum_longitudinal_inflation_m < 0.0 ||
+    !std::isfinite(guard_parameters_.minimum_lateral_inflation_m) ||
+    guard_parameters_.minimum_lateral_inflation_m < 0.0 ||
+    guard_parameters_.maximum_lateral_inflation_m <
+    guard_parameters_.minimum_lateral_inflation_m ||
     !std::isfinite(planner_parameters_.side_tie_epsilon_m) ||
     planner_parameters_.side_tie_epsilon_m < 0.0 ||
     commitment_lock_lateral_threshold_m_ < 0.0 ||
@@ -369,9 +354,9 @@ void LocalPlannerNode::initializeParameters()
     planner_parameters_.minimum_path_points < 2)
   {
     throw std::invalid_argument(
-            "planning periods, confirmation counts, clearance reserve, handoff settings, "
-            "observation/uncertainty guard settings, hard/soft collision thresholds, commitment "
-            "chain release, commitment locks, and point counts must be valid");
+            "planning periods, confirmation counts, unified lateral safety clearance, handoff "
+            "settings, observation/uncertainty guard settings, commitment chain release, "
+            "commitment locks, and point counts must be valid");
   }
 }
 
@@ -807,7 +792,7 @@ bool LocalPlannerNode::activeManeuverObstacleCleared(const EgoFrenetState & ego)
       planner_.forwardDistance(commitment_start_s_, entry.second.s_end) +
       planner_parameters_.obstacle_longitudinal_padding_m);
   }
-  return driven_distance + 1.0e-6 >= active_rear_distance + chain_release_margin_m_;
+  return driven_distance + 1.0e-6 >= active_rear_distance + chain_release_distance_m_;
 }
 
 bool LocalPlannerNode::tryEarlyChainedManeuver(
@@ -1341,7 +1326,7 @@ void LocalPlannerNode::onPlanningTimer()
     const double collision_horizon = remainingDistanceToMerge(ego);
     const bool commitment_valid = planner_.validatePath(
       ego, committed_result_.path, planning_obstacles,
-      &commitment_error, &commitment_failure, std::nullopt, collision_horizon);
+      &commitment_error, &commitment_failure, collision_horizon);
     if (commitment_valid) {
       if (commitment_soft_violation_count_ > 0) {
         RCLCPP_INFO(
@@ -1359,12 +1344,10 @@ void LocalPlannerNode::onPlanningTimer()
 
     if (commitment_failure.kind == PathValidationFailureKind::kObstacleCollision) {
       const auto hard_collision_obstacles = buildCurrentManeuverInput(ego, false);
-      const double hard_clearance =
-        planner_parameters_.vehicle_half_width_m + hard_collision_margin_m_;
       PathValidationFailure hard_failure;
       const bool hard_collision_free = planner_.validatePath(
         ego, committed_result_.path, hard_collision_obstacles,
-        nullptr, &hard_failure, hard_clearance, collision_horizon);
+        nullptr, &hard_failure, collision_horizon);
       const bool hard_collision =
         !hard_collision_free &&
         hard_failure.kind == PathValidationFailureKind::kObstacleCollision;

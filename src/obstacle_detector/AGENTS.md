@@ -8,9 +8,9 @@ must not weaken the repository-root `AGENTS.md`.
 This package contains one C++ ROS 2 Jazzy runtime node:
 
 - `obstacle_detector_node` (ROS node name `obstacle_detector`) consumes 2D LiDAR, the occupancy
-  map, global waypoints, ego odometry, and TF. It publishes provisional/confirmed stationary
-  objects on `/static_obs`, a confirmed-only view on `/confirmed_static_obs`, and the nearest
-  confirmed dynamic opponent on `/opp_obs`.
+  map, global waypoints, ego odometry, and TF. It publishes existence-confirmed Unknown/Static
+  objects on `/static_obs`, a Static-only view on `/confirmed_static_obs`, and the nearest
+  Dynamic opponent on `/opp_obs`.
 
 Path planning, overtaking, avoidance-waypoint generation, and driving-state arbitration are
 explicitly outside this package. Do not add an overtake planner, `/state`, `/avoid_waypoints`,
@@ -53,17 +53,22 @@ Keep the scan-driven pipeline ordered as follows:
 10. Track surviving detections with the constant-velocity Frenet Kalman state
     `[s, vs, d, vd]`. Associate with the existing physical Frenet hard gate, then the
     detection-specific Mahalanobis gate, then deterministic Frenet-distance-ordered greedy 1:1
-    assignment. Mahalanobis is a gate, not the sorting cost.
-11. Keep hits below `min_hits_confirm` in `Pending` and out of both obstacle topics. At the
-    confirming hit, publish the same track/ID immediately as `ProvisionalStatic`. Promote it to
-    `ConfirmedStatic` after consecutive low-relative-speed observations, or to `Dynamic` only
-    after consecutive velocity-confident motion observations with fresh, bounded ego yaw rate.
-    Additionally, a static track enters the published layer only while its envelope-stability
-    streak reaches `envelope_stability_frames`: consecutive matched frames whose measured centre
-    and extents stay within `envelope_stability_tolerance_m`. Fan-shaped morphing clusters never
-    settle and stay unpublished; stable real obstacles pass at the same hit as before.
-12. Merge confirmed tracks only within the same static/dynamic layer.
-13. Preserve each measured cluster's independent Frenet footprint and map-frame Cartesian AABB
+    assignment. Mahalanobis is a gate, not the sorting cost. In parallel, maintain a
+    classification-only map-frame CV Kalman state `[x, vx, y, vy]` from associated AABB centres.
+11. Keep existence and motion state machines separate. Existence uses
+    `Raw -> Tentative -> Confirmed` with measurement votes inside `confirmation_window`.
+    `Raw/Tentative` never publish. Only `Confirmed` tracks collect map-velocity chi-square
+    evidence and transition among `Unknown`, `Static`, and `Dynamic`.
+12. Compute `Tv=vᵀPv⁻¹v` from the map KF velocity and covariance through a regularized Eigen LDLT
+    solve. Never form an inverse. Vote only on associated measurements; prediction-only frames add
+    neither motion evidence nor map-position history. Require map-position RMS persistence for
+    Static, and use stricter observation, vote, and RMS gates for `Dynamic -> Static`.
+13. A non-dynamic track enters `/static_obs` only while its envelope-stability streak reaches
+    `envelope_stability_frames`: consecutive matched frames whose measured centre and extents stay
+    within `envelope_stability_tolerance_m`. Fan-shaped morphing clusters never settle and stay
+    unpublished; stable real obstacles pass at the same hit as existence confirmation.
+14. Merge confirmed tracks only within the same static/dynamic layer.
+15. Preserve each measured cluster's independent Frenet footprint and map-frame Cartesian AABB
     through Detection and Track. Smooth the Frenet extents per matched measurement with
     fast-grow/slow-shrink magnitude filtering (`extent_shrink_alpha`) so per-scan AABB flapping
     (square box vs real shape) does not flick the published envelope; expand immediately, relax
@@ -74,11 +79,11 @@ Keep the scan-driven pipeline ordered as follows:
     footprint as current geometry. Drop a predicted-only component whose merged envelope exceeds
     `max_obs_size`: fan-scatter ghost blobs can grow until they span the corridor and
     false-block planners.
-14. Publish all merged statics on `/static_obs`, the confirmed-static subset on
+16. Publish all merged Unknown/Static objects on `/static_obs`, the Static subset on
     `/confirmed_static_obs`, and at most one nearest-ahead dynamic object on `/opp_obs`.
-15. Build the two RViz MarkerArrays from those final published arrays' Frenet bounds. Include
+17. Build the two RViz MarkerArrays from those final published arrays' Frenet bounds. Include
     predicted-only obstacles and distinguish them with lower alpha.
-16. Keep perception diagnostics passive. Accumulate beam, cluster, rejection, and tracker event
+18. Keep perception diagnostics passive. Accumulate beam, cluster, rejection, and tracker event
     counters over the configured wall-clock interval, but report live track/classification counts
     as a current snapshot. Do not claim noise filtering or deskew statistics in this package;
     those belong to the upstream scan preprocessor that actually performs them.
@@ -95,15 +100,14 @@ published Frenet bounds instead of reprojecting the Cartesian metadata.
 ## Layer semantics
 
 - Layer 1 is the `/map` and corridor filter. It is never published.
-- Layer 2 is every provisional or confirmed non-map stationary object, published with
-  `is_static=true`.
-- `/confirmed_static_obs` is a same-scan, confirmed-only view of Layer 2. It uses the same
+- Layer 2 is every existence-confirmed `Unknown` or `Static` non-map object, published with
+  `is_static=true`. `Unknown` is the safety-preserving provisional state.
+- `/confirmed_static_obs` is a same-scan, `Static`-only view of Layer 2. It uses the same
   envelope-stability gate and object-level merge as `/static_obs`.
-- Layer 3 is the nearest confirmed dynamic object ahead of the ego, published with
+- Layer 3 is the nearest existence-confirmed `Dynamic` object ahead of the ego, published with
   `is_static=false`.
-- A fresh track must not be published until `min_hits_confirm` sets its `classified` flag. The
-  first publishable state is `ProvisionalStatic`; promotion to `ConfirmedStatic` preserves the
-  track ID and must not interrupt `/static_obs`.
+- A fresh track must not be published until its `TrackStatus` is `Confirmed`. Motion promotion
+  preserves the track ID and must not create an empty handoff frame between layers.
 - Merge tracks only within one layer. Never merge static and dynamic tracks together.
 - Layer merge uses the independent Frenet longitudinal/lateral extents. When a visible Cartesian
   AABB union exists, reproject it so the published Frenet envelope describes exactly the same
@@ -138,7 +142,8 @@ published Frenet bounds instead of reprojecting the Cartesian metadata.
 - `src/obstacle_detector_node.cpp` — ROS interface and scan-driven detection pipeline.
 - `src/aabb_frenet_projector.cpp` — complete Cartesian AABB-to-Frenet footprint projection.
 - `src/frenet_marker_builder.cpp` — final Frenet obstacle arrays to map-frame RViz boundaries.
-- `src/obstacle_tracker.cpp` — Frenet Kalman tracking and static/dynamic classification.
+- `src/obstacle_tracker.cpp` — Frenet Kalman association, map Kalman motion estimation, existence
+  status, chi-square voting, map-position persistence, hysteresis, and confidence.
 - `src/frenet_projector.cpp` — boundary lookup, track-length wrapping, and marker-only map
   interpolation.
 - `include/obstacle_detector/` — matching C++ headers.
@@ -160,9 +165,9 @@ published Frenet bounds instead of reprojecting the Cartesian metadata.
 - Confirm that only `obstacle_detector_node` is installed by this package.
 - Launch in an isolated `ROS_DOMAIN_ID` and verify clean startup and shutdown.
 - Run `test/synthetic_opponent_test.py` against a fresh detector process.
-- Confirm `/static_obs` contains provisional/confirmed stationary objects,
-  `/confirmed_static_obs` contains only confirmed stationary objects, a moving provisional object
-  moves to `/opp_obs` with the same ID, and confirmed stationary objects never leak into
+- Confirm `/static_obs` contains confirmed-existence Unknown/Static objects,
+  `/confirmed_static_obs` contains only Static objects, a moving Unknown object moves to
+  `/opp_obs` with the same ID, and Static objects never leak into
   `/opp_obs`.
 - Confirm every published object has finite Frenet bounds with `d_right <= d_left`; a closed-track
   wrap may make `s_start > s_end`. Visible merged objects must also have a matching current
