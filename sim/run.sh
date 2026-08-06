@@ -4,8 +4,8 @@
 # to an interactive shell so the Terminator pane stays usable after the launch is stopped (Ctrl-C).
 #
 # Roles (same order as the root CLAUDE.md "Simulation Run Order"):
-#   f1sim | mcl | global | local | state | wpnt | control     (base 7-node loop)
-#   opp | oppdet                                              (optional opponent scenario, 8-9)
+#   f1sim | mcl | global | local | state | control            (base 6-node loop)
+#   opp | oppdet                                              (optional opponent scenario, 7-8)
 #   stop | scratch
 #
 # Trailing `name:=value` args are appended to that role's ros2 launch command, e.g.:
@@ -95,7 +95,7 @@ kill_pattern() {                          # <pattern> [pattern ...]
   return 0
 }
 
-typeset -a PAT_SIM PAT_MCL PAT_GLOBAL PAT_LOCAL PAT_STATE PAT_WPNT PAT_CONTROL PAT_OPP PAT_OPPDET
+typeset -a PAT_SIM PAT_MCL PAT_GLOBAL PAT_LOCAL PAT_STATE PAT_CONTROL PAT_OPP PAT_OPPDET
 PAT_SIM=('ros2 launch f1tenth_gym_ros' 'gym_bridge')
 PAT_MCL=('ros2 launch particle_filter_cpp' 'particle_filter_node'
          'particle_filter_map_server' 'lifecycle_manager_particle_filter')
@@ -103,7 +103,6 @@ PAT_GLOBAL=('ros2 launch global_planning' 'global_planning_node'
             'global_trajectory_publisher_node' 'frenet_odom_node')
 PAT_LOCAL=('ros2 launch local_planning' 'local_planner_node')
 PAT_STATE=('ros2 launch state_machine' 'state_machine_node')
-PAT_WPNT=('ros2 run wpnt_publisher' 'wpnt_publisher/wpnt_publisher')
 PAT_CONTROL=('ros2 launch f1tenth_control' 'control_map_node' 'control_mppi_node'
              'sim_imu_bridge_node' 'drive_source_selector')
 PAT_OPP=('ros2 launch new_map_con opponent_simulator' 'opponent_simulator'
@@ -142,44 +141,36 @@ case "$role" in
     cmd=(ros2 launch local_planning local_planning.launch.py)
     delay=8
     ;;
-  state)                                   # Terminal 5 — state machine -> /state
+  state)                                   # Terminal 5 — state machine -> /state + /local_waypoints
     source "$IFAC/install/setup.zsh" 2>/dev/null
     kill_pattern "${PAT_STATE[@]}"
     cmd=(ros2 launch state_machine state_machine.launch.py)
     delay=9
     ;;
-  wpnt)                                    # Terminal 6 — avoid wpnts relay -> /local_waypoints
-    source "$IFAC/install/setup.zsh" 2>/dev/null
-    kill_pattern "${PAT_WPNT[@]}"
-    # wpnt_publisher ships no launch file, so it is a plain `ros2 run`
-    # (identical to the root CLAUDE.md run order). Extra `name:=value` args do NOT apply.
-    cmd=(ros2 run wpnt_publisher wpnt_publisher)
-    delay=10
-    ;;
-  control|ego)                             # Terminal 7 — L1 + Steering LUT control -> /drive
+  control|ego)                             # Terminal 6 — L1 + Steering LUT control -> /drive
     source "$IFAC/install/setup.zsh" 2>/dev/null
     kill_pattern "${PAT_CONTROL[@]}"
     # Drives immediately — no teleop in this repo; drive_source_selector wires /drive.
     cmd=(ros2 launch f1tenth_control control_sim.launch.py)
-    delay=11
+    delay=10
     ;;
-  opp|opponent)                            # Terminal 8 — opponent follows the global line -> /opp_drive
+  opp|opponent)                            # Terminal 7 — opponent follows the global line -> /opp_drive
     source "$IFAC/install/setup.zsh" 2>/dev/null
     kill_pattern "${PAT_OPP[@]}"
     # Needs the gym bridge at num_agent: 2 (f1sim_C f1tenth_gym_ros/config/sim.yaml) AND terminal 7 kept running —
     # the 2-agent bridge only steps physics when BOTH cars publish drive.
     cmd=(ros2 launch new_map_con opponent_simulator.launch.py)
-    delay=13
+    delay=12
     ;;
-  oppdet|detector)                         # Terminal 9 — obstacle/opponent detector <- ego /scan
+  oppdet|detector)                         # Terminal 8 — obstacle/opponent detector <- ego /scan
     source "$IFAC/install/setup.zsh" 2>/dev/null
     kill_pattern "${PAT_OPPDET[@]}"
     cmd=(ros2 launch obstacle_detector obstacle_detector.launch.py simulator:=true)
-    delay=14
+    delay=13
     ;;
   stop|clean|kill)                         # kill every node this stack owns, then exit
     print -P "%F{cyan}[stop] clearing the stack…%f"
-    kill_pattern "${PAT_OPPDET[@]}" "${PAT_OPP[@]}" "${PAT_CONTROL[@]}" "${PAT_WPNT[@]}" \
+    kill_pattern "${PAT_OPPDET[@]}" "${PAT_OPP[@]}" "${PAT_CONTROL[@]}" \
                  "${PAT_STATE[@]}" "${PAT_LOCAL[@]}" "${PAT_GLOBAL[@]}" "${PAT_MCL[@]}"
     [[ "${1:-}" == "--all" || "${KEEP_SIM:-0}" == "0" ]] && kill_pattern "${PAT_SIM[@]}"
     print -P "%F{green}[stop] done%f"

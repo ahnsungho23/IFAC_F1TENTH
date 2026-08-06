@@ -50,6 +50,10 @@ State machine package rules. These instructions apply to `src/state_machine`.
 - All topic names, frame names, publish rates, stale/diagnostic timeouts, hold durations, waypoint
   counts, and default states must be parameters with YAML defaults.
 - Keep `launch/state_machine.launch.py` loading `config/state_machine.yaml`.
+- `state_machine.launch.py` also includes `global_planning`'s `lap_counter.launch.py`
+  (lap_counter_node runs with the state machine, not with `global_planning.launch.py`;
+  its parameters stay in `global_planning/config/global_planning.yaml`). `package.xml`
+  carries the matching `<exec_depend>global_planning</exec_depend>`.
 - Keep Korean operational documentation in `docs/state_machine_node.md` current, including both
   state and selected-waypoint interfaces.
 - Update this `AGENTS.md` (and `README.md` if run/launch changes) when changing node behavior, topics, parameters, or launch usage.

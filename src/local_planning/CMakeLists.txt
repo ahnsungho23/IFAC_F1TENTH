@@ -37,8 +37,13 @@ add_executable(local_planner_node src/local_planner_main.cpp)
 ament_target_dependencies(local_planner_node rclcpp)
 target_link_libraries(local_planner_node local_planner_core)
 
+add_executable(adaptive_side_evaluator src/adaptive_side_evaluator.cpp)
+ament_target_dependencies(adaptive_side_evaluator f110_msgs)
+target_link_libraries(adaptive_side_evaluator local_planner_core)
+
 install(TARGETS
   local_planner_node
+  adaptive_side_evaluator
   DESTINATION lib/${PROJECT_NAME}
 )
 

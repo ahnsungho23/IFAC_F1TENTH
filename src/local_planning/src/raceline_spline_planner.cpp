@@ -1097,6 +1097,194 @@ RacelineSplineResult RacelineSplinePlanner::buildPreparationStop(
   return result;
 }
 
+ObstacleScenarioEvaluation RacelineSplinePlanner::evaluateCluster(
+  const EgoFrenetState & ego,
+  const std::vector<f110_msgs::msg::Obstacle> & obstacles,
+  const std::vector<ExpandedObstacle> & visible,
+  const std::vector<ExpandedObstacle> & cluster,
+  const std::optional<bool> & preferred_left,
+  bool allow_side_switch,
+  bool force_visible_cluster) const
+{
+  ObstacleScenarioEvaluation evaluation;
+  auto & result = evaluation.result;
+  const bool outside_is_left = outsideIsLeft(ego, cluster);
+  Candidate left;
+  Candidate right;
+  bool left_evaluated = false;
+  bool right_evaluated = false;
+  Candidate selected;
+  bool used_tight_clearance = false;
+
+  auto run_selection = [&](
+    const std::vector<ExpandedObstacle> & pass_visible,
+    const std::vector<ExpandedObstacle> & pass_cluster) {
+      auto evaluate_side = [&](bool go_left) {
+          Candidate last;
+          last.go_left = go_left;
+          double cluster_start = 0.0;
+          double cluster_end = 0.0;
+          double target_d = 0.0;
+          const bool target_computed = computeSideTarget(
+            pass_cluster, go_left, cluster_start, cluster_end, target_d, last.reason);
+          last.target_d = target_d;
+          if (!target_computed) {
+            return last;
+          }
+          double headroom = -std::numeric_limits<double>::infinity();
+          if (!targetFitsTrackBounds(
+              ego, cluster_start, cluster_end, go_left, target_d, last.reason, &headroom))
+          {
+            last.headroom = headroom;
+            return last;
+          }
+          // Entry and exit have different priorities. Use the longest feasible entry so a distant
+          // obstacle is avoided early, but pair it with the shortest feasible exit so the old
+          // maneuver releases promptly. Lengthen the exit only when validation requires it.
+          for (auto entry_scale = parameters_.transition_distance_scales.rbegin();
+            entry_scale != parameters_.transition_distance_scales.rend(); ++entry_scale)
+          {
+            for (const double exit_scale : parameters_.transition_distance_scales) {
+              last = buildCandidate(
+                ego, pass_visible, go_left, *entry_scale, exit_scale, outside_is_left,
+                cluster_start, cluster_end, target_d);
+              last.target_d = target_d;
+              last.headroom = headroom;
+              if (last.valid) {
+                return last;
+              }
+            }
+          }
+          return last;
+        };
+
+      left = Candidate();
+      right = Candidate();
+      left_evaluated = false;
+      right_evaluated = false;
+      selected = Candidate();
+      evaluation.left = SideCandidateEvaluation();
+      evaluation.right = SideCandidateEvaluation();
+      const auto record_side = [](const Candidate & candidate, SideCandidateEvaluation & side) {
+          side.evaluated = true;
+          side.valid = candidate.valid;
+          side.target_d = candidate.target_d;
+          side.min_headroom = candidate.headroom;
+          side.reason = candidate.reason;
+        };
+      if (preferred_left.has_value()) {
+        if (preferred_left.value()) {
+          left = evaluate_side(true);
+          left_evaluated = true;
+          record_side(left, evaluation.left);
+          if (left.valid) {
+            selected = std::move(left);
+          } else if (allow_side_switch) {
+            right = evaluate_side(false);
+            right_evaluated = true;
+            record_side(right, evaluation.right);
+            if (right.valid) {
+              selected = std::move(right);
+            }
+          }
+        } else {
+          right = evaluate_side(false);
+          right_evaluated = true;
+          record_side(right, evaluation.right);
+          if (right.valid) {
+            selected = std::move(right);
+          } else if (allow_side_switch) {
+            left = evaluate_side(true);
+            left_evaluated = true;
+            record_side(left, evaluation.left);
+            if (left.valid) {
+              selected = std::move(left);
+            }
+          }
+        }
+      } else {
+        left = evaluate_side(true);
+        right = evaluate_side(false);
+        left_evaluated = true;
+        right_evaluated = true;
+        record_side(left, evaluation.left);
+        record_side(right, evaluation.right);
+        if (left.valid && right.valid) {
+          // A raceline-centred obstacle ties the score within perception jitter. Break ties
+          // with the reference-width headroom, which does not jitter frame to frame, so the
+          // chosen side cannot flap between replans.
+          if (std::abs(left.score - right.score) <= parameters_.side_tie_epsilon_m &&
+            left.headroom != right.headroom)
+          {
+            selected = left.headroom > right.headroom ? std::move(left) : std::move(right);
+          } else {
+            selected = left.score <= right.score ? std::move(left) : std::move(right);
+          }
+        } else if (left.valid) {
+          selected = std::move(left);
+        } else if (right.valid) {
+          selected = std::move(right);
+        }
+      }
+    };
+
+  run_selection(visible, cluster);
+  if (!selected.valid &&
+    parameters_.minimum_avoidance_clearance_m <
+    parameters_.obstacle_clearance_m - kEpsilon)
+  {
+    evaluation.evaluated_reduced_clearance = true;
+    // Centred obstacles demand the full obstacle width plus margins on BOTH sides, so they
+    // are the first to fail the offset/track/slope gates. Retry once with the tight
+    // last-resort clearance before giving up to a safe stop.
+    const auto tight_visible = expandVisibleObstacles(
+      ego, obstacles, parameters_.minimum_avoidance_clearance_m);
+    const auto tight_cluster =
+      force_visible_cluster ? tight_visible : nearestCluster(tight_visible);
+    if (!tight_cluster.empty()) {
+      run_selection(tight_visible, tight_cluster);
+      used_tight_clearance = selected.valid;
+    }
+  }
+  evaluation.selected_reduced_clearance = used_tight_clearance;
+
+  if (!selected.valid) {
+    auto safe_stop = buildSafeStop(ego, visible, cluster.front());
+    safe_stop.obstacle_ids.reserve(cluster.size());
+    for (const auto & obstacle : cluster) {
+      safe_stop.obstacle_ids.push_back(obstacle.id);
+    }
+    const std::string left_reason = left_evaluated ?
+      left.reason : "not evaluated: side locked by active commitment";
+    const std::string right_reason = right_evaluated ?
+      right.reason : "not evaluated: side locked by active commitment";
+    safe_stop.reason =
+      left_evaluated && right_evaluated ?
+      "both spline sides rejected; braking before the static obstacle" :
+      "committed side rejected; alternate side locked after lateral engagement; braking before "
+      "the static obstacle";
+    safe_stop.reason += "; left: " + left_reason + "; right: " + right_reason;
+    evaluation.result = std::move(safe_stop);
+    return evaluation;
+  }
+  result.kind = SplinePlanKind::kAvoidance;
+  result.path = std::move(selected.path);
+  result.go_left = selected.go_left;
+  result.target_d = selected.target_d;
+  result.merge_s = selected.merge_s;
+  result.obstacle_id = cluster.front().id;
+  result.obstacle_ids.reserve(cluster.size());
+  for (const auto & obstacle : cluster) {
+    result.obstacle_ids.push_back(obstacle.id);
+  }
+  result.control_points = std::move(selected.control_points);
+  result.reason = used_tight_clearance ?
+    "global race-line waypoints shifted by a local quintic d-offset "
+    "(reduced-clearance fallback)" :
+    "global race-line waypoints shifted by a local quintic d-offset";
+  return evaluation;
+}
+
 RacelineSplineResult RacelineSplinePlanner::plan(
   const EgoFrenetState & ego,
   const std::vector<f110_msgs::msg::Obstacle> & obstacles,
@@ -1122,160 +1310,33 @@ RacelineSplineResult RacelineSplinePlanner::plan(
     result.reason = "no static obstacle blocks the global race line";
     return result;
   }
+  return evaluateCluster(
+    ego, obstacles, visible, cluster, preferred_left, allow_side_switch, false).result;
+}
 
-  const bool outside_is_left = outsideIsLeft(ego, cluster);
-  Candidate left;
-  Candidate right;
-  bool left_evaluated = false;
-  bool right_evaluated = false;
-  Candidate selected;
-  bool used_tight_clearance = false;
-
-  auto run_selection = [&](
-    const std::vector<ExpandedObstacle> & pass_visible,
-    const std::vector<ExpandedObstacle> & pass_cluster) {
-      auto evaluate_side = [&](bool go_left) {
-          Candidate last;
-          last.go_left = go_left;
-          double cluster_start = 0.0;
-          double cluster_end = 0.0;
-          double target_d = 0.0;
-          if (!computeSideTarget(
-              pass_cluster, go_left, cluster_start, cluster_end, target_d, last.reason))
-          {
-            return last;
-          }
-          double headroom = -std::numeric_limits<double>::infinity();
-          if (!targetFitsTrackBounds(
-              ego, cluster_start, cluster_end, go_left, target_d, last.reason, &headroom))
-          {
-            return last;
-          }
-          // Entry and exit have different priorities. Use the longest feasible entry so a distant
-          // obstacle is avoided early, but pair it with the shortest feasible exit so the old
-          // maneuver releases promptly. Lengthen the exit only when validation requires it.
-          for (auto entry_scale = parameters_.transition_distance_scales.rbegin();
-            entry_scale != parameters_.transition_distance_scales.rend(); ++entry_scale)
-          {
-            for (const double exit_scale : parameters_.transition_distance_scales) {
-              last = buildCandidate(
-                ego, pass_visible, go_left, *entry_scale, exit_scale, outside_is_left,
-                cluster_start, cluster_end, target_d);
-              if (last.valid) {
-                last.headroom = headroom;
-                return last;
-              }
-            }
-          }
-          return last;
-        };
-
-      left = Candidate();
-      right = Candidate();
-      left_evaluated = false;
-      right_evaluated = false;
-      selected = Candidate();
-      if (preferred_left.has_value()) {
-        if (preferred_left.value()) {
-          left = evaluate_side(true);
-          left_evaluated = true;
-          if (left.valid) {
-            selected = std::move(left);
-          } else if (allow_side_switch) {
-            right = evaluate_side(false);
-            right_evaluated = true;
-            if (right.valid) {
-              selected = std::move(right);
-            }
-          }
-        } else {
-          right = evaluate_side(false);
-          right_evaluated = true;
-          if (right.valid) {
-            selected = std::move(right);
-          } else if (allow_side_switch) {
-            left = evaluate_side(true);
-            left_evaluated = true;
-            if (left.valid) {
-              selected = std::move(left);
-            }
-          }
-        }
-      } else {
-        left = evaluate_side(true);
-        right = evaluate_side(false);
-        left_evaluated = true;
-        right_evaluated = true;
-        if (left.valid && right.valid) {
-          // A raceline-centred obstacle ties the score within perception jitter. Break ties
-          // with the reference-width headroom, which does not jitter frame to frame, so the
-          // chosen side cannot flap between replans.
-          if (std::abs(left.score - right.score) <= parameters_.side_tie_epsilon_m &&
-            left.headroom != right.headroom)
-          {
-            selected = left.headroom > right.headroom ? std::move(left) : std::move(right);
-          } else {
-            selected = left.score <= right.score ? std::move(left) : std::move(right);
-          }
-        } else if (left.valid) {
-          selected = std::move(left);
-        } else if (right.valid) {
-          selected = std::move(right);
-        }
-      }
-    };
-
-  run_selection(visible, cluster);
-  if (!selected.valid &&
-    parameters_.minimum_avoidance_clearance_m <
-    parameters_.obstacle_clearance_m - kEpsilon)
-  {
-    // Centred obstacles demand the full obstacle width plus margins on BOTH sides, so they
-    // are the first to fail the offset/track/slope gates. Retry once with the tight
-    // last-resort clearance before giving up to a safe stop.
-    const auto tight_visible = expandVisibleObstacles(
-      ego, obstacles, parameters_.minimum_avoidance_clearance_m);
-    const auto tight_cluster = nearestCluster(tight_visible);
-    if (!tight_cluster.empty()) {
-      run_selection(tight_visible, tight_cluster);
-      used_tight_clearance = selected.valid;
-    }
+ObstacleScenarioEvaluation RacelineSplinePlanner::evaluateObstacleScenario(
+  const EgoFrenetState & ego,
+  const std::vector<f110_msgs::msg::Obstacle> & obstacles) const
+{
+  ObstacleScenarioEvaluation evaluation;
+  if (!ready()) {
+    evaluation.result.kind = SplinePlanKind::kNoSafePath;
+    evaluation.result.reason = "global race-line reference is not ready";
+    return evaluation;
+  }
+  if (!std::isfinite(ego.s) || !std::isfinite(ego.d) || !std::isfinite(ego.speed)) {
+    evaluation.result.kind = SplinePlanKind::kNoSafePath;
+    evaluation.result.reason = "ego Frenet state is non-finite";
+    return evaluation;
   }
 
-  if (!selected.valid) {
-    auto safe_stop = buildSafeStop(ego, visible, cluster.front());
-    safe_stop.obstacle_ids.reserve(cluster.size());
-    for (const auto & obstacle : cluster) {
-      safe_stop.obstacle_ids.push_back(obstacle.id);
-    }
-    const std::string left_reason = left_evaluated ?
-      left.reason : "not evaluated: side locked by active commitment";
-    const std::string right_reason = right_evaluated ?
-      right.reason : "not evaluated: side locked by active commitment";
-    safe_stop.reason =
-      left_evaluated && right_evaluated ?
-      "both spline sides rejected; braking before the static obstacle" :
-      "committed side rejected; alternate side locked after lateral engagement; braking before "
-      "the static obstacle";
-    safe_stop.reason += "; left: " + left_reason + "; right: " + right_reason;
-    return safe_stop;
+  const auto visible = expandVisibleObstacles(ego, obstacles);
+  if (visible.empty()) {
+    evaluation.result.kind = SplinePlanKind::kNoSafePath;
+    evaluation.result.reason = "scenario has no visible obstacle to evaluate";
+    return evaluation;
   }
-  result.kind = SplinePlanKind::kAvoidance;
-  result.path = std::move(selected.path);
-  result.go_left = selected.go_left;
-  result.target_d = selected.target_d;
-  result.merge_s = selected.merge_s;
-  result.obstacle_id = cluster.front().id;
-  result.obstacle_ids.reserve(cluster.size());
-  for (const auto & obstacle : cluster) {
-    result.obstacle_ids.push_back(obstacle.id);
-  }
-  result.control_points = std::move(selected.control_points);
-  result.reason = used_tight_clearance ?
-    "global race-line waypoints shifted by a local quintic d-offset "
-    "(reduced-clearance fallback)" :
-    "global race-line waypoints shifted by a local quintic d-offset";
-  return result;
+  return evaluateCluster(ego, obstacles, visible, visible, std::nullopt, true, true);
 }
 
 void RacelineSplinePlanner::toCartesian(

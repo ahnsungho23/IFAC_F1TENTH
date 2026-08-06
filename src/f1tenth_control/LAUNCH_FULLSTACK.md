@@ -151,7 +151,7 @@ python3 offline_trajectory_generator/generate_global_trajectory.py \
   --waypoint-step 0.25 --optimizer-step 0.46 \
   --safety-width 0.5 --boundary-margin 0.5 --max-width-distance 2.0 \
   --max-speed 6.5 --min-speed 4.0 \
-  --max-lateral-accel 6.0 --max-accel 3.5 --max-decel 2.5 \
+  --velocity-limits-csv offline_trajectory_generator/config/velocity_limits.csv \
   --max-curvature 1.18 \
   --smooth-sigma 3.7 --raceline-smooth-sigma 1.0
 ```
@@ -163,12 +163,12 @@ python3 offline_trajectory_generator/generate_global_trajectory.py \
 생성기가 차보다 낙관적인 값을 쓰면 **컨트롤러가 못 따라가는 프로파일**이 나오고,
 곡률 사전감속이 매 코너에서 그걸 깎느라 싸운다.
 
-| 생성기 인자 | GUI 저장값 | 차량 실측 한계 | 권장 |
+| 생성기 설정 | GUI/CSV 저장값 | 차량 실측 한계 | 권장 |
 |---|---|---|---|
 | `--max-curvature` | 1.2 | **1.286** (조향 23°, R 0.777 m) | **1.18** (R 0.85 m, 여유 15%) |
-| `--max-lateral-accel` | 10.0 | 컨트롤러 캡 **6.0** | **6.0** |
-| `--max-accel` | 3.7 | VESC 램프 `s_pid_ramp_erpms_s` 15600 = **3.69** | **3.5** |
-| `--max-decel` | 2.0 | 브레이크 하드웨어 4.8 / 현 튜닝 **2.5** | **2.5** |
+| CSV `max_lateral_accel_mps2` | 5.5 | 컨트롤러 캡 **6.0** | **6.0** |
+| CSV `max_accel_mps2` | 3.7 | VESC 램프 `s_pid_ramp_erpms_s` 15600 = **3.69** | **3.5** |
+| CSV `max_decel_mps2` | 2.0 | 브레이크 하드웨어 4.8 / 현 튜닝 **2.5** | **2.5** |
 | `--max-speed` | 6.5 | 실제 도달 7.4 (직선 13.3 m라 8.0엔 못 닿음) | 6.5~7.0 |
 
 🔴 **`--max-curvature`가 실제로 지켜졌는지 반드시 확인할 것.** `ifac_track_v2`는 이 값이
@@ -370,7 +370,11 @@ ros2 launch state_machine state_machine.launch.py
 ```bash
 ros2 topic echo /state
 ros2 topic hz /local_waypoints          # publisher = /state_machine_node 하나
+ros2 topic info -v /local_waypoints   # publisher = /state_machine_node 하나
 ```
+
+통합 `state_machine_node`가 `/local_waypoints`를 직접 발행합니다.
+
 **`/local_waypoints`가 안 나올 때** — 세 입력이 다 있어야 GLOBAL 상태에서 발행된다:
 ```bash
 ros2 topic echo /global_waypoints --once
@@ -382,7 +386,7 @@ ros2 topic echo /car_state/frenet/odom --field child_frame_id   # '0','125' 같�
 
 
 
-### T6 (젯슨) — control (마지막)
+### T6 (젯슨) — control_real (마지막)
 **실행 전**: 바퀴 들거나 스탠드 / E-stop 준비 / `/scan`·`/odom`·`/pf/pose/odom` 정상 /
 경로·지도 정합 / TF 정상(§6) / `/state` 정상.
 

@@ -4,6 +4,7 @@ PyYAML
 scipy
 scikit-image
 quadprog
+cma
 
 # Optional, only for `--optimizer laptime` (differentiable GPU lap-time optimizer):
 # install ONE of the following.

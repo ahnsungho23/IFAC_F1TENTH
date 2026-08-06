@@ -1,6 +1,6 @@
 # sim/ — 시뮬레이션 원클릭 실행 (Terminator)
 
-루트 `CLAUDE.md`의 "Simulation Run Order"(터미널 7개 + 선택 2개)를 매번 손으로 띄우는 대신,
+루트 `CLAUDE.md`의 "Simulation Run Order"(터미널 6개 + 선택 2개)를 매번 손으로 띄우는 대신,
 Terminator 한 창에 분할 화면으로 한 번에 띄우는 스크립트 모음입니다.
 `parkm_combine` 브랜치의 `sim/` 런처 구조를 이 브랜치의 노드 구성
 (local_planning + state_machine + f1tenth_control + obstacle_detector)에 맞게 옮긴 것입니다.
@@ -8,10 +8,10 @@ Terminator 한 창에 분할 화면으로 한 번에 띄우는 스크립트 모�
 ## 빠른 시작
 
 ```bash
-# 기본 주행 (터미널 1~7, 7분할)
+# 기본 주행 (터미널 1~6, 6분할)
 ~/2026_IFAC/sim/open_sim.sh
 
-# 상대차 검출·추월 시나리오 (터미널 1~9, 9분할)
+# 상대차 검출·추월 시나리오 (터미널 1~8, 8분할)
 ~/2026_IFAC/sim/open_sim.sh --opp
 ```
 
@@ -21,10 +21,10 @@ Terminator가 없으면 먼저 설치합니다: `sudo apt install terminator`
 
 | 파일 | 역할 |
 |---|---|
-| `open_sim.sh` | Terminator를 전용 설정으로 실행하는 런처. `--opp`로 9분할 선택 |
+| `open_sim.sh` | Terminator를 전용 설정으로 실행하는 런처. `--opp`로 8분할 선택 |
 | `run.sh <role>` | 패인 하나가 실행하는 스크립트. Jazzy + 워크스페이스 소싱 → 이전 잔류 프로세스 정리 → 상류 노드 대기 → launch 실행. Ctrl-C 시 셸로 전환 |
-| `f1sim.terminator` | 7분할 레이아웃 (기본 주행) |
-| `f1sim_opp.terminator` | 9분할 레이아웃 (상대차 포함) |
+| `f1sim.terminator` | 6분할 레이아웃 (기본 주행) |
+| `f1sim_opp.terminator` | 8분할 레이아웃 (상대차 포함) |
 
 ## 패인(role) ↔ CLAUDE.md 터미널 대응
 
@@ -34,11 +34,10 @@ Terminator가 없으면 먼저 설치합니다: `sudo apt install terminator`
 | 2 | `mcl` | `ros2 launch particle_filter_cpp mcl_launch.py mod:=sim map_name:=<맵> use_rviz:=true` | 3 |
 | 3 | `global` | `ros2 launch global_planning global_planning.launch.py` | 6 |
 | 4 | `local` | `ros2 launch local_planning local_planning.launch.py` | 8 |
-| 5 | `state` | `ros2 launch state_machine state_machine.launch.py` | 9 |
-| 6 | `wpnt` | `ros2 run wpnt_publisher wpnt_publisher` | 10 |
-| 7 | `control` | `ros2 launch f1tenth_control control_sim.launch.py` | 11 |
-| 8 | `opp` | `ros2 launch new_map_con opponent_simulator.launch.py` (`--opp` 전용) | 13 |
-| 9 | `oppdet` | `ros2 launch obstacle_detector obstacle_detector.launch.py simulator:=true` (`--opp` 전용) | 14 |
+| 5 | `state` | `ros2 launch state_machine state_machine.launch.py` (`/state` + `/local_waypoints`) | 9 |
+| 6 | `control` | `ros2 launch f1tenth_control control_sim.launch.py` | 10 |
+| 7 | `opp` | `ros2 launch new_map_con opponent_simulator.launch.py` (`--opp` 전용) | 12 |
+| 8 | `oppdet` | `ros2 launch obstacle_detector obstacle_detector.launch.py simulator:=true` (`--opp` 전용) | 13 |
 
 대기 시간은 상류 노드가 먼저 뜨도록 순서를 보장하기 위한 것으로, 패인에서 Ctrl-C 한 번이면
 대기를 건너뛰고 즉시 실행됩니다.
@@ -68,7 +67,7 @@ KEEP_SIM=1 ~/2026_IFAC/sim/run.sh stop   # gym 브리지는 남기고 나머지�
 1. gym 브리지를 **`num_agent: 2`**(`~/f1sim_C/f1tenth_gym_ros/config/sim.yaml`)로 띄워야 상대차가 스폰됩니다.
    sim.yaml 수정 후에는 패인 1에서 Ctrl-C → 재실행으로 브리지를 다시 띄우세요.
 2. 2-agent 브리지는 에고·상대 **둘 다** drive를 발행해야 물리 스텝을 돕니다.
-   패인 7(에고 제어)을 끄지 말고 유지해야 합니다.
+   패인 6(에고 제어)을 끄지 말고 유지해야 합니다.
 3. RViz에서 `/perception/obstacles/markers`를 Add 하면 검출 결과(빨강=동적, 파랑=정적)가 보입니다.
 
 ## 동작 원리 요약

@@ -48,6 +48,10 @@ The package name, C++ namespace (`namespace global_planning`), include prefix
   `include/global_planning/frenet_lap_counter.hpp` and cover boundary behavior
   in `test/test_frenet_lap_counter.cpp`.
 - Document operator setup and threshold tuning in `docs/lap_counter_node.md`.
+- Launch composition: `lap_counter_node` is NOT started by `global_planning.launch.py`.
+  It is included by `state_machine.launch.py` (via `lap_counter.launch.py`), which still
+  loads its parameters from `config/global_planning.yaml`. Keep `lap_counter.launch.py`
+  working standalone.
 
 ## Documentation
 

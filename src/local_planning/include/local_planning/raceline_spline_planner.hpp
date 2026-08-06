@@ -99,6 +99,24 @@ struct RacelineSplineResult
   std::string reason;
 };
 
+struct SideCandidateEvaluation
+{
+  bool evaluated{false};
+  bool valid{false};
+  double target_d{std::numeric_limits<double>::quiet_NaN()};
+  double min_headroom{std::numeric_limits<double>::quiet_NaN()};
+  std::string reason;
+};
+
+struct ObstacleScenarioEvaluation
+{
+  RacelineSplineResult result;
+  SideCandidateEvaluation left;
+  SideCandidateEvaluation right;
+  bool evaluated_reduced_clearance{false};
+  bool selected_reduced_clearance{false};
+};
+
 enum class PathValidationFailureKind
 {
   kNone,
@@ -160,6 +178,13 @@ public:
     const std::optional<bool> & preferred_left = std::nullopt,
     bool allow_side_switch = true) const;
 
+  // Offline dataset entry point. Unlike plan(), this evaluates the supplied visible obstacle
+  // cluster even when it does not overlap the global d=0 line. Target construction, spline
+  // generation, validation, scoring, and reduced-clearance fallback are shared with plan().
+  ObstacleScenarioEvaluation evaluateObstacleScenario(
+    const EgoFrenetState & ego,
+    const std::vector<f110_msgs::msg::Obstacle> & obstacles) const;
+
   bool validatePath(
     const EgoFrenetState & ego,
     const f110_msgs::msg::WpntArray & path,
@@ -217,6 +242,14 @@ private:
     const EgoFrenetState & ego,
     const std::vector<ExpandedObstacle> & visible,
     const ExpandedObstacle & blocking) const;
+  ObstacleScenarioEvaluation evaluateCluster(
+    const EgoFrenetState & ego,
+    const std::vector<f110_msgs::msg::Obstacle> & obstacles,
+    const std::vector<ExpandedObstacle> & visible,
+    const std::vector<ExpandedObstacle> & cluster,
+    const std::optional<bool> & preferred_left,
+    bool allow_side_switch,
+    bool force_visible_cluster) const;
   void updateGeometryAndAcceleration(f110_msgs::msg::WpntArray & path) const;
   bool validateCandidate(
     const EgoFrenetState & ego,

@@ -1,14 +1,14 @@
 # =================================================================================================
-# Terminator config for the base 7-node simulation loop of this repo.
+# Terminator config for the base 6-node simulation loop of this repo.
 # Launch it with:  ~/2026_IFAC/sim/open_sim.sh   (it substitutes @SIMDIR@ and runs terminator).
 #
-# Layout `f1sim` = one maximised window, 7 panes (same order as the root CLAUDE.md run order):
+# Layout `f1sim` = one maximised window, 6 panes (same order as the root CLAUDE.md run order):
 #   LEFT  column : 1 f1sim (gym bridge + RViz) · 2 mcl · 3 global_planning · 4 local_planning
-#   RIGHT column : 5 state_machine · 6 wpnt_publisher · 7 f1tenth_control (/drive)
+#   RIGHT column : 5 state_machine (/state + /local_waypoints) · 6 f1tenth_control (/drive)
 # Each pane runs sim/run.sh <role>, which sources ROS 2 Jazzy + the right workspace, waits briefly
 # for upstream nodes, launches, and drops to a shell on Ctrl-C. @SIMDIR@ is replaced at launch.
 #
-# For the opponent detect/overtake scenario use `open_sim.sh --opp` (9-pane layout) instead.
+# For the opponent detect/overtake scenario use `open_sim.sh --opp` (8-pane layout) instead.
 # =================================================================================================
 [global_config]
   suppress_multiple_term_dialog = True
@@ -30,7 +30,7 @@
       type = Window
       parent = ""
       maximised = True
-      title = f1sim base loop — 7 nodes (ROS 2 Jazzy)
+      title = f1sim base loop — 6 nodes (ROS 2 Jazzy)
     [[[hbox]]]
       type = HPaned
       parent = window0
@@ -83,31 +83,19 @@
       type = VPaned
       parent = hbox
       order = 1
-      ratio = 0.34
+      ratio = 0.5
     [[[t_state]]]
       type = Terminal
       parent = rcol
       order = 0
       profile = default
       command = @SIMDIR@/run.sh state
-      title = 5 · state_machine · /state
-    [[[rcolb]]]
-      type = VPaned
-      parent = rcol
-      order = 1
-      ratio = 0.5
-    [[[t_wpnt]]]
-      type = Terminal
-      parent = rcolb
-      order = 0
-      profile = default
-      command = @SIMDIR@/run.sh wpnt
-      title = 6 · wpnt_publisher · /local_waypoints
+      title = 5 · state_machine · /state + /local_waypoints
     [[[t_ctrl]]]
       type = Terminal
-      parent = rcolb
+      parent = rcol
       order = 1
       profile = default
       command = @SIMDIR@/run.sh control
-      title = 7 · f1tenth_control · /drive
+      title = 6 · f1tenth_control · /drive
 [plugins]

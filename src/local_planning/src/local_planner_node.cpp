@@ -647,7 +647,7 @@ bool LocalPlannerNode::updateInitialStabilization(
     [this](int id) {
       const auto count = initial_observation_counts_.find(id);
       return count != initial_observation_counts_.end() &&
-             count->second >= initial_observation_count_;
+      count->second >= initial_observation_count_;
     });
   const double total_duration = (update_time - initial_stabilization_start_).seconds();
   const bool minimum_duration_reached =
@@ -754,7 +754,7 @@ bool LocalPlannerNode::updateNextManeuverStabilization(
     [this](int id) {
       const auto count = next_observation_counts_.find(id);
       return count != next_observation_counts_.end() &&
-             count->second >= initial_observation_count_;
+      count->second >= initial_observation_count_;
     });
   const double duration = (update_time - next_stabilization_start_).seconds();
   return obstacle_perception_degraded_ ||

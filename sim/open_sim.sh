@@ -2,8 +2,8 @@
 # =================================================================================================
 # Open the full simulation stack in ONE Terminator window.
 #
-#   ./sim/open_sim.sh              # 7-pane base loop (CLAUDE.md terminals 1-7)
-#   ./sim/open_sim.sh --opp        # 9-pane full loop with opponent sim + detector (terminals 1-9)
+#   ./sim/open_sim.sh              # 6-pane base loop (CLAUDE.md terminals 1-6)
+#   ./sim/open_sim.sh --opp        # 8-pane full loop with opponent sim + detector (terminals 1-8)
 #
 # It substitutes the absolute path of this directory into the layout (so the repo can live
 # anywhere) and launches Terminator with a DEDICATED config (-g), leaving your personal

@@ -39,6 +39,9 @@
   candidate validation fails.
 - Validate lateral slope, recomputed Cartesian curvature, curvature rate, obstacle clearance, and
   track-bound clearance before publishing.
+- Keep `evaluateObstacleScenario()` as the offline dataset entry point. It may bypass only the
+  runtime d=0 blocking gate; target construction, spline fitting, validation, scoring, tie-break,
+  and reduced-clearance fallback must remain shared with `plan()`.
 - Before the first lateral commitment, publish `ot_line=raceline_static_prepare` with a validated
   braking prefix while collecting the nearest cluster's IDs and conservative Frenet-envelope union.
   Count distinct `/static_obs` messages, not planning ticks, and require the configured number of
@@ -123,10 +126,12 @@
 - Algorithm declaration: `include/local_planning/raceline_spline_planner.hpp`.
 - Uncertainty Guard declaration: `include/local_planning/obstacle_guard.hpp`.
 - C++ sources: `src/local_planner_node.cpp`, `src/obstacle_guard.cpp`,
-  `src/raceline_spline_planner.cpp`.
+  `src/raceline_spline_planner.cpp`. The non-ROS batch CLI is
+  `src/adaptive_side_evaluator.cpp`.
 - Runtime parameters: `config/local_planning.yaml`.
 - Launch entrypoint: `launch/local_planning.launch.py`.
 - Korean node documentation: `docs/local_planner.md`.
+- Korean offline evaluator documentation: `docs/adaptive_side_evaluator.md`.
 - Algorithm tests: `test/test_raceline_spline.cpp`, including the wrong-branch snake regression.
 - Guard tests: `test/test_obstacle_guard.cpp`, including variance inflation, frozen-envelope
   containment, accumulated drift rejection, invalid-variance fallback, and closed-track wrap.

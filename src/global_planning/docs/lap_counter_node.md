@@ -54,8 +54,9 @@ source install/setup.zsh
 ros2 launch global_planning global_planning.launch.py
 ```
 
-`global_planning.launch.py`는 trajectory publisher, Frenet odometry 변환기와 lap counter를 함께
-실행한다. lap counter만 단독으로 실행하려면 다음 launch를 사용한다.
+`global_planning.launch.py`는 trajectory publisher와 Frenet odometry 변환기만 실행한다.
+lap counter는 **state_machine과 함께 기동**된다 (`state_machine.launch.py`가
+`lap_counter.launch.py`를 include). lap counter만 단독으로 실행하려면 다음 launch를 사용한다.
 
 ```zsh
 ros2 launch global_planning lap_counter.launch.py

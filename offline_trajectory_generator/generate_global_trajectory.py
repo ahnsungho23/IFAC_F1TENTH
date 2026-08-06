@@ -950,9 +950,11 @@ def count_off_map_waypoints(
     if not bool(np.any(off)):
         return 0
     # Map dense hits back to waypoint count: one per waypoint whose span is hit.
-    s_dense, total = cumulative_s(dense)
+    s_dense, _ = cumulative_s(dense)
     s_wpts, _ = cumulative_s(points_xy)
-    hit_s = s_dense[off]
+    # cumulative_s includes the duplicated closing endpoint, while `off` has one entry per
+    # original dense point. Drop that final endpoint before applying the boolean mask.
+    hit_s = s_dense[:-1][off]
     spans = np.searchsorted(s_wpts, hit_s, side="right") - 1
     return int(len(np.unique(np.clip(spans, 0, len(points_xy) - 1))))
 

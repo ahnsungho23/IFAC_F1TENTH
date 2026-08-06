@@ -17,6 +17,63 @@
 
 `global_waypoints.json`은 기존 `f110_msgs/Wpnt` 필드명과 같은 구조를 사용한다.
 
+### Adaptive overlay 1,562장 생성
+
+로컬 플래너의 실제 C++ 좌우 판정으로 142개 장애물 위치와 11개 횡방향 위치를 평가하고, 막힌 쪽을
+검은색으로 벽까지 채운 map에서 현재 GUI mincurv 파라미터로 PNG를 생성하려면 먼저 평가기를 빌드한다.
+
+```bash
+source /opt/ros/jazzy/setup.zsh
+colcon build --packages-select local_planning
+source install/setup.zsh
+
+python3 offline_trajectory_generator/generate_adaptive_overlays.py \
+  --output-root ruleset_adaptive_globalpath/adaptive_overlays \
+  --workers 8 \
+  --strict-count 1562
+```
+
+출력은 `adaptive_overlays/run_YYYYMMDD_HHMMSS_mmm_KST/` 아래에 생성된다. 실행 중 결과는
+`_incomplete/`에 두고 1,562장과 보고서가 모두 완성된 뒤에만 최종 폴더로 원자적으로 이동한다.
+PNG 이름은 `idx_000_d_p02_outline.png`처럼 index, 부호가 포함된 `d`, 최종 분류를 기록한다.
+
+렌더링 없이 C++ 판정과 파라미터 조합만 빠르게 확인하려면 다음 명령을 사용한다.
+
+```bash
+python3 offline_trajectory_generator/generate_adaptive_overlays.py \
+  --evaluate-only \
+  --output-root ruleset_adaptive_globalpath/adaptive_overlays \
+  --planner-override transition_distance_scales=1.0,1.25,1.5 \
+  --planner-override outside_line_transition_scale=1.35 \
+  --planner-override commitment_clearance_reserve_m=0.05 \
+  --planner-override minimum_avoidance_clearance_m=0.18
+```
+
+판정 CSV, PNG manifest, 요약 JSON과 실행 당시 GUI/local planner 파라미터 snapshot이 함께 저장된다.
+상세 설계는 [adaptive overlay 생성 제안서](docs/adaptive_overlay_generation_proposal.md), C++ 판정
+규약은 [Adaptive Side Evaluator 문서](../src/local_planning/docs/adaptive_side_evaluator.md)를 참고한다.
+
+### CMA-ES로 safe-stop 0과 clearance 최대화
+
+현재 파라미터를 초기값으로 사용하면서 `safe_stop=0`을 최우선 제약으로 유지하고
+`minimum_avoidance_clearance_m`를 최대화하려면 다음 오프라인 탐색기를 실행한다.
+
+```bash
+python3 offline_trajectory_generator/optimize_adaptive_parameters.py \
+  --reference ruleset_adaptive_globalpath/map_smooth_4p1/global_waypoints.csv \
+  --output-root learning_adaptive_globalpath/cmaes \
+  --population-size 12 \
+  --max-generations 80 \
+  --stall-generations 15 \
+  --workers 8 \
+  --strict-count 1562
+```
+
+Python은 CMA-ES 후보와 순위만 관리하며, 각 후보의 좌·우·safe-stop 판정은 기존 C++ 평가기가
+수행한다. 차량 반폭과 hard collision margin을 합친 `0.151 m` 아래로 clearance를 낮출 수 없고,
+운영 YAML은 자동으로 변경하지 않는다. 전체 구조와 출력 파일은
+[Adaptive CMA-ES 제약 최적화 문서](docs/adaptive_parameter_cmaes.md)를 참고한다.
+
 ## 2. 실행 방법
 
 저장소 루트에서 실행한다.

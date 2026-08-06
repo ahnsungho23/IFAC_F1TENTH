@@ -40,8 +40,8 @@ planning 파트가 판단/발행)
 ├── src/
 │   ├── f1tenth_control/      ← 이 저장소의 동기화 사본 (실제 빌드 대상)
 │   ├── local_planning/ , global_planning/ , state_machine/   ← 플래닝 팀
-│   ├── opponent_detector/ , wpnt_publisher/ , monte_carlo_localization/
-├── offline_trajectory_generator/ , wpnt_publisher/
+│   ├── opponent_detector/ , state_machine/ , monte_carlo_localization/
+├── offline_trajectory_generator/
 ├── frenet_conversion/        ← Frenet 좌표 변환 (f110 스택)
 └── ...                       ← steering_lookup 패키지(LUT cfg) 포함
 ```

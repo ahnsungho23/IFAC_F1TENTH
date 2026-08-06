@@ -38,7 +38,7 @@ For a detailed explanation of the node operation, see [`docs/map_controller_node
                                         └──▶ steering/lookahead markers (viz)
 ```
 
-At startup the node loads the raceline CSV and publishes it as a latched `/global_waypoints` topic. This topic is consumed by global_planning, wpnt_publisher, and obstacle_detector.
+At startup the node loads the raceline CSV and publishes it as a latched `/global_waypoints` topic. This topic is consumed by global_planning, state_machine, and obstacle_detector.
 
 ## 2. Subscribed / Published Topics
 

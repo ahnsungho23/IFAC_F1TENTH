@@ -38,7 +38,7 @@ waypoint 추종 컨트롤러 패키지. `map_controller`(C++) 노드가 global/l
                                         └──▶ steering/lookahead markers (viz)
 ```
 
-시작 시 CSV 경로 파일을 로드하여 `/global_waypoints`를 latch(유지) 발행하며, 이 토픽은 global_planning, wpnt_publisher, obstacle_detector가 소비합니다.
+시작 시 CSV 경로 파일을 로드하여 `/global_waypoints`를 latch(유지) 발행하며, 이 토픽은 global_planning, state_machine, obstacle_detector가 소비합니다.
 
 ## 2. 구독 / 발행 토픽
 

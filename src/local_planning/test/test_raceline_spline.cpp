@@ -491,10 +491,37 @@ TEST(RacelineSplinePlanner, IgnoresObstacleWithEnoughRawRacelineClearance)
 {
   RacelineSplinePlanner planner(testParameters());
   ASSERT_TRUE(planner.setReference(makeStraightReference()));
-  const auto result = planner.plan(
-    EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(4, 7.0, 0.35, 0.55)});
+  const EgoFrenetState ego{0.0, 0.0, 2.0};
+  const auto obstacle = makeObstacle(4, 7.0, 0.35, 0.55);
+  const auto result = planner.plan(ego, {obstacle});
   EXPECT_EQ(result.kind, SplinePlanKind::kNoObstacle) << result.reason;
   EXPECT_TRUE(result.path.wpnts.empty());
+
+  // The offline dataset must still classify both pass directions for an obstacle that does not
+  // overlap d=0. It shares all target/spline/validation logic with plan(), but intentionally
+  // bypasses only the runtime raceline-blocking gate.
+  const auto evaluation = planner.evaluateObstacleScenario(ego, {obstacle});
+  EXPECT_TRUE(evaluation.left.evaluated);
+  EXPECT_TRUE(evaluation.right.evaluated);
+  EXPECT_EQ(evaluation.result.kind, SplinePlanKind::kAvoidance) << evaluation.result.reason;
+}
+
+TEST(RacelineSplinePlanner, OfflineEvaluationMatchesRuntimeForBlockingObstacle)
+{
+  RacelineSplinePlanner planner(testParameters());
+  ASSERT_TRUE(planner.setReference(makeStraightReference()));
+  const EgoFrenetState ego{0.0, 0.0, 2.0};
+  const auto obstacle = makeObstacle(41, 7.0);
+
+  const auto runtime = planner.plan(ego, {obstacle});
+  const auto evaluation = planner.evaluateObstacleScenario(ego, {obstacle});
+
+  ASSERT_EQ(runtime.kind, SplinePlanKind::kAvoidance) << runtime.reason;
+  ASSERT_EQ(evaluation.result.kind, runtime.kind) << evaluation.result.reason;
+  EXPECT_EQ(evaluation.result.go_left, runtime.go_left);
+  EXPECT_NEAR(evaluation.result.target_d, runtime.target_d, 1.0e-9);
+  EXPECT_TRUE(evaluation.left.evaluated);
+  EXPECT_TRUE(evaluation.right.evaluated);
 }
 
 TEST(RacelineSplinePlanner, BuildsCollisionFreeStopWhenBothSidesAreClosed)

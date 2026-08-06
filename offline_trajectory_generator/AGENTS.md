@@ -59,6 +59,19 @@ Rules:
   live progress in the status bar instead of a frozen "Generating...". Keep that wiring.
   Because of it, `vars(args)` can contain callables: `write_outputs`' metadata dump must keep
   filtering non-JSON-safe values (a raw `json.dumps(vars(args))` broke the GUI Save button once).
+- `generate_adaptive_overlays.py` — batch orchestrator for the C++ local-planner side evaluator,
+  black obstacle-to-wall map editing, the standard mincurv generator, outline fallback, and
+  timestamp-labelled PNG/report output. Keep the default 142 waypoints x 11 lateral offsets equal
+  to exactly 1,562 scenarios. Do not reimplement left/right planning rules in Python.
+- `optimize_adaptive_parameters.py` — feasibility-first CMA-ES orchestration over the same C++
+  evaluator. `safe_stop` count must rank before every secondary objective; among equally feasible
+  candidates, maximize `minimum_avoidance_clearance_m`. Never let the optimizer lower its physical
+  floor below vehicle half-width plus `hard_collision_margin_m`, and do not overwrite the runtime
+  local-planner YAML automatically.
+- `config/adaptive_cmaes.yaml` — current CMA-ES initial point and bounded search space. Keep ordered
+  transition scales represented as a positive first value plus two positive gaps.
+- `test_adaptive_overlay_generator.py` — signed filename, scenario-count, CSV conversion, and
+  dense off-map regression tests for the adaptive batch pipeline.
 - `config/velocity_limits.csv` — speed-dependent net acceleration limits for the standard GUI/CLI.
   It intentionally does not use the Forza/TUM `ggv.csv` + `ax_max_machines.csv` split.
 - `forza_trajectory_gui.py` — standalone port of the ForzaETH `race_stack` `ros2-jazzy`

@@ -79,11 +79,11 @@ Before finishing any ROS 2 node change, verify:
 
 ## Simulation Run Order (실행 순서)
 
-기본 주행은 터미널 7개를 아래 순서대로 띄웁니다. 순서가 중요합니다.
-상대차 검출·추월까지 볼 때는 터미널 8·9를 **추가로** 띄웁니다(터미널 7은 유지).
+기본 주행은 터미널 6개를 아래 순서대로 띄웁니다. 순서가 중요합니다.
+상대차 검출·추월까지 보려면 터미널 7·8을 **추가로** 띄웁니다(터미널 6은 유지).
 
-> **원클릭 실행**: Terminator가 설치되어 있으면 `./sim/open_sim.sh`(터미널 1~7 분할) 또는
-> `./sim/open_sim.sh --opp`(터미널 1~9 분할) 한 번으로 전체 스택을 띄울 수 있습니다.
+> **원클릭 실행**: Terminator가 설치되어 있으면 `./sim/open_sim.sh`(터미널 1~6 분할) 또는
+> `./sim/open_sim.sh --opp`(터미널 1~8 분할) 한 번으로 전체 스택을 띄울 수 있습니다.
 > 자세한 내용은 `sim/README.md` 참고.
 
 ### 터미널 1 — 시뮬레이터 (gym bridge)
@@ -151,7 +151,9 @@ F1_MAP=ifac_track ros2 launch local_planning local_planning.launch.py
 
 ### 터미널 5 — 상태 머신 (state machine)
 
-`/car_state/frenet/odom`·`/avoid_waypoints`·`/overtake_waypoints`·`/global_waypoints`를 종합해 주행 상태(GLOBAL/AVOID/OVERTAKE)를 판정하고 `/state`로 발행합니다.
+`/car_state/frenet/odom`·`/avoid_waypoints`·`/overtake_waypoints`·`/global_waypoints`를 종합해
+주행 상태(GLOBAL/AVOID/OVERTAKE)를 판정하고 `/state`로 발행하며, 현재 상태에 맞는 경로를
+`/local_waypoints`와 `/local_waypoints/path`로 선택 발행합니다.
 
 ```bash
 cd ~/2026_IFAC
@@ -160,18 +162,7 @@ source install/setup.zsh
 ros2 launch state_machine state_machine.launch.py
 ```
 
-### 터미널 6 — 웨이포인트 퍼블리셔
-
-회피 웨이포인트를 받아 `/local_waypoints`로 중계합니다.
-
-```bash
-cd ~/2026_IFAC
-source /opt/ros/jazzy/setup.zsh
-source install/setup.zsh
-ros2 run wpnt_publisher wpnt_publisher
-```
-
-### 터미널 7 — 제어
+### 터미널 6 — 제어
 
 L1 Guidance + Steering LUT 기반 조향/속도 제어. 기동 즉시 자율주행합니다
 (teleop Mux는 이 저장소에 없음 — 실차는 f1tenth_stack 담당, 시뮬은 drive_source_selector가
@@ -186,15 +177,15 @@ ros2 launch f1tenth_control control_sim.launch.py
 
 ---
 
-### (선택) 상대차 검출·추월 시나리오 — 터미널 8·9
+### (선택) 상대차 검출·추월 시나리오 — 터미널 7·8
 
 > 아래 두 터미널은 **상대차 검출/추월을 볼 때만** 추가로 띄웁니다. 기본 주행에는 필요 없습니다.
 >
 > **전제 2가지**
 > 1. 터미널 1의 gym 시뮬을 **`num_agent: 2`** (`~/f1sim_C/f1tenth_gym_ros/config/sim.yaml`)로 띄워야 상대차량이 스폰됩니다. 1-agent면 상대차가 아예 없어 RViz에도 안 보이고 검출도 안 됩니다. (sim.yaml 수정 후 gym 브리지를 **재실행**해야 반영됨)
-> 2. 이 2-agent 브리지는 **에고·상대 둘 다 `drive`를 발행해야 물리 스텝**을 돕니다. 따라서 **터미널 7(에고 제어)을 그대로 유지**해야 하며, 8·9는 교체가 아니라 **추가**입니다.
+> 2. 이 2-agent 브리지는 **에고·상대 둘 다 `drive`를 발행해야 물리 스텝**을 돕니다. 따라서 **터미널 6(에고 제어)을 그대로 유지**해야 하며, 7·8은 교체가 아니라 **추가**입니다.
 
-### 터미널 8 — 상대차 주행 (opponent simulator)
+### 터미널 7 — 상대차 주행 (opponent simulator)
 
 global 라인을 0.8배속으로 따라가도록 f1sim 상대차량에 `/opp_drive`를 발행합니다.
 
@@ -205,14 +196,14 @@ source install/setup.zsh
 ros2 launch new_map_con opponent_simulator.launch.py
 ```
 
-### 터미널 9 — 장애물·상대차 검출기 (obstacle detector)
+### 터미널 8 — 장애물·상대차 검출기 (obstacle detector)
 
 에고 `/scan`을 레이어드 파이프라인으로 처리해 정적 장애물은 `/static_obs`(Layer 2),
 상대차는 `/opp_obs`(Layer 3, 전방 최근접 1대)로 발행합니다(둘 다 `f110_msgs/ObstacleArray`,
 Frenet s/d 포함). 로컬 플래너는 `/static_obs`를 CLCS로 투영해 회피 경로를 생성합니다.
 
 > ⚠️ 터미널 4(local_planning launch)가 obstacle_detector를 **기본 포함**해서 이미 띄웁니다.
-> 터미널 9를 수동으로 추가하면 검출기가 중복 기동되므로, 터미널 4를
+> 터미널 8을 수동으로 추가하면 검출기가 중복 기동되므로, 터미널 4를
 > `start_obstacle_detector:=false`로 띄웠을 때만 아래를 실행하세요.
 > (`./sim/open_sim.sh --opp`는 run.sh의 kill_pattern이 중복을 자동 정리합니다.)
 

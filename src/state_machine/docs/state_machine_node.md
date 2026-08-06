@@ -89,6 +89,10 @@ source install/setup.zsh
 ros2 launch state_machine state_machine.launch.py
 ```
 
+이 launch는 `global_planning`의 `lap_counter.launch.py`도 함께 include하므로
+`lap_counter_node`(`/lap_count` 발행)가 상태 머신과 같이 기동됩니다
+(파라미터는 `global_planning/config/global_planning.yaml`의 `lap_counter_node` 섹션).
+
 다른 파라미터 파일을 사용하려면 다음과 같이 지정합니다.
 
 ```bash

@@ -15,6 +15,9 @@
   <depend>std_msgs</depend>
   <depend>f110_msgs</depend>
 
+  <!-- state_machine.launch.py includes global_planning's lap_counter.launch.py -->
+  <exec_depend>global_planning</exec_depend>
+
   <export>
     <build_type>ament_cmake</build_type>
   </export>

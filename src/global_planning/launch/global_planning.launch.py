@@ -44,18 +44,11 @@ def generate_launch_description():
         parameters=[params],
     )
 
-    lap_counter = Node(
-        package="global_planning",
-        executable="lap_counter_node",
-        name="lap_counter_node",
-        output="screen",
-        parameters=[params],
-    )
-
+    # lap_counter_node는 state_machine.launch.py에서 함께 기동한다
+    # (단독 실행은 lap_counter.launch.py 사용).
     return LaunchDescription([
         params_arg,
         map_name_arg,
         global_republisher,
         frenet_odom,
-        lap_counter,
     ])
