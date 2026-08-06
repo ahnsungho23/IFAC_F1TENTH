@@ -14,7 +14,7 @@ namespace static_obstacle_map
 
 struct ObstacleMarkerConfig
 {
-  std::string marker_namespace{"persistent_static_obstacles"};
+  std::string marker_namespace{"adaptive_static_obstacles"};
   double height_m{0.15};
   float red{1.0F};
   float green{0.1F};
@@ -25,6 +25,8 @@ struct ObstacleMarkerConfig
 visualization_msgs::msg::MarkerArray buildObstacleMarkers(
   const std_msgs::msg::Header & header,
   const std::vector<StoredObstacle> & obstacles,
+  double obstacle_inflation_m,
+  double minimum_footprint_m,
   const ObstacleMarkerConfig & config);
 
 }  // namespace static_obstacle_map

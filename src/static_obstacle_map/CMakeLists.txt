@@ -12,6 +12,7 @@ endif()
 
 find_package(ament_cmake REQUIRED)
 find_package(f110_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
@@ -27,6 +28,7 @@ target_include_directories(static_obstacle_map_core PUBLIC
 )
 ament_target_dependencies(static_obstacle_map_core
   f110_msgs
+  nav_msgs
   std_msgs
   visualization_msgs
 )
@@ -41,6 +43,7 @@ target_include_directories(static_obstacle_map_node PRIVATE
 target_link_libraries(static_obstacle_map_node static_obstacle_map_core)
 ament_target_dependencies(static_obstacle_map_node
   f110_msgs
+  nav_msgs
   rclcpp
   std_srvs
   visualization_msgs
@@ -71,6 +74,7 @@ if(BUILD_TESTING)
   target_link_libraries(test_static_obstacle_map_memory static_obstacle_map_core)
   ament_target_dependencies(test_static_obstacle_map_memory
     f110_msgs
+    nav_msgs
     std_msgs
     visualization_msgs
   )

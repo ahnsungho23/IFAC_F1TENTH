@@ -1,17 +1,22 @@
 static_obstacle_map:
   ros__parameters:
+    # Layer-1 clean map. Keep this separate from output_map_topic to prevent detector feedback.
+    base_map_topic: "/map"
     confirmed_static_obs_topic: "/confirmed_static_obs"
     dynamic_obs_topic: "/opp_obs"
+    output_map_topic: "/adaptive_obstacle_map"
+    # RViz MarkerArray mirror. Map display는 output_map_topic, 장애물 강조는 이 토픽을 사용합니다.
     publish_visualization: true
-    visualization_topic: "/static_obstacle_map/markers"
-    frame_id: "map"
-    visualization_marker_namespace: "persistent_static_obstacles"
+    visualization_topic: "/adaptive_obstacle_map/markers"
+    visualization_marker_namespace: "adaptive_static_obstacles"
     visualization_height_m: 0.15
     visualization_color_r: 1.0
     visualization_color_g: 0.1
     visualization_color_b: 0.1
     visualization_color_a: 0.85
     reset_service: "/static_obstacle_map/reset"
+    # confirmed 입력은 매 scan 저장하되 큰 OccupancyGrid 합성/발행은 이 주기로 제한합니다.
+    publish_period_ms: 100
 
     # 같은 장애물의 반복 관측을 하나의 저장 항목으로 연결하는 Cartesian AABB 간격입니다.
     association_distance_m: 0.30
@@ -22,5 +27,12 @@ static_obstacle_map:
     # 저장되는 원본 AABB 대각선의 절대 상한입니다. detector의 max_obs_size와 맞춘 값입니다.
     # bounded union이 이 값을 넘으면 기존 형상은 유지하고 새 확장만 거부합니다.
     max_obstacle_diagonal_m: 0.80
-    # 정적으로 저장된 같은 track이 /opp_obs로 이동하면 오분류를 정정합니다.
-    remove_reclassified_dynamic: true
+    # 출력 grid에만 적용되는 별도 안전 여유입니다. 저장 AABB 크기에는 누적되지 않습니다.
+    obstacle_inflation_m: 0.0
+    occupied_value: 100
+
+    # confirmed 뒤 classifier가 static/dynamic으로 흔들려도 저장 항목을 유지합니다.
+    # 신뢰 가능한 장기 재분류 신호를 사용할 때만 true로 바꾸세요.
+    remove_reclassified_dynamic: false
+    # 다른 map geometry가 들어오면 이전 주행의 저장 장애물을 제거합니다.
+    clear_on_base_map_geometry_change: true
