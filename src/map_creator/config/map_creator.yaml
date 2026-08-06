@@ -4,12 +4,10 @@ map_creator_node:
     static_obs_topic: "/static_obs"
     global_waypoints_topic: "/global_waypoints"
     lap_count_topic: "/lap_count"
-    state_topic: "/state"
-    frenet_odom_topic: "/car_state/frenet/odom"
     reload_service: "/global_planning/reload_waypoints"
 
     # ---- trigger / ledger ----
-    trigger_lap_count: 1          # freeze at the lap-1 finish (lap_count 0 -> 1)
+    trigger_lap_count: 2          # freeze at the lap-2 finish (lap_count 1 -> 2)
     match_max_ds_m: 1.0           # wrap-aware obstacle identity matching
     match_max_dd_m: 0.3
     min_observations: 3
@@ -53,10 +51,8 @@ map_creator_node:
     reseed_on_startup: true       # start every session from the baseline copy
     python_executable: "python3"
     generation_timeout_sec: 120.0
-    retry_safety_width: 0.5       # one retry with wider clearance on gate failure
+    retry_safety_width: 0.5       # one retry with wider clearance on gate failure (실측 참고: 0.5→0.155 m, 0.7→0.287 m)
 
-    # ---- swap gates (MAP_CREATOR_PROPOSAL 3.5) ----
-    swap_s_window_min_m: 1.0
-    swap_s_window_max_m: 8.0
+    # ---- regeneration / swap validation ----
     min_obstacle_clearance_after_m: 0.42   # local-planner silence clearance
     max_swap_deferral_laps: 3

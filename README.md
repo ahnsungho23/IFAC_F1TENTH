@@ -322,6 +322,10 @@ ros2 launch particle_filter_cpp mcl_launch.py mod:=sim map_name:=ifac_track use_
 ### 터미널 3 — 글로벌 플래너
 
 `global_waypoints.json`을 읽어 `/global_waypoints`를 발행하고, `/car_state/frenet/odom`을 계산합니다.
+같은 launch에서 `map_creator_node`도 함께 실행되므로 별도 터미널에서 중복 실행하지 않습니다.
+기본 시작 경로는 `output/map`이며(`F1_MAP` 지정 시 해당 초기 경로 사용), 장애물 경로
+생성·검증과 다음 랩 게이트가 모두 끝나면
+원본 파일을 덮어쓰지 않고 런타임 참조만 `output/obstacle_map`으로 전환합니다.
 글로벌/로컬 플래너의 기본 맵 이름은 실차용 `map`이므로, 시뮬에서는 `F1_MAP=ifac_track`으로
 시뮬 트랙을 명시해야 합니다 (`./sim/open_sim.sh` 사용 시 자동 설정).
 

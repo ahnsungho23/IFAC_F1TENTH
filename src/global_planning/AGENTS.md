@@ -31,6 +31,9 @@ The package name, C++ namespace (`namespace global_planning`), include prefix
 ## Global Trajectory Publisher Node
 
 - Reads `global_waypoints.json` and republishes waypoints on latched topics.
+- Keep the baseline `map_name` source immutable. The reload service must validate
+  `<output_base_dir>/<reload_map_name>/global_waypoints.json` before atomically switching
+  the in-memory bundle and active source path; never overwrite the baseline JSON.
 - The offline generator writes empty marker arrays, so this node builds `/global_waypoints/markers`
   (speed-colored racing line) and `/trackbounds/markers` (left/right bounds from `d_left`/`d_right`
   and `psi_rad`) from the waypoints themselves in `generateMarkers()`.
@@ -58,3 +61,5 @@ The package name, C++ namespace (`namespace global_planning`), include prefix
 - Update `docs/<node_name>.md` when node behavior, parameters, topics, or run commands change.
 - Keep step-by-step operator documentation in Korean.
 - Update package-level pipeline docs when a node's public behavior changes.
+- `global_planning.launch.py` includes `map_creator.launch.py`; keep their parameter files
+  separate through the `map_creator_params_file` launch argument.

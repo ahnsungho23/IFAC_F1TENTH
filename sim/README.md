@@ -32,7 +32,7 @@ Terminator가 없으면 먼저 설치합니다: `sudo apt install terminator`
 |---|---|---|---|
 | 1 | `f1sim` | `ros2 launch f1tenth_gym_ros gym_bridge_launch.py` (f1sim_C) | 0 |
 | 2 | `mcl` | `ros2 launch particle_filter_cpp mcl_launch.py mod:=sim map_name:=<맵> use_rviz:=true` | 3 |
-| 3 | `global` | `ros2 launch global_planning global_planning.launch.py` | 6 |
+| 3 | `global` | `ros2 launch global_planning global_planning.launch.py` (`map_creator_node` 포함) | 6 |
 | 4 | `local` | `ros2 launch local_planning local_planning.launch.py` | 8 |
 | 5 | `state` | `ros2 launch state_machine state_machine.launch.py` (`/state` + `/local_waypoints`) | 9 |
 | 6 | `control` | `ros2 launch f1tenth_control control_sim.launch.py` | 10 |

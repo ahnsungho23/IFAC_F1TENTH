@@ -126,7 +126,7 @@ ros2 topic pub --once /initialpose geometry_msgs/msg/PoseWithCovarianceStamped \
 ### 터미널 3 — 글로벌 플래너
 
 `global_waypoints.json`을 읽어 `/global_waypoints`를 발행하고, `/car_state/frenet/odom`을 계산합니다.
-글로벌 플래너의 기본 맵 이름은 `obstacle_map`(baseline `map` 사본으로 시딩, 랩1 이후
+글로벌 플래너의 기본 맵 이름은 `obstacle_map`(baseline `map` 사본으로 시딩, 랩2 완주 이후
 map_creator 파이프라인이 장애물 반영본으로 덮어씀 — `learning_adaptive_globalpath/MAP_CREATOR_PROPOSAL.md`),
 로컬 플래너 기본은 실차용 `map`이므로, 시뮬에서는 `F1_MAP=ifac_track`으로
 시뮬 트랙을 명시해야 합니다 (`./sim/open_sim.sh` 사용 시 자동 설정).

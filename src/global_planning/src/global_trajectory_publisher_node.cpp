@@ -31,12 +31,13 @@ public:
     declare_parameter("publish_shortest_path", true); ///최단경로 트래젝토리를 퍼블리시할지 결정합니다. 
     declare_parameter("publish_centerline", false); ////////publish_centerline센터라인 웨이포인트를 퍼블리시할지 결정. true면 /centerline_waypoints(및 마커 옵션 시 /centerline_waypoints/markers) 보냄
     declare_parameter("publish_lattice", false); ///lattice 시각화 토픽을 쓸지 결정합니다. true면 /lattice_viz 퍼블리셔를 활성화합니다
-    // Data source: global_waypoints.json is read from <output_base_dir>/<map_name>/.
-    // The map name (not a full path) is what the YAML carries, so switching maps only
-    // changes `map_name`. `map_path` is an optional explicit directory override.
+    // Initial source: <output_base_dir>/<map_name>/global_waypoints.json, with map_path
+    // as an optional override. A successful reload switches to reload_map_name without
+    // modifying either source file or the YAML.
     declare_parameter("output_base_dir", "offline_trajectory_generator/output");
     declare_parameter("map_name", "");
     declare_parameter("map_path", "");
+    declare_parameter("reload_map_name", "obstacle_map");
     declare_parameter("publish_period_sec", 2.0);
     // Marker generation (RViz visualization). The offline generator writes empty
     // marker arrays, so this node builds them from the waypoints instead.
@@ -80,13 +81,18 @@ public:
 
     // Resolve the directory holding global_waypoints.json.
     // Priority: explicit map_path override, else <output_base_dir>/<map_name>.
+    const auto output_base_dir = get_parameter("output_base_dir").as_string();
     map_dir_ = get_parameter("map_path").as_string();
     if (map_dir_.empty()) {
-      const auto base = get_parameter("output_base_dir").as_string();
       const auto name = get_parameter("map_name").as_string();
       if (!name.empty()) {
-        map_dir_ = base.empty() ? name : base + "/" + name;
+        map_dir_ = output_base_dir.empty() ? name : output_base_dir + "/" + name;
       }
+    }
+    reload_map_name_ = get_parameter("reload_map_name").as_string();
+    if (!reload_map_name_.empty()) {
+      reload_map_dir_ =
+        output_base_dir.empty() ? reload_map_name_ : output_base_dir + "/" + reload_map_name_;
     }
     if (map_dir_.empty()) {
       RCLCPP_WARN(
@@ -103,9 +109,9 @@ public:
       }
     }
 
-    // Atomic in-process swap for the map_creator pipeline: re-read the configured map
-    // directory and republish immediately. The caller (map_creator) gates the timing
-    // (STATE_GLOBAL, no local commitment, lap boundary); this node only validates data.
+    // Atomic in-process swap for the map_creator pipeline: load the separately generated
+    // reload map and republish immediately. The caller (map_creator) waits for generation
+    // completion and the next lap; this node validates data.
     reload_srv_ = create_service<std_srvs::srv::Trigger>(
       "/global_planning/reload_waypoints",
       std::bind(
@@ -295,14 +301,14 @@ private:
     const std::shared_ptr<std_srvs::srv::Trigger::Request> /*request*/,
     std::shared_ptr<std_srvs::srv::Trigger::Response> response)
   {
-    if (map_dir_.empty()) {
+    if (reload_map_dir_.empty()) {
       response->success = false;
-      response->message = "no map directory configured";
+      response->message = "no reload map configured";
       return;
     }
     GlobalWaypointBundle fresh;
     std::string error_msg;
-    if (!read_global_waypoints(map_dir_, fresh, error_msg)) {
+    if (!read_global_waypoints(reload_map_dir_, fresh, error_msg)) {
       response->success = false;
       response->message = error_msg;
       RCLCPP_WARN(get_logger(), "reload rejected: %s", error_msg.c_str());
@@ -315,8 +321,10 @@ private:
       return;
     }
     bundle_ = std::move(fresh);
+    map_dir_ = reload_map_dir_;
     has_bundle_ = true;
     generateMarkers();
+    set_parameter(rclcpp::Parameter("map_name", reload_map_name_));
     publish_all();  // swap immediately; do not wait for the 2 s republish timer
     response->success = true;
     response->message =
@@ -363,6 +371,8 @@ private:
 
   bool has_bundle_{false};
   std::string map_dir_;
+  std::string reload_map_name_;
+  std::string reload_map_dir_;
   GlobalWaypointBundle bundle_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr reload_srv_;
 

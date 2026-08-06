@@ -13,7 +13,6 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
-find_package(nav_msgs REQUIRED)
 find_package(f110_msgs REQUIRED)
 find_package(local_planning REQUIRED)   # exports local_planning::raceline_planner
 find_package(OpenCV REQUIRED COMPONENTS core imgcodecs imgproc)
@@ -44,7 +43,6 @@ ament_target_dependencies(map_creator_node
   rclcpp
   std_msgs
   std_srvs
-  nav_msgs
   f110_msgs
 )
 target_link_libraries(map_creator_node

@@ -4,14 +4,14 @@
 // map_creator_node: lap-transition obstacle_map pipeline
 // (learning_adaptive_globalpath/MAP_CREATOR_PROPOSAL.md).
 //
-// Lap 1: accumulate confirmed static obstacles (/static_obs) into a ledger.
-// At the trigger lap transition: freeze -> per-obstacle left/right decision via
+// Laps 1-2: accumulate confirmed static obstacles (/static_obs) into a ledger.
+// At the lap 2 -> 3 transition: freeze -> per-obstacle left/right decision via
 // the SHARED RacelineSplinePlanner::evaluateObstacleScenario (map_creator's own
 // tuned parameter snapshot) -> paint the NON-chosen side to the wall on a copy
 // of the pristine base map -> run the offline regeneration driver
 // (regenerate_obstacle_map.py, gui_params.yaml values) -> when the driver's
 // physical gates pass AND /lap_count advances, swap the global line through
-// /global_planning/reload_waypoints, gated on STATE_GLOBAL + ego-s window.
+// /global_planning/reload_waypoints after the next lap transition.
 // Any failure keeps the previous line (local avoidance keeps covering).
 
 #include <algorithm>
@@ -33,9 +33,7 @@
 #include "std_msgs/msg/int32.hpp"
 #include "std_msgs/msg/string.hpp"
 #include "std_srvs/srv/trigger.hpp"
-#include "nav_msgs/msg/odometry.hpp"
 #include "f110_msgs/msg/obstacle_array.hpp"
-#include "f110_msgs/msg/state_machine.hpp"
 #include "f110_msgs/msg/wpnt_array.hpp"
 
 #include "map_creator/map_painter.hpp"
@@ -81,13 +79,6 @@ public:
     obs_sub_ = create_subscription<f110_msgs::msg::ObstacleArray>(
       static_obs_topic_, rclcpp::QoS(10),
       std::bind(&MapCreatorNode::obstaclesCallback, this, std::placeholders::_1));
-    state_sub_ = create_subscription<f110_msgs::msg::StateMachine>(
-      state_topic_, rclcpp::QoS(10),
-      std::bind(&MapCreatorNode::stateCallback, this, std::placeholders::_1));
-    odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
-      frenet_odom_topic_, rclcpp::QoS(10),
-      std::bind(&MapCreatorNode::odomCallback, this, std::placeholders::_1));
-
     status_pub_ = create_publisher<std_msgs::msg::String>("/map_creator/status", 10);
     reload_client_ = create_client<std_srvs::srv::Trigger>(reload_service_);
 
@@ -105,12 +96,10 @@ private:
     declare_parameter<std::string>("static_obs_topic", "/static_obs");
     declare_parameter<std::string>("global_waypoints_topic", "/global_waypoints");
     declare_parameter<std::string>("lap_count_topic", "/lap_count");
-    declare_parameter<std::string>("state_topic", "/state");
-    declare_parameter<std::string>("frenet_odom_topic", "/car_state/frenet/odom");
     declare_parameter<std::string>(
       "reload_service", "/global_planning/reload_waypoints");
 
-    declare_parameter<int>("trigger_lap_count", 1);
+    declare_parameter<int>("trigger_lap_count", 2);
     declare_parameter<double>("match_max_ds_m", 1.0);
     declare_parameter<double>("match_max_dd_m", 0.3);
     declare_parameter<int>("min_observations", 3);
@@ -155,8 +144,6 @@ private:
     declare_parameter<double>("generation_timeout_sec", 120.0);
     declare_parameter<double>("retry_safety_width", 0.5);
 
-    declare_parameter<double>("swap_s_window_min_m", 1.0);
-    declare_parameter<double>("swap_s_window_max_m", 8.0);
     declare_parameter<double>("min_obstacle_clearance_after_m", 0.42);
     declare_parameter<int>("max_swap_deferral_laps", 3);
   }
@@ -166,8 +153,6 @@ private:
     static_obs_topic_ = get_parameter("static_obs_topic").as_string();
     global_waypoints_topic_ = get_parameter("global_waypoints_topic").as_string();
     lap_count_topic_ = get_parameter("lap_count_topic").as_string();
-    state_topic_ = get_parameter("state_topic").as_string();
-    frenet_odom_topic_ = get_parameter("frenet_odom_topic").as_string();
     reload_service_ = get_parameter("reload_service").as_string();
 
     trigger_lap_count_ = static_cast<int>(get_parameter("trigger_lap_count").as_int());
@@ -226,8 +211,6 @@ private:
     generation_timeout_sec_ = get_parameter("generation_timeout_sec").as_double();
     retry_safety_width_ = get_parameter("retry_safety_width").as_double();
 
-    swap_s_min_ = get_parameter("swap_s_window_min_m").as_double();
-    swap_s_max_ = get_parameter("swap_s_window_max_m").as_double();
     min_clearance_after_ = get_parameter("min_obstacle_clearance_after_m").as_double();
     max_swap_deferral_laps_ =
       static_cast<int>(get_parameter("max_swap_deferral_laps").as_int());
@@ -277,17 +260,6 @@ private:
     if (stage_ == Stage::kIdle || stage_ == Stage::kMonitoring) {
       ledger_.addObservations(msg->obstacles, lap_count_);
     }
-  }
-
-  void stateCallback(const f110_msgs::msg::StateMachine::SharedPtr msg)
-  {
-    behavior_state_ = msg->state;
-  }
-
-  void odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg)
-  {
-    ego_s_ = msg->pose.pose.position.x;
-    have_ego_s_ = true;
   }
 
   // ---------------------------------------------------------------- pipeline
@@ -564,12 +536,7 @@ private:
             std::to_string(max_swap_deferral_laps_) + " laps");
           break;
         }
-        const bool state_ok =
-          behavior_state_ == f110_msgs::msg::StateMachine::STATE_GLOBAL;
-        const bool s_ok = have_ego_s_ && ego_s_ >= swap_s_min_ && ego_s_ <= swap_s_max_;
-        if (state_ok && s_ok) {
-          requestSwap();
-        }
+        requestSwap();
         break;
       }
 
@@ -608,8 +575,8 @@ private:
 
   // ---------------------------------------------------------------- members
   std::string static_obs_topic_, global_waypoints_topic_, lap_count_topic_;
-  std::string state_topic_, frenet_odom_topic_, reload_service_;
-  int trigger_lap_count_{1};
+  std::string reload_service_;
+  int trigger_lap_count_{2};
   int min_observations_{3};
   int removal_miss_laps_{2};
   double ego_lookback_m_{12.0};
@@ -621,7 +588,6 @@ private:
   bool reseed_on_startup_{true};
   double generation_timeout_sec_{120.0};
   double retry_safety_width_{0.5};
-  double swap_s_min_{1.0}, swap_s_max_{8.0};
   double min_clearance_after_{0.42};
   int max_swap_deferral_laps_{3};
 
@@ -636,9 +602,6 @@ private:
   std::atomic<bool> swap_inflight_{false};
   int lap_count_{0};
   int armed_after_lap_{0};
-  uint8_t behavior_state_{f110_msgs::msg::StateMachine::STATE_GLOBAL};
-  double ego_s_{0.0};
-  bool have_ego_s_{false};
   std::vector<LedgerEntry> frozen_;
   std::vector<LedgerEntry> baked_;
   std::vector<SideDecision> decisions_;
@@ -647,8 +610,6 @@ private:
   rclcpp::Subscription<f110_msgs::msg::WpntArray>::SharedPtr wpnts_sub_;
   rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr lap_sub_;
   rclcpp::Subscription<f110_msgs::msg::ObstacleArray>::SharedPtr obs_sub_;
-  rclcpp::Subscription<f110_msgs::msg::StateMachine>::SharedPtr state_sub_;
-  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;
   rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr reload_client_;
   rclcpp::TimerBase::SharedPtr timer_;

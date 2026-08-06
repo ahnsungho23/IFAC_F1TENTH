@@ -192,7 +192,7 @@ bool MapPainter::save(
   fs::create_directories(output_dir, ec);
 
   const fs::path png_path = fs::path(output_dir) / (map_basename + ".png");
-  const fs::path png_tmp = fs::path(output_dir) / ("." + map_basename + ".png.tmp");
+  const fs::path png_tmp = fs::path(output_dir) / ("." + map_basename + ".png");
   if (!cv::imwrite(png_tmp.string(), working_)) {
     if (error) {*error = "cannot write " + png_tmp.string();}
     return false;

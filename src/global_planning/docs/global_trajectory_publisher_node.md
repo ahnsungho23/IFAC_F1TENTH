@@ -17,7 +17,11 @@ RViz 시각화 마커를 ROS 2 토픽으로 재발행(republish)한다.
    - `/trackbounds/markers`: 각 웨이포인트에서 경로 법선(`psi_rad` ± 90°) 방향으로
      `d_left`/`d_right`만큼 떨어진 좌/우 경계점을 잇는 `LINE_STRIP` 2개.
    - JSON에 마커가 이미 채워져 있으면 생성하지 않고 그대로 사용한다.
-4. 타이머(`publish_period_sec`)마다 번들 전체를 반복 발행한다.
+4. `/global_planning/reload_waypoints` 요청이 오면
+   `<output_base_dir>/<reload_map_name>/global_waypoints.json`을 별도로 읽고 검증한다.
+   검증에 성공한 경우에만 메모리 번들과 활성 참조 경로를 원자적으로 교체한다.
+   기존 `<output_base_dir>/<map_name>` 파일과 YAML은 수정하지 않는다.
+5. 타이머(`publish_period_sec`)마다 현재 활성 번들 전체를 반복 발행한다.
 
 ## 3. 구독 토픽
 
@@ -37,6 +41,12 @@ RViz 시각화 마커를 ROS 2 토픽으로 재발행(republish)한다.
 | `/centerline_waypoints/markers` | `visualization_msgs/msg/MarkerArray` | `publish_centerline=true` & `publish_markers=true` |
 | `/lattice_viz` | `visualization_msgs/msg/MarkerArray` | `publish_lattice=true` |
 
+### 서비스
+
+| 서비스 | 타입 | 설명 |
+| --- | --- | --- |
+| `/global_planning/reload_waypoints` | `std_srvs/srv/Trigger` | 검증된 `reload_map_name` 결과로 런타임 참조 전환 |
+
 ## 5. 주요 파라미터
 
 파라미터 파일: `src/global_planning/config/global_planning.yaml`
@@ -44,8 +54,9 @@ RViz 시각화 마커를 ROS 2 토픽으로 재발행(republish)한다.
 | 파라미터 | 기본값 | 설명 |
 | --- | --- | --- |
 | `output_base_dir` | `offline_trajectory_generator/output` | JSON 상위 디렉토리 (상대경로는 실행 작업 디렉토리 기준) |
-| `map_name` | `ifac_track` | 맵 이름. `<output_base_dir>/<map_name>/global_waypoints.json`을 읽음 |
-| `map_path` | `""` | 명시적 디렉토리 override (설정 시 위 두 값 무시) |
+| `map_name` | `map` | 시작 시 `<output_base_dir>/<map_name>/global_waypoints.json`을 읽음 |
+| `map_path` | `""` | 시작 경로의 명시적 디렉토리 override |
+| `reload_map_name` | `obstacle_map` | reload 성공 시 전환할 별도 JSON 디렉토리 이름 |
 | `publish_markers` | `true` | RViz 마커 발행 여부 |
 | `publish_shortest_path` | `true` | 최단경로 웨이포인트 발행 여부 |
 | `publish_centerline` | `true` | 센터라인 발행 여부 |
@@ -63,10 +74,13 @@ RViz 시각화 마커를 ROS 2 토픽으로 재발행(republish)한다.
 
 ```bash
 source /opt/ros/jazzy/setup.zsh
-colcon build --packages-select global_planning
+colcon build --packages-up-to map_creator
 source install/setup.zsh
 ros2 launch global_planning global_planning.launch.py
 ```
+
+이 launch는 `map_creator_node`도 함께 실행한다. map creator 파라미터 파일을 바꿔야 하면
+`map_creator_params_file:=<경로>`를 추가한다.
 
 > 참고: launch 파일이 노드명을 `global_trajectory_publisher_node`로 지정하므로
 > 파라미터 파일의 노드 키와 일치한다. `ros2 run`으로 직접 띄울 때는
@@ -79,3 +93,5 @@ ros2 launch global_planning global_planning.launch.py
 3. RViz에서 `/global_waypoints/markers`를 Add하면 속도 색상 궤적선이 보인다.
 4. RViz에서 `/trackbounds/markers`를 Add하면 좌/우 트랙 경계선이 보인다.
    - Fixed Frame은 `marker_frame_id`(기본 `map`)와 일치시켜야 한다.
+5. map creator가 `swapped`를 보고한 뒤 `ros2 param get
+   /global_trajectory_publisher_node map_name`이 `obstacle_map`인지 확인한다.

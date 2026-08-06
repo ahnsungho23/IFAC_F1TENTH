@@ -100,7 +100,7 @@ PAT_SIM=('ros2 launch f1tenth_gym_ros' 'gym_bridge')
 PAT_MCL=('ros2 launch particle_filter_cpp' 'particle_filter_node'
          'particle_filter_map_server' 'lifecycle_manager_particle_filter')
 PAT_GLOBAL=('ros2 launch global_planning' 'global_planning_node'
-            'global_trajectory_publisher_node' 'frenet_odom_node')
+            'global_trajectory_publisher_node' 'frenet_odom_node' 'map_creator_node')
 PAT_LOCAL=('ros2 launch local_planning' 'local_planner_node')
 PAT_STATE=('ros2 launch state_machine' 'state_machine_node')
 PAT_CONTROL=('ros2 launch f1tenth_control' 'control_map_node' 'control_mppi_node'

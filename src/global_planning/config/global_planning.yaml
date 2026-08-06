@@ -8,16 +8,17 @@ global_planning_node:
 
 global_trajectory_publisher_node:
   ros__parameters:
-    # global_waypoints.json is read from <output_base_dir>/<map_name>/.
-    # Switch maps by changing map_name only. Relative paths resolve from the
+    # The initial global_waypoints.json is read from <output_base_dir>/<map_name>/.
+    # Relative paths resolve from the
     # `ros2 launch` working directory, so launch from the workspace root (~/2026_IFAC).
-    # NOTE: global_planning.launch.py always overrides map_name with its launch
-    # argument (F1_MAP env or the launch default) — keep both in sync.
-    # "obstacle_map" is seeded from the baseline (output/map copy) at setup and is
-    # overwritten by the map_creator pipeline after lap 1 (obstacle-baked reroute).
+    # NOTE: global_planning.launch.py overrides the initial map_name with its launch
+    # argument (F1_MAP env or the launch default).
     output_base_dir: "offline_trajectory_generator/output"
-    map_name: "obstacle_map"
-    # map_path: ""   # optional explicit directory override (bypasses output_base_dir/map_name)
+    map_name: "map"
+    # /global_planning/reload_waypoints atomically switches the in-memory source to
+    # <output_base_dir>/<reload_map_name>/global_waypoints.json. YAML is not rewritten.
+    reload_map_name: "obstacle_map"
+    # map_path: ""   # optional initial-directory override (reload target remains obstacle_map)
     publish_markers: true
     publish_shortest_path: true
     publish_centerline: true

@@ -3,7 +3,7 @@
 <package format="3">
   <name>map_creator</name>
   <version>0.0.0</version>
-  <description>Lap-transition obstacle_map pipeline: bakes lap-1 static obstacles into the
+  <description>Lap-transition obstacle_map pipeline: bakes pre-trigger static obstacles into the
     trajectory-generator map (blocked side painted to the wall via the shared local_planning
     side decision), regenerates the global raceline offline, and swaps it at a safe lap
     boundary through the global_planning reload service.</description>
@@ -15,7 +15,6 @@
   <depend>rclcpp</depend>
   <depend>std_msgs</depend>
   <depend>std_srvs</depend>
-  <depend>nav_msgs</depend>
   <depend>f110_msgs</depend>
   <depend>local_planning</depend>
   <depend>libopencv-dev</depend>

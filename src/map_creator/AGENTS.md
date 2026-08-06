@@ -5,7 +5,8 @@ map_creator package rules. These instructions apply to `src/map_creator`.
 
 - `map_creator_node` implements the lap-transition obstacle_map pipeline
   (`learning_adaptive_globalpath/MAP_CREATOR_PROPOSAL.md` is the normative design):
-  lap-1 static-obstacle ledger → side decision → blocked-side painting →
+  laps-1-and-2 static-obstacle ledger → side decision at the lap 2-to-3 transition
+  → blocked-side painting →
   offline regeneration → gated swap via `/global_planning/reload_waypoints`.
 - The left/right side decision MUST go through
   `local_planning::RacelineSplinePlanner::evaluateObstacleScenario` (linked via the
@@ -39,20 +40,21 @@ map_creator package rules. These instructions apply to `src/map_creator`.
 - Tests in `test/` are gtest, ROS-free (ledger matching/removal, painter pixels).
 - Korean operator documentation in `docs/map_creator_node.md`.
 
-## Swap Preconditions (do not weaken)
+## Swap Preconditions
 
 1. Driver completed with current gui_params values AND its physical gates passed
    (closed loop, off_map=0, strictly increasing s, |kappa| <= 3.2, obstacle
    clearance >= `min_obstacle_clearance_after_m`).
 2. `/lap_count` advanced past the lap in which generation completed.
-3. `/state == STATE_GLOBAL` and ego s inside `[swap_s_window_min_m, swap_s_window_max_m]`;
-   deferral bounded by `max_swap_deferral_laps`.
+3. Reload-service unavailability may defer the request, bounded by
+   `max_swap_deferral_laps`.
 
 ## Runtime Code
 
 - Runtime code must be C++ for ROS 2 Jazzy. The Python driver is an offline
   helper script (allowed by the root CLAUDE.md policy), spawned as a subprocess.
 - Prefer `f110_msgs`/`std_msgs`/`std_srvs` types; the reload interface is an
-  argument-less `std_srvs/Trigger` by design (map_name is fixed to obstacle_map).
+  argument-less `std_srvs/Trigger` by design. The global publisher keeps the baseline
+  `map` source until this gated call switches it to the configured `obstacle_map` source.
 - Update this AGENTS.md and `docs/map_creator_node.md` when behavior, topics,
   parameters, or launch usage change.
