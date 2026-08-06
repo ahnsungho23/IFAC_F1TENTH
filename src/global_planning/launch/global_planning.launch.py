@@ -19,10 +19,12 @@ def generate_launch_description():
         description="Path to global planning parameter yaml",
     )
     # 맵 이름 단일화: F1_MAP 환경변수로 MCL/global/local 이 같은 맵을 보게 한다.
-    # yaml 의 map_name 을 이 인자로 덮어쓴다(미설정 시 'map').
+    # yaml 의 map_name 을 이 인자로 덮어쓴다(미설정 시 'obstacle_map').
+    # obstacle_map 은 baseline(output/map) 사본으로 시딩되며, 랩1 이후 map_creator
+    # 파이프라인이 장애물 반영본으로 덮어쓴다 (learning_adaptive_globalpath 제안서 참고).
     map_name_arg = DeclareLaunchArgument(
         "map_name",
-        default_value=os.environ.get("F1_MAP", "map"),
+        default_value=os.environ.get("F1_MAP", "obstacle_map"),
         description="Map name (overrides map_name in yaml). Shared via F1_MAP env var.",
     )
 

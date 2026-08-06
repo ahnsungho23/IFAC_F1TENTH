@@ -12,6 +12,7 @@
 #include "std_msgs/msg/color_rgba.hpp"
 #include "std_msgs/msg/float32.hpp"
 #include "std_msgs/msg/string.hpp"
+#include "std_srvs/srv/trigger.hpp"
 #include "visualization_msgs/msg/marker.hpp"
 #include "visualization_msgs/msg/marker_array.hpp"
 
@@ -79,28 +80,37 @@ public:
 
     // Resolve the directory holding global_waypoints.json.
     // Priority: explicit map_path override, else <output_base_dir>/<map_name>.
-    std::string map_dir = get_parameter("map_path").as_string();
-    if (map_dir.empty()) {
+    map_dir_ = get_parameter("map_path").as_string();
+    if (map_dir_.empty()) {
       const auto base = get_parameter("output_base_dir").as_string();
       const auto name = get_parameter("map_name").as_string();
       if (!name.empty()) {
-        map_dir = base.empty() ? name : base + "/" + name;
+        map_dir_ = base.empty() ? name : base + "/" + name;
       }
     }
-    if (map_dir.empty()) {
+    if (map_dir_.empty()) {
       RCLCPP_WARN(
         get_logger(),
         "no map source: set 'map_name' (with 'output_base_dir') or 'map_path'");
     } else {
       std::string error_msg;
-      if (!read_global_waypoints(map_dir, bundle_, error_msg)) {
+      if (!read_global_waypoints(map_dir_, bundle_, error_msg)) {
         RCLCPP_WARN(get_logger(), "%s", error_msg.c_str());
       } else {
         has_bundle_ = true;
         generateMarkers();
-        RCLCPP_INFO(get_logger(), "loaded global waypoints from %s", map_dir.c_str());
+        RCLCPP_INFO(get_logger(), "loaded global waypoints from %s", map_dir_.c_str());
       }
     }
+
+    // Atomic in-process swap for the map_creator pipeline: re-read the configured map
+    // directory and republish immediately. The caller (map_creator) gates the timing
+    // (STATE_GLOBAL, no local commitment, lap boundary); this node only validates data.
+    reload_srv_ = create_service<std_srvs::srv::Trigger>(
+      "/global_planning/reload_waypoints",
+      std::bind(
+        &GlobalRepublisherNode::reloadWaypoints, this,
+        std::placeholders::_1, std::placeholders::_2));
 
     const auto period = get_parameter("publish_period_sec").as_double();
     timer_ = create_wall_timer(
@@ -254,6 +264,67 @@ private:
     return arr;
   }
 
+  // Data-level validation before a reloaded bundle may replace the live one.
+  // Mirrors the strictest downstream requirements (state_machine: strictly
+  // increasing finite s_m; local_planning: >=4 waypoints).
+  static bool validBundle(const GlobalWaypointBundle & bundle, std::string & why)
+  {
+    const auto & wpnts = bundle.global_traj_wpnts_iqp.wpnts;
+    if (wpnts.size() < 4U) {
+      why = "reloaded raceline has fewer than 4 waypoints";
+      return false;
+    }
+    double prev_s = -std::numeric_limits<double>::infinity();
+    for (const auto & w : wpnts) {
+      if (!std::isfinite(w.s_m) || !std::isfinite(w.x_m) || !std::isfinite(w.y_m) ||
+        !std::isfinite(w.psi_rad) || !std::isfinite(w.kappa_radpm) || !std::isfinite(w.vx_mps))
+      {
+        why = "reloaded raceline contains non-finite fields";
+        return false;
+      }
+      if (w.s_m <= prev_s) {
+        why = "reloaded raceline s_m is not strictly increasing";
+        return false;
+      }
+      prev_s = w.s_m;
+    }
+    return true;
+  }
+
+  void reloadWaypoints(
+    const std::shared_ptr<std_srvs::srv::Trigger::Request> /*request*/,
+    std::shared_ptr<std_srvs::srv::Trigger::Response> response)
+  {
+    if (map_dir_.empty()) {
+      response->success = false;
+      response->message = "no map directory configured";
+      return;
+    }
+    GlobalWaypointBundle fresh;
+    std::string error_msg;
+    if (!read_global_waypoints(map_dir_, fresh, error_msg)) {
+      response->success = false;
+      response->message = error_msg;
+      RCLCPP_WARN(get_logger(), "reload rejected: %s", error_msg.c_str());
+      return;
+    }
+    if (!validBundle(fresh, error_msg)) {
+      response->success = false;
+      response->message = error_msg;
+      RCLCPP_WARN(get_logger(), "reload rejected: %s", error_msg.c_str());
+      return;
+    }
+    bundle_ = std::move(fresh);
+    has_bundle_ = true;
+    generateMarkers();
+    publish_all();  // swap immediately; do not wait for the 2 s republish timer
+    response->success = true;
+    response->message =
+      "reloaded " + std::to_string(bundle_.global_traj_wpnts_iqp.wpnts.size()) +
+      " waypoints from " + map_dir_;
+    RCLCPP_INFO(get_logger(), "%s", response->message.c_str());
+  }
+
   void publish_all()
   {
     if (!has_bundle_) {
@@ -291,7 +362,9 @@ private:
   double trackbound_marker_width_{0.05};
 
   bool has_bundle_{false};
+  std::string map_dir_;
   GlobalWaypointBundle bundle_;
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr reload_srv_;
 
   rclcpp::Publisher<f110_msgs::msg::WpntArray>::SharedPtr glb_wpnts_pub_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr glb_markers_pub_;

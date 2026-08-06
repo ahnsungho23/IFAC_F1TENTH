@@ -1,0 +1,62 @@
+map_creator_node:
+  ros__parameters:
+    # ---- topics / service ----
+    static_obs_topic: "/static_obs"
+    global_waypoints_topic: "/global_waypoints"
+    lap_count_topic: "/lap_count"
+    state_topic: "/state"
+    frenet_odom_topic: "/car_state/frenet/odom"
+    reload_service: "/global_planning/reload_waypoints"
+
+    # ---- trigger / ledger ----
+    trigger_lap_count: 1          # freeze at the lap-1 finish (lap_count 0 -> 1)
+    match_max_ds_m: 1.0           # wrap-aware obstacle identity matching
+    match_max_dd_m: 0.3
+    min_observations: 3
+    removal_miss_laps: 2          # rollback hysteresis (laps without observation)
+
+    # ---- side decision (full snapshot; MAP_CREATOR_PROPOSAL 4) ----
+    # These are map_creator's OWN tuned values and intentionally differ from the
+    # runtime local_planning.yaml. Provenance: calibration hand-off 2026-08-06
+    # (사용자 제공 튜닝 값) — record the objective/dataset here when known.
+    ego_lookback_m: 12.0          # max entry 6*1.9046=11.43 m must not truncate
+    decision:
+      transition_distance_scales: [0.180794, 0.963633, 1.904460]
+      outside_line_transition_scale: 0.356840
+      commitment_clearance_reserve_m: 0.026811
+      minimum_avoidance_clearance_m: 0.249991  # ~= obstacle_clearance: tight retry effectively disabled
+      boundary_margin_m: 0.087942
+      minimum_target_offset_m: 0.168582
+      maximum_lateral_slope: 0.640085
+      # Unlisted items pinned to the deployed local_planning.yaml values:
+      obstacle_clearance_m: 0.25
+      maximum_target_offset_m: 1.50
+      side_tie_epsilon_m: 0.02
+      vehicle_half_width_m: 0.121
+      obstacle_longitudinal_padding_m: 0.3
+      detection_lookahead_m: 12.0
+      fallback_track_half_width_m: 1.50
+
+    # ---- painting (MAP_CREATOR_PROPOSAL 3.3) ----
+    base_map_yaml: ""             # empty = use gui_params.yaml map_yaml (same map family)
+    nondrivable_threshold: 250    # pixel < 250 = non-drivable (generator free predicate)
+    side_samples_min: 9
+    ray_step_fraction: 0.25       # ray step = resolution / 4
+    max_ray_length_m: 5.0         # beyond this: wall_not_found -> abort
+
+    # ---- regeneration (driver = same gui_params.yaml values as the GUI) ----
+    generator_driver: "offline_trajectory_generator/regenerate_obstacle_map.py"
+    gui_params_yaml: "offline_trajectory_generator/gui_params.yaml"
+    output_base_dir: "offline_trajectory_generator/output"
+    output_map_name: "obstacle_map"
+    baseline_map_name: "map"
+    reseed_on_startup: true       # start every session from the baseline copy
+    python_executable: "python3"
+    generation_timeout_sec: 120.0
+    retry_safety_width: 0.5       # one retry with wider clearance on gate failure
+
+    # ---- swap gates (MAP_CREATOR_PROPOSAL 3.5) ----
+    swap_s_window_min_m: 1.0
+    swap_s_window_max_m: 8.0
+    min_obstacle_clearance_after_m: 0.42   # local-planner silence clearance
+    max_swap_deferral_laps: 3
