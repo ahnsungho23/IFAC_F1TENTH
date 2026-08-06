@@ -1,5 +1,5 @@
-map_yaml: /home/haejun/slam_toolbox/map.yaml
-output_dir: /home/haejun/2026_IFAC/offline_trajectory_generator/output/map/forza
+map_yaml: src/monte_carlo_localization/maps/map.yaml
+output_dir: /home/tenmeneat/2026_IFAC/offline_trajectory_generator/output/map/forza
 optimizer_config_dir: src/global_planning/vendor/gb_optimizer/config/global_planner
 occupancy_grid_threshold: 23.28571429
 filter_kernel_size: 7
