@@ -19,7 +19,7 @@ max_width_distance: 2.0
 max_speed: 8.0
 min_speed: 2.0
 max_curvature: 0.65
-smooth_sigma: 2.5
+smooth_sigma: 4.1
 median_kernel: 5
 morph_kernel: 5
 morph_open_iterations: 3
