@@ -1,0 +1,26 @@
+static_obstacle_map:
+  ros__parameters:
+    confirmed_static_obs_topic: "/confirmed_static_obs"
+    dynamic_obs_topic: "/opp_obs"
+    publish_visualization: true
+    visualization_topic: "/static_obstacle_map/markers"
+    frame_id: "map"
+    visualization_marker_namespace: "persistent_static_obstacles"
+    visualization_height_m: 0.15
+    visualization_color_r: 1.0
+    visualization_color_g: 0.1
+    visualization_color_b: 0.1
+    visualization_color_a: 0.85
+    reset_service: "/static_obstacle_map/reset"
+
+    # 같은 장애물의 반복 관측을 하나의 저장 항목으로 연결하는 Cartesian AABB 간격입니다.
+    association_distance_m: 0.30
+    # 기존 AABB 바깥의 새 경계가 이 횟수만큼 연속 확인돼야 누적 형상에 추가합니다.
+    edge_confirm_frames: 3
+    # 같은 새 경계를 지지한다고 판단할 연속 관측 간 최대 차이입니다.
+    edge_match_tolerance_m: 0.05
+    # 저장되는 원본 AABB 대각선의 절대 상한입니다. detector의 max_obs_size와 맞춘 값입니다.
+    # bounded union이 이 값을 넘으면 기존 형상은 유지하고 새 확장만 거부합니다.
+    max_obstacle_diagonal_m: 0.80
+    # 정적으로 저장된 같은 track이 /opp_obs로 이동하면 오분류를 정정합니다.
+    remove_reclassified_dynamic: true
