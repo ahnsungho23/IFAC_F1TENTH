@@ -31,7 +31,8 @@ static_obstacle_map:
     obstacle_inflation_m: 0.0
     occupied_value: 100
 
-    # 정적으로 저장된 같은 track이 /opp_obs로 이동하면 오분류를 정정합니다.
-    remove_reclassified_dynamic: true
+    # confirmed 뒤 classifier가 static/dynamic으로 흔들려도 저장 항목을 유지합니다.
+    # 신뢰 가능한 장기 재분류 신호를 사용할 때만 true로 바꾸세요.
+    remove_reclassified_dynamic: false
     # 다른 map geometry가 들어오면 이전 주행의 저장 장애물을 제거합니다.
     clear_on_base_map_geometry_change: true

@@ -30,10 +30,14 @@ RViz에서는 `/adaptive_obstacle_map`을 `Map` 디스플레이로 표시하고,
    넘으면 기존 형상을 이동·축소하지 않고 새 확장만 거부한다.
 9. 출력할 때마다 최신 기본 지도를 새로 복사하고 저장 장애물 전체를 다시 rasterize한다.
 10. 저장 정보는 confirmed callback마다 갱신하고, 큰 OccupancyGrid의 재합성·발행은
-   `publish_period_ms`로 제한한다. 새 장애물, 기본 지도, reset, 동적 재분류는 즉시 반영한다.
+   `publish_period_ms`로 제한한다. 새 장애물, 기본 지도, reset과 활성화된 동적 재분류 삭제는
+   즉시 반영한다.
 11. confirmed 토픽이 비거나 객체 관측이 끊겨도 저장 항목은 지우지 않는다.
-12. 같은 detector track이 `/opp_obs`에서 동적으로 재분류되면, 설정에 따라 해당 저장 항목을
-    제거한다.
+12. 기본 설정에서는 같은 detector track이 `/opp_obs`에서 잠시 동적으로 재분류되어도 저장
+    항목을 유지한다. 따라서 분류기가 static/dynamic 사이에서 흔들려도 confirmed marker와
+    합성 지도 셀이 사라지지 않는다.
+13. 장시간 검증된 동적 재분류 신호를 사용하는 경우에만
+    `remove_reclassified_dynamic=true`로 설정해 같은 track의 저장 항목을 제거한다.
 
 저장소는 메모리에 있으므로 노드가 종료되면 사라진다. 같은 프로세스로 다음 주행을 시작할 때는
 reset 서비스를 호출한다.
@@ -44,7 +48,7 @@ reset 서비스를 호출한다.
 |---|---|---|---|
 | 구독 | `/map` | `nav_msgs/msg/OccupancyGrid` | 벽만 포함하는 Layer 1 기본 지도 |
 | 구독 | `/confirmed_static_obs` | `f110_msgs/msg/ObstacleArray` | confirmed 정적 장애물 |
-| 구독 | `/opp_obs` | `f110_msgs/msg/ObstacleArray` | 동적 재분류 정정 |
+| 구독 | `/opp_obs` | `f110_msgs/msg/ObstacleArray` | 옵션 활성화 시 동적 재분류 정정 |
 | 발행 | `/adaptive_obstacle_map` | `nav_msgs/msg/OccupancyGrid` | 벽과 저장 정적 장애물의 합성 지도 |
 | 발행 | `/adaptive_obstacle_map/markers` | `visualization_msgs/msg/MarkerArray` | 저장 정적 장애물 AABB의 RViz 오버레이 |
 | 서비스 | `/static_obstacle_map/reset` | `std_srvs/srv/Empty` | 저장 장애물 전체 삭제 |
@@ -77,12 +81,16 @@ box가 RViz에 남지 않는다. 지도 벽의 모든 occupied cell은 Marker로
 | `max_obstacle_diagonal_m` | `0.80` | 저장 AABB 대각선의 절대 상한 |
 | `obstacle_inflation_m` | `0.0` | 출력 grid에만 적용하는 추가 여유 |
 | `occupied_value` | `100` | 장애물 cell 값 |
-| `remove_reclassified_dynamic` | `true` | 같은 track의 동적 승격 시 저장 삭제 |
+| `remove_reclassified_dynamic` | `false` | `true`일 때만 같은 track의 동적 승격 시 저장 삭제 |
 | `clear_on_base_map_geometry_change` | `true` | 지도 형상이 바뀌면 저장 초기화 |
 
 `max_obstacle_diagonal_m`은 저장되는 원본 장애물 크기에 적용된다. 누적 확장이 상한을 넘으면
 기존 앞쪽 형상을 유지하고 해당 확장을 거부한다. `obstacle_inflation_m`은 planner 안전 여유를
 위한 별도 출력 확장이며 저장 크기로 다시 들어가지 않아 누적되지 않는다.
+
+`remove_reclassified_dynamic=false`이면 노드는 `/opp_obs`를 구독하지 않는다. 최근 detector
+분류처럼 동일 track이 짧은 간격으로 static/dynamic을 오갈 때도 confirmed 저장 결과는 reset,
+노드 종료 또는 설정된 base-map geometry 변경 전까지 유지된다.
 
 ## 5. 빌드
 

@@ -50,7 +50,8 @@ StaticObstacleMapNode::StaticObstacleMapNode(const rclcpp::NodeOptions & options
     "association=%.2fm, edge_confirm=%d, edge_tolerance=%.2fm, "
     "max_diagonal=%.2fm, inflation=%.2fm, publish_period=%dms)",
     base_map_topic_.c_str(), confirmed_static_obs_topic_.c_str(),
-    dynamic_obs_topic_.c_str(), output_map_topic_.c_str(),
+    memory_config_.remove_reclassified_dynamic ? dynamic_obs_topic_.c_str() : "retraction disabled",
+    output_map_topic_.c_str(),
     publish_visualization_ ? visualization_topic_.c_str() : "disabled",
     memory_config_.association_distance_m, memory_config_.edge_confirm_frames,
     memory_config_.edge_match_tolerance_m,
@@ -85,7 +86,7 @@ void StaticObstacleMapNode::declareParameters()
   declare_parameter<double>("max_obstacle_diagonal_m", 0.80);
   declare_parameter<double>("obstacle_inflation_m", 0.0);
   declare_parameter<int>("occupied_value", 100);
-  declare_parameter<bool>("remove_reclassified_dynamic", true);
+  declare_parameter<bool>("remove_reclassified_dynamic", false);
   declare_parameter<bool>("clear_on_base_map_geometry_change", true);
 }
 

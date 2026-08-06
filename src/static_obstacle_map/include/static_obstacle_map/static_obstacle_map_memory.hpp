@@ -27,7 +27,9 @@ struct MemoryConfig
   // Optional raster-only expansion. It does not feed back into stored obstacle dimensions.
   double obstacle_inflation_m{0.0};
   int occupied_value{100};
-  bool remove_reclassified_dynamic{true};
+  // Keep confirmed obstacles persistent by default. A noisy classifier can alternate the same
+  // detector track between static and dynamic, so dynamic retraction must be explicitly enabled.
+  bool remove_reclassified_dynamic{false};
   bool clear_on_base_map_geometry_change{true};
 };
 

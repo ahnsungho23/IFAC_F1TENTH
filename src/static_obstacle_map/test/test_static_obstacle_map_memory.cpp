@@ -200,7 +200,9 @@ TEST(StaticObstacleMapMemory, KeepsConfirmedObjectsAcrossEmptyMessages)
 
 TEST(StaticObstacleMapMemory, RemovesOnlyExplicitSameTrackDynamicReclassification)
 {
-  StaticObstacleMapMemory memory;
+  MemoryConfig config;
+  config.remove_reclassified_dynamic = true;
+  StaticObstacleMapMemory memory(config);
   memory.updateConfirmed(arrayWith(makeStatic(4, 1.0, 1.2, 1.0, 1.2)));
   memory.updateConfirmed(arrayWith(makeStatic(5, 2.0, 2.2, 2.0, 2.2)));
   ASSERT_EQ(memory.obstacles().size(), 2U);
@@ -211,6 +213,21 @@ TEST(StaticObstacleMapMemory, RemovesOnlyExplicitSameTrackDynamicReclassificatio
   EXPECT_EQ(stats.removed, 1U);
   ASSERT_EQ(memory.obstacles().size(), 1U);
   EXPECT_EQ(memory.obstacles().front().source_id, 5);
+}
+
+TEST(StaticObstacleMapMemory, KeepsConfirmedObjectsAcrossDynamicClassifierOscillationByDefault)
+{
+  StaticObstacleMapMemory memory;
+  memory.updateConfirmed(arrayWith(makeStatic(4, 1.0, 1.2, 1.0, 1.2)));
+  ASSERT_EQ(memory.obstacles().size(), 1U);
+
+  auto dynamic = makeStatic(4, 1.0, 1.2, 1.0, 1.2);
+  dynamic.is_static = false;
+  const auto stats = memory.removeDynamic(arrayWith(dynamic));
+
+  EXPECT_EQ(stats.removed, 0U);
+  ASSERT_EQ(memory.obstacles().size(), 1U);
+  EXPECT_EQ(memory.obstacles().front().source_id, 4);
 }
 
 TEST(StaticObstacleMapMemory, RejectsObjectsWithoutCurrentStaticCartesianGeometry)

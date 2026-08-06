@@ -29,8 +29,9 @@ not weaken the repository-root `AGENTS.md`.
   previously stored footprint.
 - Recompose every output from the immutable latest base map plus the current memory. Do not paint
   updates incrementally onto the previous output because that leaves stale occupied cells.
-- A same-track dynamic reclassification may retract a stored object when
-  `remove_reclassified_dynamic` is enabled.
+- Keep `remove_reclassified_dynamic` disabled by default so short static/dynamic classifier
+  oscillations cannot retract confirmed persistent geometry. A same-track dynamic reclassification
+  may retract a stored object only when this option is explicitly enabled for a trusted signal.
 - Clear memory on the reset service, and optionally when the base-map geometry changes.
 
 ## Interfaces and parameters
