@@ -4,8 +4,7 @@
   <name>static_obstacle_map</name>
   <version>0.0.1</version>
   <description>
-    Persistent map-frame memory of confirmed static obstacles, rasterized with a clean base map
-    for adaptive global planning.
+    Persistent map-frame memory of confirmed static obstacles published as f110 obstacle messages.
   </description>
   <maintainer email="parkm04@hanyang.ac.kr">parkm04</maintainer>
   <license>Apache-2.0</license>
@@ -13,7 +12,6 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <depend>f110_msgs</depend>
-  <depend>nav_msgs</depend>
   <depend>rclcpp</depend>
   <depend>std_msgs</depend>
   <depend>std_srvs</depend>
