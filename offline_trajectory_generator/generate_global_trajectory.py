@@ -146,39 +146,15 @@ def add_generator_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--spike-filter-iterations", type=int, default=8)
     parser.add_argument(
         "--optimizer",
-        choices=("mincurv", "centerline", "laptime", "ai"),
+        choices=("mincurv", "centerline"),
         default="centerline",
-        help="centerline: keep the skeleton line; mincurv: scipy minimum-curvature; "
-             "laptime: differentiable lap-time gradient descent on GPU "
-             "(torch CUDA or Apple MLX; see optimize_laptime.py); "
-             "ai: multi-technique search — per-epoch GD portfolio + exact rescoring "
-             "+ evolution-strategy polish (see --ai-epochs).",
+        help="centerline: use the processed centerline without lateral optimization; "
+             "mincurv: scipy L-BFGS-B minimum-curvature optimization.",
     )
     parser.add_argument("--max-optimizer-iter", type=int, default=200)
     parser.add_argument("--curvature-weight", type=float, default=1.0)
     parser.add_argument("--smooth-weight", type=float, default=0.04)
     parser.add_argument("--length-weight", type=float, default=0.002)
-    # --- laptime optimizer (only used with --optimizer laptime) ---
-    parser.add_argument("--laptime-iters", type=int, default=2000,
-                        help="laptime: gradient-descent iterations.")
-    parser.add_argument("--laptime-restarts", type=int, default=16,
-                        help="laptime: candidate lines optimized in parallel on the GPU.")
-    parser.add_argument("--laptime-lr", type=float, default=0.08,
-                        help="laptime: Adam learning rate (step-decayed 1x/0.3x/0.1x).")
-    parser.add_argument("--laptime-smooth-weight", type=float, default=0.2,
-                        help="laptime: weight of the lateral-offset smoothness regularizer.")
-    parser.add_argument("--laptime-init-spread", type=float, default=2.0,
-                        help="laptime: stddev of the random restart initializations (logit space).")
-    parser.add_argument("--laptime-seed", type=int, default=0)
-    parser.add_argument("--laptime-backend", choices=("auto", "torch", "mlx"), default="auto",
-                        help="laptime: ML framework (auto = torch if installed, else mlx).")
-    parser.add_argument("--laptime-device", type=str, default="auto",
-                        help="laptime, torch only: auto (CUDA if available), cpu, cuda, cuda:N.")
-    parser.add_argument("--laptime-no-warm-start", action="store_true",
-                        help="laptime: skip seeding one restart from the min-curvature solution.")
-    parser.add_argument("--ai-epochs", type=int, default=3,
-                        help="ai: alternation rounds of (GPU GD portfolio -> exact rescoring "
-                             "-> ES polish); each epoch warm-restarts from the best line so far.")
     parser.add_argument(
         "--no-straighten-straights",
         dest="straighten_straights",
@@ -229,6 +205,8 @@ def default_output_dir(map_yaml: Path) -> Path:
 
 
 def validate_args(args: argparse.Namespace) -> None:
+    if args.optimizer not in ("centerline", "mincurv"):
+        raise RuntimeError(f"unsupported optimizer: {args.optimizer}")
     if args.waypoint_step <= 0.0 or args.optimizer_step <= 0.0:
         raise RuntimeError("waypoint-step and optimizer-step must be positive.")
     if args.safety_width <= 0.0:
@@ -959,93 +937,6 @@ def count_off_map_waypoints(
     return int(len(np.unique(np.clip(spans, 0, len(points_xy) - 1))))
 
 
-def optimize_raceline(
-    center_xy: np.ndarray,
-    d_right: np.ndarray,
-    d_left: np.ndarray,
-    args: argparse.Namespace,
-) -> np.ndarray:
-    """Dispatch to the selected raceline optimizer (centerline/mincurv/laptime/ai)."""
-    if args.optimizer not in ("laptime", "ai"):
-        return optimize_min_curvature(
-            center_xy, d_right, d_left, args.safety_width, args.boundary_margin, args
-        )
-
-    # Lazy import: torch/mlx are optional deps, only needed for laptime/ai.
-    import sys
-
-    module_dir = str(Path(__file__).resolve().parent)
-    if module_dir not in sys.path:
-        sys.path.insert(0, module_dir)
-    from optimize_laptime import optimize_lap_time, optimize_lap_time_ai
-
-    # The GUI injects progress_log to mirror optimizer progress in its status
-    # bar (long ai/laptime runs otherwise look frozen there); CLI keeps print.
-    log = getattr(args, "progress_log", print)
-
-    warm_alpha = None
-    if not getattr(args, "laptime_no_warm_start", False):
-        mincurv_xy = optimize_min_curvature(
-            center_xy, d_right, d_left, args.safety_width, args.boundary_margin, args
-        )
-        _, psi, _ = headings_and_curvature(center_xy)
-        normals = normals_from_heading(psi)
-        warm_alpha = np.sum((mincurv_xy - center_xy) * normals, axis=1)
-
-    if args.optimizer == "ai":
-        def evaluate(points_xy: np.ndarray) -> float:
-            # The exact objective the tool reports: velocity_profile lap time
-            # after the SAME post-processing the pipeline applies to the winner
-            # (spike filter + optimizer_step and waypoint_step resamples; only
-            # the straightening pass is skipped as it needs the map). Scoring
-            # the raw coarse line instead would reward/punish sampling
-            # artifacts the pipeline later removes, ranking candidates by the
-            # wrong number.
-            pts = filter_and_resample_closed(points_xy, args.optimizer_step, args)
-            pts = filter_and_resample_closed(pts, args.waypoint_step, args)
-            raceline_sigma = float(getattr(args, "raceline_smooth_sigma", 0.0))
-            if raceline_sigma > 0.0:
-                pts = smooth_closed(pts, raceline_sigma)
-            _, _, kappa = headings_and_curvature(pts)
-            _, _, lap = velocity_profile(
-                pts, kappa, args.max_speed, args.min_speed,
-                np.asarray(args.velocity_limits, dtype=np.float64),
-            )
-            max_curv = float(getattr(args, "max_curvature", 0.0))
-            if max_curv > 0.0:
-                # Undrivable bends must lose the ranking even when the speed
-                # model (floored at min_speed) barely penalizes them.
-                seg = np.linalg.norm(np.roll(pts, -1, axis=0) - pts, axis=1)
-                excess = np.maximum(np.abs(kappa) - max_curv, 0.0)
-                lap += 20.0 * float(np.sum(excess * excess * seg))
-            return lap
-
-        raceline, _info = optimize_lap_time_ai(
-            center_xy,
-            d_right,
-            d_left,
-            args.safety_width,
-            args.boundary_margin,
-            args,
-            evaluate=evaluate,
-            warm_alpha=warm_alpha,
-            log=log,
-        )
-        return raceline
-
-    raceline, _info = optimize_lap_time(
-        center_xy,
-        d_right,
-        d_left,
-        args.safety_width,
-        args.boundary_margin,
-        args,
-        warm_alpha=warm_alpha,
-        log=log,
-    )
-    return raceline
-
-
 def _rightmost_lateral_speed(
     kappa_abs: float,
     velocity_limits: np.ndarray,
@@ -1437,7 +1328,7 @@ def write_outputs(
         "args": {
             key: str(value) if isinstance(value, Path) else value
             for key, value in vars(args).items()
-            if not callable(value)  # GUI injects progress_log; keep metadata JSON-safe
+            if not callable(value)  # Keep runtime-only hooks out of metadata JSON.
         },
     }
     (output_dir / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
@@ -1495,7 +1386,14 @@ def generate_trajectory(args: argparse.Namespace) -> GenerationResult:
     center_right, center_left = track_widths(
         center_xy, free_mask, map_info, flip_y, args.max_width_distance, args.width_mode
     )
-    optimized_xy = optimize_raceline(center_xy, center_right, center_left, args)
+    optimized_xy = optimize_min_curvature(
+        center_xy,
+        center_right,
+        center_left,
+        args.safety_width,
+        args.boundary_margin,
+        args,
+    )
     optimized_xy = filter_and_resample_closed(optimized_xy, args.optimizer_step, args)
     global_xy = filter_and_resample_closed(optimized_xy, args.waypoint_step, args)
     raceline_sigma = float(getattr(args, "raceline_smooth_sigma", 0.0))

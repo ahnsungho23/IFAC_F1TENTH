@@ -40,8 +40,6 @@ python3 offline_trajectory_generator/trajectory_gui.py \
 
 The left side of the screen shows the map path, save location, and trajectory parameters. The numeric parameters are grouped under the `Sampling`, `Track & safety`, `Speed profile`, `Map cleanup`, `Centerline`, `Min-curvature`, and `Straightening` subheadings so the item you want is easy to find. The right side shows the centerline and RT lane together over the map image. When you change a slider or checkbox, it automatically recomputes after a short moment and the overlay is refreshed.
 
-Pressing the `AI Optimize` button switches the optimizer to `ai` and automatically searches for the fastest line by repeating a GPU gradient-descent portfolio + exact rescoring + evolution-strategy (ES) polish for `AI epochs` rounds (Optimizer tab; see the `--optimizer ai` description in section 3 for details). torch or MLX must be installed. The optimizer progress log (`[laptime] iter ...`, `[ai] epoch ...`) streams into the status bar during the run, so a large iteration count taking tens of seconds is not a hang.
-
 Each numeric parameter shows its current value in the input box next to its name, and you can also type a value directly into that box. The value is applied when you press `Enter` in the input box or move to another box. A directly entered value is rounded to the parameter's unit and clamped to the minimum if it is below the minimum, but a value larger than the slider's maximum range can still be used as is. In that case the slider stays at the end of its quick-adjustment range, while the actually applied value is kept in the input box and the saved YAML. If a parameter is at the bottom of the screen, move there with the mouse wheel or scrollbar over the left panel.
 
 When you press `Save` in the GUI, the trajectory currently shown on screen is saved as `global_waypoints.json`, `global_waypoints.csv`, `centerline.csv`, and `metadata.json`.
@@ -92,7 +90,7 @@ offline_trajectory_generator/output/<map_yaml_file_name>/
   (= `tan(max_steer)/wheelbase`, ~`1.2` for F1TENTH). The speed model only slows down for sharp
   bends — it does not know the car *cannot steer through them at all* — so without this limit the
   optimizers cut corners with kinks (turn radius of a few cm) the car can never track. It enters
-  the mincurv/laptime/ai losses as a penalty, and the final waypoints are validated against it
+  the mincurv objective as a penalty, and the final waypoints are validated against it
   with a warning on violation (GUI status-bar ⚠ plus a `max |κ|` metric). `0` disables.
 - `--raceline-smooth-sigma`: Gaussian smoothing (in samples, default `1.0`) applied to the
   raceline right after the final waypoint resample. The optimizers emit piecewise-linear lines
@@ -114,39 +112,10 @@ offline_trajectory_generator/output/<map_yaml_file_name>/
 - `--spike-filter-iterations`: The number of times to repeat the pin removal filter.
 - `--reverse`: Flips the driving direction of the generated waypoints to the opposite.
 - `--debug-image`: Saves a PNG with the centerline and global trajectory drawn over the map image.
-- `--optimizer centerline`: The default. Works stably on SLAM maps.
+- `--optimizer centerline`: Uses the extracted, smoothed, and resampled centerline without lateral
+  optimization. The later raceline smoothing, straightening, and curvature-spike correction still
+  apply exactly as they do for mincurv. This is the default and works stably on SLAM maps.
 - `--optimizer mincurv`: Attempts scipy-based minimum curvature correction. May require tuning depending on map quality.
-- `--optimizer laptime`: **Gradient-descends the lap time itself as a loss function on the GPU**
-  (`optimize_laptime.py`). Instead of indirectly reducing time by hand-tuning curvature/smooth/length
-  weights like mincurv, it directly minimizes a differentiable lap-time model (curvature-limited speed
-  `v=√(a_lat/|κ|)` plus accel/decel limits). Track bounds are hard-guaranteed by a sigmoid
-  reparameterization. `--laptime-restarts` candidate lines are optimized **simultaneously** on the GPU
-  (multi-start) and the fastest wins; one candidate is warm-started from the mincurv solution
-  (disable with `--laptime-no-warm-start`). Requires torch (CUDA) or Apple MLX (Metal);
-  `--laptime-backend auto` picks whichever is installed. Measured: on the fuck_f1 map (198 wpts),
-  24 lines × 3000 steps take 3.4 s on Apple M-series, lap time 6.70 s → 5.90 s (−12%).
-- `--laptime-iters` / `--laptime-restarts` / `--laptime-lr` / `--laptime-smooth-weight`:
-  iterations / parallel candidates / learning rate (3-stage decay) / lateral-offset smoothness weight
-  of the laptime optimizer. More candidates raise the chance of escaping local minima at almost no
-  extra cost on a GPU.
-- `--optimizer ai`: **automatic search that alternates several techniques per epoch to cut the lap
-  time further** (same as the GUI's `AI Optimize` button). The search is **anchored on the mincurv
-  solution**: the mincurv warm-start line is scored as the baseline, and most (3/4) of the initial
-  candidates are smooth perturbations around the mincurv/incumbent lines with only 1/4 fully
-  random for global exploration. One epoch consists of ① a GPU gradient-descent portfolio — each
-  candidate in the restart batch gets a **different smoothness weight** (x0.25/x1/x4), exploring
-  several regularization settings in one batched run — ② **exact rescoring** — every candidate is
-  re-scored with the true `velocity_profile` lap time plus the steering-limit penalty ("score")
-  after the same post-processing the pipeline applies (spike filter + resampling), not the
-  differentiable surrogate, to pick the real winner — ③ an **evolution-strategy (ES) polish** — a
-  (1+λ) ES that directly minimizes the non-differentiable exact score, followed by a de-wiggle
-  sweep (flattening leftover wiggles that don't buy lap time). The next epoch
-  warm-restarts from the incumbent (basin hopping). Uses the same `--laptime-*` settings. The
-  exact rescoring includes the steering-limit penalty, so **undrivable candidates lose the
-  ranking** — measured (fuck_f1, same settings): the laptime winner keeps a κ=2.2 rad/m corner
-  (warning printed) while the ai winner has max |κ|=1.19 with zero steering-limit violations.
-- `--ai-epochs`: number of ai search epochs. Default `3`. Each epoch reshuffles the random restart
-  seeds, so more epochs give more chances to escape local minima at proportionally more runtime.
 - `--max-optimizer-iter`: The maximum number of iterations for the minimum-curvature optimization (L-BFGS-B). The default is `200`. With `optimizer-step` in a sensible range the optimizer normally converges within this limit. It only reaches the limit on hard maps or large variable counts, and even then the best raceline found so far is used directly, so no warning is printed. If the warning shows up often, raising `optimizer-step` is the proper fix.
 - `--no-straighten-straights`: Turns off the post-processing that corrects straight candidate sections into straight lines.
 - `--straight-kappa-threshold`: Absolute curvature smaller than this value is regarded as a straight candidate. The default is `0.2` rad/m.
@@ -211,18 +180,13 @@ The CSV's `x_m` and `y_m` are map frame coordinates with the `resolution` and `o
 
 ## 6. Dependencies
 
-In the current environment, `numpy`, `opencv`, `PyYAML`, and `scipy` are used.
+The generator and adaptive parameter search use `numpy`, `opencv`, `PyYAML`, `scipy`, and `cma`.
 
 ```bash
 python3 -m pip install -r offline_trajectory_generator/requirements.txt
 ```
 
-ROS 2, `rclpy`, `quadprog`, and `skimage` are not required.
-
-Only `--optimizer laptime` and `--optimizer ai` additionally need an ML framework (either one):
-
-- `torch` — Ubuntu / car PC. Uses CUDA automatically when available (`--laptime-device cuda` to force).
-- `mlx` — Apple Silicon macOS. Uses the Metal GPU automatically.
+ROS 2 and `rclpy` are not required.
 
 The centerline extraction is robust against map noise: ① skeleton pixels in corridors narrower than
 `--min-track-width` are treated as noise and removed, ② among candidate loops the closed contour with

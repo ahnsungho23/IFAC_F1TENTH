@@ -1,8 +1,6 @@
 global_planning_node:
   ros__parameters:
     map_dir: "src/global_planning/data"
-    optimizer_command: "python3 src/global_planning/vendor/gb_optimizer/src/global_planner_node_ros2.py"
-    pythonpath_extra: "src/global_planning/vendor/gb_optimizer/src:src/global_planning/vendor/gb_optimizer"
     run_once: false
     trigger_on_start: false
 

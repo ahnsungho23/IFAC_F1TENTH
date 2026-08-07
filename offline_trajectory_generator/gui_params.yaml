@@ -33,11 +33,6 @@ max_optimizer_iter: 370
 curvature_weight: 0.6000000000000001
 smooth_weight: 0.095
 length_weight: 0.002
-laptime_iters: 5400
-laptime_restarts: 27
-laptime_lr: 0.045
-laptime_smooth_weight: 0.2
-ai_epochs: 3
 straight_kappa_threshold: 0.2
 straight_min_length: 1.5000000000000002
 straight_clearance_margin: 0.03

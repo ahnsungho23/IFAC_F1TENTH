@@ -3,7 +3,6 @@
 import math
 import tempfile
 import unittest
-from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -13,7 +12,6 @@ from generate_global_trajectory import (
     load_velocity_limits,
     velocity_profile,
 )
-from optimize_laptime import LapTimeParams, _Ops, _lap_time_terms
 
 
 class VelocityLimitsTest(unittest.TestCase):
@@ -117,49 +115,6 @@ class VelocityLimitsTest(unittest.TestCase):
             )
             with self.assertRaisesRegex(RuntimeError, "Extend the table"):
                 load_velocity_limits(path, max_speed=6.5)
-
-    def test_differentiable_profile_consumes_the_same_table_columns(self) -> None:
-        ops = _Ops(
-            roll=lambda x, shift, axis: np.roll(x, shift, axis),
-            sqrt=np.sqrt,
-            abs=np.abs,
-            minimum=np.minimum,
-            maximum=np.maximum,
-            sigmoid=lambda x: 1.0 / (1.0 + np.exp(-x)),
-            atan2=np.arctan2,
-            sin=np.sin,
-            cos=np.cos,
-            sum=lambda x, axis: np.sum(x, axis=axis),
-            mean0=np.mean,
-        )
-        count = 32
-        angle = np.linspace(0.0, 2.0 * np.pi, count, endpoint=False)
-        center = np.column_stack((8.0 * np.cos(angle), 5.0 * np.sin(angle)))
-        normals = np.column_stack((np.cos(angle), np.sin(angle)))
-        theta = np.zeros((1, count))
-        lower = np.full(count, -0.1)
-        span = np.full(count, 0.2)
-        params = LapTimeParams(
-            v_max=7.0,
-            v_min=1.0,
-            limit_speeds=(0.0, 2.0, 4.0, 6.0, 8.0),
-            a_acc_limits=(4.5, 4.0, 3.0, 1.5, 0.8),
-            a_dec_limits=(5.0, 4.5, 3.5, 2.0, 1.5),
-            a_lat_limits=(8.0, 7.0, 6.0, 4.5, 3.5),
-        )
-        params = replace(
-            params,
-            limit_speeds=np.asarray(params.limit_speeds),
-            a_acc_limits=np.asarray(params.a_acc_limits),
-            a_dec_limits=np.asarray(params.a_dec_limits),
-            a_lat_limits=np.asarray(params.a_lat_limits),
-        )
-
-        loss, lap = _lap_time_terms(ops, theta, center, normals, lower, span, params)
-        self.assertTrue(bool(np.all(np.isfinite(loss))))
-        self.assertTrue(bool(np.all(np.isfinite(lap))))
-        self.assertGreater(float(lap[0]), 0.0)
-
 
 if __name__ == "__main__":
     unittest.main()

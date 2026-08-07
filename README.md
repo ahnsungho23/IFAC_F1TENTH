@@ -141,8 +141,7 @@ ROS 2 Jazzy workspace for the 2026 IFAC F1TENTH stack. ROS packages live under `
 │   │   ├── src/                        # frenet_odom_node, global_planning_node, global_trajectory_publisher_node, clcs_frenet_converter, readwrite_global_waypoints
 │   │   ├── test/test_clcs_frenet_converter.cpp
 │   │   ├── vendor/
-│   │   │   ├── commonroad_clcs/   # (vendored) CommonRoad-CLCS C++ curvilinear coordinate core
-│   │   │   └── gb_optimizer/      # (vendored) TUM global_racetrajectory_optimization + trajectory_planning_helpers (Python)
+│   │   │   └── commonroad_clcs/   # (vendored) CommonRoad-CLCS C++ curvilinear coordinate core
 │   │   ├── AGENTS.md, CMakeLists.txt, package.xml
 │   │
 │   ├── local_planning/           # static-obstacle avoidance local planner (least-squares spline)
@@ -226,7 +225,7 @@ ROS 2 Jazzy workspace for the 2026 IFAC F1TENTH stack. ROS packages live under `
 
 - Build/runtime artifacts are excluded: `build/`, `install/`, `log/`, `.matplotlib/`, and hidden folders (`.git`, `.vscode`, …).
 - `f110_msgs` is the shared interface package. Prefer these types (and `std_msgs`) for inter-node communication.
-- `global_planning/vendor/` holds vendored upstream code (CommonRoad-CLCS C++ core, TUM race-trajectory optimizer) — collapsed here; see each vendor subdir's own LICENSE/README.
+- `global_planning/vendor/` holds the vendored CommonRoad-CLCS C++ core — collapsed here; see the vendor subdir's own LICENSE/README.
 - Large asset dirs (`*/maps/`, `offline_trajectory_generator/output/`) are summarized by file count/example rather than listed in full.
 - Package roles (one line each) are annotations, not part of the on-disk layout.
 
@@ -515,8 +514,7 @@ map_name: "map"          # 실차 기본값. F1_MAP 환경변수(launch 인자)�
 **맵을 바꾸려면** `F1_MAP` 환경변수(또는 yaml의 `map_name`)만 그 맵 이름(= `offline_trajectory_generator/output/` 하위 폴더명)으로 바꾸면 됩니다.
 새 맵을 생성했거나 파일을 교체했다면 터미널 3을 재시작해야 반영됩니다.
 
-`output/`은 gitignore 대상이라 클린 체크아웃에는 없습니다. 아래처럼 생성하세요 (`torch` 미설치 환경에서는
-`--optimizer mincurv`만 가능):
+`output/`은 gitignore 대상이라 클린 체크아웃에는 없습니다. 아래처럼 생성하세요:
 
 ```bash
 cd ~/2026_IFAC
@@ -524,7 +522,8 @@ python3 offline_trajectory_generator/generate_global_trajectory.py \
   --map-yaml src/monte_carlo_localization/maps/ifac_track.yaml \
   --output-dir offline_trajectory_generator/output/ifac_track \
   --optimizer mincurv --raceline-smooth-sigma 3.0 \
-  --max-speed 0.5 --min-speed 0.4 --max-lateral-accel 1.0
+  --max-speed 0.5 --min-speed 0.4 \
+  --velocity-limits-csv offline_trajectory_generator/config/velocity_limits.csv
 ```
 
 > 속도 상한을 `0.5 m/s`로 두는 이유: gym 시뮬 폐루프 검증 기준값입니다. 합성 복도 맵에서는
@@ -605,7 +604,6 @@ ros2 launch local_planning local_planning.launch.py \
 | CMake | 전 패키지 `ament_target_dependencies` → modern `target_link_libraries` (9개 패키지 27곳) |
 | rosdep 키 | `nlohmann_json`→`nlohmann-json-dev`, 가짜 `openmp` 제거 (global_planning), 기존 waypoint selector의 `nav_mags` 오타 수정, 미선언 `angles` 제거 (MCL), 미사용 `pcl_ros`/`pcl_conversions` 제거 (MCL) |
 | lap_timer | `rviz_2d_overlay_msgs` 무가드 import 제거 — Jazzy에 바이너리 미배포라 실행 즉시 죽던 것을 선택적 import로 전환 |
-| vendor | `gb_optimizer`(ROS1 catkin)에 `COLCON_IGNORE` 명시 |
 | MCL sim 튜닝 | sim 모드 한정 motion_dispersion/smoothing 오버라이드 (`mcl_launch.py`, 실차 값 불변) |
 | 데이터 복구 | git에서 유실됐던 `ifac_track.{png,yaml}` 맵 복구 |
 | 포맷 | `builtin_interfaces/Time` 로그 포맷 `-Wformat` 경고 수정 |
@@ -636,7 +634,10 @@ ros2 launch local_planning local_planning.launch.py \
   최대 0.130 m, 검출기 스캔 드롭 0·오탐 0, `/drive` 39 Hz·`/local_waypoints` 30 Hz,
   전 노드 에러 로그 0건. (gym 워크스페이스가 `~/f1sim_C` → `~/sim_ws`로 이동됨)
 - **속도 한계 스윕 (2026-07-29)**: ifac_track 웨이포인트를 `--max-speed`만 바꿔 재생성
-  (라인 기하 동일, a_lat 1.0)하고 각 190 s(6~12랩) 폐루프로 MCL 추적을 비교 —
+  (라인 기하 동일, 제거 전 scalar 설정의 `a_lat=1.0`)하고 각 190 s(6~12랩) 폐루프로 MCL 추적을 비교했다.
+  현재 생성기는 `velocity_limits.csv`의 `max_lateral_accel_mps2` 열을 사용하므로 아래 표는 과거 조건의
+  측정 기록이다.
+
   | max_speed | 랩 | GT 대비 오차 max | 판정 |
   |---|---|---|---|
   | 3.0 | 6 | 0.28 m | ✅ 클린 |
@@ -644,7 +645,7 @@ ros2 launch local_planning local_planning.launch.py \
   | 4.5 | 7 | 1.41 m | ⚠️ 복도 스파이크 |
   | 5.0 | 12 | 1.71 m | ⚠️ 복도 스파이크(완주는 함) |
   4.5부터 y≈0.1 장복도 직선에서 **종방향(along-corridor) 오차가 랩마다 0.4~1.7 m 스파이크**
-  (평행벽 기하라 진행방향 관측성이 약함 — 코너 진입에서 재고정). 코너는 a_lat 1.0 기준
+  (평행벽 기하라 진행방향 관측성이 약함 — 코너 진입에서 재고정). 코너는 당시 `a_lat=1.0` 기준
   0.4~1 m/s라 요레이트 플립은 발생하지 않았다. 구 0.5 프로파일은
   `output/ifac_track_maxspeed0.5_backup/`에 보관.
 - **MCL pose fusion EKF (2026-07-29)**: 위 복도 한계를 출력단 EKF로 해소 — 휠 odom 포즈
@@ -656,8 +657,9 @@ ros2 launch local_planning local_planning.launch.py \
   | 5.0 | 5.00 | 1.2 cm / 8 cm | ✅ (EMA 시절 1.7 m 스파이크 → 소멸) |
   | 6.0 | 5.92 | 1.2 cm / 10 cm | ✅ |
   | 7.0 | **6.21** | 1.1 cm / 10.5 cm | ✅ — **한계는 이제 MCL이 아니라 max_accel 3.0·직선 길이** |
-  시뮬 기본 프로파일은 max_speed 7.0(실측 vmax 6.2, 랩 ~27 s). 더 올리려면 웨이포인트
-  `--max-accel`/`--max-lateral-accel` 상향이 필요하며 이는 제어 안전 검증과 한 세트.
+  시뮬 기본 프로파일은 max_speed 7.0(실측 vmax 6.2, 랩 ~27 s). 더 올리려면
+  `velocity_limits.csv`의 `max_accel_mps2`/`max_lateral_accel_mps2` 열을 상향해야 하며 이는
+  제어 안전 검증과 한 세트.
   구현: `use_pose_ekf`(기본 true, false면 구 EMA), 파라미터는 `mcl_config.yaml` 참고.
   ⚠️ 실차 전제: VESC 휠 odom 병진 오차 ~0.3%(`ekf_trans_error_rate` 유효값 1%로 설정),
   odom yaw는 조향 명령 합성이므로 실차 셰이크다운에서 `ekf_rot_*` 재튜닝 여지 있음.

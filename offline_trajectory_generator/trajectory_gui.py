@@ -77,12 +77,6 @@ NUMERIC_SPECS = [
     NumericSpec("curvature_weight", "Curvature wt", 1.0, 0.0, 5.0, 0.05, group="Min-curvature"),
     NumericSpec("smooth_weight", "Smooth wt", 0.04, 0.0, 0.3, 0.005, group="Min-curvature"),
     NumericSpec("length_weight", "Length wt", 0.002, 0.0, 0.02, 0.0005, group="Min-curvature"),
-    # Lap-time (GPU) optimizer
-    NumericSpec("laptime_iters", "Laptime iters", 2000, 200, 6000, 100, integer=True, group="Lap-time (GPU)"),
-    NumericSpec("laptime_restarts", "Laptime restarts", 16, 1, 64, 1, integer=True, group="Lap-time (GPU)"),
-    NumericSpec("laptime_lr", "Laptime LR", 0.08, 0.005, 0.3, 0.005, group="Lap-time (GPU)"),
-    NumericSpec("laptime_smooth_weight", "Laptime smooth", 0.2, 0.0, 2.0, 0.05, group="Lap-time (GPU)"),
-    NumericSpec("ai_epochs", "AI epochs", 3, 1, 10, 1, integer=True, group="Lap-time (GPU)"),
     # Straight-segment replacement
     NumericSpec("straight_kappa_threshold", "Straight kappa", 0.2, 0.0, 0.3, 0.005, group="Straightening"),
     NumericSpec("straight_min_length", "Straight min len", 1.5, 0.3, 8.0, 0.1, group="Straightening"),
@@ -179,6 +173,8 @@ def load_gui_params(path: Path) -> dict[str, Any]:
         for key in values:
             if key in loaded:
                 values[key] = loaded[key]
+    if values["optimizer"] not in ("centerline", "mincurv"):
+        values["optimizer"] = "mincurv"
     return normalize_gui_values(values)
 
 
@@ -242,11 +238,6 @@ def make_namespace(values: dict[str, Any]) -> argparse.Namespace:
         curvature_weight=float(values["curvature_weight"]),
         smooth_weight=float(values["smooth_weight"]),
         length_weight=float(values["length_weight"]),
-        laptime_iters=int(values["laptime_iters"]),
-        laptime_restarts=int(values["laptime_restarts"]),
-        laptime_lr=float(values["laptime_lr"]),
-        laptime_smooth_weight=float(values["laptime_smooth_weight"]),
-        ai_epochs=int(values["ai_epochs"]),
         straight_kappa_threshold=float(values["straight_kappa_threshold"]),
         straight_min_length=float(values["straight_min_length"]),
         straight_clearance_margin=float(values["straight_clearance_margin"]),
@@ -559,7 +550,7 @@ class TrajectoryGui:
     TAB_GROUPS = (
         ("Track / speed", ("Sampling", "Track & safety", "Speed profile")),
         ("Map / centerline", ("Map cleanup", "Centerline")),
-        ("Optimizer", ("Min-curvature", "Lap-time (GPU)", "Straightening")),
+        ("Optimizer", ("Min-curvature", "Straightening")),
     )
 
     def _build_controls(
@@ -604,22 +595,17 @@ class TrajectoryGui:
         buttons.grid(row=row, column=0, columnspan=3, sticky="ew", padx=10, pady=(6, 4))
         buttons.columnconfigure(0, weight=1)
         buttons.columnconfigure(1, weight=1)
-        buttons.columnconfigure(2, weight=1)
         ttk.Button(
             buttons, text="Rebuild", style="Accent.TButton",
             command=lambda: self.schedule_generate(0),
         ).grid(row=0, column=0, sticky="ew", padx=(0, 4))
-        ttk.Button(
-            buttons, text="AI Optimize", style="Accent.TButton",
-            command=self.run_ai_optimize,
-        ).grid(row=0, column=1, sticky="ew", padx=(4, 4))
         ttk.Button(buttons, text="Save outputs", command=self.save_outputs).grid(
-            row=0, column=2, sticky="ew", padx=(4, 0)
+            row=0, column=1, sticky="ew", padx=(4, 0)
         )
         row += 1
 
         self.variables["optimizer"] = tk.StringVar(value=str(initial_values.get("optimizer", "centerline")))
-        self._combo(row, "Optimizer", self.variables["optimizer"], ("centerline", "mincurv", "laptime", "ai"))
+        self._combo(row, "Optimizer", self.variables["optimizer"], ("centerline", "mincurv"))
         row += 1
 
         self.variables["width_mode"] = tk.StringVar(value=str(initial_values.get("width_mode", "distance")))
@@ -837,15 +823,6 @@ class TrajectoryGui:
             self.root.after_cancel(self.pending_after)
         self.pending_after = self.root.after(delay_ms, self.start_generate)
 
-    def run_ai_optimize(self) -> None:
-        """Switch to the multi-technique AI lap-time search and rebuild now.
-
-        Uses the "Lap-time (GPU)" tab settings plus "AI epochs"; each epoch runs
-        a GD portfolio, exact rescoring, and an evolution-strategy polish.
-        """
-        self.variables["optimizer"].set("ai")
-        self.schedule_generate(0)
-
     def start_generate(self) -> None:
         self.pending_after = None
         values = self.collect_values()
@@ -859,21 +836,6 @@ class TrajectoryGui:
         generation_id = self.generation_id
         self.running = True
         self.status_var.set("Generating...")
-
-        def progress_log(message: str) -> None:
-            # Mirror optimizer progress ([laptime]/[ai] lines) into the status
-            # bar so long GPU runs don't look frozen; keep the terminal print.
-            print(message)
-            text = str(message).strip()
-            if text:
-                self.root.after(
-                    0,
-                    lambda: self.status_var.set(f"Generating… {text}")
-                    if generation_id == self.generation_id and self.running
-                    else None,
-                )
-
-        args.progress_log = progress_log
 
         def worker() -> None:
             started = time.perf_counter()
