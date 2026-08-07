@@ -10,7 +10,7 @@
 | 워크스페이스 | 젯슨 `~/f1tenth_ws`(하드웨어) + `~/2026_IFAC`(제어·플래닝·MCL) |
 | 지도 이름 | **`map`** (slam_toolbox 기본 저장명 그대로 씀) |
 
-젯슨 `~/.zshrc`에 `ROS_DOMAIN_ID=67`, `F1_MAP`, `RMW_IMPLEMENTATION=rmw_fastrtps_cpp`가
+젯슨 `~/.zshrc`에 `ROS_DOMAIN_ID=70`, `F1_MAP`, `RMW_IMPLEMENTATION=rmw_fastrtps_cpp`가
 이미 있다. 다만 🔴 **`F1_MAP` 값이 지금 `ifac_track`으로 잘못 박혀 있다**(2026-07-31 확인).
 지도 이름은 `map`이므로 **한 번 고쳐두고 시작할 것**:
 ```bash
@@ -134,7 +134,7 @@ cp ~/slam_toolbox/map.png ~/slam_toolbox/map.yaml \
 **② GUI로 라인 확인하며 생성** (새 트랙이면 이쪽. 라인을 눈으로 보고 조정)
 ```bash
 cd ~/2026_IFAC
-python3 offline_trajectory_generator/trajectory_gui.py \
+python3 offline_trajectory_generator/forza_trajectory_gui.py \
   --map-yaml src/monte_carlo_localization/maps/map.yaml
 ```
 - 파라미터를 만지면 `offline_trajectory_generator/gui_params.yaml`에 **자동 저장**된다
@@ -151,7 +151,7 @@ python3 offline_trajectory_generator/generate_global_trajectory.py \
   --waypoint-step 0.25 --optimizer-step 0.46 \
   --safety-width 0.5 --boundary-margin 0.5 --max-width-distance 2.0 \
   --max-speed 6.5 --min-speed 4.0 \
-  --velocity-limits-csv offline_trajectory_generator/config/velocity_limits.csv \
+  --max-lateral-accel 6.0 --max-accel 3.5 --max-decel 2.5 \
   --max-curvature 1.18 \
   --smooth-sigma 3.7 --raceline-smooth-sigma 1.0
 ```
@@ -163,12 +163,12 @@ python3 offline_trajectory_generator/generate_global_trajectory.py \
 생성기가 차보다 낙관적인 값을 쓰면 **컨트롤러가 못 따라가는 프로파일**이 나오고,
 곡률 사전감속이 매 코너에서 그걸 깎느라 싸운다.
 
-| 생성기 설정 | GUI/CSV 저장값 | 차량 실측 한계 | 권장 |
+| 생성기 인자 | GUI 저장값 | 차량 실측 한계 | 권장 |
 |---|---|---|---|
 | `--max-curvature` | 1.2 | **1.286** (조향 23°, R 0.777 m) | **1.18** (R 0.85 m, 여유 15%) |
-| CSV `max_lateral_accel_mps2` | 5.5 | 컨트롤러 캡 **6.0** | **6.0** |
-| CSV `max_accel_mps2` | 3.7 | VESC 램프 `s_pid_ramp_erpms_s` 15600 = **3.69** | **3.5** |
-| CSV `max_decel_mps2` | 2.0 | 브레이크 하드웨어 4.8 / 현 튜닝 **2.5** | **2.5** |
+| `--max-lateral-accel` | 10.0 | 컨트롤러 캡 **6.0** | **6.0** |
+| `--max-accel` | 3.7 | VESC 램프 `s_pid_ramp_erpms_s` 15600 = **3.69** | **3.5** |
+| `--max-decel` | 2.0 | 브레이크 하드웨어 4.8 / 현 튜닝 **2.5** | **2.5** |
 | `--max-speed` | 6.5 | 실제 도달 7.4 (직선 13.3 m라 8.0엔 못 닿음) | 6.5~7.0 |
 
 🔴 **`--max-curvature`가 실제로 지켜졌는지 반드시 확인할 것.** `ifac_track_v2`는 이 값이
@@ -314,7 +314,7 @@ ros2 service call /lifecycle_manager_particle_filter/manage_nodes \
 ```bash
 source /opt/ros/jazzy/setup.zsh
 source ~/2026_IFAC/install/setup.zsh
-export ROS_DOMAIN_ID=67
+export ROS_DOMAIN_ID=70
 ros2 daemon stop && ros2 daemon start
 rviz2 -d "$(ros2 pkg prefix particle_filter_cpp)/share/particle_filter_cpp/rviz/particle_filter.rviz"
 ```
@@ -370,11 +370,7 @@ ros2 launch state_machine state_machine.launch.py
 ```bash
 ros2 topic echo /state
 ros2 topic hz /local_waypoints          # publisher = /state_machine_node 하나
-ros2 topic info -v /local_waypoints   # publisher = /state_machine_node 하나
 ```
-
-통합 `state_machine_node`가 `/local_waypoints`를 직접 발행합니다.
-
 **`/local_waypoints`가 안 나올 때** — 세 입력이 다 있어야 GLOBAL 상태에서 발행된다:
 ```bash
 ros2 topic echo /global_waypoints --once
@@ -386,7 +382,7 @@ ros2 topic echo /car_state/frenet/odom --field child_frame_id   # '0','125' 같�
 
 
 
-### T6 (젯슨) — control_real (마지막)
+### T6 (젯슨) — control (마지막)
 **실행 전**: 바퀴 들거나 스탠드 / E-stop 준비 / `/scan`·`/odom`·`/pf/pose/odom` 정상 /
 경로·지도 정합 / TF 정상(§6) / `/state` 정상.
 
@@ -494,7 +490,7 @@ ros2 run tf2_ros tf2_echo base_link laser
 
 ```bash
 # 양쪽에서
-printenv ROS_DOMAIN_ID          # 67
+printenv ROS_DOMAIN_ID          # 70
 printenv RMW_IMPLEMENTATION     # rmw_fastrtps_cpp
 date                            # 시각 차이 크면 TF가 안 보인다
 ```
@@ -505,7 +501,7 @@ ros2 topic pub /network_test std_msgs/msg/String "{data: 'hello from jetson'}" -
 본체:
 ```bash
 source /opt/ros/jazzy/setup.zsh
-export ROS_DOMAIN_ID=67
+export ROS_DOMAIN_ID=70
 ros2 daemon stop && ros2 daemon start
 ros2 topic echo /network_test
 ```
@@ -529,7 +525,7 @@ export ROS_SUPER_CLIENT=true     # ros2 topic list 열거까지 하려면
 
 | 증상 | 먼저 볼 것 |
 |---|---|
-| 본체에서 젯슨 토픽이 안 보임 | `ROS_DOMAIN_ID` 양쪽 67 / 같은 서브넷 / `ros2 daemon stop && start` / AP client isolation / VPN·방화벽 |
+| 본체에서 젯슨 토픽이 안 보임 | `ROS_DOMAIN_ID` 양쪽 70 / 같은 서브넷 / `ros2 daemon stop && start` / AP client isolation / VPN·방화벽 |
 | 스캔이 벽과 안 맞음 | 지도, `2D Pose Estimate`, `base_link→laser` static TF, MCL |
 | 스캔은 맞는데 경로만 어긋남 | `global_waypoints.json`의 `map_info_str`, 지도 `origin`/`resolution` |
 | MCL만 다른 지도를 봄 | `map_name:=map`을 안 넘겼다 — MCL은 `F1_MAP`을 안 읽는다 (§0-1) |
