@@ -15,12 +15,17 @@
 IDLE ──(lap_count ≥ trigger, 원장 freeze)──▶ 판정+페인팅+저장 ──▶ GENERATING
   드라이버(regenerate_obstacle_map.py) 완료·물리 게이트 통과 ──▶ ARMED
   lap_count 다음 갱신 ──▶ reload 호출 ──▶ MONITORING
-  (2랩 연속 미관측 장애물 → 원장 제거 → 재생성 / 전부 소실 → baseline 재시딩 + reload)
+  (authoritative 스냅샷에서 사라진 뒤 2랩 → 원장 제거 → 재생성 /
+  전부 소실 → baseline 재시딩 + reload)
 어느 단계든 실패 → ABORTED (기존 라인 유지, 로컬 회피가 계속 커버)
 ```
 
-1. **원장(ledger)**: `/static_obs`의 `is_static` 장애물을 wrap-aware 매칭
-   (|Δs|<1.0 m, |Δd|<0.3 m)으로 누적. `min_observations`(3) 이상 관측된 것만 freeze.
+1. **원장(ledger)**: `/adaptive_obstacle_map`의 persistent `is_static` 장애물을 메시지에 이미
+   계산된 Frenet 중심의 wrap-aware 거리(`|Δs|<match_max_ds_m`,
+   `|Δd|<match_max_dd_m`)로 매칭합니다. map_creator는 Cartesian→Frenet 변환을 수행하지
+   않습니다. 입력 배열은 authoritative 전체 스냅샷으로 처리하므로 매칭되는 기하가 배열에서
+   사라진 시점부터만 `removal_miss_laps`를 계산하며, 토픽이 조용한 것만으로는 장애물을
+   제거하지 않습니다. 별도 재확인은 하지 않고 persistent 항목을 그대로 freeze합니다.
 2. **판정**: map_creator 전용 튜닝 파라미터(`decision.*`)로 만든 플래너 인스턴스에서
    ego = (장애물 s − 12 m, d=0, v=해당 waypoint 속도)로 평가. 좌 통과 → 오른쪽을 막음,
    우 통과 → 왼쪽을 막음, safe_stop → 해당 장애물은 **베이크하지 않음**(양쪽을 막으면
@@ -45,7 +50,7 @@ IDLE ──(lap_count ≥ trigger, 원장 freeze)──▶ 판정+페인팅+저�
 
 | 방향 | 이름 | 타입 | 용도 |
 | --- | --- | --- | --- |
-| 구독 | `/static_obs` | `f110_msgs/ObstacleArray` | 랩1·2 장애물 원장 |
+| 구독 | `/adaptive_obstacle_map` | `f110_msgs/ObstacleArray` | persistent confirmed 장애물 원장 |
 | 구독 | `/global_waypoints` | `f110_msgs/WpntArray` | 판정 기준선 (최초 1회 = 불변 P0) |
 | 구독 | `/lap_count` | `std_msgs/Int32` | 트리거·스왑 랩 경계 |
 | 발행 | `/map_creator/status` | `std_msgs/String` | 단계·결과 |
@@ -56,6 +61,8 @@ IDLE ──(lap_count ≥ trigger, 원장 freeze)──▶ 판정+페인팅+저�
 | 파라미터 | 기본값 | 설명 |
 | --- | ---: | --- |
 | `trigger_lap_count` | 2 | freeze 트리거 랩 (랩2 완주 = 1→2) |
+| `match_max_ds_m` | 1.0 | 입력에 이미 계산된 Frenet s의 wrap-aware 매칭 상한 |
+| `match_max_dd_m` | 0.3 | 입력에 이미 계산된 Frenet d의 매칭 상한 |
 | `ego_lookback_m` | 12.0 | 판정 ego 위치 (최대 entry 11.43 m 절단 방지) |
 | `decision.*` | (스냅샷) | 좌/우 판정 파라미터 전체 — 미제시 항목은 배포 local_planning 값 |
 | `base_map_yaml` | "" | 비우면 gui_params의 map_yaml 사용 |
@@ -75,8 +82,9 @@ source install/setup.zsh
 ros2 launch global_planning global_planning.launch.py
 ```
 
-`global_planning.launch.py`가 `map_creator.launch.py`를 포함하므로 별도 터미널에서
-map creator를 중복 실행하지 않습니다. 단독 디버깅이 필요할 때만
+`global_planning.launch.py`가 `map_creator.launch.py`를 포함하며, 이 launch가
+`static_obstacle_map`도 함께 실행합니다. 두 노드를 별도 터미널에서 중복 실행하지 않습니다.
+단독 디버깅이 필요할 때만
 `ros2 launch map_creator map_creator.launch.py`를 사용합니다.
 
 전제: global_planning(리로드 서비스와 lap_counter 포함)·obstacle_detector가 함께 떠 있어야 하며,
@@ -95,7 +103,8 @@ map creator를 중복 실행하지 않습니다. 단독 디버깅이 필요할 �
 
 ## 7. 단계별 확인
 
-1. 랩 1·2 주행 중 `/map_creator/status`가 `idle`인지, `/static_obs` 수신을 확인합니다.
+1. 랩 1·2 주행 중 `/map_creator/status`가 `idle`인지,
+   `/adaptive_obstacle_map` 수신을 확인합니다.
 2. 랩 2 완주(랩 2→3 전이) 시 status가 `generating`으로 바뀌고 `regen_log.txt`가 자라는지 확인합니다.
 3. `gate_report.json`의 모든 게이트 PASS 후 status `armed`를 확인합니다.
 4. 다음 랩 경계에서 `swapped: reloaded N waypoints ...`와

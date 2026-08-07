@@ -4,7 +4,8 @@
 // map_creator_node: lap-transition obstacle_map pipeline
 // (learning_adaptive_globalpath/MAP_CREATOR_PROPOSAL.md).
 //
-// Laps 1-2: accumulate confirmed static obstacles (/static_obs) into a ledger.
+// Laps 1-2: consume the persistent confirmed-static snapshot
+// (/adaptive_obstacle_map) into a ledger.
 // At the lap 2 -> 3 transition: freeze -> per-obstacle left/right decision via
 // the SHARED RacelineSplinePlanner::evaluateObstacleScenario (map_creator's own
 // tuned parameter snapshot) -> paint the NON-chosen side to the wall on a copy
@@ -77,7 +78,7 @@ public:
       lap_count_topic_, latched,
       std::bind(&MapCreatorNode::lapCallback, this, std::placeholders::_1));
     obs_sub_ = create_subscription<f110_msgs::msg::ObstacleArray>(
-      static_obs_topic_, rclcpp::QoS(10),
+      obstacle_map_topic_, latched,
       std::bind(&MapCreatorNode::obstaclesCallback, this, std::placeholders::_1));
     status_pub_ = create_publisher<std_msgs::msg::String>("/map_creator/status", 10);
     reload_client_ = create_client<std_srvs::srv::Trigger>(reload_service_);
@@ -93,7 +94,7 @@ private:
   // ---------------------------------------------------------------- parameters
   void declareParameters()
   {
-    declare_parameter<std::string>("static_obs_topic", "/static_obs");
+    declare_parameter<std::string>("obstacle_map_topic", "/adaptive_obstacle_map");
     declare_parameter<std::string>("global_waypoints_topic", "/global_waypoints");
     declare_parameter<std::string>("lap_count_topic", "/lap_count");
     declare_parameter<std::string>(
@@ -102,7 +103,6 @@ private:
     declare_parameter<int>("trigger_lap_count", 2);
     declare_parameter<double>("match_max_ds_m", 1.0);
     declare_parameter<double>("match_max_dd_m", 0.3);
-    declare_parameter<int>("min_observations", 3);
     declare_parameter<int>("removal_miss_laps", 2);
 
     declare_parameter<double>("ego_lookback_m", 12.0);
@@ -150,17 +150,16 @@ private:
 
   void readParameters()
   {
-    static_obs_topic_ = get_parameter("static_obs_topic").as_string();
+    obstacle_map_topic_ = get_parameter("obstacle_map_topic").as_string();
     global_waypoints_topic_ = get_parameter("global_waypoints_topic").as_string();
     lap_count_topic_ = get_parameter("lap_count_topic").as_string();
     reload_service_ = get_parameter("reload_service").as_string();
 
     trigger_lap_count_ = static_cast<int>(get_parameter("trigger_lap_count").as_int());
-    min_observations_ = static_cast<int>(get_parameter("min_observations").as_int());
-    removal_miss_laps_ = static_cast<int>(get_parameter("removal_miss_laps").as_int());
     ledger_.setMatchThresholds(
       get_parameter("match_max_ds_m").as_double(),
       get_parameter("match_max_dd_m").as_double());
+    removal_miss_laps_ = static_cast<int>(get_parameter("removal_miss_laps").as_int());
 
     ego_lookback_m_ = get_parameter("ego_lookback_m").as_double();
 
@@ -257,9 +256,7 @@ private:
 
   void obstaclesCallback(const f110_msgs::msg::ObstacleArray::SharedPtr msg)
   {
-    if (stage_ == Stage::kIdle || stage_ == Stage::kMonitoring) {
-      ledger_.addObservations(msg->obstacles, lap_count_);
-    }
+    ledger_.updateSnapshot(msg->obstacles, lap_count_);
   }
 
   // ---------------------------------------------------------------- pipeline
@@ -505,7 +502,7 @@ private:
       case Stage::kIdle:
         if (!fired_ && adapter_ && lap_count_ >= trigger_lap_count_) {
           fired_ = true;
-          frozen_ = ledger_.confirmed(min_observations_);
+          frozen_ = ledger_.snapshot();
           baked_decisions_.clear();
           if (frozen_.empty()) {
             abort("trigger lap reached but no confirmed static obstacle");
@@ -564,7 +561,7 @@ private:
         const auto removals = ledger_.removalCandidates(lap_count_, removal_miss_laps_);
         if (!removals.empty()) {
           ledger_.removeAt(removals);
-          frozen_ = ledger_.confirmed(min_observations_);
+          frozen_ = ledger_.snapshot();
           baked_decisions_.clear();
           if (frozen_.empty()) {
             std::string why;
@@ -594,10 +591,9 @@ private:
   }
 
   // ---------------------------------------------------------------- members
-  std::string static_obs_topic_, global_waypoints_topic_, lap_count_topic_;
+  std::string obstacle_map_topic_, global_waypoints_topic_, lap_count_topic_;
   std::string reload_service_;
   int trigger_lap_count_{2};
-  int min_observations_{3};
   int removal_miss_laps_{2};
   double ego_lookback_m_{12.0};
   local_planning::RacelineSplineParameters decision_params_;

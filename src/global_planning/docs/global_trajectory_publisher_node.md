@@ -79,7 +79,8 @@ source install/setup.zsh
 ros2 launch global_planning global_planning.launch.py
 ```
 
-이 launch는 `map_creator_node`도 함께 실행한다. map creator 파라미터 파일을 바꿔야 하면
+이 launch는 `map_creator_node`와 그 입력을 제공하는 `static_obstacle_map`도 함께 실행한다.
+map creator 파라미터 파일을 바꿔야 하면
 `map_creator_params_file:=<경로>`를 추가한다.
 
 > 참고: launch 파일이 노드명을 `global_trajectory_publisher_node`로 지정하므로

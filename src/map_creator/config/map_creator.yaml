@@ -1,17 +1,16 @@
 map_creator_node:
   ros__parameters:
     # ---- topics / service ----
-    static_obs_topic: "/static_obs"
+    obstacle_map_topic: "/adaptive_obstacle_map"
     global_waypoints_topic: "/global_waypoints"
     lap_count_topic: "/lap_count"
     reload_service: "/global_planning/reload_waypoints"
 
     # ---- trigger / ledger ----
     trigger_lap_count: 2          # freeze at the lap-2 finish (lap_count 1 -> 2)
-    match_max_ds_m: 1.0           # wrap-aware obstacle identity matching
-    match_max_dd_m: 0.3
-    min_observations: 3
-    removal_miss_laps: 2          # rollback hysteresis (laps without observation)
+    match_max_ds_m: 1.0           # 입력 메시지의 Frenet s 기준 wrap-aware 기하 매칭
+    match_max_dd_m: 0.3           # 입력 메시지의 Frenet d 기준 기하 매칭
+    removal_miss_laps: 2          # authoritative snapshot에서 사라진 뒤 rollback hysteresis
 
     # ---- side decision (full snapshot; MAP_CREATOR_PROPOSAL 4) ----
     # These are map_creator's OWN tuned values and intentionally differ from the
@@ -36,7 +35,7 @@ map_creator_node:
       fallback_track_half_width_m: 1.50
 
     # ---- painting (MAP_CREATOR_PROPOSAL 3.3) ----
-    base_map_yaml: ""             # empty = use gui_params.yaml map_yaml (same map family)
+    base_map_yaml: "src/monte_carlo_localization/maps/map.yaml"  # image: map.png
     nondrivable_threshold: 250    # pixel < 250 = non-drivable (generator free predicate)
     side_samples_min: 9
     ray_step_fraction: 0.25       # ray step = resolution / 4

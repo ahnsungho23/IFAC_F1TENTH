@@ -5,6 +5,7 @@
 #define MAP_CREATOR__OBSTACLE_LEDGER_HPP_
 
 #include <cstddef>
+#include <optional>
 #include <vector>
 
 #include <f110_msgs/msg/obstacle.hpp>
@@ -18,11 +19,12 @@ struct LedgerEntry
   int first_seen_lap{0};
   int last_seen_lap{0};
   int observation_count{0};
+  std::optional<int> missing_since_lap;
 };
 
-// Lap-scoped static obstacle ledger: accumulates /static_obs observations during
-// lap 1, matches repeated detections wrap-aware, and provides the frozen set the
-// map_creator pipeline bakes. ROS-free (message structs only).
+// Lap-scoped static obstacle ledger: accumulates /adaptive_obstacle_map snapshots during
+// lap 1 and matches repeated entries by the supplied Frenet geometry. This class never
+// performs Cartesian-to-Frenet conversion. ROS-free (message structs only).
 class ObstacleLedger
 {
 public:
@@ -33,13 +35,14 @@ public:
     max_dd_ = max_dd_m;
   }
 
-  // Adds all static obstacles from one /static_obs message observed during `lap`.
-  void addObservations(const std::vector<f110_msgs::msg::Obstacle> & obstacles, int lap);
+  // Synchronizes one authoritative /adaptive_obstacle_map snapshot received during `lap`.
+  // An unmatched stored geometry starts the removal hysteresis; transport silence does not.
+  void updateSnapshot(const std::vector<f110_msgs::msg::Obstacle> & obstacles, int lap);
 
-  // Entries observed at least `min_observations` times (the freeze snapshot).
-  std::vector<LedgerEntry> confirmed(int min_observations) const;
+  // Current persistent entries, including entries inside the removal-hysteresis window.
+  std::vector<LedgerEntry> snapshot() const {return entries_;}
 
-  // Entries not seen for `miss_laps` completed laps (removal hysteresis).
+  // Entries absent from authoritative snapshots for `miss_laps` completed laps.
   std::vector<std::size_t> removalCandidates(int current_lap, int miss_laps) const;
   void removeAt(const std::vector<std::size_t> & sorted_indices);
 

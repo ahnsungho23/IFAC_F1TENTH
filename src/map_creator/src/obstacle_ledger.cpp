@@ -19,26 +19,34 @@ double ObstacleLedger::wrapDelta(double a, double b) const
   return delta;
 }
 
-void ObstacleLedger::addObservations(
+void ObstacleLedger::updateSnapshot(
   const std::vector<f110_msgs::msg::Obstacle> & obstacles, int lap)
 {
+  std::vector<bool> present(entries_.size(), false);
   for (const auto & obstacle : obstacles) {
     if (!obstacle.is_static) {
       continue;
     }
-    LedgerEntry * match = nullptr;
-    for (auto & entry : entries_) {
+    std::optional<std::size_t> match;
+    for (std::size_t index = 0; index < entries_.size(); ++index) {
+      if (present[index]) {
+        continue;
+      }
+      const auto & entry = entries_[index];
       const double ds = std::abs(wrapDelta(obstacle.s_center, entry.obstacle.s_center));
       const double dd = std::abs(obstacle.d_center - entry.obstacle.d_center);
       if (ds < max_ds_ && dd < max_dd_) {
-        match = &entry;
+        match = index;
         break;
       }
     }
-    if (match != nullptr) {
-      match->obstacle = obstacle;
-      match->last_seen_lap = lap;
-      ++match->observation_count;
+    if (match.has_value()) {
+      auto & entry = entries_[*match];
+      entry.obstacle = obstacle;
+      entry.last_seen_lap = lap;
+      entry.missing_since_lap.reset();
+      ++entry.observation_count;
+      present[*match] = true;
     } else {
       LedgerEntry entry;
       entry.obstacle = obstacle;
@@ -46,19 +54,15 @@ void ObstacleLedger::addObservations(
       entry.last_seen_lap = lap;
       entry.observation_count = 1;
       entries_.push_back(entry);
+      present.push_back(true);
     }
   }
-}
 
-std::vector<LedgerEntry> ObstacleLedger::confirmed(int min_observations) const
-{
-  std::vector<LedgerEntry> out;
-  for (const auto & entry : entries_) {
-    if (entry.observation_count >= min_observations) {
-      out.push_back(entry);
+  for (std::size_t index = 0; index < entries_.size(); ++index) {
+    if (!present[index] && !entries_[index].missing_since_lap.has_value()) {
+      entries_[index].missing_since_lap = lap;
     }
   }
-  return out;
 }
 
 std::vector<std::size_t> ObstacleLedger::removalCandidates(
@@ -66,7 +70,8 @@ std::vector<std::size_t> ObstacleLedger::removalCandidates(
 {
   std::vector<std::size_t> out;
   for (std::size_t i = 0; i < entries_.size(); ++i) {
-    if (current_lap - entries_[i].last_seen_lap >= miss_laps) {
+    const auto & missing_since = entries_[i].missing_since_lap;
+    if (missing_since.has_value() && current_lap - *missing_since >= miss_laps) {
       out.push_back(i);
     }
   }

@@ -5,7 +5,7 @@ map_creator package rules. These instructions apply to `src/map_creator`.
 
 - `map_creator_node` implements the lap-transition obstacle_map pipeline
   (`learning_adaptive_globalpath/MAP_CREATOR_PROPOSAL.md` is the normative design):
-  laps-1-and-2 static-obstacle ledger → side decision at the lap 2-to-3 transition
+  laps-1-and-2 `/adaptive_obstacle_map` ledger → side decision at the lap 2-to-3 transition
   → blocked-side painting →
   offline regeneration → gated swap via `/global_planning/reload_waypoints`.
 - The left/right side decision MUST go through
@@ -27,7 +27,8 @@ map_creator package rules. These instructions apply to `src/map_creator`.
 ## Package Layout
 
 - ROS-free modules in `include/map_creator/` + `src/`:
-  `obstacle_ledger` (lap-scoped ledger, wrap-aware matching),
+  `obstacle_ledger` (authoritative persistent snapshots, wrap-aware supplied-Frenet geometry
+  matching, absence-driven removal hysteresis; transport silence is not absence),
   `side_planner_adapter` (tuned-parameter planner instance + fixed ego protocol),
   `map_painter` (OpenCV painting, `<250` non-drivable predicate, paint value 0,
   wall-connected polygons — obstacle-only painting is forbidden: 16 px < cleanup
@@ -39,6 +40,10 @@ map_creator package rules. These instructions apply to `src/map_creator`.
   `local_planning.yaml` values, and provenance of tuned values must be commented).
 - Launch from the workspace root (`~/2026_IFAC`) — relative paths in the YAML
   resolve from the launch working directory, same convention as global_planning.
+- `map_creator.launch.py` also starts `static_obstacle_map`; do not start a duplicate
+  persistent-map node when using the default launch composition.
+- Map creator must not perform Cartesian-to-Frenet conversion. Treat the `s`/`d` geometry in
+  `/adaptive_obstacle_map` as the perception contract and only compare or consume those fields.
 - Tests in `test/` are gtest, ROS-free (ledger matching/removal, painter pixels).
 - Korean operator documentation in `docs/map_creator_node.md`.
 
