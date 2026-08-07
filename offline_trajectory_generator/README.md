@@ -124,6 +124,11 @@ python3 offline_trajectory_generator/generate_global_trajectory.py \
   --debug-image
 ```
 
+`map_creator`의 자동 재생성은 GUI/CLI와 같은 `generate_trajectory()`를 호출하는
+`regenerate_obstacle_map.py`를 사용한다. 1차 시도에서는 map_creator가 `--smooth-sigma 4.1`을,
+재시도에서는 `--safety-width 0.4 --smooth-sigma 2.5`를 전달한다. 이 인자들은 해당 실행에만
+적용되며 `gui_params.yaml`을 수정하지 않는다.
+
 출력 디렉터리를 생략하면 기본값은 다음과 같다.
 
 ```text

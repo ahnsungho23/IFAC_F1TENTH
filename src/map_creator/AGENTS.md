@@ -19,6 +19,9 @@ map_creator package rules. These instructions apply to `src/map_creator`.
 - Regeneration runs `offline_trajectory_generator/regenerate_obstacle_map.py`
   (loads gui_params.yaml through the same `load_gui_params` the GUI uses).
   Do not invoke `trajectory_gui.py` as a process.
+- The first regeneration pass overrides smoothing with `initial_smooth_sigma`. The single retry
+  keeps `retry_safety_width` and overrides smoothing with `retry_smooth_sigma`; all pass-specific
+  values belong in `config/map_creator.yaml`.
 - Any failure at any stage keeps the previous global line (local avoidance keeps
   covering). No partial bakes: either all decided obstacles are painted or none.
 - After painting, verify both `obstacle_map.png` and `obstacle_map.yaml` are regular files before

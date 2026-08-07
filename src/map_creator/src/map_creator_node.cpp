@@ -142,7 +142,9 @@ private:
     declare_parameter<bool>("reseed_on_startup", true);
     declare_parameter<std::string>("python_executable", "python3");
     declare_parameter<double>("generation_timeout_sec", 120.0);
-    declare_parameter<double>("retry_safety_width", 0.5);
+    declare_parameter<double>("initial_smooth_sigma", 4.1);
+    declare_parameter<double>("retry_safety_width", 0.4);
+    declare_parameter<double>("retry_smooth_sigma", 2.5);
 
     declare_parameter<double>("min_obstacle_clearance_after_m", 0.42);
     declare_parameter<int>("max_swap_deferral_laps", 3);
@@ -208,7 +210,9 @@ private:
     reseed_on_startup_ = get_parameter("reseed_on_startup").as_bool();
     python_executable_ = get_parameter("python_executable").as_string();
     generation_timeout_sec_ = get_parameter("generation_timeout_sec").as_double();
+    initial_smooth_sigma_ = get_parameter("initial_smooth_sigma").as_double();
     retry_safety_width_ = get_parameter("retry_safety_width").as_double();
+    retry_smooth_sigma_ = get_parameter("retry_smooth_sigma").as_double();
 
     min_clearance_after_ = get_parameter("min_obstacle_clearance_after_m").as_double();
     max_swap_deferral_laps_ =
@@ -402,7 +406,9 @@ private:
     return true;
   }
 
-  std::string buildDriverCommand(const std::optional<double> & safety_width) const
+  std::string buildDriverCommand(
+    const std::optional<double> & safety_width,
+    const std::optional<double> & smooth_sigma) const
   {
     std::ostringstream cmd;
     cmd << "timeout " << static_cast<int>(generation_timeout_sec_) << " "
@@ -415,19 +421,24 @@ private:
     if (safety_width.has_value()) {
       cmd << " --safety-width " << *safety_width;
     }
+    if (smooth_sigma.has_value()) {
+      cmd << " --smooth-sigma " << *smooth_sigma;
+    }
     cmd << " >> " << outputDir() << "/regen_log.txt 2>&1";
     return cmd.str();
   }
 
-  void startGeneration(const std::optional<double> & safety_width)
+  void startGeneration(
+    const std::optional<double> & safety_width,
+    const std::optional<double> & smooth_sigma)
   {
-    if (!regen_.start(buildDriverCommand(safety_width))) {
+    if (!regen_.start(buildDriverCommand(safety_width, smooth_sigma))) {
       abort("generation already in flight");
       return;
     }
     stage_ = Stage::kGenerating;
     publishStatus(
-      safety_width ? "generating (retry, safety_width override)" : "generating");
+      safety_width ? "generating (retry overrides)" : "generating");
   }
 
   void requestSwap()
@@ -513,7 +524,7 @@ private:
             lap_count_, frozen_.size());
           if (runDecisionAndPaint()) {
             retried_ = false;
-            startGeneration(std::nullopt);
+            startGeneration(std::nullopt, initial_smooth_sigma_);
           }
         }
         break;
@@ -529,9 +540,9 @@ private:
           } else if (code == 1 && !retried_ && retry_safety_width_ > 0.0) {
             retried_ = true;
             RCLCPP_WARN(get_logger(),
-              "generation gates failed; retrying with safety_width=%.2f",
-              retry_safety_width_);
-            startGeneration(retry_safety_width_);
+              "generation gates failed; retrying with safety_width=%.2f, smooth_sigma=%.2f",
+              retry_safety_width_, retry_smooth_sigma_);
+            startGeneration(retry_safety_width_, retry_smooth_sigma_);
           } else {
             abort("generation failed (exit code " + std::to_string(code) +
               "), see " + outputDir() + "/regen_log.txt");
@@ -578,7 +589,7 @@ private:
               "obstacle set changed: regenerating with %zu obstacle(s)", frozen_.size());
             if (runDecisionAndPaint()) {
               retried_ = false;
-              startGeneration(std::nullopt);
+              startGeneration(std::nullopt, initial_smooth_sigma_);
             }
           }
         }
@@ -603,7 +614,9 @@ private:
   std::string output_map_name_, baseline_map_name_, python_executable_;
   bool reseed_on_startup_{true};
   double generation_timeout_sec_{120.0};
-  double retry_safety_width_{0.5};
+  double initial_smooth_sigma_{4.1};
+  double retry_safety_width_{0.4};
+  double retry_smooth_sigma_{2.5};
   double min_clearance_after_{0.42};
   int max_swap_deferral_laps_{3};
 

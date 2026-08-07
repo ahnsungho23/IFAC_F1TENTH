@@ -50,7 +50,9 @@ map_creator_node:
     reseed_on_startup: true       # start every session from the baseline copy
     python_executable: "python3"
     generation_timeout_sec: 120.0
-    retry_safety_width: 0.5       # one retry with wider clearance on gate failure (실측 참고: 0.5→0.155 m, 0.7→0.287 m)
+    initial_smooth_sigma: 4.1     # first generation pass
+    retry_safety_width: 0.4       # keep the same safety width; retry changes smoothing only
+    retry_smooth_sigma: 2.5       # retry generation pass
 
     # ---- regeneration / swap validation ----
     min_obstacle_clearance_after_m: 0.42   # local-planner silence clearance

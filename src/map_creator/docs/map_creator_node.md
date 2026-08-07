@@ -41,7 +41,8 @@ IDLE ──(lap_count ≥ trigger, 원장 freeze)──▶ 판정+페인팅+저�
 5. **재생성**: 드라이버가 GUI와 동일한 `load_gui_params(gui_params.yaml)` 값으로
    `generate_trajectory` 실행 → 물리 게이트(폐곡선, off_map=0, s 순증가, |κ|≤3.2,
    장애물 이격 ≥0.42 m) 통과 시 `global_waypoints.json` + `gate_report.json` 기록.
-   게이트 실패 시 `retry_safety_width`(현재 0.7)로 1회 재시도.
+   1차는 `initial_smooth_sigma=4.1`과 gui_params의 `safety_width=0.4`를 사용합니다. 게이트 실패 시
+   `retry_safety_width=0.4`, `retry_smooth_sigma=2.5`로 한 번만 재시도합니다.
 6. **스왑**: republisher가 기존 `output/map`은 그대로 둔 채 별도
    `output/obstacle_map/global_waypoints.json`을 읽고 검증한 후, 메모리 bundle과
    활성 참조 경로만 교체해 즉시 발행.
@@ -65,11 +66,13 @@ IDLE ──(lap_count ≥ trigger, 원장 freeze)──▶ 판정+페인팅+저�
 | `match_max_dd_m` | 0.3 | 입력에 이미 계산된 Frenet d의 매칭 상한 |
 | `ego_lookback_m` | 12.0 | 판정 ego 위치 (최대 entry 11.43 m 절단 방지) |
 | `decision.*` | (스냅샷) | 좌/우 판정 파라미터 전체 — 미제시 항목은 배포 local_planning 값 |
-| `base_map_yaml` | "" | 비우면 gui_params의 map_yaml 사용 |
+| `base_map_yaml` | `src/monte_carlo_localization/maps/map.yaml` | 페인팅할 원본 ROS map YAML |
 | `output_map_name` | obstacle_map | 저장·생성·리로드가 공유하는 디렉터리 이름 |
 | `reseed_on_startup` | true | 시작 시 obstacle_map을 baseline 사본으로 재시딩 |
 | `min_obstacle_clearance_after_m` | 0.42 | 새 라인↔장애물 최소 이격 (로컬 침묵 조건) |
-| `retry_safety_width` | 0.5 | 게이트 실패 시 1회 재시도 safety_width |
+| `initial_smooth_sigma` | 4.1 | 1차 생성 smooth_sigma |
+| `retry_safety_width` | 0.4 | 게이트 실패 시에도 유지하는 safety_width |
+| `retry_smooth_sigma` | 2.5 | 게이트 실패 시 1회 재시도 smooth_sigma |
 | `max_swap_deferral_laps` | 3 | 리로드 서비스 미준비 시 이월 상한 |
 
 ## 5. 실행 방법

@@ -75,6 +75,8 @@ def main() -> int:
     parser.add_argument("--safety-width", type=float, default=None,
                         help="override gui_params safety_width (retry pass when the "
                              "clearance gate failed)")
+    parser.add_argument("--smooth-sigma", type=float, default=None,
+                        help="override gui_params smooth_sigma for a retry pass")
     parser.add_argument("--preview-png", action="store_true",
                         help="also write preview.png for quick inspection")
     args = parser.parse_args()
@@ -89,6 +91,8 @@ def main() -> int:
     values["output_dir"] = str(args.output_dir)
     if args.safety_width is not None:
         values["safety_width"] = float(args.safety_width)
+    if args.smooth_sigma is not None:
+        values["smooth_sigma"] = float(args.smooth_sigma)
     gen_args = make_namespace(values)
 
     started = time.time()
