@@ -70,18 +70,10 @@ target_link_libraries(frenet_odom_node PUBLIC
   ${f110_msgs_TARGETS}
 )
 
-add_executable(lap_counter_node src/lap_counter_node.cpp)
-target_link_libraries(lap_counter_node PUBLIC
-  rclcpp::rclcpp
-  ${std_msgs_TARGETS}
-  ${nav_msgs_TARGETS}
-)
-
 install(TARGETS
   global_planning_node
   global_trajectory_publisher_node
   frenet_odom_node
-  lap_counter_node
   ${PROJECT_NAME}_rw
   DESTINATION lib/${PROJECT_NAME}
 )
@@ -115,8 +107,6 @@ if(BUILD_TESTING)
   if(TARGET test_clcs_frenet_converter)
     target_link_libraries(test_clcs_frenet_converter ${PROJECT_NAME}_frenet_conversion)
   endif()
-
-  ament_add_gtest(test_frenet_lap_counter test/test_frenet_lap_counter.cpp)
 endif()
 
 ament_package()

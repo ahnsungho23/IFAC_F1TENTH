@@ -51,14 +51,3 @@ frenet_odom_node:
     projection_domain_method: 1
     min_path_length: 0.5
     large_gap_factor: 5.0
-
-lap_counter_node:
-  ros__parameters:
-    frenet_odom_topic: "/car_state/frenet/odom"
-    lap_count_topic: "/lap_count"
-    # Count one lap only when the previous sample is in the finish region and
-    # the current sample has wrapped into the start region.
-    finish_s_min: 10.0
-    start_s_max: 0.5
-    min_lap_time_sec: 3.0
-    initial_lap_count: 0

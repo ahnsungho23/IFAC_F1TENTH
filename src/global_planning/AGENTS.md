@@ -36,19 +36,6 @@ The package name, C++ namespace (`namespace global_planning`), include prefix
   and `psi_rad`) from the waypoints themselves in `generateMarkers()`.
 - Generated markers only fill arrays the JSON left empty; keep marker frame and line widths in YAML.
 
-## Lap Counter Node
-
-- Read Frenet `s` only from `/car_state/frenet/odom` (`nav_msgs/msg/Odometry`,
-  `pose.pose.position.x`).
-- Count a lap only on a configured finish-region to start-region wrap. Keep the
-  finish/start thresholds and minimum lap interval in `config/global_planning.yaml`.
-- Publish the current count as `std_msgs/msg/Int32` on `/lap_count` with
-  reliable, transient-local QoS. Do not overload unrelated `Odometry` fields.
-- Keep the wrap detector independent from ROS in
-  `include/global_planning/frenet_lap_counter.hpp` and cover boundary behavior
-  in `test/test_frenet_lap_counter.cpp`.
-- Document operator setup and threshold tuning in `docs/lap_counter_node.md`.
-
 ## Documentation
 
 - Update `docs/<node_name>.md` when node behavior, parameters, topics, or run commands change.
