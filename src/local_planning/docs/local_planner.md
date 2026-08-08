@@ -76,8 +76,9 @@ detector raw AABB
 `safety_margin_m`는 물리 안전 여유입니다. `tracking_error_reserve_m=0.14`는 동일 장애물·경로를
 1.5 m/s로 반복한 폐루프 시험에서 측정한 회피경로 오차(max 0.1370 m, P99 0.1345 m)를
 올림한 제어 여유입니다. 장애물, blocking, commitment hard 검사는 같은 장애물 clearance를
-사용합니다. 글로벌 waypoint의 `d_left/d_right`는 차량 반폭과 벽 안전마진이 이미 반영된 차량
-중심 가용 한계이므로, 트랙 경계 검사에서는 어떤 로컬 마진도 추가로 차감하지 않습니다.
+사용합니다. 글로벌 waypoint의 `d_left/d_right`는 차량 반폭과 waypoint 생성기의 벽 안전마진이
+이미 반영된 차량 중심 가용 한계입니다. `wall_safety_margin_m`는 이 중심 한계에서 추가로 한 번만
+차감하는 독립적인 폐루프 벽 reserve이며, 차량 반폭이나 장애물 clearance를 다시 포함하지 않습니다.
 uncertainty inflation은 센서 측정이 실제 물체를 포함하도록 입력 경계를 만드는 관측 모델이며,
 차량 및 제어 오차 여유와 목적이 다릅니다.
 
@@ -128,8 +129,9 @@ C_obs = vehicle_half_width_m + safety_margin_m + tracking_error_reserve_m
 - 오른쪽 후보: 군집 Guard의 가장 작은 `d_right - C_obs`
 
 두 후보를 모두 만들며, 각 글로벌 waypoint의 허용 중심 범위는
-`[-d_right, d_left]`입니다. `d_left`와
-`d_right`에 이미 반영된 차량 반폭과 벽 안전마진을 다시 차감하지 않습니다. 이 범위를 벗어나면
+`[-d_right + wall_safety_margin_m, d_left - wall_safety_margin_m]`입니다. `d_left`와
+`d_right`에 이미 반영된 차량 반폭과 생성기 벽 마진은 다시 차감하지 않고, 추가 벽 reserve만
+한 번 차감합니다. 이 범위를 벗어나면
 폐기합니다. 이때 장애물 군집의 확대된 `s_start~s_end` 구간에서 `target_d` 자체가 이 범위를
 벗어나는 방향은 5차 전환 프로파일을 만들기 전에 조기 폐기합니다. 이 검사는 명백히 불가능한 방향의
 최대 3개 길이 후보 생성을 생략하기 위한 gate이며, 통과한 방향도 전환 구간의 좁은 벽이나 다른
@@ -140,8 +142,8 @@ C_obs = vehicle_half_width_m + safety_margin_m + tracking_error_reserve_m
 트랙 폭 여유(headroom)가 큰 쪽을 고릅니다. reference 폭은 측정 jitter가 없으므로 재계획
 사이에 선택 측면이 뒤집히지 않습니다.
 
-장애물에는 `C_obs`를 한 번 적용하고, 트랙 경계는 보정된 중심 한계를 그대로 적용합니다. 별도 commitment
-reserve와 reduced-clearance fallback은 없습니다. 한쪽이 불가능하면 반대쪽을
+장애물에는 `C_obs`를 한 번 적용하고, 트랙 경계에는 `wall_safety_margin_m`만 한 번 적용합니다.
+별도 commitment reserve와 reduced-clearance fallback은 없습니다. 한쪽이 불가능하면 반대쪽을
 평가하고, 양쪽 모두 같은 안전거리로 불가능하면 safe-stop으로 넘어갑니다.
 
 commitment 뒤 기존 경로가
@@ -349,7 +351,7 @@ commitment는 지우지 않으므로 odometry가 회복되면 다시 검증한 �
 - 검출: `detection_lookahead_m`, `obstacle_cluster_gap_m`
 - 종방향 계획 확장: `obstacle_longitudinal_padding_m`
 - 장애물 clearance: `vehicle_half_width_m + safety_margin_m + tracking_error_reserve_m`
-- 트랙 경계 reserve: `0.0 m` (`d_left/d_right`에 차량 반폭·벽 마진 반영 완료)
+- 추가 트랙 경계 reserve: `wall_safety_margin_m` (`d_left/d_right`에서 좌우 각각 한 번 차감)
 - 트랙 폭 fallback: `fallback_track_half_width_m`
 - spline 제어점: `pre_apex_distances_m`, `post_apex_distances_m`
 - spline 길이: `transition_distance_scales`, `outside_line_transition_scale`
@@ -407,7 +409,7 @@ colcon test-result --verbose --test-result-base build/local_planning
 13. 현재 `ego.d`에서 다음 maneuver spline으로 연속 연결
 14. 0속도 emergency hold와 랩 경계 장애물 처리
 15. 가까운 반대편 스네이크 branch로 점프하지 않음
-16. 차량 중심 한계 `d_left/d_right`를 그대로 사용해 로컬 벽 마진의 이중 차감을 방지
+16. 차량 중심 한계에서 `wall_safety_margin_m`만 한 번 차감해 차량 폭·벽 마진의 이중 차감을 방지
 17. 정중앙 동점에서 트랙 폭 여유가 큰 쪽을 안정적으로 선택
 18. 5차 진입·복귀 표본의 `d`가 직선에서 점진적으로 증가·감소
 19. 가장 긴 안전 진입 scale과 가장 짧은 안전 복귀 scale을 독립적으로 선택

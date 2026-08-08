@@ -23,8 +23,9 @@
   generation, raceline-blocking detection, frozen-path validation, and raw hard-collision
   validation. Global waypoint `d_left/d_right` follow a different contract: they already encode
   vehicle half-width and the generator's wall safety margin as centre-of-vehicle limits. For track
-  bounds, use `d_left`/`d_right` directly; never subtract vehicle width, safety margin, or tracking
-  reserve a second time. Do not add another boundary, commitment, hard, or fallback margin.
+  bounds, subtract only the separately validated `wall_safety_margin_m`; never subtract vehicle
+  width, obstacle safety margin, or tracking reserve a second time. Do not add another boundary,
+  commitment, hard, or fallback margin.
 - When left/right candidate scores tie within `side_tie_epsilon_m`, select the side with more
   reference-width headroom across the obstacle span. Reference widths carry no perception jitter,
   so centred-obstacle side choices cannot flap between replans.
@@ -39,8 +40,8 @@
   scales from shortest to longest so the maneuver releases promptly. Fall back only when the full
   candidate validation fails.
 - Validate lateral slope, recomputed Cartesian curvature, curvature rate, obstacle clearance, and
-  track-bound clearance before publishing. Do not add any further boundary, commitment, hard, or
-  fallback margin.
+  track-bound clearance before publishing. Track-bound validation uses `wall_safety_margin_m`
+  exactly once. Do not add any further boundary, commitment, hard, or fallback margin.
 - Before the first lateral commitment, publish `ot_line=raceline_static_prepare` with a validated
   braking prefix while collecting the nearest cluster's IDs and conservative Frenet-envelope union.
   Count distinct `/static_obs` messages, not planning ticks, and require the configured number of

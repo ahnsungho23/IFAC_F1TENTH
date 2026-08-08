@@ -214,6 +214,8 @@ void LocalPlannerNode::initializeParameters()
     declare_parameter<double>("safety_margin_m", 0.03);
   planner_parameters_.tracking_error_reserve_m =
     declare_parameter<double>("tracking_error_reserve_m", 0.14);
+  planner_parameters_.wall_safety_margin_m =
+    declare_parameter<double>("wall_safety_margin_m", 0.0);
   planner_parameters_.fallback_track_half_width_m =
     declare_parameter<double>("fallback_track_half_width_m", 1.50);
   planner_parameters_.pre_apex_distances_m =
@@ -330,6 +332,8 @@ void LocalPlannerNode::initializeParameters()
     planner_parameters_.safety_margin_m < 0.0 ||
     !std::isfinite(planner_parameters_.tracking_error_reserve_m) ||
     planner_parameters_.tracking_error_reserve_m < 0.0 ||
+    !std::isfinite(planner_parameters_.wall_safety_margin_m) ||
+    planner_parameters_.wall_safety_margin_m < 0.0 ||
     planner_parameters_.post_merge_lookahead_m < 0.0 ||
     planner_parameters_.post_merge_min_time_sec < 0.0 ||
     !(state_handoff_tail_ratio_ > 0.0) || state_handoff_tail_ratio_ > 1.0 ||

@@ -377,8 +377,8 @@ bool RacelineSplinePlanner::targetFitsTrackBounds(
   std::string & reason,
   double * min_headroom) const
 {
-  // Global waypoint d_left/d_right are centre-of-vehicle limits that already include vehicle
-  // half-width and the generator's wall safety margin. Apply no additional local wall reserve.
+  // Global waypoint d_left/d_right are centre-of-vehicle limits. Subtract only the separately
+  // configured empirical wall reserve; vehicle width and obstacle clearance do not belong here.
   const double center_boundary_clearance = parameters_.trackBoundaryReserve();
   if (min_headroom != nullptr) {
     *min_headroom = std::numeric_limits<double>::infinity();

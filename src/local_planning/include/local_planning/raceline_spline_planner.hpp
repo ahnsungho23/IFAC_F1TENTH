@@ -35,9 +35,11 @@ struct RacelineSplineParameters
   double vehicle_half_width_m{0.1435};
   // Obstacle bounds are raw detector geometry, so vehicle size, physical margin, and measured
   // closed-loop tracking error are applied exactly once. Global d_left/d_right already encode
-  // vehicle half-width and wall safety margin and are used directly without a local wall reserve.
+  // vehicle half-width and the generator's wall margin; wall_safety_margin_m is an additional
+  // empirically validated centre-path reserve and must not include vehicle width again.
   double safety_margin_m{0.03};
   double tracking_error_reserve_m{0.14};
+  double wall_safety_margin_m{0.0};
   double fallback_track_half_width_m{1.50};
 
   std::vector<double> pre_apex_distances_m{6.0, 4.0, 2.0};
@@ -66,9 +68,7 @@ struct RacelineSplineParameters
 
   double trackBoundaryReserve() const
   {
-    // Global d_left/d_right are already vehicle-centre limits with vehicle
-    // half-width and wall safety margin applied by the waypoint generator.
-    return 0.0;
+    return wall_safety_margin_m;
   }
 };
 

@@ -106,3 +106,66 @@ maximum_curvature_radpm: 1.316266519079011
 6. `/tmp/combined_margin_geometry_cma_const15/search_result.json`은 당시 전체 결과이며 SHA-256은
    `87f82202e55395ca725678bec5b3b60126bbba2d9f6bfa0472297e8489b9c80f`이다. `/tmp`가 정리되면
    이 문서의 값과 집계를 기준으로 새 evaluator를 만든다.
+
+## 벽 마진 포함 재최적화 (2026-08-08 후속)
+
+위의 `local 벽 마진 0.0 m` 조건은 이 후속 탐색으로 대체한다. 사용자가 `0.04 m`면 충분하다고
+판단했으므로 `wall_safety_margin_m`를 `[0.03, 0.05]` 안에서 CMA 변수로 유지하고, 계획 경로와
+실제 odom 차량 외곽 중 더 작은 벽 여유가 `0.04 m` 이상인 경우만 robust success로 인정했다.
+
+- 장애물 YAML과 SHA-256은 이 문서 상단 기준과 동일하다.
+- seed `260809`, anchor 4개, 3세대 x population 10, 최상 후보 3회 반복 검증
+- 고정값: 차량 반폭 `0.1435 m`, tracking reserve `0.14 m`, 속도 `1.5 m/s`, 곡률 한계
+  `1.316266519079011 rad/m`, waypoint `max_width_distance_m=3.0`
+- 변수 10개: obstacle safety/padding, pre/post apex far, transition short/middle/long,
+  wall safety margin, outside-line transition scale, chain release distance
+- 유효 탐색은 사전 감사된 비기본 ROS 도메인 `107`, `109`에서 수행했고 반복 검증은 `110`에서
+  수행했다. 종료 뒤 도메인 `0`, `107`, `108`, `109`, `110`은 모두 노드가 없고 기본 토픽만
+  남았음을 `--no-daemon`으로 확인했다.
+- 시작 감사 중 이전 CMA가 남긴 2시간 이상 된 simulator/planner/controller 프로세스 그룹을
+  발견해 해당 CMA 소유 그룹만 정상 종료했다. 후보 사이에는 persistent controller와 임시 drive
+  gate를 사용해 simulator 상태 및 DDS participant churn이 평가값에 섞이지 않도록 했다.
+
+탐색 범위:
+
+```text
+safety_margin_m                    [0.0, 0.12]
+obstacle_longitudinal_padding_m    [0.0, 0.60]
+pre_apex_far_m                     [6.0, 11.5]
+post_apex_far_m                    [3.0, 7.0]
+transition short                   [0.08, 0.75]
+transition middle                  short+0.12 .. 2.0
+transition long                    middle+0.25 .. 4.5
+wall_safety_margin_m               [0.03, 0.05]
+outside_line_transition_scale      [0.10, 1.20]
+chain_release_distance_m           [0.05, 0.60]
+```
+
+최상 후보:
+
+```yaml
+safety_margin_m: 0.014789254299520768
+obstacle_longitudinal_padding_m: 0.4149924657737441
+pre_apex_distances_m: [9.669467393145736, 6.44631159543049, 3.223155797715245]
+post_apex_distances_m: [1.7024448509442465, 3.404889701888493, 5.107334552832739]
+transition_distance_scales: [0.2740569240066383, 0.6991537701867223, 3.5816012944405027]
+wall_safety_margin_m: 0.036994323196712475
+outside_line_transition_scale: 0.1
+chain_release_distance_m: 0.07665532758837189
+```
+
+- CMA 관측: `30.740085 s`, 충돌 없음, 최소 path 벽 여유 `0.086540 m`, 최소 odom 벽 여유
+  `0.076694 m`
+- repeat 0/1/2: `30.759991 / 30.739861 / 30.759938 s`, 모두 충돌 없음
+- repeat 최소 path 벽 여유: `0.086575 / 0.086583 / 0.086638 m`
+- repeat 최소 odom 벽 여유: `0.124041 / 0.123921 / 0.123437 m`
+- 반복 최대 절대 path tracking error는 약 `0.499 m`, RMS는 약 `0.200~0.201 m`였다. 벽
+  distance-transform 실측 여유는 기준을 통과했지만, tracking metric 자체는 후속 controller
+  분석 대상으로 남긴다.
+- 탐색 후보 중 robust complete 2개, 벽 기준 미달 complete 1개였다. 실패 로그 event 합계는
+  target track-bound 거부 240, safe-stop latch 80, avoidance commit 73, lateral-slope 거부 1,
+  spline track-bound 거부 1이다. event 수는 후보 수가 아니다.
+- 현재 운영 YAML에는 이 최적값을 아직 적용하지 않았다. `wall_safety_margin_m` 구조와 검증만
+  추가했고 운영값은 `0.0`으로 유지한다.
+- 전체 결과: `/tmp/wall_margin04_cma_domain107_v2/search_result.json`
+- 결과 SHA-256: `2b287a7ed84df8508c814deb6120f41cf5bcd7b19465023259dc8badb4bf1d71`

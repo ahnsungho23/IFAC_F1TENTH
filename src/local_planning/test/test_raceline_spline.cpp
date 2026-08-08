@@ -372,6 +372,27 @@ TEST(RacelineSplinePlanner, AppliesTrackingErrorReserveAsSeparateClearanceTerm)
   EXPECT_NEAR(result.target_d, 0.49, 1.0e-9);
 }
 
+TEST(RacelineSplinePlanner, AppliesIndependentWallSafetyMarginOnlyToTrackBounds)
+{
+  auto parameters = testParameters();
+  parameters.wall_safety_margin_m = 0.05;
+  EXPECT_NEAR(parameters.obstacleSafetyClearance(), 0.15, 1.0e-9);
+  EXPECT_DOUBLE_EQ(parameters.trackBoundaryReserve(), 0.05);
+
+  RacelineSplinePlanner feasible_planner(parameters);
+  ASSERT_TRUE(feasible_planner.setReference(makeStraightReference(300, 0.1, 0.40, 0.40)));
+  const auto feasible = feasible_planner.plan(
+    EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(3, 7.0)});
+  ASSERT_EQ(feasible.kind, SplinePlanKind::kAvoidance) << feasible.reason;
+  EXPECT_NEAR(std::abs(feasible.target_d), 0.35, 1.0e-9);
+
+  RacelineSplinePlanner blocked_planner(parameters);
+  ASSERT_TRUE(blocked_planner.setReference(makeStraightReference(300, 0.1, 0.39, 0.39)));
+  const auto blocked = blocked_planner.plan(
+    EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(3, 7.0)});
+  EXPECT_EQ(blocked.kind, SplinePlanKind::kSafeStop) << blocked.reason;
+}
+
 TEST(RacelineSplinePlanner, RejectsCommittedPathWhenObstacleEnvelopeGrows)
 {
   RacelineSplinePlanner planner(testParameters());
