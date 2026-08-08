@@ -24,6 +24,7 @@ ros2 pkg prefix f1tenth_control
 
 - MCL particle pose와 particle cloud
 - MCL의 5 Hz `/map` 미러
+- global/centerline/track-bound MarkerArray와 lattice MarkerArray
 - obstacle MarkerArray
 - `/local_planning/path`
 - `/local_waypoints/path`
@@ -32,8 +33,6 @@ ros2 pkg prefix f1tenth_control
 
 `/pf/pose/odom`, `/global_waypoints`, `/static_obs`, `/avoid_waypoints`, `/state`,
 `/local_waypoints`, `/drive_autonomous`, `/drive` 같은 주행 토픽은 유지된다.
-
-`global_planning` 시각화 출력은 이번 변경 범위에서 제외했으며 기존 동작을 유지한다.
 
 디버깅할 때는 필요한 항목만 `true`로 바꾸고 관련 노드를 재시작한다. 노드들은 이 스위치를
 기동 시 읽으므로 파일 편집만으로 실행 중인 프로세스가 동적으로 바뀌지는 않는다.
@@ -63,7 +62,8 @@ ros2 launch particle_filter_cpp mcl_launch.py \
 ```
 
 ```bash
-F1_MAP=ifac_track ros2 launch global_planning global_planning.launch.py
+F1_MAP=ifac_track ros2 launch global_planning global_planning.launch.py \
+  runtime_profile:="$PROFILE"
 ```
 
 ```bash
@@ -96,7 +96,8 @@ ros2 launch particle_filter_cpp mcl_launch.py \
 ```
 
 ```bash
-F1_MAP=map ros2 launch global_planning global_planning.launch.py
+F1_MAP=map ros2 launch global_planning global_planning.launch.py \
+  runtime_profile:="$PROFILE"
 ```
 
 ```bash
@@ -117,7 +118,7 @@ ros2 launch f1tenth_control control_real.launch.py runtime_profile:="$PROFILE"
 경량 프로파일에서는 다음 토픽이 없어야 한다.
 
 ```bash
-ros2 topic list | grep -E '/pf/viz|/(static_obs|opp_obs|adaptive_obstacle_map)/markers$|/local_.*/path|/debug/l1_lookahead|/lap_(time_text|hud)$'
+ros2 topic list | grep -E '/pf/viz|/markers$|/lattice_viz$|/local_.*/path|/debug/l1_lookahead|/lap_(time_text|hud)$'
 ```
 
 핵심 토픽은 유지되어야 한다.

@@ -97,7 +97,9 @@ public:
         RCLCPP_WARN(get_logger(), "%s", error_msg.c_str());
       } else {
         has_bundle_ = true;
-        generateMarkers();
+        if (publish_markers_) {
+          generateMarkers();
+        }
         RCLCPP_INFO(get_logger(), "loaded global waypoints from %s", map_dir.c_str());
       }
     }

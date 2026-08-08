@@ -29,7 +29,8 @@ export ROS_LOCALHOST_ONLY=0
 ```
 
 시각화 출력을 제어하는 노드를 실행할 터미널에서는 다음 변수도 선언합니다. 변수는 터미널마다
-독립적이므로 MCL, Local planning, State machine, Control 터미널에서 각각 선언해야 합니다.
+독립적이므로 MCL, Global planning, Local planning, State machine, Control 터미널에서 각각
+선언해야 합니다.
 
 ```zsh
 PROFILE="$PWD/src/f1tenth_control/config/runtime_visualization.yaml"
@@ -203,12 +204,14 @@ source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 export ROS_DOMAIN_ID=70
 export ROS_LOCALHOST_ONLY=0
+PROFILE="$PWD/src/f1tenth_control/config/runtime_visualization.yaml"
 
-F1_MAP=map ros2 launch global_planning global_planning.launch.py
+F1_MAP=map ros2 launch global_planning global_planning.launch.py \
+  runtime_profile:="$PROFILE"
 ```
 
-Global planning은 이번 시각화 프로파일 적용 범위에서 제외되어 있으므로
-`runtime_profile` 인자를 전달하지 않습니다.
+공통 프로파일은 Global planning의 MarkerArray/Lattice 출력만 제어하며 waypoint와 Frenet
+odometry 데이터 출력은 유지합니다.
 
 ### 터미널 4 — Local planning
 

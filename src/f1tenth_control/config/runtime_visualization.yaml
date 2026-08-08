@@ -14,6 +14,11 @@ particle_filter:
     # launched by MCL can still provide the latched /map when needed.
     publish_map: false
 
+global_trajectory_publisher_node:
+  ros__parameters:
+    publish_markers: false
+    publish_lattice: false
+
 obstacle_detector:
   ros__parameters:
     publish_markers: false

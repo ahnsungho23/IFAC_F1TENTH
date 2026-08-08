@@ -75,6 +75,9 @@ The package name, C++ namespace (`namespace global_planning`), include prefix
   (speed-colored racing line) and `/trackbounds/markers` (left/right bounds from `d_left`/`d_right`
   and `psi_rad`) from the waypoints themselves in `generateMarkers()`.
 - Generated markers only fill arrays the JSON left empty; keep marker frame and line widths in YAML.
+- Load the shared visualization profile after `global_planning.yaml`; it may override only
+  `publish_markers` and `publish_lattice`, never waypoint or Frenet data outputs.
+- With `publish_markers=false`, do not construct generated MarkerArray data.
 
 ## Documentation
 
