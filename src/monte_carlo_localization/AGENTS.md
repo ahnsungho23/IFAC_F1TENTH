@@ -20,6 +20,8 @@ This document defines package-specific developer rules and guidelines for `monte
   - `scan_topic` (string, default: `/scan`): LiDAR scan input topic.
   - `odom_topic` (string, default: `/odom`): Odometry input topic.
   - `publish_map_odom_tf` (bool, default: `true`): Controls publication of `map -> odom` TF.
+  - `publish_odom_base_tf` (bool, launch default: `false`): Keep disabled on real hardware because
+    `vesc_to_odom_node` owns `odom -> base_link`; enable only for bag playback without that TF.
   - `publish_map` (bool, default: `true`): Controls the RViz-oriented 5 Hz `/map` mirror. It must
     not affect internal map loading or localization.
 

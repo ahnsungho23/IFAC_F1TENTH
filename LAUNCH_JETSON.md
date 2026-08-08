@@ -190,11 +190,16 @@ ros2 launch particle_filter_cpp mcl_launch.py \
   mod:=real \
   map_name:=map \
   use_rviz:=false \
+  publish_odom_base_tf:=false \
   runtime_profile:="$PROFILE"
 ```
 
 Jetson에서는 RViz를 띄우지 않으므로 `use_rviz:=false`를 사용합니다. 초기 위치 지정과 RViz
 확인은 같은 ROS domain에 연결된 로컬 PC에서 수행합니다.
+
+실차의 TF 책임은 MCL이 `map -> odom`, 터미널 1의 `vesc_to_odom_node`가
+`odom -> base_link`를 맡습니다. 따라서 `publish_odom_base_tf:=false`를 유지해야 합니다.
+두 노드가 `odom -> base_link`를 동시에 발행하면 TF가 흔들릴 수 있습니다.
 
 ### 터미널 3 — Global planning
 
@@ -285,10 +290,19 @@ ros2 launch f1tenth_control control_real.launch.py \
 ros2 topic list
 ros2 topic hz /scan
 ros2 topic hz /odom
+ros2 topic hz /pf/pose/odom
+ros2 topic echo /drive_mode --once
+ros2 topic info /tf --verbose
+ros2 run tf2_ros tf2_echo map odom
+ros2 run tf2_ros tf2_echo odom base_link
+ros2 run tf2_ros tf2_echo base_link laser
 ros2 run tf2_tools view_frames
 ```
 
-`/scan`이 없으면 SLAM이나 MCL 문제가 아니라 센서 드라이버/ROS 네트워크 문제입니다. `odom`, `base_link`, `laser` 프레임이 없으면 odometry 또는 TF 발행 설정을 확인해야 합니다.
+`/scan` 또는 `/odom`이 없으면 MCL 문제가 아니라 센서 드라이버/ROS 네트워크 문제입니다.
+`/pf/pose/odom`이 없으면 MCL의 지도 로딩, 초기화, `/scan`, `/odom` 입력을 확인합니다.
+`odom -> base_link`는 터미널 1의 VESC odometry에서 발행자가 정확히 하나여야 합니다.
+`/drive_mode`는 자율 모드에서 `autonomous`여야 제어기의 engage gate가 열립니다.
 
 ## 6. 시뮬레이터를 사용하는 경우
 
