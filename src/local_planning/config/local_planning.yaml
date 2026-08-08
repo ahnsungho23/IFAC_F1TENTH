@@ -3,32 +3,39 @@ local_planner_node:
     # 가장 가까운 정적 장애물 군집만 계획합니다. 모든 거리는 글로벌 Race Line의 Frenet s/d 기준입니다.
     detection_lookahead_m: 12.0
     obstacle_cluster_gap_m: 0.8
-    obstacle_longitudinal_padding_m: 0.3
+    obstacle_longitudinal_padding_m: 0.3661363460730684
 
-    # 횡방향 물리 안전거리는 아래 두 값으로만 계산합니다.
+    # 장애물 경계는 raw detector geometry이므로 실제 차량 반폭, 물리 안전 마진, 실측
+    # 추종오차 reserve를 모두 정확히 한 번 적용합니다.
     #
     #   차량 중심이 확보할 거리 = vehicle_half_width_m + safety_margin_m
-    #                          = 0.121 + 0.030 = 0.151 m
+    #                          + tracking_error_reserve_m
+    #                          = 0.1435 + 0.0582293 + 0.140 = 0.3417293 m
     #
-    # vehicle_half_width_m는 차량의 실제 반폭이므로 마진이 아닙니다. safety_margin_m만 조정
-    # 가능한 유일한 물리 안전 마진입니다. 계산된 0.151 m를 다음 네 곳에 똑같이 적용합니다.
+    # vehicle_half_width_m는 실차 폭 0.287 m의 반폭이며 마진이 아닙니다. safety_margin_m는
+    # 물리 안전 여유, tracking_error_reserve_m는 동일 경로 1.5 m/s 반복 검증의 회피경로
+    # 추종오차(max 0.1370 m, P99 0.1345 m)를 올림한 제어 여유입니다. 계산된 0.3417293 m를
+    # 다음 세 곳에 똑같이 적용합니다.
     #   1. 장애물 좌/우 경계에서 회피 목표 d까지의 거리
     #   2. 글로벌 d=0을 막는 장애물인지 판단하는 거리
-    #   3. 차량 중심에서 트랙 좌/우 경계까지 남겨야 하는 거리
-    #   4. commitment 경로를 raw 장애물과 즉시 충돌 검사할 때의 거리
-    # 별도 obstacle/boundary/hard/reserve/fallback 마진은 더하지 않습니다.
-    vehicle_half_width_m: 0.121
-    safety_margin_m: 0.030
+    #   3. commitment 경로를 raw 장애물과 즉시 충돌 검사할 때의 거리
+    # global waypoint의 d_left/d_right는 차량 반폭과 벽 안전마진이 이미 반영된 차량 중심
+    # 가용 한계입니다. 트랙 경계 검사에서는 추가 로컬 마진 없이 두 값을 그대로 씁니다.
+    # 별도 obstacle/boundary/hard/fallback 마진은 더하지 않습니다.
+    vehicle_half_width_m: 0.1435
+    safety_margin_m: 0.058229308745201366
+    tracking_error_reserve_m: 0.140
     fallback_track_half_width_m: 1.50
 
     # 진입/복귀 quintic 프로파일의 [먼 점, 중간 점, 가까운 점]과
     # [가까운 점, 중간 점, 먼 점] 표본 거리입니다. 먼 점은 각 프로파일의 전체 길이이고,
     # 중간/가까운 점의 d는 quintic 진행률로 점진적으로 계산되어 RViz 제어점에 표시됩니다.
-    pre_apex_distances_m: [6.0, 4.0, 2.0]
-    post_apex_distances_m: [1.0, 2.0, 3.0]
+    # 아래 값은 변경된 동일 장애물 배치에서 1.5 m/s CMA-ES 후 3회 연속 무충돌 완주한 후보입니다.
+    pre_apex_distances_m: [9.0, 6.0, 3.0]
+    post_apex_distances_m: [1.6471992864388174, 3.294398572877635, 4.9415978593164525]
     # 진입은 큰 scale부터 검사해 접근 여유를 사용하고, 복귀는 작은 scale부터 검사해 빠르게
     # 다음 maneuver를 준비합니다. 짧은 복귀가 기하 검사를 실패할 때만 복귀 scale을 늘립니다.
-    transition_distance_scales: [0.1, 0.6, 2.0]
+    transition_distance_scales: [0.2126428647700918, 1.074713915992601, 3.5]
     # 위 transition distance에 곱하는 배율입니다. 1보다 작으면 바깥쪽 회피 전환을 짧게,
     # 1보다 크면 길게 만듭니다. 현재 0.1은 선택된 진입/복귀 길이의 10%를 사용합니다.
     outside_line_transition_scale: 0.1
@@ -46,13 +53,14 @@ local_planner_node:
 
     # 이동된 글로벌 점의 기하학적 주행 가능성 검사입니다.
     maximum_lateral_slope: 0.8
-    maximum_curvature_radpm: 3.20
+    # f1tenth_control의 ±0.41 rad 조향 한계와 wheelbase 0.3302 m에 대응합니다.
+    maximum_curvature_radpm: 1.316266519079011
     maximum_curvature_rate_radpm2: 20.0
 
     # 좌우 spline이 모두 트랙 경계/장애물/기하 검사를 실패할 때 장애물 앞에서 정지합니다.
     # 정지 목표는 longitudinal padding까지 적용된 장애물 경계보다 0.40 m 앞입니다.
-    # 현재 obstacle_longitudinal_padding_m=0.30이므로 detector 원본 AABB 앞 기준 nominal
-    # 거리는 0.70 m이며, waypoint 표본 간격에 따라 실제 목표점은 이보다 조금 더 앞일 수 있습니다.
+    # 현재 obstacle_longitudinal_padding_m=0.3661363이므로 detector 원본 AABB 앞 기준 nominal
+    # 거리는 0.7661363 m이며, waypoint 표본 간격에 따라 실제 목표점은 이보다 조금 더 앞일 수 있습니다.
     safe_stop_buffer_m: 0.40
     safe_stop_deceleration_mps2: 2.5
     minimum_path_points: 8
@@ -86,15 +94,15 @@ local_planner_node:
     initial_observation_max_wait_sec: 0.35
     # 아래 값은 차량과 물체 사이의 물리 안전 마진이 아닙니다. detector 측정값이 실제 물체를
     # 포함하도록 raw AABB 자체를 넓혀 uncertainty Guard를 만드는 관측 모델 파라미터입니다.
-    # 처리 순서는 raw AABB -> uncertainty Guard -> 차량 반폭+safety_margin 검사이며,
-    # 차량 반폭과 safety_margin은 마지막 단계에서 정확히 한 번만 적용됩니다.
+    # 처리 순서는 raw AABB -> uncertainty Guard -> 차량 반폭+safety_margin+tracking reserve
+    # 검사이며, 세 항은 마지막 단계에서 정확히 한 번만 적용됩니다.
     uncertainty_sigma_scale: 3.0
     uncertainty_min_longitudinal_inflation_m: 0.05
     uncertainty_min_lateral_inflation_m: 0.03
     # 초기 검출의 큰 중심 분산이 Guard를 과도하게 키워 정중앙 장애물의 양쪽 목표 d를
     # 모두 불가능하게 만드는 것을 막는 횡방향 Guard 팽창 상한입니다.
     uncertainty_max_lateral_inflation_m: 0.15
-    # soft/hard 충돌 모두 같은 0.151 m 물리 안전거리를 사용합니다. 차이는 추가 마진이 아니라
+    # soft/hard 충돌 모두 같은 0.3417293 m 계획 clearance를 사용합니다. 차이는 추가 마진이 아니라
     # 검사 대상뿐입니다: uncertainty Guard 침범은 soft, detector raw AABB 침범은 hard입니다.
     commitment_soft_violation_confirm_cycles: 3
     # 안전 마진이 아니라 maneuver 상태 전환용 종방향 거리입니다. 첫 장애물 Guard의 뒤쪽을

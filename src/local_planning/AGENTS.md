@@ -18,11 +18,13 @@
 - Consume the detector-owned Frenet footprint on `/static_obs` without any Cartesian-to-Frenet
   conversion. Treat `s_start/s_end/d_right/d_left` as the authoritative obstacle geometry.
   Cartesian AABB fields are optional metadata and are not consumed as planner geometry.
-- Use one physical lateral-clearance formula everywhere:
-  `vehicle_half_width_m + safety_margin_m`. Apply that same centre clearance to obstacle target
-  generation, raceline-blocking detection, track-bound checks, frozen-path validation, and raw
-  hard-collision validation. Do not add a boundary margin, commitment reserve, hard margin, or
-  reduced-clearance fallback. Reject infeasible sides and safe-stop when neither side fits.
+- Obstacle bounds are raw detector geometry. Use
+  `vehicle_half_width_m + safety_margin_m + tracking_error_reserve_m` for obstacle target
+  generation, raceline-blocking detection, frozen-path validation, and raw hard-collision
+  validation. Global waypoint `d_left/d_right` follow a different contract: they already encode
+  vehicle half-width and the generator's wall safety margin as centre-of-vehicle limits. For track
+  bounds, use `d_left`/`d_right` directly; never subtract vehicle width, safety margin, or tracking
+  reserve a second time. Do not add another boundary, commitment, hard, or fallback margin.
 - When left/right candidate scores tie within `side_tie_epsilon_m`, select the side with more
   reference-width headroom across the obstacle span. Reference widths carry no perception jitter,
   so centred-obstacle side choices cannot flap between replans.
@@ -37,7 +39,8 @@
   scales from shortest to longest so the maneuver releases promptly. Fall back only when the full
   candidate validation fails.
 - Validate lateral slope, recomputed Cartesian curvature, curvature rate, obstacle clearance, and
-  track-bound clearance before publishing.
+  track-bound clearance before publishing. Do not add any further boundary, commitment, hard, or
+  fallback margin.
 - Before the first lateral commitment, publish `ot_line=raceline_static_prepare` with a validated
   braking prefix while collecting the nearest cluster's IDs and conservative Frenet-envelope union.
   Count distinct `/static_obs` messages, not planning ticks, and require the configured number of

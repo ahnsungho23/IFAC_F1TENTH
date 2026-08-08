@@ -9,6 +9,7 @@ lap_referee:
     odom_topic: /ego_racecar/odom
     scan_topic: /scan          # f1tenth gym bridge publishes ego scan un-namespaced
     drive_topic: /drive
+    collision_topic: /ego_racecar/collision  # gym bridge latched std_msgs/Bool
 
     # Where one rollout writes <prefix>_summary.json and <prefix>_trace.csv.
     output_dir: /tmp/lap_referee
@@ -21,8 +22,9 @@ lap_referee:
     # No-motion guard: give up the episode if the car never starts.
     no_start_timeout_sec: 8.0
 
-    # Collision / termination detection.
-    collision_scan_threshold: 0.13   # [m] min LiDAR range treated as wall impact
+    # Collision / termination detection. Once collision_topic has been received,
+    # it is authoritative; this scan threshold is used only if no Bool arrived.
+    collision_scan_threshold: 0.13   # [m] fallback min LiDAR range
     off_track_threshold: 1.5         # [m] |lateral error| treated as leaving track
     stuck_speed_threshold: 0.2       # [m/s] body considered "not moving"
     stuck_cmd_threshold: 0.8         # [m/s] commanded speed considered "intending to move"

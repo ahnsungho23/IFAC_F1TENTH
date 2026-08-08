@@ -209,9 +209,11 @@ void LocalPlannerNode::initializeParameters()
   planner_parameters_.obstacle_longitudinal_padding_m =
     declare_parameter<double>("obstacle_longitudinal_padding_m", 0.35);
   planner_parameters_.vehicle_half_width_m =
-    declare_parameter<double>("vehicle_half_width_m", 0.121);
+    declare_parameter<double>("vehicle_half_width_m", 0.1435);
   planner_parameters_.safety_margin_m =
     declare_parameter<double>("safety_margin_m", 0.03);
+  planner_parameters_.tracking_error_reserve_m =
+    declare_parameter<double>("tracking_error_reserve_m", 0.14);
   planner_parameters_.fallback_track_half_width_m =
     declare_parameter<double>("fallback_track_half_width_m", 1.50);
   planner_parameters_.pre_apex_distances_m =
@@ -326,6 +328,8 @@ void LocalPlannerNode::initializeParameters()
     !(planner_parameters_.vehicle_half_width_m > 0.0) ||
     !std::isfinite(planner_parameters_.safety_margin_m) ||
     planner_parameters_.safety_margin_m < 0.0 ||
+    !std::isfinite(planner_parameters_.tracking_error_reserve_m) ||
+    planner_parameters_.tracking_error_reserve_m < 0.0 ||
     planner_parameters_.post_merge_lookahead_m < 0.0 ||
     planner_parameters_.post_merge_min_time_sec < 0.0 ||
     !(state_handoff_tail_ratio_ > 0.0) || state_handoff_tail_ratio_ > 1.0 ||

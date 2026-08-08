@@ -96,6 +96,7 @@ RacelineSplineParameters testParameters()
   parameters.detection_lookahead_m = 12.0;
   parameters.vehicle_half_width_m = 0.12;
   parameters.safety_margin_m = 0.03;
+  parameters.tracking_error_reserve_m = 0.0;
   parameters.maximum_curvature_radpm = 5.0;
   parameters.maximum_curvature_rate_radpm2 = 50.0;
   return parameters;
@@ -280,7 +281,7 @@ TEST(RacelineSplinePlanner, UsesRightSideWhenLeftTrackSpaceIsInsufficient)
 
 TEST(RacelineSplinePlanner, RejectsWallBlockedTargetsBeforeSplineConstruction)
 {
-  auto reference = makeStraightReference(300, 0.1, 0.45, 0.45);
+  auto reference = makeStraightReference(300, 0.1, 0.34, 0.34);
   RacelineSplinePlanner planner(testParameters());
   ASSERT_TRUE(planner.setReference(reference));
 
@@ -296,20 +297,20 @@ TEST(RacelineSplinePlanner, RejectsWallBlockedTargetsBeforeSplineConstruction)
     std::string::npos);
 }
 
-TEST(RacelineSplinePlanner, UsesSameUnifiedClearanceForObstacleAndTrackBounds)
+TEST(RacelineSplinePlanner, DoesNotSubtractVehicleClearanceTwiceFromTrackBounds)
 {
-  // The only clearance is vehicle_half_width (0.12) + safety_margin (0.03) = 0.15 m.
-  // A centred obstacle ending at d=0.20 therefore produces target d=0.35. The same 0.15 m
-  // is reserved at the track wall, so a 0.50 m half-width is exactly feasible.
+  // A centred obstacle ending at d=0.20 produces target d=0.35 after obstacle clearance.
+  // d_left/d_right already describe vehicle-centre limits, so 0.35 is exactly feasible when
+  // tracking reserve is zero. Vehicle half-width and safety margin must not be deducted again.
   RacelineSplinePlanner feasible_planner(testParameters());
-  ASSERT_TRUE(feasible_planner.setReference(makeStraightReference(300, 0.1, 0.50, 0.50)));
+  ASSERT_TRUE(feasible_planner.setReference(makeStraightReference(300, 0.1, 0.35, 0.35)));
   const auto feasible = feasible_planner.plan(
     EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(3, 7.0)});
   ASSERT_EQ(feasible.kind, SplinePlanKind::kAvoidance) << feasible.reason;
   EXPECT_NEAR(std::abs(feasible.target_d), 0.35, 1.0e-9);
 
   RacelineSplinePlanner blocked_planner(testParameters());
-  ASSERT_TRUE(blocked_planner.setReference(makeStraightReference(300, 0.1, 0.49, 0.49)));
+  ASSERT_TRUE(blocked_planner.setReference(makeStraightReference(300, 0.1, 0.34, 0.34)));
   const auto blocked = blocked_planner.plan(
     EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(3, 7.0)});
   EXPECT_EQ(blocked.kind, SplinePlanKind::kSafeStop) << blocked.reason;
@@ -353,6 +354,22 @@ TEST(RacelineSplinePlanner, AppliesSingleSafetyMarginToAvoidanceTarget)
   ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
   // raw d_left 0.20 + vehicle half-width 0.12 + the only safety margin 0.03
   EXPECT_NEAR(result.target_d, 0.35, 1.0e-9);
+}
+
+TEST(RacelineSplinePlanner, AppliesTrackingErrorReserveAsSeparateClearanceTerm)
+{
+  auto parameters = testParameters();
+  parameters.tracking_error_reserve_m = 0.14;
+  EXPECT_NEAR(parameters.obstacleSafetyClearance(), 0.29, 1.0e-9);
+  EXPECT_DOUBLE_EQ(parameters.trackBoundaryReserve(), 0.0);
+
+  RacelineSplinePlanner planner(parameters);
+  ASSERT_TRUE(planner.setReference(makeStraightReference()));
+  const auto result = planner.plan(
+    EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(2, 7.0)}, true, false);
+  ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
+  // raw d_left 0.20 + half-width 0.12 + safety 0.03 + tracking reserve 0.14
+  EXPECT_NEAR(result.target_d, 0.49, 1.0e-9);
 }
 
 TEST(RacelineSplinePlanner, RejectsCommittedPathWhenObstacleEnvelopeGrows)
@@ -460,7 +477,7 @@ TEST(RacelineSplinePlanner, StartsNextManeuverContinuouslyFromNonzeroEgoD)
 
 TEST(RacelineSplinePlanner, DoesNotReverseCommittedSideWhenItBecomesBlocked)
 {
-  auto reference = makeStraightReference(300, 0.1, 0.45, 1.5);
+  auto reference = makeStraightReference(300, 0.1, 0.34, 1.5);
   RacelineSplinePlanner planner(testParameters());
   ASSERT_TRUE(planner.setReference(reference));
   const EgoFrenetState ego{0.0, 0.0, 2.0};

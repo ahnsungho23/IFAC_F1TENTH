@@ -228,9 +228,9 @@ RacelineSplinePlanner::expandVisibleObstacles(
   const EgoFrenetState & ego,
   const std::vector<f110_msgs::msg::Obstacle> & obstacles) const
 {
-  // One physical-clearance formula is used everywhere. The obstacle input may already be an
-  // uncertainty Guard, but vehicle size and safety margin are applied exactly once here.
-  const double clearance = parameters_.lateralSafetyClearance();
+  // Obstacle input may already be an uncertainty Guard, but vehicle size, physical margin, and
+  // closed-loop tracking reserve are applied exactly once here.
+  const double clearance = parameters_.obstacleSafetyClearance();
   std::vector<ExpandedObstacle> visible;
   visible.reserve(obstacles.size());
   for (const auto & obstacle : obstacles) {
@@ -274,7 +274,7 @@ RacelineSplinePlanner::expandVisibleObstacles(
 
 bool RacelineSplinePlanner::isBlockingRaceline(const ExpandedObstacle & obstacle) const
 {
-  const double envelope = parameters_.lateralSafetyClearance();
+  const double envelope = parameters_.obstacleSafetyClearance();
   return obstacle.raw_d_right <= envelope && obstacle.raw_d_left >= -envelope;
 }
 
@@ -377,7 +377,9 @@ bool RacelineSplinePlanner::targetFitsTrackBounds(
   std::string & reason,
   double * min_headroom) const
 {
-  const double center_boundary_clearance = parameters_.lateralSafetyClearance();
+  // Global waypoint d_left/d_right are centre-of-vehicle limits that already include vehicle
+  // half-width and the generator's wall safety margin. Apply no additional local wall reserve.
+  const double center_boundary_clearance = parameters_.trackBoundaryReserve();
   if (min_headroom != nullptr) {
     *min_headroom = std::numeric_limits<double>::infinity();
   }
@@ -862,7 +864,7 @@ bool RacelineSplinePlanner::validateCandidate(
       PathValidationFailureKind::kNoForwardPath,
       "path does not meet minimum_path_points");
   }
-  const double center_boundary_clearance = parameters_.lateralSafetyClearance();
+  const double center_boundary_clearance = parameters_.trackBoundaryReserve();
   double previous_d = path.wpnts[start_index].d_m;
   double previous_s = 0.0;
   double previous_curvature = path.wpnts[start_index].kappa_radpm;
