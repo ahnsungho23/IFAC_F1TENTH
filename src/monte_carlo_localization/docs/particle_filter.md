@@ -115,3 +115,11 @@ colcon build --packages-select particle_filter_cpp
   ```bash
   ros2 launch particle_filter_cpp mcl_launch.py mod:=sim map_name:=map use_rviz:=true
   ```
+## RViz 출력과 지도 미러 제어
+
+- `viz=false`: `/pf/viz/inferred_pose`, `/pf/viz/particles`를 생성하지 않는다.
+- `publish_map=false`: particle filter의 5 Hz `/map` publisher와 timer를 생성하지 않는다.
+
+`publish_map`은 내부 지도 로딩과 MCL 계산에 영향을 주지 않는다. MCL launch가 함께 실행하는
+`nav2_map_server`의 latched `/map`은 별도로 남을 수 있다. 전체 주행 스택은
+`f1tenth_control/config/runtime_visualization.yaml`을 MCL YAML 뒤에 로드한다.

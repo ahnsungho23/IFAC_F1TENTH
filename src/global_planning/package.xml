@@ -15,6 +15,7 @@
   <depend>visualization_msgs</depend>
   <depend>f110_msgs</depend>
   <depend>nlohmann-json-dev</depend>
+  <exec_depend>f1tenth_control</exec_depend>
   <build_depend>boost</build_depend>
   <build_depend>eigen</build_depend>
   <!-- OpenMP comes from the compiler toolchain (GCC); no rosdep key needed -->

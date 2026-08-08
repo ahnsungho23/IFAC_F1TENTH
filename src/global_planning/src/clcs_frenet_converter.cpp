@@ -64,6 +64,49 @@ bool finiteWaypoint(const ReferenceWaypoint & waypoint)
   return std::isfinite(waypoint.x) && std::isfinite(waypoint.y) && std::isfinite(waypoint.s);
 }
 
+// Numerically identical reimplementation of the private
+// geometry::Segment::convertToCurvilinearCoords(x, y, lambda), rebuilt on the
+// public Segment getters so the vendored library stays unmodified. The
+// windowed search in projectInWindow() needs per-segment projections and
+// cannot call the private overload directly.
+Eigen::Vector2d segmentCurvilinearCoords(
+  const geometry::Segment & segment,
+  const double x,
+  const double y,
+  double & lambda)
+{
+  const Eigen::Vector2d pt_1 = segment.pt_1();
+  const Eigen::Vector2d pt_2 = segment.pt_2();
+  const double length = segment.length();
+  const Eigen::Vector2d tangent = (pt_2 - pt_1).normalized();
+  const Eigen::Vector2d normal(-tangent.y(), tangent.x());
+
+  const Eigen::Vector2d point(x, y);
+  const Eigen::Vector2d local(tangent.dot(point - pt_1), normal.dot(point - pt_1));
+
+  // Endpoint tangents in the segment-local frame; see Eq. (7) in
+  // Hery et al. (2017): Map-based curvilinear coordinates for autonomous
+  // vehicles. The vendored code keeps the slopes only, so the ratios below
+  // are identical to its m_1_/m_2_.
+  const Eigen::Vector2d t_start = segment.tangentSegmentStart();
+  const Eigen::Vector2d t_end = segment.tangentSegmentEnd();
+  const double m_start = normal.dot(t_start) / tangent.dot(t_start);
+  const double m_end = normal.dot(t_end) / tangent.dot(t_end);
+
+  lambda = -1.0;
+  const double divider = length - local.y() * (m_end - m_start);
+  if (std::isgreater(std::abs(divider), 0.0)) {
+    lambda = (local.x() + local.y() * m_start) / divider;
+  }
+
+  const Eigen::Vector2d base = lambda * pt_2 + (1.0 - lambda) * pt_1;
+  double pseudo_distance = (point - base).norm();
+  if (std::isless(local.y(), 0.0)) {
+    pseudo_distance = -pseudo_distance;
+  }
+  return Eigen::Vector2d(lambda * length, pseudo_distance);
+}
+
 }  // namespace
 
 ClcsFrenetConverter::Ptr ClcsFrenetConverter::create(
@@ -126,11 +169,7 @@ ClcsConversionResult ClcsFrenetConverter::convert(const ClcsConversionInput & in
 {
   const auto start = std::chrono::steady_clock::now();
 
-  ClcsConversionResult result;
-  result.track_length = stats_.track_length;
-  result.clcs_build_time_ms = stats_.build_time_ms;
-  result.waypoint_s_max_error = stats_.waypoint_s_max_error;
-  result.path_version = stats_.path_version;
+  ClcsConversionResult result = newResult();
 
   if (!std::isfinite(input.x) || !std::isfinite(input.y) || !std::isfinite(input.yaw)) {
     result.error_message = "non-finite Cartesian pose input";
@@ -147,56 +186,7 @@ ClcsConversionResult ClcsFrenetConverter::convert(const ClcsConversionInput & in
       return result;
     }
 
-    result.raw_s = curvilinear.x();
-    result.s = normalizeS(curvilinear.x());
-    result.d = curvilinear.y();
-    result.segment_index = segment_index;
-
-    if (std::isfinite(config_.max_projection_distance) &&
-      config_.max_projection_distance > 0.0 &&
-      std::abs(result.d) > config_.max_projection_distance)
-    {
-      result.error_message = "projection distance exceeds max_projection_distance";
-      return result;
-    }
-
-    result.reference_yaw = referenceYaw(result.raw_s);
-    result.heading_error = normalizeAngle(input.yaw - result.reference_yaw);
-
-    double vx_map = input.linear_x;
-    double vy_map = input.linear_y;
-    if (config_.velocity_frame == VelocityFrame::kBody) {
-      const double cos_yaw = std::cos(input.yaw);
-      const double sin_yaw = std::sin(input.yaw);
-      vx_map = cos_yaw * input.linear_x - sin_yaw * input.linear_y;
-      vy_map = sin_yaw * input.linear_x + cos_yaw * input.linear_y;
-    }
-
-    if (config_.publish_frenet_velocity) {
-      const double cos_ref = std::cos(result.reference_yaw);
-      const double sin_ref = std::sin(result.reference_yaw);
-      result.v_s = cos_ref * vx_map + sin_ref * vy_map;
-      result.v_d = -sin_ref * vx_map + cos_ref * vy_map;
-    } else {
-      result.v_s = input.linear_x;
-      result.v_d = input.linear_y;
-    }
-    result.yaw_rate = input.yaw_rate;
-
-    const Eigen::Vector2d reconstructed =
-      clcs_->convertToCartesianCoords(sForClcsQuery(result.raw_s), result.d, false);
-    result.reconstruction_error =
-      std::hypot(reconstructed.x() - input.x, reconstructed.y() - input.y);
-
-    const auto end = std::chrono::steady_clock::now();
-    result.conversion_time_us =
-      std::chrono::duration<double, std::micro>(end - start).count();
-    result.valid = std::isfinite(result.s) && std::isfinite(result.d) &&
-      std::isfinite(result.reference_yaw) && std::isfinite(result.heading_error) &&
-      std::isfinite(result.v_s) && std::isfinite(result.v_d);
-    if (!result.valid) {
-      result.error_message = "conversion result contains non-finite values";
-    }
+    finishConversion(input, start, curvilinear.x(), curvilinear.y(), segment_index, result);
     return result;
   } catch (const geometry::ProjectionDomainError & e) {
     result.error_message = e.what();
@@ -208,6 +198,258 @@ ClcsConversionResult ClcsFrenetConverter::convert(const ClcsConversionInput & in
   result.conversion_time_us =
     std::chrono::duration<double, std::micro>(end - start).count();
   return result;
+}
+
+ClcsConversionResult ClcsFrenetConverter::convertTracked(
+  const ClcsConversionInput & input,
+  ClcsContinuityState & state) const
+{
+  const auto start = std::chrono::steady_clock::now();
+
+  ClcsConversionResult result = newResult();
+  const auto stamp_time = [&result, &start]() {
+      const auto end = std::chrono::steady_clock::now();
+      result.conversion_time_us =
+        std::chrono::duration<double, std::micro>(end - start).count();
+    };
+
+  if (!std::isfinite(input.x) || !std::isfinite(input.y) || !std::isfinite(input.yaw)) {
+    result.error_message = "non-finite Cartesian pose input";
+    stamp_time();
+    return result;
+  }
+
+  try {
+    double raw_s = 0.0;
+    double d = 0.0;
+    int segment_index = -1;
+    bool projected = false;
+    std::string miss_reason;
+
+    if (state.initialized) {
+      double s_lo = state.s_prev - config_.backward_tolerance;
+      double s_hi = state.s_prev + config_.forward_window;
+      if (!config_.closed_loop) {
+        s_lo = std::max(0.0, s_lo);
+        s_hi = std::min(stats_.track_length, s_hi);
+      }
+      projected = projectInWindow(input.x, input.y, s_lo, s_hi, raw_s, d, segment_index);
+      if (!projected) {
+        miss_reason = "no projection within monotonic window";
+      } else if (std::isfinite(config_.tracked_max_projection_distance) &&
+        config_.tracked_max_projection_distance > 0.0 &&
+        std::abs(d) > config_.tracked_max_projection_distance)
+      {
+        // In-window but too far off the reference: treat as a miss so a
+        // teleport onto a nearby unrelated arc cannot keep tracking silently.
+        projected = false;
+        miss_reason = "tracked projection exceeds tracked_max_projection_distance";
+      }
+    } else if (config_.initial_seed_window > 0.0) {
+      // First fix restricted to the configured start slice.
+      const double s_hi = std::min(stats_.track_length, config_.initial_seed_window);
+      projected = projectInWindow(input.x, input.y, 0.0, s_hi, raw_s, d, segment_index);
+      if (!projected) {
+        miss_reason = "no projection in initial seed window";
+      }
+    }
+
+    if (!projected) {
+      const bool first_fix_full_search =
+        !state.initialized && config_.initial_seed_window <= 0.0;
+      if (!first_fix_full_search) {
+        state.consecutive_misses += 1;
+        const bool reacquire = config_.reacquire_after_misses > 0 &&
+          state.consecutive_misses >= config_.reacquire_after_misses;
+        if (!reacquire) {
+          // Fail closed: NEVER silently fall back to the global search —
+          // that is exactly the branch flip convertTracked() prevents.
+          result.error_message = miss_reason + " (miss " +
+            std::to_string(state.consecutive_misses) + ")";
+          stamp_time();
+          return result;
+        }
+        result.reacquired = true;
+      }
+
+      const Eigen::Vector2d curvilinear =
+        clcs_->convertToCurvilinearCoordsAndGetSegmentIdx(input.x, input.y, segment_index, false);
+      raw_s = curvilinear.x();
+      d = curvilinear.y();
+    }
+
+    if (!std::isfinite(raw_s) || !std::isfinite(d)) {
+      result.error_message = "CLCS returned non-finite curvilinear coordinates";
+      stamp_time();
+      return result;
+    }
+
+    finishConversion(input, start, raw_s, d, segment_index, result);
+    if (result.valid) {
+      state.initialized = true;
+      state.s_prev = result.s;
+      state.consecutive_misses = 0;
+    }
+    return result;
+  } catch (const geometry::ProjectionDomainError & e) {
+    result.error_message = e.what();
+  } catch (const std::exception & e) {
+    result.error_message = e.what();
+  }
+
+  stamp_time();
+  return result;
+}
+
+ClcsConversionResult ClcsFrenetConverter::newResult() const
+{
+  ClcsConversionResult result;
+  result.track_length = stats_.track_length;
+  result.clcs_build_time_ms = stats_.build_time_ms;
+  result.waypoint_s_max_error = stats_.waypoint_s_max_error;
+  result.path_version = stats_.path_version;
+  return result;
+}
+
+void ClcsFrenetConverter::finishConversion(
+  const ClcsConversionInput & input,
+  const std::chrono::steady_clock::time_point & start,
+  const double raw_s,
+  const double d,
+  const int segment_index,
+  ClcsConversionResult & result) const
+{
+  result.raw_s = raw_s;
+  result.s = normalizeS(raw_s);
+  result.d = d;
+  result.segment_index = segment_index;
+
+  if (std::isfinite(config_.max_projection_distance) &&
+    config_.max_projection_distance > 0.0 &&
+    std::abs(result.d) > config_.max_projection_distance)
+  {
+    result.error_message = "projection distance exceeds max_projection_distance";
+    return;
+  }
+
+  result.reference_yaw = referenceYaw(result.raw_s);
+  result.heading_error = normalizeAngle(input.yaw - result.reference_yaw);
+
+  double vx_map = input.linear_x;
+  double vy_map = input.linear_y;
+  if (config_.velocity_frame == VelocityFrame::kBody) {
+    const double cos_yaw = std::cos(input.yaw);
+    const double sin_yaw = std::sin(input.yaw);
+    vx_map = cos_yaw * input.linear_x - sin_yaw * input.linear_y;
+    vy_map = sin_yaw * input.linear_x + cos_yaw * input.linear_y;
+  }
+
+  if (config_.publish_frenet_velocity) {
+    const double cos_ref = std::cos(result.reference_yaw);
+    const double sin_ref = std::sin(result.reference_yaw);
+    result.v_s = cos_ref * vx_map + sin_ref * vy_map;
+    result.v_d = -sin_ref * vx_map + cos_ref * vy_map;
+  } else {
+    result.v_s = input.linear_x;
+    result.v_d = input.linear_y;
+  }
+  result.yaw_rate = input.yaw_rate;
+
+  const Eigen::Vector2d reconstructed =
+    clcs_->convertToCartesianCoords(sForClcsQuery(result.raw_s), result.d, false);
+  result.reconstruction_error =
+    std::hypot(reconstructed.x() - input.x, reconstructed.y() - input.y);
+
+  const auto end = std::chrono::steady_clock::now();
+  result.conversion_time_us =
+    std::chrono::duration<double, std::micro>(end - start).count();
+  result.valid = std::isfinite(result.s) && std::isfinite(result.d) &&
+    std::isfinite(result.reference_yaw) && std::isfinite(result.heading_error) &&
+    std::isfinite(result.v_s) && std::isfinite(result.v_d);
+  if (!result.valid) {
+    result.error_message = "conversion result contains non-finite values";
+  }
+}
+
+bool ClcsFrenetConverter::projectInWindow(
+  const double x,
+  const double y,
+  const double s_lo,
+  const double s_hi,
+  double & raw_s,
+  double & d,
+  int & segment_index) const
+{
+  const auto & segments = clcs_->getSegmentList();
+  const auto & segment_longitudinal = clcs_->segmentsLongitudinalCoordinates();
+  const std::size_t num_segments = segments.size();
+  const double length = stats_.track_length;
+  const bool wrap = config_.closed_loop && length > 0.0;
+
+  // Overlap between an interval [a, b] and the window; for closed loops the
+  // +-track-length shifted copies of the window are tested too, so a window
+  // reaching past the seam keeps working.
+  const auto overlaps_window = [s_lo, s_hi, wrap, length](const double a, const double b) {
+      if (b >= s_lo && a <= s_hi) {
+        return true;
+      }
+      if (wrap) {
+        if (b >= s_lo - length && a <= s_hi - length) {
+          return true;
+        }
+        if (b >= s_lo + length && a <= s_hi + length) {
+          return true;
+        }
+      }
+      return false;
+    };
+
+  double best_abs_d = std::numeric_limits<double>::infinity();
+  int best_index = -1;
+  double best_raw_s = 0.0;
+  double best_d = 0.0;
+
+  for (std::size_t i = 0; i < num_segments; ++i) {
+    const double seg_start = segment_longitudinal[i];
+    const double seg_end = seg_start + segments[i]->length();
+    if (!overlaps_window(seg_start, seg_end)) {
+      continue;
+    }
+    double lambda = 0.0;
+    const Eigen::Vector2d curvilinear =
+      segmentCurvilinearCoords(*segments[i], x, y, lambda);
+    // Same acceptance tolerance as the vendored full search (10e-8).
+    if (!std::isgreaterequal(lambda + 1.0e-7, 0.0) ||
+      !std::islessequal(lambda - 1.0e-7, 1.0))
+    {
+      continue;
+    }
+    const double candidate_d = curvilinear.y();
+    if (!std::isfinite(curvilinear.x()) || !std::isfinite(candidate_d)) {
+      continue;
+    }
+    const double candidate_raw_s = curvilinear.x() + seg_start;
+    // The candidate itself must land inside the window, not merely on a
+    // segment that touches it.
+    constexpr double kWindowSlack = 1.0e-9;
+    if (!overlaps_window(candidate_raw_s - kWindowSlack, candidate_raw_s + kWindowSlack)) {
+      continue;
+    }
+    if (std::abs(candidate_d) < best_abs_d) {
+      best_abs_d = std::abs(candidate_d);
+      best_index = static_cast<int>(i);
+      best_raw_s = candidate_raw_s;
+      best_d = candidate_d;
+    }
+  }
+
+  if (best_index < 0) {
+    return false;
+  }
+  raw_s = best_raw_s;
+  d = best_d;
+  segment_index = best_index;
+  return true;
 }
 
 bool ClcsFrenetConverter::pathChanged(

@@ -17,11 +17,10 @@ A C++ ROS 2 node that judges and records one closed-loop rollout in
   `ackermann_msgs/AckermannDriveStamped`. Do not introduce a new message type
   for rollout results; results are files (`summary.json` + `trace.csv`) so the
   non-ROS Python optimizer can read them without `rclpy`.
-- Prefer the gym bridge's latched `std_msgs/Bool` collision topic as the
-  authoritative simulator collision signal. Keep scan minimum range, odom
-  speed/pose, commanded speed, and lateral error as fallbacks and diagnostics.
-  Keep all thresholds and topic names in `config/lap_referee.yaml`; do not
-  hard-code operational values in the node.
+- Collision state is NOT available on a ROS topic from the gym bridge. Detect
+  termination only from observable signals (scan min range, odom speed/pose,
+  commanded speed, lateral error vs. reference). Keep all thresholds in
+  `config/lap_referee.yaml`; do not hard-code them in the node.
 - The output JSON schema is a contract with `dl_speed_optimizer`
   (`dl_speed_opt/evaluators.py`, `SimRunner._parse_outputs`). When you add/rename
   a summary field, update that parser, this package's docs, and the optimizer

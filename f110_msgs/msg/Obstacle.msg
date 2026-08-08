@@ -15,10 +15,7 @@ float64 y_max
 float64 x_var
 float64 y_var
 
-# Frenet representation used by tracking and planning. For a currently visible Cartesian
-# footprint, obstacle_detector projects the complete map-frame AABB and these bounds describe
-# that same footprint. Predicted-only tracks retain their last measured Frenet extent around the
-# predicted centre while `has_cartesian=false`.
+# Frenet representation used by dynamic-opponent tracking and trajectory prediction.
 float64 s_start
 float64 s_end
 float64 d_right           # defined as right bound of the obstacle

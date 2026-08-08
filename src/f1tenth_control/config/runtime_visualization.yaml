@@ -1,0 +1,49 @@
+# 2026_IFAC shared visualization profile.
+#
+# false: race/embedded mode. Nodes skip creating and publishing RViz-only messages.
+# true:  change the required entries below to true, then restart the affected nodes.
+#
+# This file is loaded after each package's normal YAML, so it overrides only the
+# visualization/output switches listed here. Driving and planning parameters remain
+# owned by their package YAML files.
+
+particle_filter:
+  ros__parameters:
+    viz: false
+    # Stops particle_filter's 5 Hz full OccupancyGrid mirror. The map_server
+    # launched by MCL can still provide the latched /map when needed.
+    publish_map: false
+
+global_trajectory_publisher_node:
+  ros__parameters:
+    publish_markers: false
+    publish_lattice: false
+
+obstacle_detector:
+  ros__parameters:
+    publish_markers: false
+
+local_planner_node:
+  ros__parameters:
+    publish_path_visualization: false
+
+state_machine_node:
+  ros__parameters:
+    publish_path_visualization: false
+
+control_map_node:
+  ros__parameters:
+    publish_l1_markers: false
+
+static_obstacle_map:
+  ros__parameters:
+    publish_visualization: false
+
+map_controller:
+  ros__parameters:
+    publish_debug_markers: false
+
+lap_timer:
+  ros__parameters:
+    rviz_text: false
+    publish_hud: false

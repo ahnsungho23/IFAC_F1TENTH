@@ -3,6 +3,7 @@ state_machine_node:
     state_topic: "/state"
     local_waypoints_topic: "/local_waypoints"
     local_path_topic: "/local_waypoints/path"
+    publish_path_visualization: true
 
     frenet_odom_topic: "/car_state/frenet/odom"
     global_waypoints_topic: "/global_waypoints"

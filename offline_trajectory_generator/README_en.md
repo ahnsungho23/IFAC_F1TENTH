@@ -65,6 +65,7 @@ To generate only the files directly via the CLI, use the following command.
 python3 offline_trajectory_generator/generate_global_trajectory.py \
   --map-yaml monte_carlo_localization/maps/slam_map.yaml \
   --output-dir /tmp/offline_traj_slam_map \
+  --velocity-limits-csv offline_trajectory_generator/config/velocity_limits.csv \
   --debug-image
 ```
 
@@ -81,8 +82,12 @@ offline_trajectory_generator/output/<map_yaml_file_name>/
 - `--safety-width`: The width including the vehicle width and safety margin.
 - `--boundary-margin`: The additional distance to keep away from the wall.
 - `--max-speed`: The waypoint speed upper limit. The default is `4.0` m/s.
-- `--min-speed`: The waypoint speed lower limit. The default is `1.0` m/s.
-- `--max-lateral-accel`: The lateral acceleration limit used for curvature-based speed calculation.
+- `--min-speed`: The waypoint speed lower limit. The default is `1.0` m/s. If this floor is
+  higher than the table-derived lateral limit, the floor wins and the generator emits a warning;
+  lower it until the warning disappears when strict physical feasibility is required.
+- `--velocity-limits-csv`: Four-column CSV containing speed-dependent maximum acceleration,
+  deceleration, and lateral acceleration. Its speed column must start at `0.0`, be strictly
+  increasing, and cover `--max-speed`; intermediate values are linearly interpolated.
 - `--max-curvature`: The vehicle steering limit as a maximum path curvature [rad/m]
   (= `tan(max_steer)/wheelbase`, ~`1.2` for F1TENTH). The speed model only slows down for sharp
   bends — it does not know the car *cannot steer through them at all* — so without this limit the
@@ -149,6 +154,22 @@ offline_trajectory_generator/output/<map_yaml_file_name>/
 - `--straight-clearance-margin`: The additional wall clearance distance required for straight correction validation.
 - `--straight-blend-length`: The length over which the original path and the straight line are smoothly blended at both ends of the straight correction section.
 
+### Velocity-limit CSV format
+
+```csv
+# speed_mps,max_accel_mps2,max_decel_mps2,max_lateral_accel_mps2
+0.0,3.7,2.0,5.5
+2.0,3.7,2.0,5.5
+4.0,3.7,2.0,5.5
+6.5,3.7,2.0,5.5
+9.0,3.7,2.0,5.5
+```
+
+The rows are net vehicle acceleration limits; no separate mass or drag coefficient is applied.
+The forward pass interpolates `max_accel` at the current speed, the backward pass interpolates
+`max_decel` at the next waypoint speed, and the curvature cap solves
+`v^2*abs(kappa) <= max_lateral_accel(v)` over the piecewise-linear table.
+
 The trinary gray unknown region of the ROS map is excluded from the drivable area by default. Turn on the GUI's `Unknown as free` only when you want to use even the gray unknown as free-space.
 
 Straight correction pulls the internal waypoints of low-curvature sections onto the endpoint straight line, then applies it only when the entire straight line satisfies the free-space and clearance conditions according to the distance transform. Therefore, when the curvature of a straight section fluctuates due to SLAM noise, the speed profile is set higher. If the path is pulled too much, lower `straight_kappa_threshold`; if the straightening is insufficient, raise the value.
@@ -159,7 +180,7 @@ Straight correction pulls the internal waypoints of low-curvature sections onto 
 2. Create `global_waypoints.json` with the run command above.
 3. Open `debug_overlay.png` to check that the path follows the center of the track.
 4. If the direction is reversed, add `--reverse` to the same command and regenerate.
-5. If the speed is too high or too low, adjust `--max-speed`, `--min-speed`, and `--max-lateral-accel`.
+5. If the speed is too high or too low, adjust `--max-speed`, `--min-speed`, and the corresponding speed range in `velocity_limits.csv`.
 
 When using the GUI, you can check steps 3-5 directly on screen and then just press `Save`.
 
@@ -177,7 +198,7 @@ The CSV format uses the same 10-column structure as `src/new_map_con/maps/fuck_f
 - `distance`: distance-transform based. Fast, but returns a single nearest-wall value so `d_left == d_right` (no left/right distinction).
 - `raycast`: directional raycast only (with the robust gate); no gap-leak correction.
 
-`d_left`/`d_right` feed the `obstacle_detector` and `local_planning` avoidance calculations as well as the `new_map_con` path-boundary check, so avoidance logic that needs left/right asymmetry must use `hybrid`. `--max-width-distance` is the raycast upper bound; set it to the track width (3.0 m recommended for indoor F1TENTH tracks). The remaining ROS waypoint fields `d_m`, `s_m`, etc. are kept inside `global_waypoints.json`.
+`d_left`/`d_right` feed directly into the `local_planning` avoidance safety-margin computation and the `new_map_con` path-boundary check, so avoidance logic that needs left/right asymmetry must use `hybrid`. `--max-width-distance` is the raycast upper bound; set it to the track width (3.0 m recommended for indoor F1TENTH tracks). The remaining ROS waypoint fields `d_m`, `s_m`, etc. are kept inside `global_waypoints.json`.
 
 The CSV's `x_m` and `y_m` are map frame coordinates with the `resolution` and `origin` of the selected ROS map YAML applied. If the map and path are misaligned in RViz, first check whether the map YAML put into the generator and the map YAML loaded by f1sim/map server are the same file.
 

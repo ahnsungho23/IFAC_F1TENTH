@@ -12,6 +12,7 @@
 #include "f110_msgs/msg/wpnt_array.hpp"
 #include "geometry_msgs/msg/quaternion.hpp"
 #include "global_planning/clcs_frenet_converter.hpp"
+#include "global_planning/reference_path_adapter.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "rclcpp/rclcpp.hpp"
 
@@ -65,6 +66,16 @@ std::vector<ReferenceWaypoint> toReferenceWaypoints(const f110_msgs::msg::WpntAr
   return waypoints;
 }
 
+std::vector<AdapterWaypoint> toAdapterWaypoints(const f110_msgs::msg::WpntArray & msg)
+{
+  std::vector<AdapterWaypoint> waypoints;
+  waypoints.reserve(msg.wpnts.size());
+  for (const auto & waypoint : msg.wpnts) {
+    waypoints.push_back({waypoint.x_m, waypoint.y_m, waypoint.d_left, waypoint.d_right});
+  }
+  return waypoints;
+}
+
 void clearCovariance(nav_msgs::msg::Odometry & odom)
 {
   std::fill(odom.pose.covariance.begin(), odom.pose.covariance.end(), 0.0);
@@ -93,12 +104,26 @@ public:
     frenet_pub_ = create_publisher<nav_msgs::msg::Odometry>(
       frenet_odom_topic_, rclcpp::QoS(rclcpp::KeepLast(20)).reliable());
 
-    if (enable_path_smoothing_ || enable_curvature_reduction_ || reference_resample_step_ > 0.0) {
-      RCLCPP_WARN(
+    if (adaptation_requested_) {
+      RCLCPP_INFO(
         get_logger(),
-        "CommonRoad-CLCS C++ core does not expose the Python preprocessing pipeline used by "
-        "commonroad_clcs.clcs. Only finite filtering, duplicate removal, and closed-loop "
-        "closing are applied in this node.");
+        "Reference path adaptation enabled (IV'24 Alg.1 port): smoothing=%s "
+        "curvature_reduction=%s k=%d max_iter=%d step=%.3f margin=%.3f kappa_cap=%.3f",
+        adapter_config_.enable_smoothing ? "true" : "false",
+        adapter_config_.enable_curvature_reduction ? "true" : "false",
+        adapter_config_.subdivision_refinements, adapter_config_.max_iterations,
+        adapter_config_.resample_step, adapter_config_.boundary_margin,
+        adapter_config_.max_absolute_curvature);
+    }
+
+    if (continuity_enabled_) {
+      RCLCPP_INFO(
+        get_logger(),
+        "Monotonic s-window tracking enabled: forward=%.2f m back=%.2f m "
+        "seed=%.2f m gate=%.2f m reacquire_after=%d misses",
+        config_.forward_window, config_.backward_tolerance,
+        config_.initial_seed_window, config_.tracked_max_projection_distance,
+        config_.reacquire_after_misses);
     }
 
     RCLCPP_INFO(
@@ -140,6 +165,21 @@ private:
     declare_parameter<double>("min_path_length", 0.5);
     declare_parameter<double>("large_gap_factor", 5.0);
     declare_parameter<int>("projection_domain_method", 1);
+
+    // Reference path adaptation (port of Würsching & Althoff, IEEE IV 2024, Alg. 1).
+    declare_parameter<int>("subdivision_refinements", 5);
+    declare_parameter<int>("adaptation_max_iterations", 10);
+    declare_parameter<double>("boundary_margin", 0.05);
+    declare_parameter<double>("max_absolute_curvature", 0.0);
+    declare_parameter<double>("anchor_curvature_threshold", 0.1);
+
+    // Monotonic s-window tracking (closed-loop wrap).
+    declare_parameter<bool>("continuity_enabled", true);
+    declare_parameter<double>("forward_window", 1.0);
+    declare_parameter<double>("backward_tolerance", 1.0);
+    declare_parameter<double>("initial_seed_window", 0.0);
+    declare_parameter<double>("tracked_max_projection_distance", 1.5);
+    declare_parameter<int>("reacquire_after_misses", 15);
   }
 
   void loadParameters()
@@ -175,6 +215,88 @@ private:
     config_.projection_domain_method = get_parameter("projection_domain_method").as_int();
     config_.velocity_frame = parseVelocityFrame(get_parameter("velocity_frame").as_string());
 
+    adapter_config_.enable_smoothing = enable_path_smoothing_;
+    adapter_config_.enable_curvature_reduction = enable_curvature_reduction_;
+    adapter_config_.resample_step = reference_resample_step_;
+    adapter_config_.duplicate_point_tolerance = config_.duplicate_point_tolerance;
+    adapter_config_.subdivision_refinements =
+      static_cast<int>(get_parameter("subdivision_refinements").as_int());
+    adapter_config_.max_iterations =
+      static_cast<int>(get_parameter("adaptation_max_iterations").as_int());
+    adapter_config_.boundary_margin = get_parameter("boundary_margin").as_double();
+    adapter_config_.max_absolute_curvature =
+      get_parameter("max_absolute_curvature").as_double();
+    adapter_config_.anchor_curvature_threshold =
+      get_parameter("anchor_curvature_threshold").as_double();
+
+    if (!std::isfinite(adapter_config_.anchor_curvature_threshold) ||
+      adapter_config_.anchor_curvature_threshold <= 0.0)
+    {
+      RCLCPP_WARN(
+        get_logger(),
+        "anchor_curvature_threshold must be > 0 (got %.3f); resetting to 0.1 1/m.",
+        adapter_config_.anchor_curvature_threshold);
+      adapter_config_.anchor_curvature_threshold = 0.1;
+    }
+    if (adapter_config_.subdivision_refinements < 1 ||
+      adapter_config_.subdivision_refinements > 8)
+    {
+      RCLCPP_WARN(
+        get_logger(),
+        "subdivision_refinements must be in [1, 8] (got %d); resetting to 5.",
+        adapter_config_.subdivision_refinements);
+      adapter_config_.subdivision_refinements = 5;
+    }
+    if (adapter_config_.max_iterations < 1) {
+      RCLCPP_WARN(
+        get_logger(),
+        "adaptation_max_iterations must be >= 1 (got %d); resetting to 10.",
+        adapter_config_.max_iterations);
+      adapter_config_.max_iterations = 10;
+    }
+    if (!std::isfinite(adapter_config_.boundary_margin) ||
+      adapter_config_.boundary_margin < 0.0)
+    {
+      RCLCPP_WARN(
+        get_logger(),
+        "boundary_margin must be >= 0 (got %.3f); resetting to 0.05 m.",
+        adapter_config_.boundary_margin);
+      adapter_config_.boundary_margin = 0.05;
+    }
+    adaptation_requested_ = enable_path_smoothing_ || enable_curvature_reduction_ ||
+      reference_resample_step_ > 0.0;
+
+    continuity_enabled_ = get_parameter("continuity_enabled").as_bool();
+    config_.forward_window = get_parameter("forward_window").as_double();
+    config_.backward_tolerance = get_parameter("backward_tolerance").as_double();
+    config_.initial_seed_window = get_parameter("initial_seed_window").as_double();
+    config_.tracked_max_projection_distance =
+      get_parameter("tracked_max_projection_distance").as_double();
+    config_.reacquire_after_misses =
+      static_cast<int>(get_parameter("reacquire_after_misses").as_int());
+
+    if (!std::isfinite(config_.forward_window) || config_.forward_window <= 0.0) {
+      RCLCPP_WARN(
+        get_logger(),
+        "forward_window must be > 0 (got %.3f); resetting to 1.0 m.",
+        config_.forward_window);
+      config_.forward_window = 1.0;
+    }
+    if (!std::isfinite(config_.backward_tolerance) || config_.backward_tolerance < 0.0) {
+      RCLCPP_WARN(
+        get_logger(),
+        "backward_tolerance must be >= 0 (got %.3f); resetting to 1.0 m.",
+        config_.backward_tolerance);
+      config_.backward_tolerance = 1.0;
+    }
+    if (config_.reacquire_after_misses < 0) {
+      RCLCPP_WARN(
+        get_logger(),
+        "reacquire_after_misses must be >= 0 (got %d); resetting to 15.",
+        config_.reacquire_after_misses);
+      config_.reacquire_after_misses = 15;
+    }
+
     if (!use_path_preprocessing_) {
       RCLCPP_WARN(
         get_logger(),
@@ -204,9 +326,54 @@ private:
     }
 
     const std::uint64_t next_version = path_version_ + 1;
+
+    std::vector<ReferenceWaypoint> reference_input = raw_waypoints;
+    if (adaptation_requested_) {
+      if (!config_.closed_loop) {
+        RCLCPP_WARN_ONCE(
+          get_logger(),
+          "Reference path adaptation is implemented for closed loops only; "
+          "skipping (closed_loop=false).");
+      } else {
+        const auto adapted = adaptReferencePath(toAdapterWaypoints(*msg), adapter_config_);
+        RCLCPP_INFO(
+          get_logger(),
+          "Reference path adaptation: %s (iterations=%d points=%zu->%zu "
+          "max|kappa|=%.3f->%.3f max_rho=%.3f->%.3f)",
+          adapted.stop_reason.c_str(), adapted.iterations_used,
+          adapted.input_point_count, adapted.output_point_count,
+          adapted.initial_max_abs_curvature, adapted.final_max_abs_curvature,
+          adapted.initial_max_rho, adapted.final_max_rho);
+        if (adapted.stop_reason == "boundary_hit" ||
+          adapted.stop_reason == "max_iterations")
+        {
+          RCLCPP_WARN(
+            get_logger(),
+            "Curvature reduction stopped early (%s); rho criterion not fully met "
+            "(final max_rho=%.3f).",
+            adapted.stop_reason.c_str(), adapted.final_max_rho);
+        }
+        if (adapted.stop_reason == "degenerate_bounds") {
+          RCLCPP_WARN(
+            get_logger(),
+            "enable_curvature_reduction=true but /global_waypoints carries no usable "
+            "d_left/d_right; curvature reduction skipped.");
+        }
+        if (adapted.modified) {
+          reference_input = adapted.path;
+          RCLCPP_WARN_ONCE(
+            get_logger(),
+            "CLCS reference differs from the raw /global_waypoints after adaptation. "
+            "obstacle_detector builds its CLCS from the raw waypoints, so ego and "
+            "obstacle Frenet frames will diverge unless it applies the same "
+            "preprocessing.");
+        }
+      }
+    }
+
     ClcsFrenetConverter::Ptr new_converter;
     try {
-      new_converter = ClcsFrenetConverter::create(raw_waypoints, config_, next_version);
+      new_converter = ClcsFrenetConverter::create(reference_input, config_, next_version);
     } catch (const std::exception & e) {
       RCLCPP_ERROR(
         get_logger(),
@@ -221,6 +388,8 @@ private:
       converter_ = new_converter;
       last_raw_waypoints_ = raw_waypoints;
       path_version_ = stats.path_version;
+      // Progress (s_prev) belongs to the old path; re-acquire on the new one.
+      continuity_state_ = ClcsContinuityState{};
     }
 
     RCLCPP_INFO(
@@ -273,7 +442,16 @@ private:
     input.linear_y = odom->twist.twist.linear.y;
     input.yaw_rate = odom->twist.twist.angular.z;
 
-    const auto conversion = converter->convert(input);
+    const auto conversion = continuity_enabled_
+      ? converter->convertTracked(input, continuity_state_)
+      : converter->convert(input);
+    if (conversion.reacquired) {
+      RCLCPP_WARN(
+        get_logger(),
+        "Monotonic s-window re-acquired via global search after %d consecutive "
+        "misses (s=%.2f).",
+        config_.reacquire_after_misses, conversion.s);
+    }
     if (!conversion.valid) {
       handleProjectionFailure(*odom, conversion);
       return;
@@ -347,11 +525,14 @@ private:
   }
 
   ClcsFrenetConfig config_;
+  ReferencePathAdapterConfig adapter_config_;
   bool publish_heading_error_{true};
   bool compatibility_mode_{false};
   bool use_path_preprocessing_{true};
   bool enable_path_smoothing_{false};
   bool enable_curvature_reduction_{false};
+  bool adaptation_requested_{false};
+  bool continuity_enabled_{true};
   bool has_last_valid_odom_{false};
   double reference_resample_step_{0.0};
   std::uint64_t path_version_{0};
@@ -367,6 +548,7 @@ private:
   std::mutex converter_mutex_;
   ClcsFrenetConverter::ConstPtr converter_;
   std::vector<ReferenceWaypoint> last_raw_waypoints_;
+  ClcsContinuityState continuity_state_;
   nav_msgs::msg::Odometry last_valid_odom_;
 
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;

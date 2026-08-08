@@ -1,77 +1,76 @@
+import numpy as np
+# import rospkg
+import ament_index_python.packages as ament_pkg
 from pathlib import Path
 
-import numpy as np
-
-try:
-    import ament_index_python.packages as ament_pkg
-except ImportError:
-    ament_pkg = None
-
-
 def find_nearest(array, value):
-    """Return the nearest array value and its index."""
-    idx = np.abs(array - value).argmin()
+    # array = np.asarray(array)
+    idx = (np.abs(array - value)).argmin()
     return array[idx], idx
 
-
 def find_closest_neighbors(array, value):
-    """Return the two array entries nearest to a lookup value."""
-    nan_indices = np.argwhere(np.isnan(array))
-    if len(nan_indices) > 0:
-        array = array[:nan_indices[0][0]]
-
+    # index of first nan
+    is_nan_array = np.argwhere(np.isnan(array))
+    if len(is_nan_array) > 0:
+      first_nan = is_nan_array[0][0]
+      array = array[0:first_nan]
     closest, closest_idx = find_nearest(array, value)
     if closest_idx == 0:
         return array[0], 0, array[0], 0
-    if closest_idx == len(array) - 1:
+    elif closest_idx == (len(array) - 1):
         return array[closest_idx], closest_idx, array[closest_idx], closest_idx
-
-    neighbor_indices = [closest_idx - 1, closest_idx + 1]
-    second_closest, relative_idx = find_nearest(array[neighbor_indices], value)
-    second_idx = neighbor_indices[relative_idx]
-    return closest, closest_idx, second_closest, second_idx
+    else:
+      second_closest, second_idx = \
+        find_nearest(array[[max(closest_idx-1, 0), 
+        min(closest_idx+1, len(array)-1)]], value)
+      second_idx = -1 + closest_idx + 2 * second_idx
+      return closest, closest_idx, second_closest, second_idx
 
 
 class LookupSteerAngle:
-    """Look up a steering angle from acceleration and velocity samples."""
-
-    def __init__(self, model_name, logger=None):
-        try:
-            if ament_pkg is None:
-                raise LookupError
-            package_share = Path(
-                ament_pkg.get_package_share_directory('steering_lookup')
-            )
-        except Exception:
-            package_share = Path(__file__).resolve().parents[1]
-
-        lookup_path = package_share / 'cfg' / f'{model_name}_lookup_table.csv'
-        self.lu = np.loadtxt(lookup_path, delimiter=',')
-        self.logger = logger
+    """
+    LookupSteerAngle:
+    """
+    def __init__(self, model_name, logger):
+      try:
+        path = ament_pkg.get_package_share_directory('steering_lookup')
+        file_path = path + '/cfg/' + model_name + '_lookup_table.csv'
+      except Exception:
+        # Fallback: allow direct PYTHONPATH usage without installed ROS package.
+        pkg_root = Path(__file__).resolve().parents[1]
+        file_path = str(pkg_root / 'cfg' / f'{model_name}_lookup_table.csv')
+      self.lu = np.loadtxt(file_path, delimiter=",")
+      self.logger = logger
 
     def lookup_steer_angle(self, accel, vel):
-        """Interpolate the steering angle for lateral acceleration and speed."""
-        sign_accel = 1.0 if accel > 0.0 else -1.0
-        accel = abs(accel)
-        lookup_velocities = self.lu[0, 1:]
-        lookup_steers = self.lu[1:, 0]
-
-        _, velocity_idx = find_nearest(lookup_velocities, vel)
-        closest, closest_idx, second, second_idx = find_closest_neighbors(
-            self.lu[1:, velocity_idx + 1], accel
-        )
-
-        if closest_idx == second_idx:
-            steer_angle = lookup_steers[closest_idx]
+        """
+        lookup_steer_angle:
+        """
+        if accel > 0.0:
+          sign_accel = 1.0
         else:
-            steer_angle = np.interp(
-                accel,
-                [closest, second],
-                [lookup_steers[closest_idx], lookup_steers[second_idx]],
-            )
+          sign_accel = -1.0
+        # lookup only for positive accelerations
+        accel = abs(accel)
+        lu_vs = self.lu[0, 1:]
+        lu_steers = self.lu[1:, 0]
+        
+        #if (vel > lu_vs[-1]):
+        # self.logger(5, "Velocity exceeds lookup table, generating steering angle for v :" + str(lu_vs[-1]))
+
+        # find closest velocities to vel
+        c_v, c_v_idx = find_nearest(lu_vs, vel)
+
+        # find two closest accelerations to accel
+        c_a, c_a_idx, s_a, s_a_idx = find_closest_neighbors(self.lu[1:, c_v_idx + 1], accel)
+        if c_a_idx == s_a_idx:
+          steer_angle = lu_steers[c_a_idx]
+        else :
+          # interpolate between two closest accelerations to find steering angle
+          steer_angle = np.interp(accel, [c_a, s_a], [lu_steers[c_a_idx], lu_steers[s_a_idx]])
         return steer_angle * sign_accel
 
-
-if __name__ == '__main__':
-    lookup = LookupSteerAngle('NUC6_glc_pacejka', print)
-    print(lookup.lookup_steer_angle(9, 7))
+if __name__ == "__main__":
+  detective =  LookupSteerAngle("NUC1_pacejka", print)
+  steer_angle = detective.lookup_steer_angle(9, 7)
+  print(steer_angle)

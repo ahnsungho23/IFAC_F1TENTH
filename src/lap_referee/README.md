@@ -10,13 +10,12 @@ ROS 백엔드가 후보 속도 프로파일을 자동 평가할 때 사용한다
 
 ## 1. 작동 원리
 
-브리지의 latched collision 토픽을 수신하면 이를 단독 기준으로 사용하고, 토픽이 없는 환경에서만
-LiDAR/stuck 신호를 보조 판정으로 사용한다.
+브리지가 충돌을 ROS 토픽으로 알리지 않으므로, **관측 가능한 신호만으로** 결과를 복원한다.
 
 1. 기준 raceline CSV(`waypoints_csv`)로 트랙 길이·각 점의 `s`를 계산한다.
-2. `odom`/`scan`/`drive`/`collision`을 구독하며 50 Hz로 상태를 갱신, 속도가 임계값을 넘는 순간을 t0로 잡는다.
+2. `odom`/`scan`/`drive`를 구독하며 50 Hz로 상태를 갱신, 속도가 임계값을 넘는 순간을 t0로 잡는다.
 3. 가장 가까운 웨이포인트 인덱스의 전진을 누적해 진행거리를 구한다.
-4. 종료: `lap_complete`(진행거리≥트랙×`lap_fraction`) / `collision`(bridge Bool 우선, LiDAR fallback) /
+4. 종료: `lap_complete`(진행거리≥트랙×`lap_fraction`) / `collision`(LiDAR 최소거리<임계) /
    `off_track`(횡오차 초과) / `stuck`(명령은 높은데 정지) / `timeout` / `no_start`.
 5. 종료 시 결과를 원자적으로 파일에 쓰고(임시→rename), 0속도 `/drive`를 발행한 뒤 프로세스를 종료한다.
 
@@ -47,7 +46,6 @@ LiDAR/stuck 신호를 보조 판정으로 사용한다.
 | 구독 | `odom_topic` | `nav_msgs/Odometry` | `/ego_racecar/odom` |
 | 구독 | `scan_topic` | `sensor_msgs/LaserScan` | `/scan` (gym 브리지는 ego scan을 `/scan`으로 발행) |
 | 구독 | `drive_topic` | `ackermann_msgs/AckermannDriveStamped` | `/drive` |
-| 구독 | `collision_topic` | `std_msgs/Bool` | `/ego_racecar/collision` |
 | 발행 | `drive_topic` | `ackermann_msgs/AckermannDriveStamped` | 종료 시 0속도 정지(선택) |
 
 ## 3. 주요 파라미터
@@ -58,7 +56,6 @@ LiDAR/stuck 신호를 보조 판정으로 사용한다.
 |----------|------|--------|
 | `waypoints_csv` | 기준 raceline CSV(필수) | `''` |
 | `output_dir` / `output_prefix` | 결과 파일 위치/접두어 | `/tmp/lap_referee` / `rollout` |
-| `collision_topic` | 시뮬레이터 collision Bool 토픽 | `/ego_racecar/collision` |
 | `collision_scan_threshold` | 충돌 판정 최소 LiDAR [m] | `0.13` |
 | `off_track_threshold` | 이탈 판정 횡오차 [m] | `1.5` |
 | `stuck_speed_threshold` / `stuck_cmd_threshold` / `stuck_time_sec` | 정지 판정 | `0.2`/`0.8`/`0.7` |
