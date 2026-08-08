@@ -35,10 +35,19 @@ struct RacelineSplineParameters
   double vehicle_half_width_m{0.1435};
   // Obstacle bounds are raw detector geometry, so vehicle size, physical margin, and measured
   // closed-loop tracking error are applied exactly once. Global d_left/d_right already encode
-  // vehicle half-width and the generator's wall margin; wall_safety_margin_m is an additional
-  // empirically validated centre-path reserve and must not include vehicle width again.
+  // vehicle half-width and the generator's wall margin; only the independent wall reserve is
+  // subtracted from those centre-of-vehicle limits.
   double safety_margin_m{0.03};
+  // Fallback used when the LUT arrays below are all empty. A configured LUT is row-major with
+  // speed as the outer axis and absolute curvature as the inner axis.
   double tracking_error_reserve_m{0.14};
+  std::vector<double> tracking_error_lut_speed_bins_mps;
+  std::vector<double> tracking_error_lut_curvature_bins_radpm;
+  std::vector<double> tracking_error_lut_values_m;
+  // Speed-dependent lateral-acceleration table copied from jazzy_main velocity_limits.csv.
+  // Avoidance waypoint speeds are capped so v^2 * |kappa| stays within the interpolated limit.
+  std::vector<double> avoidance_velocity_limit_speed_bins_mps;
+  std::vector<double> avoidance_velocity_limit_lateral_accel_mps2;
   double wall_safety_margin_m{0.0};
   double fallback_track_half_width_m{1.50};
 
@@ -61,15 +70,15 @@ struct RacelineSplineParameters
   double safe_stop_deceleration_mps2{2.5};
   int minimum_path_points{8};
 
-  double obstacleSafetyClearance() const
-  {
-    return vehicle_half_width_m + safety_margin_m + tracking_error_reserve_m;
-  }
-
-  double trackBoundaryReserve() const
-  {
-    return wall_safety_margin_m;
-  }
+  bool hasTrackingErrorLut() const;
+  bool trackingErrorLutValid() const;
+  bool avoidanceVelocityLimitValid() const;
+  double limitedAvoidanceSpeed(double requested_speed_mps, double curvature_radpm) const;
+  double trackingErrorReserve(double speed_mps, double curvature_radpm) const;
+  double avoidanceTrackingErrorReserve(double speed_mps, double curvature_radpm) const;
+  double obstacleBaseClearance() const;
+  double obstacleSafetyClearance(double speed_mps, double curvature_radpm) const;
+  double trackBoundaryReserve(double speed_mps, double curvature_radpm) const;
 };
 
 struct EgoFrenetState
@@ -185,6 +194,8 @@ private:
   double wrapS(double s) const;
   std::size_t nextReferenceIndex(double s) const;
   std::size_t nearestReferenceIndex(double s) const;
+  double maximumReferenceTrackingErrorReserve(
+    const EgoFrenetState & ego, double start, double end) const;
   std::vector<ExpandedObstacle> expandVisibleObstacles(
     const EgoFrenetState & ego,
     const std::vector<f110_msgs::msg::Obstacle> & obstacles) const;
@@ -223,6 +234,7 @@ private:
     const EgoFrenetState & ego,
     const std::vector<ExpandedObstacle> & visible,
     const ExpandedObstacle & blocking) const;
+  void applyAvoidanceVelocityLimit(f110_msgs::msg::WpntArray & path) const;
   void updateGeometryAndAcceleration(f110_msgs::msg::WpntArray & path) const;
   bool validateCandidate(
     const EgoFrenetState & ego,

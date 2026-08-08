@@ -196,8 +196,17 @@ LocalPlannerNode::LocalPlannerNode(const rclcpp::NodeOptions & options)
   last_side_switch_time_ = now();
   RCLCPP_INFO(
     get_logger(),
-    "Race-line-locked static planner started: lookahead=%.1f m, obstacle topic=%s",
-    planner_parameters_.detection_lookahead_m, obstacles_topic_.c_str());
+    "Race-line-locked static planner started: lookahead=%.1f m, obstacle topic=%s, "
+    "tracking_error_lut=%zux%zu fallback=%.3f m, avoidance_velocity_limits=%zu rows, "
+    "wall_margin=%.3f m, lateral_guard=[%.3f, %.3f] m",
+    planner_parameters_.detection_lookahead_m, obstacles_topic_.c_str(),
+    planner_parameters_.tracking_error_lut_speed_bins_mps.size(),
+    planner_parameters_.tracking_error_lut_curvature_bins_radpm.size(),
+    planner_parameters_.tracking_error_reserve_m,
+    planner_parameters_.avoidance_velocity_limit_speed_bins_mps.size(),
+    planner_parameters_.wall_safety_margin_m,
+    guard_parameters_.minimum_lateral_inflation_m,
+    guard_parameters_.maximum_lateral_inflation_m);
 }
 
 void LocalPlannerNode::initializeParameters()
@@ -214,8 +223,33 @@ void LocalPlannerNode::initializeParameters()
     declare_parameter<double>("safety_margin_m", 0.03);
   planner_parameters_.tracking_error_reserve_m =
     declare_parameter<double>("tracking_error_reserve_m", 0.14);
+  planner_parameters_.tracking_error_lut_speed_bins_mps =
+    declare_parameter<std::vector<double>>(
+    "tracking_error_lut_speed_bins_mps",
+    std::vector<double>{0.0, 1.5, 3.0, 4.5, 6.5});
+  planner_parameters_.tracking_error_lut_curvature_bins_radpm =
+    declare_parameter<std::vector<double>>(
+    "tracking_error_lut_curvature_bins_radpm",
+    std::vector<double>{0.0, 0.2, 0.5, 0.9, 1.316266519079011});
+  planner_parameters_.tracking_error_lut_values_m =
+    declare_parameter<std::vector<double>>(
+    "tracking_error_lut_values_m",
+    std::vector<double>{
+      0.14, 0.14, 0.14, 0.14, 0.14,
+      0.14, 0.14, 0.14, 0.14, 0.14,
+      0.14, 0.14, 0.14, 0.14, 0.14,
+      0.14, 0.14, 0.14, 0.14, 0.14,
+      0.14, 0.14, 0.14, 0.14, 0.14});
+  planner_parameters_.avoidance_velocity_limit_speed_bins_mps =
+    declare_parameter<std::vector<double>>(
+    "avoidance_velocity_limit_speed_bins_mps",
+    std::vector<double>{0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0});
+  planner_parameters_.avoidance_velocity_limit_lateral_accel_mps2 =
+    declare_parameter<std::vector<double>>(
+    "avoidance_velocity_limit_lateral_accel_mps2",
+    std::vector<double>{7.0, 7.0, 7.0, 7.0, 7.0, 7.0, 6.5, 6.5, 6.5, 6.5});
   planner_parameters_.wall_safety_margin_m =
-    declare_parameter<double>("wall_safety_margin_m", 0.0);
+    declare_parameter<double>("wall_safety_margin_m", 0.04);
   planner_parameters_.fallback_track_half_width_m =
     declare_parameter<double>("fallback_track_half_width_m", 1.50);
   planner_parameters_.pre_apex_distances_m =
@@ -277,9 +311,9 @@ void LocalPlannerNode::initializeParameters()
   guard_parameters_.minimum_longitudinal_inflation_m =
     declare_parameter<double>("uncertainty_min_longitudinal_inflation_m", 0.05);
   guard_parameters_.minimum_lateral_inflation_m =
-    declare_parameter<double>("uncertainty_min_lateral_inflation_m", 0.03);
+    declare_parameter<double>("uncertainty_min_lateral_inflation_m", 0.0);
   guard_parameters_.maximum_lateral_inflation_m =
-    declare_parameter<double>("uncertainty_max_lateral_inflation_m", 0.15);
+    declare_parameter<double>("uncertainty_max_lateral_inflation_m", 0.0);
   commitment_lock_lateral_threshold_m_ =
     declare_parameter<double>("commitment_lock_lateral_threshold_m", 0.10);
   commitment_lock_longitudinal_m_ =
@@ -332,6 +366,8 @@ void LocalPlannerNode::initializeParameters()
     planner_parameters_.safety_margin_m < 0.0 ||
     !std::isfinite(planner_parameters_.tracking_error_reserve_m) ||
     planner_parameters_.tracking_error_reserve_m < 0.0 ||
+    !planner_parameters_.trackingErrorLutValid() ||
+    !planner_parameters_.avoidanceVelocityLimitValid() ||
     !std::isfinite(planner_parameters_.wall_safety_margin_m) ||
     planner_parameters_.wall_safety_margin_m < 0.0 ||
     planner_parameters_.post_merge_lookahead_m < 0.0 ||
@@ -362,7 +398,8 @@ void LocalPlannerNode::initializeParameters()
     planner_parameters_.minimum_path_points < 2)
   {
     throw std::invalid_argument(
-            "planning periods, confirmation counts, unified lateral safety clearance, handoff "
+            "planning periods, confirmation counts, tracking-error/velocity LUTs, lateral "
+            "safety, handoff "
             "settings, observation/uncertainty guard settings, commitment chain release, "
             "commitment locks, and point counts must be valid");
   }

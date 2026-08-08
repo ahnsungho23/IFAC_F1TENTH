@@ -18,14 +18,18 @@
 - Consume the detector-owned Frenet footprint on `/static_obs` without any Cartesian-to-Frenet
   conversion. Treat `s_start/s_end/d_right/d_left` as the authoritative obstacle geometry.
   Cartesian AABB fields are optional metadata and are not consumed as planner geometry.
-- Obstacle bounds are raw detector geometry. Use
-  `vehicle_half_width_m + safety_margin_m + tracking_error_reserve_m` for obstacle target
-  generation, raceline-blocking detection, frozen-path validation, and raw hard-collision
-  validation. Global waypoint `d_left/d_right` follow a different contract: they already encode
-  vehicle half-width and the generator's wall safety margin as centre-of-vehicle limits. For track
-  bounds, subtract only the separately validated `wall_safety_margin_m`; never subtract vehicle
-  width, obstacle safety margin, or tracking reserve a second time. Do not add another boundary,
-  commitment, hard, or fallback margin.
+- Obstacle bounds are raw detector geometry. Compute the tracking-error tube by bilinear
+  interpolation of the configured speed-by-absolute-curvature LUT, falling back to
+  `tracking_error_reserve_m` only when the LUT is intentionally empty. For obstacle target
+  generation, use the maximum LUT value across the obstacle reference span. Limit the reference
+  or candidate speed first with the configured jazzy_main-derived speed/lateral-acceleration table
+  so `v^2 * abs(kappa) <= a_lat_max(v)`. For sampled-path, frozen-path, and raw hard-collision
+  validation, use each candidate waypoint's limited speed and recomputed curvature. Obstacle
+  clearance is `vehicle_half_width_m + safety_margin_m + tube`.
+  Global waypoint `d_left/d_right` already encode vehicle half-width and the generator's wall
+  margin as centre-of-vehicle limits, so track bounds subtract only `wall_safety_margin_m`; never
+  subtract the tracking tube, vehicle width, or obstacle physical margin there. Do not add another
+  boundary, commitment, hard, or fallback margin.
 - When left/right candidate scores tie within `side_tie_epsilon_m`, select the side with more
   reference-width headroom across the obstacle span. Reference widths carry no perception jitter,
   so centred-obstacle side choices cannot flap between replans.
@@ -46,12 +50,10 @@
   braking prefix while collecting the nearest cluster's IDs and conservative Frenet-envelope union.
   Count distinct `/static_obs` messages, not planning ticks, and require the configured number of
   observations for every cluster ID and the configured minimum stabilization duration unless the
-  maximum wait is reached. Expand the final union by
-  `k*sqrt(s_var/d_var)` plus fixed longitudinal/lateral extent-noise floors, capping the lateral
-  inflation at `uncertainty_max_lateral_inflation_m` so fresh-detection variance cannot inflate a
-  centred obstacle's Guard beyond what either side can clear, and freeze that
-  uncertainty Guard with the commitment. An obstacle already inside the stop buffer bypasses this
-  wait and enters safe-stop immediately.
+  maximum wait is reached. Expand the final union longitudinally by `k*sqrt(s_var)` plus the fixed
+  longitudinal floor, but preserve the union's detector-owned `d_right/d_left` without lateral
+  covariance inflation. Freeze that Guard with the commitment. An obstacle already inside the stop
+  buffer bypasses this wait and enters safe-stop immediately.
 - For a committed same-ID obstacle, replace the live envelope with the frozen Guard whenever the
   complete live uncertainty envelope remains contained in it. Never slide the Guard from one
   measurement to the next. A Guard breach must still validate the frozen path against the live
@@ -100,8 +102,9 @@
 - Treat stale Frenet odometry as a worst-case localization failure: publish a zero-speed hold at the
   last known pose without erasing a previously validated commitment. Resume ordinary validation and
   planning only after fresh odometry returns.
-- Recompute heading, curvature, and longitudinal acceleration after applying `d(s)`. Preserve the
-  global waypoint velocity profile for moving avoidance; only safe-stop paths may reduce velocity.
+- Recompute heading and curvature after applying `d(s)`, cap moving-avoidance waypoint speed with
+  the configured velocity-limit table, then recompute longitudinal acceleration. Do not apply this
+  cap to global handoff geometry; safe-stop keeps its separate braking profile.
 - Handle closed-track `s` wrap explicitly. Never encode a waypoint index in Frenet odometry fields.
 
 ## Interfaces

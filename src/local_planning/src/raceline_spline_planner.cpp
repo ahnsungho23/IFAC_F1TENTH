@@ -74,6 +74,30 @@ double quinticBlend(double start, double finish, double progress)
   return start + (finish - start) * quinticSmoothStep(progress);
 }
 
+struct AxisInterpolation
+{
+  std::size_t lower{0U};
+  std::size_t upper{0U};
+  double ratio{0.0};
+};
+
+AxisInterpolation interpolationFor(const std::vector<double> & bins, double value)
+{
+  if (bins.size() <= 1U || value <= bins.front()) {
+    return {0U, 0U, 0.0};
+  }
+  if (value >= bins.back()) {
+    const std::size_t last = bins.size() - 1U;
+    return {last, last, 0.0};
+  }
+  const auto upper = std::upper_bound(bins.begin(), bins.end(), value);
+  const std::size_t upper_index = static_cast<std::size_t>(
+    std::distance(bins.begin(), upper));
+  const std::size_t lower_index = upper_index - 1U;
+  const double span = bins[upper_index] - bins[lower_index];
+  return {lower_index, upper_index, (value - bins[lower_index]) / span};
+}
+
 }  // namespace
 
 struct RacelineSplinePlanner::ExpandedObstacle
@@ -86,7 +110,7 @@ struct RacelineSplinePlanner::ExpandedObstacle
   double raw_d_left{0.0};
   double d_right{0.0};
   double d_left{0.0};
-  double clearance{0.0};
+  double target_clearance{0.0};
 };
 
 struct RacelineSplinePlanner::Candidate
@@ -105,6 +129,165 @@ struct RacelineSplinePlanner::Candidate
 RacelineSplinePlanner::RacelineSplinePlanner(RacelineSplineParameters parameters)
 : parameters_(std::move(parameters))
 {
+}
+
+bool RacelineSplineParameters::hasTrackingErrorLut() const
+{
+  return !tracking_error_lut_speed_bins_mps.empty() &&
+         !tracking_error_lut_curvature_bins_radpm.empty() &&
+         !tracking_error_lut_values_m.empty();
+}
+
+bool RacelineSplineParameters::trackingErrorLutValid() const
+{
+  const bool all_empty = tracking_error_lut_speed_bins_mps.empty() &&
+    tracking_error_lut_curvature_bins_radpm.empty() &&
+    tracking_error_lut_values_m.empty();
+  if (all_empty) {
+    return true;
+  }
+  if (!hasTrackingErrorLut() ||
+    tracking_error_lut_values_m.size() !=
+    tracking_error_lut_speed_bins_mps.size() *
+    tracking_error_lut_curvature_bins_radpm.size())
+  {
+    return false;
+  }
+  const auto valid_axis = [](const std::vector<double> & bins) {
+      return std::all_of(
+        bins.begin(), bins.end(), [](double value) {
+          return std::isfinite(value) && value >= 0.0;
+        }) &&
+             std::adjacent_find(
+        bins.begin(), bins.end(), std::greater_equal<double>()) == bins.end();
+    };
+  return valid_axis(tracking_error_lut_speed_bins_mps) &&
+         valid_axis(tracking_error_lut_curvature_bins_radpm) &&
+         std::all_of(
+    tracking_error_lut_values_m.begin(), tracking_error_lut_values_m.end(),
+    [](double value) {return std::isfinite(value) && value >= 0.0;});
+}
+
+bool RacelineSplineParameters::avoidanceVelocityLimitValid() const
+{
+  const bool all_empty = avoidance_velocity_limit_speed_bins_mps.empty() &&
+    avoidance_velocity_limit_lateral_accel_mps2.empty();
+  if (all_empty) {
+    return true;
+  }
+  if (avoidance_velocity_limit_speed_bins_mps.size() < 2U ||
+    avoidance_velocity_limit_speed_bins_mps.size() !=
+    avoidance_velocity_limit_lateral_accel_mps2.size() ||
+    std::abs(avoidance_velocity_limit_speed_bins_mps.front()) > kEpsilon)
+  {
+    return false;
+  }
+  const bool valid_speed_axis = std::all_of(
+    avoidance_velocity_limit_speed_bins_mps.begin(),
+    avoidance_velocity_limit_speed_bins_mps.end(),
+    [](double value) {return std::isfinite(value) && value >= 0.0;}) &&
+    std::adjacent_find(
+    avoidance_velocity_limit_speed_bins_mps.begin(),
+    avoidance_velocity_limit_speed_bins_mps.end(),
+    std::greater_equal<double>()) == avoidance_velocity_limit_speed_bins_mps.end();
+  const bool valid_lateral_limits = std::all_of(
+    avoidance_velocity_limit_lateral_accel_mps2.begin(),
+    avoidance_velocity_limit_lateral_accel_mps2.end(),
+    [](double value) {return std::isfinite(value) && value > 0.0;}) &&
+    std::adjacent_find(
+    avoidance_velocity_limit_lateral_accel_mps2.begin(),
+    avoidance_velocity_limit_lateral_accel_mps2.end(),
+    std::less<double>()) == avoidance_velocity_limit_lateral_accel_mps2.end();
+  return valid_speed_axis && valid_lateral_limits;
+}
+
+double RacelineSplineParameters::limitedAvoidanceSpeed(
+  double requested_speed_mps, double curvature_radpm) const
+{
+  const double requested_speed = std::abs(requested_speed_mps);
+  const double curvature = std::abs(curvature_radpm);
+  if (!(requested_speed > 0.0) || curvature <= kEpsilon ||
+    avoidance_velocity_limit_speed_bins_mps.empty() || !avoidanceVelocityLimitValid())
+  {
+    return requested_speed;
+  }
+
+  const auto lateral_limit_at = [&](double speed_mps) {
+      const auto interpolation = interpolationFor(
+        avoidance_velocity_limit_speed_bins_mps, speed_mps);
+      const double lower =
+        avoidance_velocity_limit_lateral_accel_mps2[interpolation.lower];
+      const double upper =
+        avoidance_velocity_limit_lateral_accel_mps2[interpolation.upper];
+      return lower + interpolation.ratio * (upper - lower);
+    };
+  const auto feasible = [&](double speed_mps) {
+      return speed_mps * speed_mps * curvature <= lateral_limit_at(speed_mps);
+    };
+  if (feasible(requested_speed)) {
+    return requested_speed;
+  }
+
+  double lower = 0.0;
+  double upper = requested_speed;
+  for (int iteration = 0; iteration < 60; ++iteration) {
+    const double middle = 0.5 * (lower + upper);
+    if (feasible(middle)) {
+      lower = middle;
+    } else {
+      upper = middle;
+    }
+  }
+  return lower;
+}
+
+double RacelineSplineParameters::trackingErrorReserve(
+  double speed_mps, double curvature_radpm) const
+{
+  if (!hasTrackingErrorLut() || !trackingErrorLutValid()) {
+    return tracking_error_reserve_m;
+  }
+  const auto speed = interpolationFor(
+    tracking_error_lut_speed_bins_mps, std::abs(speed_mps));
+  const auto curvature = interpolationFor(
+    tracking_error_lut_curvature_bins_radpm, std::abs(curvature_radpm));
+  const std::size_t curvature_count = tracking_error_lut_curvature_bins_radpm.size();
+  const auto value_at = [&](std::size_t speed_index, std::size_t curvature_index) {
+      return tracking_error_lut_values_m[speed_index * curvature_count + curvature_index];
+    };
+  const double lower =
+    value_at(speed.lower, curvature.lower) + curvature.ratio *
+    (value_at(speed.lower, curvature.upper) - value_at(speed.lower, curvature.lower));
+  const double upper =
+    value_at(speed.upper, curvature.lower) + curvature.ratio *
+    (value_at(speed.upper, curvature.upper) - value_at(speed.upper, curvature.lower));
+  return lower + speed.ratio * (upper - lower);
+}
+
+double RacelineSplineParameters::avoidanceTrackingErrorReserve(
+  double speed_mps, double curvature_radpm) const
+{
+  return trackingErrorReserve(
+    limitedAvoidanceSpeed(speed_mps, curvature_radpm), curvature_radpm);
+}
+
+double RacelineSplineParameters::obstacleBaseClearance() const
+{
+  return vehicle_half_width_m + safety_margin_m;
+}
+
+double RacelineSplineParameters::obstacleSafetyClearance(
+  double speed_mps, double curvature_radpm) const
+{
+  return obstacleBaseClearance() + avoidanceTrackingErrorReserve(speed_mps, curvature_radpm);
+}
+
+double RacelineSplineParameters::trackBoundaryReserve(
+  double speed_mps, double curvature_radpm) const
+{
+  (void)speed_mps;
+  (void)curvature_radpm;
+  return wall_safety_margin_m;
 }
 
 void RacelineSplinePlanner::setParameters(const RacelineSplineParameters & parameters)
@@ -223,14 +406,45 @@ std::size_t RacelineSplinePlanner::nearestReferenceIndex(double s) const
   return circular_distance(next) < circular_distance(previous) ? next : previous;
 }
 
+double RacelineSplinePlanner::maximumReferenceTrackingErrorReserve(
+  const EgoFrenetState & ego, double start, double end) const
+{
+  const double check_start = std::max(0.0, start);
+  const double check_end = std::max(check_start, end);
+  double maximum = 0.0;
+  bool checked_reference = false;
+  const std::size_t first_index = nextReferenceIndex(wrapS(ego.s + check_start));
+  for (std::size_t k = 0; k < reference_.wpnts.size(); ++k) {
+    const auto & reference = reference_.wpnts[(first_index + k) % reference_.wpnts.size()];
+    const double forward_s = forwardDistance(ego.s, reference.s_m);
+    if (forward_s + kEpsilon < check_start) {
+      continue;
+    }
+    if (forward_s > check_end + kEpsilon) {
+      break;
+    }
+    checked_reference = true;
+    maximum = std::max(
+      maximum,
+      parameters_.avoidanceTrackingErrorReserve(
+        reference.vx_mps, reference.kappa_radpm));
+  }
+  if (!checked_reference) {
+    const auto & reference = reference_.wpnts[
+      nearestReferenceIndex(wrapS(ego.s + 0.5 * (check_start + check_end)))];
+    maximum = parameters_.avoidanceTrackingErrorReserve(
+      reference.vx_mps, reference.kappa_radpm);
+  }
+  return maximum;
+}
+
 std::vector<RacelineSplinePlanner::ExpandedObstacle>
 RacelineSplinePlanner::expandVisibleObstacles(
   const EgoFrenetState & ego,
   const std::vector<f110_msgs::msg::Obstacle> & obstacles) const
 {
   // Obstacle input may already be an uncertainty Guard, but vehicle size, physical margin, and
-  // closed-loop tracking reserve are applied exactly once here.
-  const double clearance = parameters_.obstacleSafetyClearance();
+  // the reference-span maximum tracking reserve are applied exactly once to the target gate.
   std::vector<ExpandedObstacle> visible;
   visible.reserve(obstacles.size());
   for (const auto & obstacle : obstacles) {
@@ -255,9 +469,10 @@ RacelineSplinePlanner::expandVisibleObstacles(
     expanded.end = center + half_span;
     expanded.raw_d_right = std::min(obstacle.d_right, obstacle.d_left);
     expanded.raw_d_left = std::max(obstacle.d_right, obstacle.d_left);
-    expanded.d_right = expanded.raw_d_right - clearance;
-    expanded.d_left = expanded.raw_d_left + clearance;
-    expanded.clearance = clearance;
+    expanded.target_clearance = parameters_.obstacleBaseClearance() +
+      maximumReferenceTrackingErrorReserve(ego, expanded.start, expanded.end);
+    expanded.d_right = expanded.raw_d_right - expanded.target_clearance;
+    expanded.d_left = expanded.raw_d_left + expanded.target_clearance;
     if (expanded.end >= 0.0 &&
       expanded.start <= parameters_.detection_lookahead_m)
     {
@@ -274,8 +489,7 @@ RacelineSplinePlanner::expandVisibleObstacles(
 
 bool RacelineSplinePlanner::isBlockingRaceline(const ExpandedObstacle & obstacle) const
 {
-  const double envelope = parameters_.obstacleSafetyClearance();
-  return obstacle.raw_d_right <= envelope && obstacle.raw_d_left >= -envelope;
+  return obstacle.d_right <= 0.0 && obstacle.d_left >= 0.0;
 }
 
 std::vector<RacelineSplinePlanner::ExpandedObstacle>
@@ -377,13 +591,14 @@ bool RacelineSplinePlanner::targetFitsTrackBounds(
   std::string & reason,
   double * min_headroom) const
 {
-  // Global waypoint d_left/d_right are centre-of-vehicle limits. Subtract only the separately
-  // configured empirical wall reserve; vehicle width and obstacle clearance do not belong here.
-  const double center_boundary_clearance = parameters_.trackBoundaryReserve();
+  // Global waypoint d_left/d_right are centre-of-vehicle limits. Vehicle width, obstacle
+  // clearance, and tracking-error reserve do not belong here; subtract only the wall reserve.
   if (min_headroom != nullptr) {
     *min_headroom = std::numeric_limits<double>::infinity();
   }
   const auto fits_at = [&](const f110_msgs::msg::Wpnt & reference) {
+      const double center_boundary_clearance = parameters_.trackBoundaryReserve(
+        reference.vx_mps, reference.kappa_radpm);
       const double left_width = reference.d_left > 0.05 ?
         reference.d_left : parameters_.fallback_track_half_width_m;
       const double right_width = reference.d_right > 0.05 ?
@@ -534,10 +749,12 @@ RacelineSplineResult RacelineSplinePlanner::buildCommittedPathStop(
   for (std::size_t i = start_index; i < committed_path.wpnts.size(); ++i) {
     const auto & waypoint = committed_path.wpnts[i];
     const double forward_s = forwardDistance(ego.s, waypoint.s_m);
+    const double clearance = parameters_.obstacleSafetyClearance(
+      waypoint.vx_mps, waypoint.kappa_radpm);
     for (const auto & obstacle : visible) {
       if (forward_s >= obstacle.start && forward_s <= obstacle.end &&
-        waypoint.d_m > obstacle.d_right + kEpsilon &&
-        waypoint.d_m < obstacle.d_left - kEpsilon)
+        waypoint.d_m > obstacle.raw_d_right - clearance + kEpsilon &&
+        waypoint.d_m < obstacle.raw_d_left + clearance - kEpsilon)
       {
         first_collision_forward = forward_s;
         first_collision_id = obstacle.id;
@@ -748,6 +965,8 @@ RacelineSplinePlanner::Candidate RacelineSplinePlanner::buildCandidate(
   }
 
   updateGeometryAndAcceleration(candidate.path);
+  applyAvoidanceVelocityLimit(candidate.path);
+  updateGeometryAndAcceleration(candidate.path);
   if (!validateCandidate(ego, candidate.path, visible, candidate.reason)) {
     return candidate;
   }
@@ -760,6 +979,15 @@ RacelineSplinePlanner::Candidate RacelineSplinePlanner::buildCandidate(
   candidate.score =
     std::abs(target_d) + 0.02 * entry_transition_scale + 0.002 * exit_transition_scale;
   return candidate;
+}
+
+void RacelineSplinePlanner::applyAvoidanceVelocityLimit(
+  f110_msgs::msg::WpntArray & path) const
+{
+  for (auto & waypoint : path.wpnts) {
+    waypoint.vx_mps = parameters_.limitedAvoidanceSpeed(
+      std::max(0.0, waypoint.vx_mps), waypoint.kappa_radpm);
+  }
 }
 
 void RacelineSplinePlanner::updateGeometryAndAcceleration(
@@ -827,7 +1055,10 @@ bool RacelineSplinePlanner::validateCandidate(
     const f110_msgs::msg::Wpnt * waypoint = nullptr,
     const ExpandedObstacle * obstacle = nullptr,
     double obstacle_s_start = std::numeric_limits<double>::quiet_NaN(),
-    double obstacle_s_end = std::numeric_limits<double>::quiet_NaN())
+    double obstacle_s_end = std::numeric_limits<double>::quiet_NaN(),
+    double obstacle_test_d_right = std::numeric_limits<double>::quiet_NaN(),
+    double obstacle_test_d_left = std::numeric_limits<double>::quiet_NaN(),
+    double obstacle_clearance = std::numeric_limits<double>::quiet_NaN())
     {
       reason = message;
       if (failure != nullptr) {
@@ -844,9 +1075,9 @@ bool RacelineSplinePlanner::validateCandidate(
           failure->obstacle_s_end = obstacle_s_end;
           failure->obstacle_source_d_right = obstacle->raw_d_right;
           failure->obstacle_source_d_left = obstacle->raw_d_left;
-          failure->obstacle_test_d_right = obstacle->d_right;
-          failure->obstacle_test_d_left = obstacle->d_left;
-          failure->obstacle_clearance = obstacle->clearance;
+          failure->obstacle_test_d_right = obstacle_test_d_right;
+          failure->obstacle_test_d_left = obstacle_test_d_left;
+          failure->obstacle_clearance = obstacle_clearance;
         }
       }
       return false;
@@ -864,7 +1095,6 @@ bool RacelineSplinePlanner::validateCandidate(
       PathValidationFailureKind::kNoForwardPath,
       "path does not meet minimum_path_points");
   }
-  const double center_boundary_clearance = parameters_.trackBoundaryReserve();
   double previous_d = path.wpnts[start_index].d_m;
   double previous_s = 0.0;
   double previous_curvature = path.wpnts[start_index].kappa_radpm;
@@ -873,6 +1103,8 @@ bool RacelineSplinePlanner::validateCandidate(
     const double forward_s = forwardDistance(ego.s, waypoint.s_m);
     const std::size_t reference_index = nearestReferenceIndex(waypoint.s_m);
     const auto & reference = reference_.wpnts[reference_index];
+    const double center_boundary_clearance = parameters_.trackBoundaryReserve(
+      waypoint.vx_mps, waypoint.kappa_radpm);
     const double left_width = reference.d_left > 0.05 ?
       reference.d_left : parameters_.fallback_track_half_width_m;
     const double right_width = reference.d_right > 0.05 ?
@@ -885,16 +1117,21 @@ bool RacelineSplinePlanner::validateCandidate(
         "d-offset leaves the global waypoint track bounds", i, &waypoint);
     }
     for (const auto & obstacle : visible) {
+      const double obstacle_clearance = parameters_.obstacleSafetyClearance(
+        waypoint.vx_mps, waypoint.kappa_radpm);
+      const double obstacle_test_d_right = obstacle.raw_d_right - obstacle_clearance;
+      const double obstacle_test_d_left = obstacle.raw_d_left + obstacle_clearance;
       if ((!maximum_collision_forward_m.has_value() ||
         forward_s <= maximum_collision_forward_m.value() + kEpsilon) &&
         forward_s >= obstacle.start && forward_s <= obstacle.end &&
-        waypoint.d_m > obstacle.d_right + 1.0e-6 &&
-        waypoint.d_m < obstacle.d_left - 1.0e-6)
+        waypoint.d_m > obstacle_test_d_right + 1.0e-6 &&
+        waypoint.d_m < obstacle_test_d_left - 1.0e-6)
       {
         return reject(
           PathValidationFailureKind::kObstacleCollision,
           "d-offset intersects an inflated static-obstacle box", i, &waypoint, &obstacle,
-          wrapS(ego.s + obstacle.start), wrapS(ego.s + obstacle.end));
+          wrapS(ego.s + obstacle.start), wrapS(ego.s + obstacle.end),
+          obstacle_test_d_right, obstacle_test_d_left, obstacle_clearance);
       }
     }
     if (i > start_index) {

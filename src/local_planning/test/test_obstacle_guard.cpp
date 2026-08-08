@@ -67,6 +67,8 @@ TEST(ObstacleGuard, KeepsSmallSameIdMotionInsideFrozenGuard)
   initial.s_var = 0.0004;
   initial.d_var = 0.0001;
   ObstacleGuardParameters parameters;
+  parameters.minimum_lateral_inflation_m = 0.03;
+  parameters.maximum_lateral_inflation_m = 0.15;
   const auto frozen_guard = buildUncertaintyGuard(initial, 100.0, parameters);
 
   auto shifted = makeObstacle(10.04, 9.84, 10.24, -0.18, 0.22);
@@ -85,6 +87,7 @@ TEST(ObstacleGuard, HandlesClosedTrackWrap)
   parameters.uncertainty_sigma_scale = 0.0;
   parameters.minimum_longitudinal_inflation_m = 0.10;
   parameters.minimum_lateral_inflation_m = 0.05;
+  parameters.maximum_lateral_inflation_m = 0.15;
 
   const auto initial = makeObstacle(0.05, 99.85, 0.25);
   const auto frozen_guard = buildUncertaintyGuard(initial, 100.0, parameters);
@@ -102,6 +105,8 @@ TEST(ObstacleGuard, FallsBackToFixedInflationForInvalidVariance)
   obstacle.s_var = std::numeric_limits<double>::quiet_NaN();
   obstacle.d_var = -1.0;
   ObstacleGuardParameters parameters;
+  parameters.minimum_lateral_inflation_m = 0.03;
+  parameters.maximum_lateral_inflation_m = 0.15;
   const auto guard = buildUncertaintyGuard(obstacle, 100.0, parameters);
 
   EXPECT_NEAR(guard.s_start, 9.75, 1.0e-9);
@@ -127,6 +132,21 @@ TEST(ObstacleGuard, CapsLateralInflationAtConfiguredMaximum)
   EXPECT_NEAR(guard.d_left, 0.40, 1.0e-9);
   EXPECT_NEAR(guard.s_start, 9.45, 1.0e-9);
   EXPECT_NEAR(guard.s_end, 10.55, 1.0e-9);
+}
+
+TEST(ObstacleGuard, KeepsRawLateralBoundsWhenInflationIsDisabled)
+{
+  auto obstacle = makeObstacle(10.0, 9.8, 10.2, -0.17, 0.23);
+  obstacle.s_var = 0.01;
+  obstacle.d_var = 100.0;
+
+  const ObstacleGuardParameters parameters;
+  const auto guard = buildUncertaintyGuard(obstacle, 100.0, parameters);
+
+  EXPECT_NEAR(guard.d_right, obstacle.d_right, 1.0e-9);
+  EXPECT_NEAR(guard.d_left, obstacle.d_left, 1.0e-9);
+  EXPECT_LT(guard.s_start, obstacle.s_start);
+  EXPECT_GT(guard.s_end, obstacle.s_end);
 }
 
 }  // namespace

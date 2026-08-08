@@ -360,8 +360,8 @@ TEST(RacelineSplinePlanner, AppliesTrackingErrorReserveAsSeparateClearanceTerm)
 {
   auto parameters = testParameters();
   parameters.tracking_error_reserve_m = 0.14;
-  EXPECT_NEAR(parameters.obstacleSafetyClearance(), 0.29, 1.0e-9);
-  EXPECT_DOUBLE_EQ(parameters.trackBoundaryReserve(), 0.0);
+  EXPECT_NEAR(parameters.obstacleSafetyClearance(2.0, 0.0), 0.29, 1.0e-9);
+  EXPECT_DOUBLE_EQ(parameters.trackBoundaryReserve(2.0, 0.0), 0.0);
 
   RacelineSplinePlanner planner(parameters);
   ASSERT_TRUE(planner.setReference(makeStraightReference()));
@@ -372,12 +372,131 @@ TEST(RacelineSplinePlanner, AppliesTrackingErrorReserveAsSeparateClearanceTerm)
   EXPECT_NEAR(result.target_d, 0.49, 1.0e-9);
 }
 
+TEST(RacelineSplinePlanner, BilinearlyInterpolatesTrackingErrorLut)
+{
+  auto parameters = testParameters();
+  parameters.tracking_error_reserve_m = 0.99;
+  parameters.tracking_error_lut_speed_bins_mps = {0.0, 2.0};
+  parameters.tracking_error_lut_curvature_bins_radpm = {0.0, 0.5};
+  parameters.tracking_error_lut_values_m = {0.02, 0.04, 0.06, 0.10};
+
+  ASSERT_TRUE(parameters.trackingErrorLutValid());
+  EXPECT_NEAR(parameters.trackingErrorReserve(1.0, 0.25), 0.055, 1.0e-9);
+  EXPECT_NEAR(parameters.trackingErrorReserve(-1.0, -0.25), 0.055, 1.0e-9);
+  EXPECT_NEAR(parameters.trackingErrorReserve(10.0, 2.0), 0.10, 1.0e-9);
+
+  parameters.tracking_error_lut_values_m.pop_back();
+  EXPECT_FALSE(parameters.trackingErrorLutValid());
+  EXPECT_NEAR(parameters.trackingErrorReserve(1.0, 0.25), 0.99, 1.0e-9);
+}
+
+TEST(RacelineSplinePlanner, LimitsAvoidanceSpeedFromVelocityTable)
+{
+  auto parameters = testParameters();
+  parameters.avoidance_velocity_limit_speed_bins_mps =
+  {0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0};
+  parameters.avoidance_velocity_limit_lateral_accel_mps2 =
+  {7.0, 7.0, 7.0, 7.0, 7.0, 7.0, 6.5, 6.5, 6.5, 6.5};
+
+  ASSERT_TRUE(parameters.avoidanceVelocityLimitValid());
+  EXPECT_DOUBLE_EQ(parameters.limitedAvoidanceSpeed(6.5, 0.0), 6.5);
+  EXPECT_DOUBLE_EQ(parameters.limitedAvoidanceSpeed(3.0, 0.5), 3.0);
+  EXPECT_NEAR(parameters.limitedAvoidanceSpeed(6.5, 0.2), 5.754463, 1.0e-6);
+  EXPECT_NEAR(parameters.limitedAvoidanceSpeed(6.5, 0.5), std::sqrt(14.0), 1.0e-9);
+  EXPECT_NEAR(parameters.limitedAvoidanceSpeed(-6.5, -0.9), std::sqrt(7.0 / 0.9), 1.0e-9);
+
+  parameters.avoidance_velocity_limit_lateral_accel_mps2[2] = 7.5;
+  EXPECT_FALSE(parameters.avoidanceVelocityLimitValid());
+}
+
+TEST(RacelineSplinePlanner, UsesLimitedAvoidanceSpeedForObstacleTrackingLut)
+{
+  auto parameters = testParameters();
+  parameters.tracking_error_lut_speed_bins_mps = {0.0, 4.0, 6.0};
+  parameters.tracking_error_lut_curvature_bins_radpm = {0.0};
+  parameters.tracking_error_lut_values_m = {0.0, 0.04, 0.12};
+  parameters.avoidance_velocity_limit_speed_bins_mps = {0.0, 9.0};
+  parameters.avoidance_velocity_limit_lateral_accel_mps2 = {2.0, 2.0};
+
+  EXPECT_NEAR(parameters.limitedAvoidanceSpeed(6.0, 0.5), 2.0, 1.0e-9);
+  EXPECT_NEAR(parameters.avoidanceTrackingErrorReserve(6.0, 0.5), 0.02, 1.0e-9);
+  EXPECT_NEAR(parameters.obstacleSafetyClearance(6.0, 0.5), 0.17, 1.0e-9);
+}
+
+TEST(RacelineSplinePlanner, CapsPublishedAvoidanceWaypointSpeeds)
+{
+  auto parameters = testParameters();
+  parameters.avoidance_velocity_limit_speed_bins_mps = {0.0, 9.0};
+  parameters.avoidance_velocity_limit_lateral_accel_mps2 = {2.0, 2.0};
+  auto reference = makeStraightReference();
+  for (auto & waypoint : reference.wpnts) {
+    waypoint.vx_mps = 6.0;
+  }
+
+  RacelineSplinePlanner planner(parameters);
+  ASSERT_TRUE(planner.setReference(reference));
+  const auto result = planner.plan(
+    EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(33, 7.0)}, true, false);
+  ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
+  for (const auto & waypoint : result.path.wpnts) {
+    EXPECT_LE(
+      waypoint.vx_mps * waypoint.vx_mps * std::abs(waypoint.kappa_radpm),
+      2.0 + 1.0e-9);
+  }
+}
+
+TEST(RacelineSplinePlanner, UsesObstacleSpanMaximumTrackingLutReserveForTarget)
+{
+  auto parameters = testParameters();
+  parameters.tracking_error_reserve_m = 0.0;
+  parameters.tracking_error_lut_speed_bins_mps = {0.0, 3.0};
+  parameters.tracking_error_lut_curvature_bins_radpm = {0.0};
+  parameters.tracking_error_lut_values_m = {0.0, 0.10};
+  auto reference = makeStraightReference();
+  for (auto & waypoint : reference.wpnts) {
+    waypoint.vx_mps = waypoint.s_m >= 6.0 && waypoint.s_m <= 8.0 ? 3.0 : 0.0;
+  }
+
+  RacelineSplinePlanner planner(parameters);
+  ASSERT_TRUE(planner.setReference(reference));
+  const auto result = planner.plan(
+    EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(31, 7.0)}, true, false);
+  ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
+  // raw d_left 0.20 + base clearance 0.15 + maximum span LUT reserve 0.10
+  EXPECT_NEAR(result.target_d, 0.45, 1.0e-9);
+}
+
+TEST(RacelineSplinePlanner, AppliesOnlyWallMarginToTrackBounds)
+{
+  auto parameters = testParameters();
+  parameters.tracking_error_reserve_m = 0.0;
+  parameters.tracking_error_lut_speed_bins_mps = {0.0, 3.0};
+  parameters.tracking_error_lut_curvature_bins_radpm = {0.0, 1.0};
+  parameters.tracking_error_lut_values_m = {0.0, 0.0, 0.10, 0.10};
+  parameters.wall_safety_margin_m = 0.04;
+  EXPECT_DOUBLE_EQ(parameters.trackBoundaryReserve(3.0, 1.0), 0.04);
+
+  RacelineSplinePlanner feasible_planner(parameters);
+  ASSERT_TRUE(feasible_planner.setReference(makeStraightReference(300, 0.1, 0.50, 0.50)));
+  const auto feasible = feasible_planner.plan(
+    EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(32, 7.0)}, true, false);
+  ASSERT_EQ(feasible.kind, SplinePlanKind::kAvoidance) << feasible.reason;
+  EXPECT_NEAR(feasible.target_d, 0.45, 1.0e-9);
+
+  RacelineSplinePlanner blocked_planner(parameters);
+  ASSERT_TRUE(blocked_planner.setReference(makeStraightReference(300, 0.1, 0.48, 0.48)));
+  const auto blocked = blocked_planner.plan(
+    EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(32, 7.0)}, true, false);
+  EXPECT_EQ(blocked.kind, SplinePlanKind::kSafeStop) << blocked.reason;
+  EXPECT_NE(blocked.reason.find("left target d exceeds track bound"), std::string::npos);
+}
+
 TEST(RacelineSplinePlanner, AppliesIndependentWallSafetyMarginOnlyToTrackBounds)
 {
   auto parameters = testParameters();
   parameters.wall_safety_margin_m = 0.05;
-  EXPECT_NEAR(parameters.obstacleSafetyClearance(), 0.15, 1.0e-9);
-  EXPECT_DOUBLE_EQ(parameters.trackBoundaryReserve(), 0.05);
+  EXPECT_NEAR(parameters.obstacleSafetyClearance(2.0, 0.0), 0.15, 1.0e-9);
+  EXPECT_DOUBLE_EQ(parameters.trackBoundaryReserve(2.0, 0.0), 0.05);
 
   RacelineSplinePlanner feasible_planner(parameters);
   ASSERT_TRUE(feasible_planner.setReference(makeStraightReference(300, 0.1, 0.40, 0.40)));

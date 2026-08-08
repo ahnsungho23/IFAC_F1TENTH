@@ -8,24 +8,43 @@ local_planner_node:
     # 장애물 경계는 raw detector geometry이므로 실제 차량 반폭, 물리 안전 마진, 실측
     # 추종오차 reserve를 모두 정확히 한 번 적용합니다.
     #
-    #   차량 중심이 확보할 거리 = vehicle_half_width_m + safety_margin_m
-    #                          + tracking_error_reserve_m
-    #                          = 0.1435 + 0.0147893 + 0.140 = 0.2982893 m
+    #   장애물 차량 중심 clearance = vehicle_half_width_m + safety_margin_m
+    #                              + LUT(|speed|, |curvature|)
+    #   현재 균일 LUT 기준        = 0.1435 + 0.0147893 + 0.140 = 0.2982893 m
     #
     # vehicle_half_width_m는 실차 폭 0.287 m의 반폭이며 마진이 아닙니다. safety_margin_m는
-    # 물리 안전 여유, tracking_error_reserve_m는 동일 경로 1.5 m/s 반복 검증의 회피경로
-    # 추종오차(max 0.1370 m, P99 0.1345 m)를 올림한 제어 여유입니다. 계산된 0.2982893 m를
-    # 다음 세 곳에 똑같이 적용합니다.
+    # 물리 안전 여유입니다. tracking_error_reserve_m는 LUT가 비어 있을 때만 쓰는 fallback이며,
+    # 정상 운용은 아래 속도 x 절대곡률 LUT를 bilinear interpolation해서 사용합니다. 현재 LUT는
+    # 장애물 clearance 동작을 보존하기 위해 모든 셀을 0.14 m로 초기화했습니다.
     #   1. 장애물 좌/우 경계에서 회피 목표 d까지의 거리
     #   2. 글로벌 d=0을 막는 장애물인지 판단하는 거리
     #   3. commitment 경로를 raw 장애물과 즉시 충돌 검사할 때의 거리
     # global waypoint의 d_left/d_right는 차량 반폭과 waypoint 생성기 벽 마진이 이미 반영된
-    # 차량 중심 가용 한계입니다. wall_safety_margin_m는 반복 주행에서 남은 벽 여유가 부족할 때
-    # 그 중심 한계에서 추가로 차감하는 독립 reserve이며 차량 폭을 다시 포함하지 않습니다.
+    # 차량 중심 가용 한계입니다. 벽 검사에서는 wall_safety_margin_m=0.04 m만 차감하며
+    # tracking-error LUT, 차량 폭, 장애물 물리 마진은 다시 포함하지 않습니다.
     # wall_safety_margin_m는 CMA-ES 검증값 0.0369943 m를 운영값 0.04 m로 올림했습니다.
     vehicle_half_width_m: 0.1435
     safety_margin_m: 0.014789254299520768
     tracking_error_reserve_m: 0.140
+    # values는 speed-major row-major입니다. 즉 한 speed 행마다 curvature bin 5개가 연속됩니다.
+    # 측정 시 2D Pose 변경·경로 handoff·정지 구간을 제외하고 실제 선택 경로 대비 횡오차의
+    # 보수적 percentile로 각 셀을 교체합니다. 범위 밖 입력은 가장 가까운 끝 셀로 clamp합니다.
+    tracking_error_lut_speed_bins_mps: [0.0, 1.5, 3.0, 4.5, 6.5]
+    tracking_error_lut_curvature_bins_radpm: [0.0, 0.2, 0.5, 0.9, 1.316266519079011]
+    tracking_error_lut_values_m: [
+      0.14, 0.14, 0.14, 0.14, 0.14,
+      0.14, 0.14, 0.14, 0.14, 0.14,
+      0.14, 0.14, 0.14, 0.14, 0.14,
+      0.14, 0.14, 0.14, 0.14, 0.14,
+      0.14, 0.14, 0.14, 0.14, 0.14
+    ]
+    # upstream/jazzy_main의 offline_trajectory_generator/config/velocity_limits.csv
+    # (commit 3d5fb38)에서 speed와 max_lateral_accel 열을 옮긴 표입니다. 회피 spline의
+    # 재계산 곡률에 v^2*|kappa| <= a_lat,max(v)를 만족하도록 waypoint 속도를 제한하고,
+    # 장애물 tracking-error LUT도 이 제한된 속도로 조회합니다. 두 배열 길이는 같아야 하며
+    # 횡가속 한계는 속도가 증가할 때 커질 수 없습니다.
+    avoidance_velocity_limit_speed_bins_mps: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]
+    avoidance_velocity_limit_lateral_accel_mps2: [7.0, 7.0, 7.0, 7.0, 7.0, 7.0, 6.5, 6.5, 6.5, 6.5]
     wall_safety_margin_m: 0.04
     fallback_track_half_width_m: 1.50
 
@@ -94,16 +113,13 @@ local_planner_node:
     initial_observation_count: 3
     initial_observation_min_duration_sec: 0.15
     initial_observation_max_wait_sec: 0.35
-    # 아래 값은 차량과 물체 사이의 물리 안전 마진이 아닙니다. detector 측정값이 실제 물체를
-    # 포함하도록 raw AABB 자체를 넓혀 uncertainty Guard를 만드는 관측 모델 파라미터입니다.
-    # 처리 순서는 raw AABB -> uncertainty Guard -> 차량 반폭+safety_margin+tracking reserve
-    # 검사이며, 세 항은 마지막 단계에서 정확히 한 번만 적용됩니다.
+    # 종방향 불확실성은 접근 및 정지 시점을 보수적으로 잡는 용도로 유지합니다. 횡방향은 detector
+    # raw d_right/d_left를 그대로 사용하도록 최소/최대 팽창을 모두 0으로 둡니다. 따라서 횡방향
+    # 검사는 raw AABB + 차량 반폭 + safety_margin + tracking-error LUT만 적용합니다.
     uncertainty_sigma_scale: 3.0
     uncertainty_min_longitudinal_inflation_m: 0.05
-    uncertainty_min_lateral_inflation_m: 0.03
-    # 초기 검출의 큰 중심 분산이 Guard를 과도하게 키워 정중앙 장애물의 양쪽 목표 d를
-    # 모두 불가능하게 만드는 것을 막는 횡방향 Guard 팽창 상한입니다.
-    uncertainty_max_lateral_inflation_m: 0.15
+    uncertainty_min_lateral_inflation_m: 0.0
+    uncertainty_max_lateral_inflation_m: 0.0
     # soft/hard 충돌 모두 같은 0.2982893 m 계획 clearance를 사용합니다. 차이는 추가 마진이 아니라
     # 검사 대상뿐입니다: uncertainty Guard 침범은 soft, detector raw AABB 침범은 hard입니다.
     commitment_soft_violation_confirm_cycles: 3
