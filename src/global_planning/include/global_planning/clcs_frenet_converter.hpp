@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -39,6 +40,28 @@ struct ClcsFrenetConfig
   double tangent_epsilon{0.05};
   bool publish_frenet_velocity{true};
   VelocityFrame velocity_frame{VelocityFrame::kBody};
+
+  // --- Monotonic s-window tracking (convertTracked) --------------------------
+  // Skidpad-converter-derived design, adapted for closed loops: after the
+  // first fix only the arc slice [s_prev - backward_tolerance, s_prev +
+  // forward_window] (modulo track length when closed_loop) is searched, so
+  // reference branches that are close in Euclidean space but far in arc
+  // length (hairpin opposite leg) can never capture the projection.
+  double forward_window{1.0};        // W [m]
+  double backward_tolerance{1.0};    // epsilon [m]
+  // First fix: <= 0 searches the whole path (closed track may start
+  // anywhere); > 0 restricts the first fix to [0, initial_seed_window]
+  // (skidpad-style known start region).
+  double initial_seed_window{0.0};
+  // Euclidean gate applied to tracked fixes only (stateless convert() keeps
+  // max_projection_distance). Must exceed the largest legitimate |d|
+  // (avoidance excursions, here ~1.1 m) and should stay below the smallest
+  // branch gap (hairpin legs 1.41 m).
+  double tracked_max_projection_distance{1.5};
+  // A window miss fails closed. After this many consecutive misses one loud
+  // global re-search re-acquires progress (teleport / 2D Pose Estimate).
+  // 0 = never re-acquire (strict skidpad fail-closed semantics).
+  int reacquire_after_misses{15};
 };
 
 struct ClcsBuildStats
@@ -66,9 +89,21 @@ struct ClcsConversionInput
   double yaw_rate{0.0};
 };
 
+// Monotonic-progress state for convertTracked(). Reset (value-initialize)
+// whenever the reference path changes.
+struct ClcsContinuityState
+{
+  bool initialized{false};
+  double s_prev{0.0};          // normalized [0, track_length)
+  int consecutive_misses{0};
+};
+
 struct ClcsConversionResult
 {
   bool valid{false};
+  // True when this fix came from the bounded global re-search after
+  // reacquire_after_misses consecutive window misses (log it loudly).
+  bool reacquired{false};
   int segment_index{-1};
   double s{0.0};
   double d{0.0};
@@ -99,6 +134,21 @@ public:
     std::uint64_t path_version);
 
   ClcsConversionResult convert(const ClcsConversionInput & input) const;
+
+  // Monotonic s-window variant of convert() for the single continuously
+  // moving ego pose stream. First fix: whole path (or [0,
+  // initial_seed_window] when configured). Afterwards only segments whose
+  // arc interval intersects [s_prev - backward_tolerance, s_prev +
+  // forward_window] are searched, wrap-aware for closed loops. A window miss
+  // (no candidate, or |d| beyond tracked_max_projection_distance) fails
+  // closed — NO silent global fallback, that is exactly the branch flip this
+  // exists to prevent — and only after reacquire_after_misses consecutive
+  // misses does one global re-search run (result.reacquired = true). On
+  // failure the state is untouched. Do not use for unrelated points
+  // (obstacle projection etc.); use convert() there.
+  ClcsConversionResult convertTracked(
+    const ClcsConversionInput & input,
+    ClcsContinuityState & state) const;
 
   const ClcsBuildStats & stats() const { return stats_; }
   const std::vector<ReferenceWaypoint> & source_waypoints() const { return source_waypoints_; }
@@ -139,6 +189,35 @@ private:
   double normalizeS(double s) const;
   double sForClcsQuery(double s) const;
   double referenceYaw(double raw_s) const;
+
+  // Prologue shared by convert()/convertTracked(): statistics fields.
+  ClcsConversionResult newResult() const;
+
+  // Shared tail of convert()/convertTracked(): everything computable once
+  // raw_s/d/segment_index are known (s normalization, projection-distance
+  // check, reference yaw, heading error, velocities, reconstruction, timing,
+  // validity). Fills result in place.
+  void finishConversion(
+    const ClcsConversionInput & input,
+    const std::chrono::steady_clock::time_point & start,
+    double raw_s,
+    double d,
+    int segment_index,
+    ClcsConversionResult & result) const;
+
+  // Nearest in-window projection: only segments whose raw arc interval
+  // intersects [s_lo, s_hi] are considered (the interval may extend beyond
+  // [0, L); for closed loops the +-L shifted copies are tested too). The
+  // accepted candidate's own s must also fall inside the window. Returns
+  // false when no in-window segment claims the point.
+  bool projectInWindow(
+    double x,
+    double y,
+    double s_lo,
+    double s_hi,
+    double & raw_s,
+    double & d,
+    int & segment_index) const;
 
   ClcsFrenetConfig config_;
   std::vector<ReferenceWaypoint> source_waypoints_;

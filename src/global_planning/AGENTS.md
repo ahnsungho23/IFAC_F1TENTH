@@ -27,6 +27,46 @@ The package name, C++ namespace (`namespace global_planning`), include prefix
 - For closed-loop tracks, close the reference path before building CLCS and wrap published `s` by CLCS path length.
 - Skip zero-length or invalid segments and avoid publishing if fewer than two waypoints are available.
 - The previous polyline-based implementation was removed; consult git history (commit `301a06e` and earlier) if the legacy `frenet_odom_node_legacy_polyline.cpp` reference is ever needed.
+- `frenet_odom_node` publishes via `ClcsFrenetConverter::convertTracked()` (monotonic
+  s-window, skidpad-converter-derived): after the first fix only
+  `[s_prev - backward_tolerance, s_prev + forward_window]` (mod track length for
+  closed loops) is searched, which is what prevents hairpin opposite-leg flips
+  (branch-proximity non-uniqueness). A window miss FAILS CLOSED — never add a
+  silent global fallback; only after `reacquire_after_misses` consecutive misses
+  does one loud global re-search run (`result.reacquired`, WARN in the node).
+  Reset `ClcsContinuityState` whenever the converter is rebuilt.
+- Keep `convert()` stateless: `obstacle_detector` projects arbitrary points with
+  it, and tracking would corrupt those projections.
+- The per-segment projection used by the windowed search is reimplemented in
+  `clcs_frenet_converter.cpp` on public `geometry::Segment` getters because the
+  vendored 3-arg `Segment::convertToCurvilinearCoords` overload is private; do
+  not patch the vendored library.
+
+## Reference Path Adapter (`reference_path_adapter.{hpp,cpp}`)
+
+- C++ port of Alg. 1 in Würsching & Althoff, IEEE IV 2024 ("Robust and Efficient
+  Curvilinear Coordinate Transformation with Guaranteed Map Coverage"), for closed
+  loops. Guarantees, on success (`criterion_met`), that every corridor point has a
+  unique curvilinear projection of the curvature-singularity type:
+  `rho = |kappa| * (inner-bound distance + boundary_margin) < 1` at every point.
+- Closed-loop deviations from the paper (documented in the header): bounds come
+  from per-waypoint `d_left`/`d_right` instead of lanelets; anchors (middles of
+  straight runs, `anchor_curvature_threshold`) replace partition boundaries and
+  every bend is subdivided/resampled as an open segment with pinned ends — without
+  pinned ends convex bends contract instead of flattening (verified by test);
+  the per-partition constant cap kappa_Gm is replaced by the pointwise rho check.
+- The adapter runs inside `frenet_odom_node` only, is disabled by default, and
+  MUST stay disabled unless `obstacle_detector` (which builds its own CLCS from
+  the raw `/global_waypoints`) applies the same preprocessing — otherwise ego and
+  obstacle Frenet frames diverge. The node logs a WARN_ONCE when it modifies the
+  reference.
+- Known behavior on real data: the IQP raceline already satisfies rho < 1
+  (`already_satisfied`, no-op). The ifac_track centerline hairpin is
+  geometrically infeasible for the criterion (required osculating radius exceeds
+  the corridor); the loop then reports `boundary_hit`/`max_iterations` honestly
+  instead of crossing walls. `resample_step` controls the convergence rate
+  (paper Sec. IV); larger steps on narrow tracks trigger the Fig. 6 boundary
+  guard earlier.
 
 ## Global Trajectory Publisher Node
 

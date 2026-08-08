@@ -49,7 +49,10 @@ target_link_libraries(global_trajectory_publisher_node PUBLIC
   ${f110_msgs_TARGETS}
 )
 
-add_library(${PROJECT_NAME}_frenet_conversion src/clcs_frenet_converter.cpp)
+add_library(${PROJECT_NAME}_frenet_conversion
+  src/clcs_frenet_converter.cpp
+  src/reference_path_adapter.cpp
+)
 target_include_directories(${PROJECT_NAME}_frenet_conversion
   PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -106,6 +109,10 @@ if(BUILD_TESTING)
   ament_add_gtest(test_clcs_frenet_converter test/test_clcs_frenet_converter.cpp)
   if(TARGET test_clcs_frenet_converter)
     target_link_libraries(test_clcs_frenet_converter ${PROJECT_NAME}_frenet_conversion)
+  endif()
+  ament_add_gtest(test_reference_path_adapter test/test_reference_path_adapter.cpp)
+  if(TARGET test_reference_path_adapter)
+    target_link_libraries(test_reference_path_adapter ${PROJECT_NAME}_frenet_conversion)
   endif()
 endif()
 
