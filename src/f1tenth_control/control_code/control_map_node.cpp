@@ -320,7 +320,6 @@ public:
         drive_mode_topic_ = declare_parameter<std::string>("drive_mode_topic", "/drive_mode");
         engaged_mode_value_ = declare_parameter<std::string>("engaged_mode_value", "autonomous");
         drive_mode_timeout_ = declare_parameter<double>("drive_mode_timeout", 1.0);
-        publish_l1_markers_ = declare_parameter<bool>("publish_l1_markers", true);
 
         // 경로 소스 중재
         local_fresh_timeout_ = declare_parameter<double>("local_fresh_timeout", 0.3);
@@ -391,10 +390,8 @@ public:
 
         drive_pub_ = this->create_publisher<ackermann_msgs::msg::AckermannDriveStamped>(
             "/drive_autonomous", 10);
-        if (publish_l1_markers_) {
-            l1_marker_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(
-                "/debug/l1_lookahead", 10);
-        }
+        l1_marker_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(
+            "/debug/l1_lookahead", 10);
 
         control_timer_ = this->create_wall_timer(
             std::chrono::milliseconds(20), std::bind(&ControlMapNode::control_loop, this));
@@ -1145,8 +1142,6 @@ private:
     // 디버그: L1 목표점(초록 구) + 룩어헤드 벡터(노란 선)를 웨이포인트/pose와 같은 프레임에
     // 그린다. 제어 경로와 완전 분리된 표시 전용.
     void publish_l1_marker(double L1_x, double L1_y) {
-        if (!l1_marker_pub_) return;
-
         visualization_msgs::msg::MarkerArray arr;
         auto stamp = this->now();
 
@@ -1290,7 +1285,6 @@ private:
     uint32_t local_heading_reject_count_ = 0;    // 로컬 경로 반전 거부 누적(진단용)
     // 자율 체결 게이트 (bumpless transfer)
     bool engage_gate_enable_ = true;
-    bool publish_l1_markers_ = true;
     std::string drive_mode_topic_ = "/drive_mode", engaged_mode_value_ = "autonomous";
     double drive_mode_timeout_ = 1.0;
     bool is_engaged_ = false, drive_mode_seen_ = false;
