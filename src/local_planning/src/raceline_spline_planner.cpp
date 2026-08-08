@@ -226,10 +226,11 @@ std::size_t RacelineSplinePlanner::nearestReferenceIndex(double s) const
 std::vector<RacelineSplinePlanner::ExpandedObstacle>
 RacelineSplinePlanner::expandVisibleObstacles(
   const EgoFrenetState & ego,
-  const std::vector<f110_msgs::msg::Obstacle> & obstacles,
-  const std::optional<double> & obstacle_clearance) const
+  const std::vector<f110_msgs::msg::Obstacle> & obstacles) const
 {
-  const double clearance = obstacle_clearance.value_or(parameters_.obstacle_clearance_m);
+  // Obstacle input may already be an uncertainty Guard, but vehicle size, physical margin, and
+  // closed-loop tracking reserve are applied exactly once here.
+  const double clearance = parameters_.obstacleSafetyClearance();
   std::vector<ExpandedObstacle> visible;
   visible.reserve(obstacles.size());
   for (const auto & obstacle : obstacles) {
@@ -273,7 +274,7 @@ RacelineSplinePlanner::expandVisibleObstacles(
 
 bool RacelineSplinePlanner::isBlockingRaceline(const ExpandedObstacle & obstacle) const
 {
-  const double envelope = parameters_.vehicle_half_width_m + parameters_.blocking_margin_m;
+  const double envelope = parameters_.obstacleSafetyClearance();
   return obstacle.raw_d_right <= envelope && obstacle.raw_d_left >= -envelope;
 }
 
@@ -353,11 +354,11 @@ bool RacelineSplinePlanner::computeSideTarget(
   }
   if (go_left) {
     target_d = std::max(
-      target_d + parameters_.commitment_clearance_reserve_m,
+      target_d,
       parameters_.minimum_target_offset_m);
   } else {
     target_d = std::min(
-      target_d - parameters_.commitment_clearance_reserve_m,
+      target_d,
       -parameters_.minimum_target_offset_m);
   }
   if (std::abs(target_d) > parameters_.maximum_target_offset_m) {
@@ -376,8 +377,9 @@ bool RacelineSplinePlanner::targetFitsTrackBounds(
   std::string & reason,
   double * min_headroom) const
 {
-  const double center_boundary_clearance =
-    parameters_.vehicle_half_width_m + parameters_.boundary_margin_m;
+  // Global waypoint d_left/d_right are centre-of-vehicle limits that already include vehicle
+  // half-width and the generator's wall safety margin. Apply no additional local wall reserve.
+  const double center_boundary_clearance = parameters_.trackBoundaryReserve();
   if (min_headroom != nullptr) {
     *min_headroom = std::numeric_limits<double>::infinity();
   }
@@ -862,8 +864,7 @@ bool RacelineSplinePlanner::validateCandidate(
       PathValidationFailureKind::kNoForwardPath,
       "path does not meet minimum_path_points");
   }
-  const double center_boundary_clearance =
-    parameters_.vehicle_half_width_m + parameters_.boundary_margin_m;
+  const double center_boundary_clearance = parameters_.trackBoundaryReserve();
   double previous_d = path.wpnts[start_index].d_m;
   double previous_s = 0.0;
   double previous_curvature = path.wpnts[start_index].kappa_radpm;
@@ -935,7 +936,6 @@ bool RacelineSplinePlanner::validatePath(
   const std::vector<f110_msgs::msg::Obstacle> & obstacles,
   std::string * error,
   PathValidationFailure * failure,
-  const std::optional<double> & obstacle_clearance,
   const std::optional<double> & maximum_collision_forward_m) const
 {
   if (failure != nullptr) {
@@ -965,13 +965,6 @@ bool RacelineSplinePlanner::validatePath(
   if (path.wpnts.empty()) {
     return reject(PathValidationFailureKind::kInput, "path is empty");
   }
-  if (obstacle_clearance.has_value() &&
-    (!std::isfinite(obstacle_clearance.value()) || obstacle_clearance.value() < 0.0))
-  {
-    return reject(
-      PathValidationFailureKind::kInput,
-      "obstacle clearance override is invalid");
-  }
   if (maximum_collision_forward_m.has_value() &&
     (!std::isfinite(maximum_collision_forward_m.value()) ||
     maximum_collision_forward_m.value() < 0.0))
@@ -996,7 +989,7 @@ bool RacelineSplinePlanner::validatePath(
       "committed path has no remaining waypoint ahead of ego");
   }
 
-  const auto visible = expandVisibleObstacles(ego, obstacles, obstacle_clearance);
+  const auto visible = expandVisibleObstacles(ego, obstacles);
   std::string reason;
   if (!validateCandidate(
       ego, path, visible, reason, start_index, 1U, failure,
@@ -1129,7 +1122,6 @@ RacelineSplineResult RacelineSplinePlanner::plan(
   bool left_evaluated = false;
   bool right_evaluated = false;
   Candidate selected;
-  bool used_tight_clearance = false;
 
   auto run_selection = [&](
     const std::vector<ExpandedObstacle> & pass_visible,
@@ -1226,21 +1218,6 @@ RacelineSplineResult RacelineSplinePlanner::plan(
     };
 
   run_selection(visible, cluster);
-  if (!selected.valid &&
-    parameters_.minimum_avoidance_clearance_m <
-    parameters_.obstacle_clearance_m - kEpsilon)
-  {
-    // Centred obstacles demand the full obstacle width plus margins on BOTH sides, so they
-    // are the first to fail the offset/track/slope gates. Retry once with the tight
-    // last-resort clearance before giving up to a safe stop.
-    const auto tight_visible = expandVisibleObstacles(
-      ego, obstacles, parameters_.minimum_avoidance_clearance_m);
-    const auto tight_cluster = nearestCluster(tight_visible);
-    if (!tight_cluster.empty()) {
-      run_selection(tight_visible, tight_cluster);
-      used_tight_clearance = selected.valid;
-    }
-  }
 
   if (!selected.valid) {
     auto safe_stop = buildSafeStop(ego, visible, cluster.front());
@@ -1271,10 +1248,7 @@ RacelineSplineResult RacelineSplinePlanner::plan(
     result.obstacle_ids.push_back(obstacle.id);
   }
   result.control_points = std::move(selected.control_points);
-  result.reason = used_tight_clearance ?
-    "global race-line waypoints shifted by a local quintic d-offset "
-    "(reduced-clearance fallback)" :
-    "global race-line waypoints shifted by a local quintic d-offset";
+  result.reason = "global race-line waypoints shifted by a local quintic d-offset";
   return result;
 }
 

@@ -77,11 +77,6 @@ if(BUILD_TESTING)
     )
     target_link_libraries(test_obstacle_guard local_planner_core)
   endif()
-
-  ament_add_gtest(test_observation_gate test/test_observation_gate.cpp)
-  if(TARGET test_observation_gate)
-    target_include_directories(test_observation_gate PRIVATE include)
-  endif()
 endif()
 
 ament_package()

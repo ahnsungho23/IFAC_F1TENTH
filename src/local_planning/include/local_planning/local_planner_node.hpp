@@ -33,7 +33,6 @@
 #include <std_msgs/msg/header.hpp>
 
 #include "local_planning/obstacle_guard.hpp"
-#include "local_planning/observation_gate.hpp"
 #include "local_planning/raceline_spline_planner.hpp"
 
 namespace local_planning
@@ -64,15 +63,9 @@ private:
   std::vector<f110_msgs::msg::Obstacle> buildGuardedObstacles(
     const std::vector<f110_msgs::msg::Obstacle> & obstacles) const;
   bool updateInitialStabilization(
-    const EgoFrenetState & ego,
     const std::vector<int> & cluster_ids,
     const std::vector<f110_msgs::msg::Obstacle> & conservative_obstacles,
     const rclcpp::Time & update_time);
-  double nearestClusterDistance(
-    const EgoFrenetState & ego,
-    const std::vector<int> & cluster_ids,
-    const std::vector<f110_msgs::msg::Obstacle> & obstacles) const;
-  ObservationGate observationGate(double obstacle_distance_m) const;
   std::vector<f110_msgs::msg::Obstacle> buildNextManeuverInput() const;
   std::vector<f110_msgs::msg::Obstacle> buildCurrentManeuverInput(
     const EgoFrenetState & ego,
@@ -183,13 +176,8 @@ private:
   int initial_observation_count_{3};
   double initial_observation_min_duration_sec_{0.15};
   double initial_observation_max_wait_sec_{0.35};
-  double stabilization_near_distance_m_{3.0};
-  double stabilization_far_distance_m_{8.0};
-  int near_observation_count_{1};
-  double near_observation_min_duration_sec_{0.0};
   int commitment_soft_violation_confirm_cycles_{3};
-  double hard_collision_margin_m_{0.03};
-  double chain_release_margin_m_{0.20};
+  double chain_release_distance_m_{0.20};
   double commitment_lock_lateral_threshold_m_{0.10};
   double commitment_lock_longitudinal_m_{0.50};
 

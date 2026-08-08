@@ -1,11 +1,9 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
-#include <cstddef>
 
 #include <f110_msgs/msg/obstacle.hpp>
 #include <f110_msgs/msg/obstacle_array.hpp>
-#include <nav_msgs/msg/occupancy_grid.hpp>
 #include <visualization_msgs/msg/marker.hpp>
 
 #include "static_obstacle_map/obstacle_marker_builder.hpp"
@@ -15,20 +13,6 @@ namespace static_obstacle_map
 {
 namespace
 {
-
-nav_msgs::msg::OccupancyGrid makeMap(
-  unsigned int width = 100U, unsigned int height = 100U, double resolution = 0.1)
-{
-  nav_msgs::msg::OccupancyGrid map;
-  map.header.frame_id = "map";
-  map.info.width = width;
-  map.info.height = height;
-  map.info.resolution = resolution;
-  map.info.origin.orientation.w = 1.0;
-  map.data.assign(
-    static_cast<std::size_t>(width) * static_cast<std::size_t>(height), 0);
-  return map;
-}
 
 f110_msgs::msg::Obstacle makeStatic(
   int id, double x_min, double x_max, double y_min, double y_max)
@@ -53,12 +37,6 @@ f110_msgs::msg::ObstacleArray arrayWith(const f110_msgs::msg::Obstacle & obstacl
   message.header.frame_id = "map";
   message.obstacles.push_back(obstacle);
   return message;
-}
-
-std::size_t mapIndex(
-  const nav_msgs::msg::OccupancyGrid & map, unsigned int x, unsigned int y)
-{
-  return static_cast<std::size_t>(y) * map.info.width + x;
 }
 
 TEST(StaticObstacleMapMemory, ClampsEveryInsertionAndUpdateToMaximumDiagonal)
@@ -87,22 +65,18 @@ TEST(StaticObstacleMapMemory, ClampsEveryInsertionAndUpdateToMaximumDiagonal)
   }
 }
 
-TEST(StaticObstacleMapMemory, PreservesFrontCellsAndAddsConsecutivelyObservedGeometry)
+TEST(StaticObstacleMapMemory, PreservesInitialFootprintAndAddsConfirmedGeometry)
 {
   MemoryConfig config;
   config.association_distance_m = 0.30;
   config.edge_confirm_frames = 2;
   config.edge_match_tolerance_m = 0.05;
   StaticObstacleMapMemory memory(config);
-  auto base_map = makeMap();
-  base_map.data[mapIndex(base_map, 0U, 0U)] = 100;
-  ASSERT_TRUE(memory.setBaseMap(base_map).accepted);
 
   memory.updateConfirmed(arrayWith(makeStatic(3, 1.0, 1.2, 1.0, 1.2)));
-  auto first = memory.composeMap();
-  ASSERT_TRUE(first.has_value());
-  EXPECT_EQ(first->data[mapIndex(*first, 11U, 11U)], 100);
-  EXPECT_EQ(first->data[mapIndex(*first, 0U, 0U)], 100);
+  ASSERT_EQ(memory.obstacles().size(), 1U);
+  EXPECT_DOUBLE_EQ(memory.obstacles().front().x_min, 1.0);
+  EXPECT_DOUBLE_EQ(memory.obstacles().front().x_max, 1.2);
 
   auto update =
     memory.updateConfirmed(arrayWith(makeStatic(3, 1.1, 1.4, 1.0, 1.2)));
@@ -111,11 +85,9 @@ TEST(StaticObstacleMapMemory, PreservesFrontCellsAndAddsConsecutivelyObservedGeo
   update = memory.updateConfirmed(arrayWith(makeStatic(3, 1.1, 1.4, 1.0, 1.2)));
   ASSERT_EQ(update.updated, 1U);
   EXPECT_EQ(update.geometry_expanded, 1U);
-  auto second = memory.composeMap();
-  ASSERT_TRUE(second.has_value());
-  EXPECT_EQ(second->data[mapIndex(*second, 11U, 11U)], 100);
-  EXPECT_EQ(second->data[mapIndex(*second, 13U, 11U)], 100);
-  EXPECT_EQ(second->data[mapIndex(*second, 0U, 0U)], 100);
+  ASSERT_EQ(memory.obstacles().size(), 1U);
+  EXPECT_DOUBLE_EQ(memory.obstacles().front().x_min, 1.0);
+  EXPECT_DOUBLE_EQ(memory.obstacles().front().x_max, 1.4);
 }
 
 TEST(StaticObstacleMapMemory, RequiresConfiguredConsecutiveSupportForANewEdge)
@@ -200,7 +172,9 @@ TEST(StaticObstacleMapMemory, KeepsConfirmedObjectsAcrossEmptyMessages)
 
 TEST(StaticObstacleMapMemory, RemovesOnlyExplicitSameTrackDynamicReclassification)
 {
-  StaticObstacleMapMemory memory;
+  MemoryConfig config;
+  config.remove_reclassified_dynamic = true;
+  StaticObstacleMapMemory memory(config);
   memory.updateConfirmed(arrayWith(makeStatic(4, 1.0, 1.2, 1.0, 1.2)));
   memory.updateConfirmed(arrayWith(makeStatic(5, 2.0, 2.2, 2.0, 2.2)));
   ASSERT_EQ(memory.obstacles().size(), 2U);
@@ -211,6 +185,21 @@ TEST(StaticObstacleMapMemory, RemovesOnlyExplicitSameTrackDynamicReclassificatio
   EXPECT_EQ(stats.removed, 1U);
   ASSERT_EQ(memory.obstacles().size(), 1U);
   EXPECT_EQ(memory.obstacles().front().source_id, 5);
+}
+
+TEST(StaticObstacleMapMemory, KeepsConfirmedObjectsAcrossDynamicClassifierOscillationByDefault)
+{
+  StaticObstacleMapMemory memory;
+  memory.updateConfirmed(arrayWith(makeStatic(4, 1.0, 1.2, 1.0, 1.2)));
+  ASSERT_EQ(memory.obstacles().size(), 1U);
+
+  auto dynamic = makeStatic(4, 1.0, 1.2, 1.0, 1.2);
+  dynamic.is_static = false;
+  const auto stats = memory.removeDynamic(arrayWith(dynamic));
+
+  EXPECT_EQ(stats.removed, 0U);
+  ASSERT_EQ(memory.obstacles().size(), 1U);
+  EXPECT_EQ(memory.obstacles().front().source_id, 4);
 }
 
 TEST(StaticObstacleMapMemory, RejectsObjectsWithoutCurrentStaticCartesianGeometry)
@@ -233,35 +222,45 @@ TEST(StaticObstacleMapMemory, RejectsObjectsWithoutCurrentStaticCartesianGeometr
   EXPECT_TRUE(memory.obstacles().empty());
 }
 
-TEST(StaticObstacleMapMemory, ClearsMemoryWhenBaseMapGeometryChanges)
+TEST(StaticObstacleMapMemory, BuildsPersistentObstacleMessagesFromStoredCartesianGeometry)
 {
   StaticObstacleMapMemory memory;
-  ASSERT_TRUE(memory.setBaseMap(makeMap()).accepted);
-  memory.updateConfirmed(arrayWith(makeStatic(2, 1.0, 1.2, 1.0, 1.2)));
-  ASSERT_EQ(memory.obstacles().size(), 1U);
+  memory.updateConfirmed(arrayWith(makeStatic(42, 1.0, 1.4, 2.0, 2.2)));
 
-  auto changed = makeMap(80U, 100U, 0.1);
-  const BaseMapUpdate update = memory.setBaseMap(changed);
-  EXPECT_TRUE(update.accepted);
-  EXPECT_TRUE(update.geometry_changed);
-  EXPECT_EQ(update.cleared_obstacles, 1U);
-  EXPECT_TRUE(memory.obstacles().empty());
+  std_msgs::msg::Header header;
+  header.frame_id = "map";
+  header.stamp.sec = 12;
+  const auto output = memory.buildObstacleArray(header);
+
+  EXPECT_EQ(output.header.frame_id, "map");
+  EXPECT_EQ(output.header.stamp.sec, 12);
+  ASSERT_EQ(output.obstacles.size(), 1U);
+  const auto & obstacle = output.obstacles.front();
+  EXPECT_EQ(obstacle.id, 0);
+  EXPECT_TRUE(obstacle.has_cartesian);
+  EXPECT_TRUE(obstacle.is_static);
+  EXPECT_TRUE(obstacle.is_visible);
+  EXPECT_DOUBLE_EQ(obstacle.x_min, 1.0);
+  EXPECT_DOUBLE_EQ(obstacle.x_max, 1.4);
+  EXPECT_DOUBLE_EQ(obstacle.y_min, 2.0);
+  EXPECT_DOUBLE_EQ(obstacle.y_max, 2.2);
+  EXPECT_DOUBLE_EQ(obstacle.x_center, 1.2);
+  EXPECT_DOUBLE_EQ(obstacle.y_center, 2.1);
+  EXPECT_NEAR(obstacle.radius, 0.5 * std::hypot(0.4, 0.2), 1.0e-12);
+  EXPECT_NEAR(obstacle.size, std::hypot(0.4, 0.2), 1.0e-12);
 }
 
-TEST(StaticObstacleMapMemory, RasterizesWithRotatedMapOrigin)
+TEST(StaticObstacleMapMemory, BuildsEmptyObstacleArrayAfterReset)
 {
   StaticObstacleMapMemory memory;
-  auto map = makeMap(10U, 10U, 1.0);
-  constexpr double kHalfSqrtTwo = 0.7071067811865476;
-  map.info.origin.orientation.z = kHalfSqrtTwo;
-  map.info.origin.orientation.w = kHalfSqrtTwo;
-  ASSERT_TRUE(memory.setBaseMap(map).accepted);
+  memory.updateConfirmed(arrayWith(makeStatic(7, 1.0, 1.2, 1.0, 1.2)));
+  ASSERT_EQ(memory.clear(), 1U);
 
-  // Grid cell (1,1) has local centre (1.5,1.5), which rotates to world (-1.5,1.5).
-  memory.updateConfirmed(arrayWith(makeStatic(6, -1.6, -1.4, 1.4, 1.6)));
-  const auto output = memory.composeMap();
-  ASSERT_TRUE(output.has_value());
-  EXPECT_EQ(output->data[mapIndex(*output, 1U, 1U)], 100);
+  std_msgs::msg::Header header;
+  header.frame_id = "map";
+  const auto output = memory.buildObstacleArray(header);
+  EXPECT_EQ(output.header.frame_id, "map");
+  EXPECT_TRUE(output.obstacles.empty());
 }
 
 TEST(ObstacleMarkerBuilder, PublishesDeleteAllAndInflatedPersistentCubes)

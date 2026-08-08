@@ -9,15 +9,13 @@
 //                       -> /map occupancy filter.
 //                       Points that ARE the map (walls / known static structure) are removed here;
 //                       the map layer is a filter, it is not published.
-//   (tracking)        : the surviving clusters are tracked with a constant-velocity Kalman filter
-//                       [s, vs, d, vd], which gives each cluster its Frenet flow velocity. The flow
-//                       is classified against the "map-flow" reference (mean flow of the slow
-//                       clusters) — see obstacle_tracker.hpp.
-//   LAYER 2 [static]  : clusters that flow WITH the map (|flow - ref| small) -> STATIC obstacles.
-//                       Published as an f110_msgs/ObstacleArray on `static_obs_topic` (/static_obs).
-//   LAYER 3 [dynamic] : the one cluster that clearly flows slower than the map (the same-direction
-//                       opponent) -> the DYNAMIC opponent. Published as an f110_msgs/ObstacleArray
-//                       with a single element on `opp_obs_topic` (/opp_obs).
+//   (tracking)        : Frenet KF [s,vs,d,vd] preserves association/output geometry. A parallel
+//                       map KF [x,vx,y,vy] provides velocity covariance significance and measured
+//                       map-position persistence for motion classification.
+//   LAYER 2 [static]  : existence-confirmed UNKNOWN or STATIC objects. Published as an
+//                       f110_msgs/ObstacleArray on `static_obs_topic` (/static_obs).
+//   LAYER 3 [dynamic] : the nearest-ahead existence-confirmed DYNAMIC opponent. Published as an
+//                       f110_msgs/ObstacleArray with a single element on `opp_obs_topic` (/opp_obs).
 //   (layer merge)     : before publishing, tracks inside the SAME layer whose Frenet boxes are
 //                       within layer_merge_gap_s/_d of each other are merged into ONE object-level
 //                       obstacle (occlusion/corner fragments of one physical object otherwise show
@@ -136,6 +134,7 @@ class ObstacleDetectorNode : public rclcpp::Node
     void updateDiagnostics(const ScanProcessingStats &scan_stats,
                            const TrackerUpdateStats *tracker_stats,
                            double measurement_yaw_rate, bool yaw_rate_fresh);
+    void logMotionDebug();
 
     void declareParameters();
     void loadParameters();
@@ -187,6 +186,8 @@ class ObstacleDetectorNode : public rclcpp::Node
     bool publish_markers_;
     bool diagnostics_enable_;
     double diagnostics_period_sec_;
+    bool motion_debug_enable_;
+    double motion_debug_period_sec_;
 
     TrackerParams tracker_params_;
 

@@ -1,31 +1,11 @@
 #include "static_obstacle_map/static_obstacle_map_memory.hpp"
 
 #include <algorithm>
-#include <array>
 #include <cmath>
 #include <limits>
 
 namespace static_obstacle_map
 {
-
-namespace
-{
-
-constexpr double kGeometryTolerance = 1.0e-9;
-
-bool almostEqual(double lhs, double rhs)
-{
-  return std::abs(lhs - rhs) <= kGeometryTolerance;
-}
-
-double yawFromQuaternion(const geometry_msgs::msg::Quaternion & quaternion)
-{
-  return std::atan2(
-    2.0 * (quaternion.w * quaternion.z + quaternion.x * quaternion.y),
-    1.0 - 2.0 * (quaternion.y * quaternion.y + quaternion.z * quaternion.z));
-}
-
-}  // namespace
 
 StaticObstacleMapMemory::StaticObstacleMapMemory(const MemoryConfig & config)
 {
@@ -39,8 +19,6 @@ void StaticObstacleMapMemory::configure(const MemoryConfig & config)
   config_.edge_confirm_frames = std::max(1, config_.edge_confirm_frames);
   config_.edge_match_tolerance_m = std::max(0.0, config_.edge_match_tolerance_m);
   config_.max_obstacle_diagonal_m = std::max(0.0, config_.max_obstacle_diagonal_m);
-  config_.obstacle_inflation_m = std::max(0.0, config_.obstacle_inflation_m);
-  config_.occupied_value = std::clamp(config_.occupied_value, 0, 100);
 
   for (auto & obstacle : obstacles_) {
     const Aabb clamped = clampAabb(
@@ -54,49 +32,6 @@ void StaticObstacleMapMemory::configure(const MemoryConfig & config)
     resetPendingBoundary(obstacle.pending_y_min);
     resetPendingBoundary(obstacle.pending_y_max);
   }
-}
-
-bool StaticObstacleMapMemory::validMap(const nav_msgs::msg::OccupancyGrid & map)
-{
-  const std::size_t expected_size =
-    static_cast<std::size_t>(map.info.width) * static_cast<std::size_t>(map.info.height);
-  return map.info.width > 0U && map.info.height > 0U &&
-         std::isfinite(map.info.resolution) && map.info.resolution > 0.0 &&
-         map.data.size() == expected_size;
-}
-
-bool StaticObstacleMapMemory::sameMapGeometry(
-  const nav_msgs::msg::OccupancyGrid & lhs,
-  const nav_msgs::msg::OccupancyGrid & rhs)
-{
-  const auto & a = lhs.info;
-  const auto & b = rhs.info;
-  return lhs.header.frame_id == rhs.header.frame_id &&
-         a.width == b.width && a.height == b.height &&
-         almostEqual(a.resolution, b.resolution) &&
-         almostEqual(a.origin.position.x, b.origin.position.x) &&
-         almostEqual(a.origin.position.y, b.origin.position.y) &&
-         almostEqual(a.origin.position.z, b.origin.position.z) &&
-         almostEqual(a.origin.orientation.x, b.origin.orientation.x) &&
-         almostEqual(a.origin.orientation.y, b.origin.orientation.y) &&
-         almostEqual(a.origin.orientation.z, b.origin.orientation.z) &&
-         almostEqual(a.origin.orientation.w, b.origin.orientation.w);
-}
-
-BaseMapUpdate StaticObstacleMapMemory::setBaseMap(const nav_msgs::msg::OccupancyGrid & map)
-{
-  BaseMapUpdate result;
-  if (!validMap(map)) {
-    return result;
-  }
-
-  result.accepted = true;
-  result.geometry_changed = base_map_.has_value() && !sameMapGeometry(*base_map_, map);
-  if (result.geometry_changed && config_.clear_on_base_map_geometry_change) {
-    result.cleared_obstacles = clear();
-  }
-  base_map_ = map;
-  return result;
 }
 
 std::optional<StaticObstacleMapMemory::Aabb> StaticObstacleMapMemory::obstacleAabb(
@@ -372,84 +307,28 @@ std::size_t StaticObstacleMapMemory::clear()
   return count;
 }
 
-bool StaticObstacleMapMemory::hasBaseMap() const
+f110_msgs::msg::ObstacleArray StaticObstacleMapMemory::buildObstacleArray(
+  const std_msgs::msg::Header & header) const
 {
-  return base_map_.has_value();
-}
-
-void StaticObstacleMapMemory::rasterize(
-  nav_msgs::msg::OccupancyGrid & map, const StoredObstacle & obstacle) const
-{
-  const double inflation = config_.obstacle_inflation_m;
-  const Aabb bounds{
-    obstacle.x_min - inflation, obstacle.x_max + inflation,
-    obstacle.y_min - inflation, obstacle.y_max + inflation};
-  const double yaw = yawFromQuaternion(map.info.origin.orientation);
-  const double cosine = std::cos(yaw);
-  const double sine = std::sin(yaw);
-  const double origin_x = map.info.origin.position.x;
-  const double origin_y = map.info.origin.position.y;
-  const double resolution = map.info.resolution;
-
-  const auto worldToGridContinuous =
-    [cosine, sine, origin_x, origin_y, resolution](double world_x, double world_y) {
-      const double delta_x = world_x - origin_x;
-      const double delta_y = world_y - origin_y;
-      return std::array<double, 2>{
-      (cosine * delta_x + sine * delta_y) / resolution,
-      (-sine * delta_x + cosine * delta_y) / resolution};
-    };
-
-  const std::array<std::array<double, 2>, 4> corners{
-    worldToGridContinuous(bounds.x_min, bounds.y_min),
-    worldToGridContinuous(bounds.x_min, bounds.y_max),
-    worldToGridContinuous(bounds.x_max, bounds.y_min),
-    worldToGridContinuous(bounds.x_max, bounds.y_max)};
-  double min_grid_x = corners.front()[0];
-  double max_grid_x = corners.front()[0];
-  double min_grid_y = corners.front()[1];
-  double max_grid_y = corners.front()[1];
-  for (const auto & corner : corners) {
-    min_grid_x = std::min(min_grid_x, corner[0]);
-    max_grid_x = std::max(max_grid_x, corner[0]);
-    min_grid_y = std::min(min_grid_y, corner[1]);
-    max_grid_y = std::max(max_grid_y, corner[1]);
-  }
-
-  const int width = static_cast<int>(map.info.width);
-  const int height = static_cast<int>(map.info.height);
-  const int start_x = std::max(0, static_cast<int>(std::floor(min_grid_x)));
-  const int end_x = std::min(width - 1, static_cast<int>(std::floor(max_grid_x)));
-  const int start_y = std::max(0, static_cast<int>(std::floor(min_grid_y)));
-  const int end_y = std::min(height - 1, static_cast<int>(std::floor(max_grid_y)));
-
-  for (int grid_y = start_y; grid_y <= end_y; ++grid_y) {
-    for (int grid_x = start_x; grid_x <= end_x; ++grid_x) {
-      const double local_x = (static_cast<double>(grid_x) + 0.5) * resolution;
-      const double local_y = (static_cast<double>(grid_y) + 0.5) * resolution;
-      const double world_x = origin_x + cosine * local_x - sine * local_y;
-      const double world_y = origin_y + sine * local_x + cosine * local_y;
-      if (world_x < bounds.x_min || world_x > bounds.x_max ||
-        world_y < bounds.y_min || world_y > bounds.y_max)
-      {
-        continue;
-      }
-      const std::size_t index =
-        static_cast<std::size_t>(grid_y) * map.info.width + static_cast<std::size_t>(grid_x);
-      map.data[index] = static_cast<int8_t>(
-        std::max(static_cast<int>(map.data[index]), config_.occupied_value));
-    }
-  }
-}
-
-std::optional<nav_msgs::msg::OccupancyGrid> StaticObstacleMapMemory::composeMap() const
-{
-  if (!base_map_.has_value()) {
-    return std::nullopt;
-  }
-  nav_msgs::msg::OccupancyGrid output = *base_map_;
-  for (const auto & obstacle : obstacles_) {
-    rasterize(output, obstacle);
+  f110_msgs::msg::ObstacleArray output;
+  output.header = header;
+  output.obstacles.reserve(obstacles_.size());
+  for (const auto & stored : obstacles_) {
+    f110_msgs::msg::Obstacle obstacle;
+    obstacle.id = stored.memory_id;
+    obstacle.has_cartesian = true;
+    obstacle.x_min = stored.x_min;
+    obstacle.x_max = stored.x_max;
+    obstacle.y_min = stored.y_min;
+    obstacle.y_max = stored.y_max;
+    obstacle.x_center = 0.5 * (stored.x_min + stored.x_max);
+    obstacle.y_center = 0.5 * (stored.y_min + stored.y_max);
+    obstacle.radius = 0.5 * std::hypot(
+      stored.x_max - stored.x_min, stored.y_max - stored.y_min);
+    obstacle.size = 2.0 * obstacle.radius;
+    obstacle.is_static = true;
+    obstacle.is_visible = true;
+    output.obstacles.push_back(obstacle);
   }
   return output;
 }

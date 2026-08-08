@@ -13,10 +13,9 @@
 다른 조각으로 경로가 점프하지 않습니다.
 선택된 경로는 최신 Frenet 장애물 경계에도 안전한 동안 geometry를 그대로 유지하며, 안전정지는 즉시 latch하고
 연속 안전 판정 뒤에만 해제해 perception 흔들림이 경로 모드 진동으로 전달되지 않게 합니다.
-첫 장애물 군집의 관측 기준은 현재 ego와 군집 앞면 사이의 Frenet 전방거리에 따라 달라집니다.
-기본 3m 이내는 1회/0초로 빠르게 경로 생성을 시도하고, 8m 이상은 3회/0.15초 동안 경계를
-모으며, 중간 거리는 두 기준을 보간합니다. 모은 Frenet 경계 합집합을
-`3*sqrt(s_var/d_var)`와 고정 크기 마진만큼 확장해 commitment Guard로 고정합니다.
+첫 장애물 군집은 준비 감속 동안 같은 ID를 실제 `/static_obs` 메시지에서 3회 모으고 최소
+관측 시간도 기다립니다. 그 Frenet 경계 합집합을 `3*sqrt(s_var/d_var)`와 고정 크기 마진만큼
+확장해 commitment Guard로 고정합니다.
 후속 같은-ID uncertainty envelope가 Guard 안에 있으면 출력 geometry를 그대로 유지합니다.
 Guard 밖의 변화가 전체 여유만 침범하면 3 planning cycle을 확인한 뒤 재계획하고, detector 원본
 경계에 차량 폭을 적용한 hard 영역과 겹치면 즉시 재계획하거나 safe-stop합니다.

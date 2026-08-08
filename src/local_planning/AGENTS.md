@@ -18,12 +18,13 @@
 - Consume the detector-owned Frenet footprint on `/static_obs` without any Cartesian-to-Frenet
   conversion. Treat `s_start/s_end/d_right/d_left` as the authoritative obstacle geometry.
   Cartesian AABB fields are optional metadata and are not consumed as planner geometry.
-- Derive each target `d` from the obstacle lateral bound plus configured clearance and the small
-  commitment reserve. Reject targets outside the per-waypoint `d_left`/`d_right` track widths.
-  A raceline-centred obstacle demands the full obstacle width plus margins on BOTH sides at once;
-  when both sides are rejected with the full `obstacle_clearance_m`, retry the whole selection
-  once with the reduced `minimum_avoidance_clearance_m` (never below vehicle half-width plus the
-  hard collision margin) before declaring a safe stop.
+- Obstacle bounds are raw detector geometry. Use
+  `vehicle_half_width_m + safety_margin_m + tracking_error_reserve_m` for obstacle target
+  generation, raceline-blocking detection, frozen-path validation, and raw hard-collision
+  validation. Global waypoint `d_left/d_right` follow a different contract: they already encode
+  vehicle half-width and the generator's wall safety margin as centre-of-vehicle limits. For track
+  bounds, use `d_left`/`d_right` directly; never subtract vehicle width, safety margin, or tracking
+  reserve a second time. Do not add another boundary, commitment, hard, or fallback margin.
 - When left/right candidate scores tie within `side_tie_epsilon_m`, select the side with more
   reference-width headroom across the obstacle span. Reference widths carry no perception jitter,
   so centred-obstacle side choices cannot flap between replans.
@@ -38,15 +39,15 @@
   scales from shortest to longest so the maneuver releases promptly. Fall back only when the full
   candidate validation fails.
 - Validate lateral slope, recomputed Cartesian curvature, curvature rate, obstacle clearance, and
-  track-bound clearance before publishing.
+  track-bound clearance before publishing. Do not add any further boundary, commitment, hard, or
+  fallback margin.
 - Before the first lateral commitment, publish `ot_line=raceline_static_prepare` with a validated
   braking prefix while collecting the nearest cluster's IDs and conservative Frenet-envelope union.
-  Count distinct `/static_obs` messages, not planning ticks. Interpolate the required observation
-  count and minimum duration from the ego-to-cluster-front Frenet distance: use the configured near
-  gate at or below `stabilization_near_distance_m`, the existing conservative gate at or above
-  `stabilization_far_distance_m`, and a linear transition between them. Expand the final union by
+  Count distinct `/static_obs` messages, not planning ticks, and require the configured number of
+  observations for every cluster ID and the configured minimum stabilization duration unless the
+  maximum wait is reached. Expand the final union by
   `k*sqrt(s_var/d_var)` plus fixed longitudinal/lateral extent-noise floors, capping the lateral
-  margin at `uncertainty_max_lateral_margin_m` so fresh-detection variance cannot inflate a
+  inflation at `uncertainty_max_lateral_inflation_m` so fresh-detection variance cannot inflate a
   centred obstacle's Guard beyond what either side can clear, and freeze that
   uncertainty Guard with the commitment. An obstacle already inside the stop buffer bypasses this
   wait and enters safe-stop immediately.
@@ -69,9 +70,10 @@
   obstacle array, including an explicitly empty array, replaces that memory. Rejecting a wrong-frame
   array must not erase it. Do not wait for repeated observations when replanning solely from retained
   stale memory because no new samples can arrive.
-- Separate commitment violations into hard physical collisions and soft uncertainty/clearance
-  collisions. Test hard collisions against detector bounds plus vehicle half-width and the
-  configured hard margin, and replan immediately. Require the configured consecutive planning
+- Separate commitment violations into hard physical collisions and soft uncertainty-envelope
+  collisions. Both checks use the same unified physical clearance. Test hard collisions against
+  raw detector bounds and replan immediately; test soft collisions against uncertainty Guards.
+  Require the configured consecutive planning
   cycles before acting on a soft-only collision, clearing the count as soon as the frozen path is
   valid again. Never debounce track-bound, path-exhaustion, or geometry failures. Log the offending
   obstacle ID, waypoint `s/d`, obstacle `s/d` bounds, and applied clearance.
@@ -81,7 +83,7 @@
   confirms `STATE_GLOBAL`.
 - Stabilize every non-active blocking cluster from the current ego state concurrently while the
   active maneuver runs; do not use the old `merge_s` as the next-cluster observation origin.
-  Once the active Guard rear plus `chain_release_margin_m` is behind ego, allow a feasible next
+  Once the active Guard rear plus `chain_release_distance_m` is behind ego, allow a feasible next
   spline anchored at the current `ego.d` to preempt the old merge. Retire the completed IDs and
   release their side lock, but keep `/avoid_waypoints` non-empty and `STATE_AVOID` active. Continue
   validating the current commitment against obstacles that lie before its merge until a validated
@@ -135,8 +137,9 @@
 - Manual Frenet contract harness: `test/frenet_static_pipeline_test.py`; run it against a fresh
   `local_planner_node` with a `global_waypoints.csv` path.
 - Initial-cluster harness: `test/initial_cluster_stabilization_pipeline_test.py`; run it against a
-  fresh `local_planner_node` to verify the conservative far-distance gate and late adjacent IDs.
-  Unit-test the near/interpolated/far gate values in `test/test_observation_gate.cpp`.
+  fresh `local_planner_node` to verify the minimum stabilization time, that each late adjacent ID
+  receives the configured number of real topic observations, and that it affects the first
+  committed side.
 - Soft-violation harness: `test/soft_violation_confirmation_pipeline_test.py`; run it against a
   fresh `local_planner_node` to verify a transient uncertainty-only collision keeps the commitment
   and a persistent soft collision replans only after the configured planning-cycle count.

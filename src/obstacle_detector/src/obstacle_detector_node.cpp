@@ -7,7 +7,10 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <iomanip>
 #include <limits>
+#include <sstream>
+#include <stdexcept>
 
 #include <builtin_interfaces/msg/time.hpp>
 #include <f110_msgs/msg/obstacle.hpp>
@@ -76,20 +79,20 @@ ObstacleDetectorNode::ObstacleDetectorNode(const rclcpp::NodeOptions &options)
 
     RCLCPP_INFO(
         this->get_logger(),
-        "obstacle_detector started (scan=%s, global=%s, map_filter=%s, classifier=%d, "
+        "obstacle_detector started (scan=%s, global=%s, map_filter=%s, "
         "static_obs=%s, confirmed_static_obs=%s, opp_obs=%s, "
         "cluster_merge=%s[dist=%.2f, min_frag=%d], "
         "layer_merge=%s[gap_s=%.2f, gap_d=%.2f], mahalanobis=%s[gate=%.2f], "
-        "diagnostics=%s[period=%.2fs])",
+        "motion_chi2[static<%.2f dynamic>%.2f], diagnostics=%s[period=%.2fs])",
         scan_topic_.c_str(), global_wpnts_topic_.c_str(), use_map_filter_ ? "on" : "off",
-        static_cast<int>(tracker_params_.classifier_mode), static_obs_topic_.c_str(),
-        confirmed_static_obs_topic_.c_str(), opp_obs_topic_.c_str(),
+        static_obs_topic_.c_str(), confirmed_static_obs_topic_.c_str(), opp_obs_topic_.c_str(),
         cluster_merge_enable_ ? "on" : "off", cluster_merge_distance_,
         cluster_merge_min_fragment_points_, layer_merge_enable_ ? "on" : "off",
         layer_merge_gap_s_, layer_merge_gap_d_,
         tracker_params_.assoc_use_mahalanobis ? "on" : "off",
-        tracker_params_.assoc_mahalanobis_gate, diagnostics_enable_ ? "on" : "off",
-        diagnostics_period_sec_);
+        tracker_params_.assoc_mahalanobis_gate, tracker_params_.static_chi2_threshold,
+        tracker_params_.dynamic_chi2_threshold,
+        diagnostics_enable_ ? "on" : "off", diagnostics_period_sec_);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -164,18 +167,33 @@ void ObstacleDetectorNode::declareParameters()
     this->declare_parameter<int>("ttl_dynamic", 40);
     this->declare_parameter<int>("ttl_static", 25);
     this->declare_parameter<int>("min_hits_confirm", 3);
-    this->declare_parameter<std::string>("classifier_mode", "velocity");
-    this->declare_parameter<double>("dyn_vel_enter", 0.5);
-    this->declare_parameter<double>("dyn_vel_exit", 0.25);
-    this->declare_parameter<int>("static_confirm_frames", 3);
-    this->declare_parameter<int>("dynamic_confirm_frames", 25);
-    this->declare_parameter<double>("dyn_velocity_mahalanobis_gate", 9.21);
-    this->declare_parameter<double>("dyn_max_abs_yaw_rate", 1.5);
-    this->declare_parameter<double>("static_ref_gate", 0.3);
-    this->declare_parameter<int>("std_window", 30);
-    this->declare_parameter<int>("min_nb_meas", 5);
-    this->declare_parameter<double>("min_std", 0.16);
-    this->declare_parameter<double>("max_std", 0.20);
+    this->declare_parameter<int>("confirmation_window", 5);
+    this->declare_parameter<double>(
+        "motion_classification.dynamic_chi2_threshold", 9.21);
+    this->declare_parameter<double>(
+        "motion_classification.static_chi2_threshold", 5.99);
+    this->declare_parameter<int>("motion_classification.dynamic_vote_window", 5);
+    this->declare_parameter<int>("motion_classification.dynamic_vote_required", 3);
+    this->declare_parameter<int>("motion_classification.static_vote_window", 15);
+    this->declare_parameter<int>("motion_classification.static_vote_required", 10);
+    this->declare_parameter<int>("motion_classification.position_history_size", 15);
+    this->declare_parameter<int>("motion_classification.static_min_observations", 10);
+    this->declare_parameter<double>(
+        "motion_classification.static_max_position_rms", 0.10);
+    this->declare_parameter<int>(
+        "motion_classification.dynamic_to_static_min_observations", 20);
+    this->declare_parameter<int>(
+        "motion_classification.dynamic_to_static_vote_required", 15);
+    this->declare_parameter<double>(
+        "motion_classification.dynamic_to_static_max_position_rms", 0.08);
+    this->declare_parameter<double>(
+        "motion_classification.covariance_regularization_epsilon", 1.0e-6);
+    this->declare_parameter<double>(
+        "motion_classification.minimum_velocity_covariance", 1.0e-5);
+    this->declare_parameter<double>(
+        "motion_classification.static_score_forgetting_factor", 0.95);
+    this->declare_parameter<bool>("motion_classification.debug_enable", false);
+    this->declare_parameter<double>("motion_classification.debug_period_sec", 1.0);
     this->declare_parameter<double>("dt_max", 0.5);
     this->declare_parameter<double>("extent_shrink_alpha", 0.25);
     this->declare_parameter<double>("envelope_stability_tolerance_m", 0.10);
@@ -254,23 +272,55 @@ void ObstacleDetectorNode::loadParameters()
     tracker_params_.ttl_dynamic = this->get_parameter("ttl_dynamic").as_int();
     tracker_params_.ttl_static = this->get_parameter("ttl_static").as_int();
     tracker_params_.min_hits_confirm = this->get_parameter("min_hits_confirm").as_int();
-    tracker_params_.dyn_vel_enter = this->get_parameter("dyn_vel_enter").as_double();
-    tracker_params_.dyn_vel_exit = this->get_parameter("dyn_vel_exit").as_double();
-    tracker_params_.static_confirm_frames =
-        std::max(1, static_cast<int>(
-            this->get_parameter("static_confirm_frames").as_int()));
-    tracker_params_.dynamic_confirm_frames =
-        std::max(1, static_cast<int>(
-            this->get_parameter("dynamic_confirm_frames").as_int()));
-    tracker_params_.dyn_velocity_mahalanobis_gate =
-        std::max(0.0, this->get_parameter("dyn_velocity_mahalanobis_gate").as_double());
-    tracker_params_.dyn_max_abs_yaw_rate =
-        std::max(0.0, this->get_parameter("dyn_max_abs_yaw_rate").as_double());
-    tracker_params_.static_ref_gate = this->get_parameter("static_ref_gate").as_double();
-    tracker_params_.std_window = this->get_parameter("std_window").as_int();
-    tracker_params_.min_nb_meas = this->get_parameter("min_nb_meas").as_int();
-    tracker_params_.min_std = this->get_parameter("min_std").as_double();
-    tracker_params_.max_std = this->get_parameter("max_std").as_double();
+    tracker_params_.confirmation_window =
+        this->get_parameter("confirmation_window").as_int();
+    tracker_params_.dynamic_chi2_threshold =
+        this->get_parameter(
+        "motion_classification.dynamic_chi2_threshold").as_double();
+    tracker_params_.static_chi2_threshold =
+        this->get_parameter(
+        "motion_classification.static_chi2_threshold").as_double();
+    tracker_params_.dynamic_vote_window =
+        this->get_parameter("motion_classification.dynamic_vote_window").as_int();
+    tracker_params_.dynamic_vote_required =
+        this->get_parameter("motion_classification.dynamic_vote_required").as_int();
+    tracker_params_.static_vote_window =
+        this->get_parameter("motion_classification.static_vote_window").as_int();
+    tracker_params_.static_vote_required =
+        this->get_parameter("motion_classification.static_vote_required").as_int();
+    tracker_params_.position_history_size =
+        this->get_parameter("motion_classification.position_history_size").as_int();
+    tracker_params_.static_min_observations =
+        this->get_parameter("motion_classification.static_min_observations").as_int();
+    tracker_params_.static_max_position_rms =
+        this->get_parameter("motion_classification.static_max_position_rms").as_double();
+    tracker_params_.dynamic_to_static_min_observations =
+        this->get_parameter(
+        "motion_classification.dynamic_to_static_min_observations").as_int();
+    tracker_params_.dynamic_to_static_vote_required =
+        this->get_parameter(
+        "motion_classification.dynamic_to_static_vote_required").as_int();
+    tracker_params_.dynamic_to_static_max_position_rms =
+        this->get_parameter(
+        "motion_classification.dynamic_to_static_max_position_rms").as_double();
+    tracker_params_.covariance_regularization_epsilon =
+        this->get_parameter(
+        "motion_classification.covariance_regularization_epsilon").as_double();
+    tracker_params_.minimum_velocity_covariance =
+        this->get_parameter(
+        "motion_classification.minimum_velocity_covariance").as_double();
+    tracker_params_.static_score_forgetting_factor =
+        this->get_parameter(
+        "motion_classification.static_score_forgetting_factor").as_double();
+    motion_debug_enable_ =
+        this->get_parameter("motion_classification.debug_enable").as_bool();
+    motion_debug_period_sec_ =
+        this->get_parameter("motion_classification.debug_period_sec").as_double();
+    if (!(motion_debug_period_sec_ > 0.0))
+    {
+        throw std::invalid_argument(
+            "motion_classification.debug_period_sec must be positive");
+    }
     tracker_params_.dt_max = this->get_parameter("dt_max").as_double();
     tracker_params_.extent_shrink_alpha =
         std::clamp(this->get_parameter("extent_shrink_alpha").as_double(), 0.0, 1.0);
@@ -280,19 +330,6 @@ void ObstacleDetectorNode::loadParameters()
         std::max(0, static_cast<int>(
             this->get_parameter("envelope_stability_frames").as_int()));
 
-    const std::string cm = this->get_parameter("classifier_mode").as_string();
-    if (cm == "std")
-    {
-        tracker_params_.classifier_mode = ClassifierMode::Std;
-    }
-    else if (cm == "both")
-    {
-        tracker_params_.classifier_mode = ClassifierMode::Both;
-    }
-    else
-    {
-        tracker_params_.classifier_mode = ClassifierMode::Velocity;
-    }
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -891,9 +928,48 @@ int ObstacleDetectorNode::selectOpponent(const std::vector<MergedObstacle> &dyna
     return best;
 }
 
+void ObstacleDetectorNode::logMotionDebug()
+{
+    if (!motion_debug_enable_)
+    {
+        return;
+    }
+    std::ostringstream stream;
+    stream << std::fixed << std::setprecision(3);
+    bool has_confirmed_track = false;
+    for (const Track &track : tracker_.tracks())
+    {
+        if (track.track_status != TrackStatus::Confirmed)
+        {
+            continue;
+        }
+        has_confirmed_track = true;
+        stream << "\nID=" << track.id
+               << " " << trackStatusName(track.track_status)
+               << "/" << motionStatusName(track.motion_status)
+               << " v_map=(" << track.mapVx() << "," << track.mapVy() << ")"
+               << " Tv=" << track.velocity_statistic
+               << " votes(S/D)=" << track.static_vote_count
+               << "/" << track.dynamic_vote_count
+               << " RMS=" << track.map_position_rms
+               << " pos_n=" << track.map_position_history.size()
+               << " static_conf=" << track.static_confidence
+               << " since_meas=" << track.time_since_last_measurement << "s";
+    }
+    if (!has_confirmed_track)
+    {
+        stream << "\n(no confirmed tracks)";
+    }
+    const int throttle_ms =
+        std::max(1, static_cast<int>(std::lround(1000.0 * motion_debug_period_sec_)));
+    RCLCPP_INFO_THROTTLE(
+        this->get_logger(), *this->get_clock(), throttle_ms,
+        "MOTION DEBUG%s", stream.str().c_str());
+}
+
 // ------------------------------------------------------------------------------------------------
-// Passive 1-second diagnostics. Event counters are accumulated; live track/classification counts
-// remain a current snapshot from the most recent tracker update.
+// Passive diagnostics. Event counters are accumulated; live track/classification counts remain a
+// current snapshot from the most recent tracker update.
 // ------------------------------------------------------------------------------------------------
 void ObstacleDetectorNode::updateDiagnostics(const ScanProcessingStats &scan_stats,
                                              const TrackerUpdateStats *tracker_stats,
@@ -959,10 +1035,10 @@ void ObstacleDetectorNode::updateDiagnostics(const ScanProcessingStats &scan_sta
         "beam(valid=%zu/%zu nonfinite=%zu below_min=%zu at_or_above_max=%zu) "
         "cluster=%zu->%zu fragment_drop=%zu detections=%zu "
         "reject(size=%zu clcs_projection=%zu view=%zu boundary=%zu map=%zu) "
-        "track(total=%zu visible=%zu hit_pending=%zu "
-        "provisional=%zu static=%zu dynamic=%zu motion_gated=%zu) "
+        "track(total=%zu visible=%zu raw=%zu tentative=%zu "
+        "unknown=%zu static=%zu dynamic=%zu predicted=%zu invalid_Pv=%zu) "
         "assoc(pairs=%zu match=%zu spawn=%zu retire=%zu euclid_reject=%zu maha_reject=%zu) "
-        "motion(yaw_used=%.3f fresh=%s ref_vs=%.3f ref_vd=%.3f)",
+        "motion(yaw_used=%.3f fresh=%s)",
         elapsed, total.scans_processed, total.scans_received, total.clcs_unavailable,
         total.tf_unavailable, total.valid_beams, total.total_beams,
         total.nonfinite_rejected, total.below_min_range_rejected,
@@ -970,13 +1046,13 @@ void ObstacleDetectorNode::updateDiagnostics(const ScanProcessingStats &scan_sta
         total.clusters_after_merge, total.fragments_rejected, total.detections,
         total.size_rejected, total.projection_rejected, total.viewing_window_rejected,
         total.track_boundary_rejected, total.map_rejected, snapshot.total_tracks,
-        snapshot.visible_tracks, snapshot.hit_confirmation_pending,
-        snapshot.provisional_static,
-        snapshot.confirmed_static, snapshot.confirmed_dynamic,
-        snapshot.dynamic_motion_gated, events.candidate_pairs, events.matched, events.spawned,
+        snapshot.visible_tracks, snapshot.raw_tracks, snapshot.tentative_tracks,
+        snapshot.motion_unknown, snapshot.motion_static, snapshot.motion_dynamic,
+        snapshot.predicted_only, snapshot.invalid_velocity_covariance,
+        events.candidate_pairs, events.matched, events.spawned,
         events.retired, events.euclidean_pair_rejected,
         events.mahalanobis_pair_rejected, measurement_yaw_rate,
-        yaw_rate_fresh ? "true" : "false", tracker_.staticRefVs(), tracker_.staticRefVd());
+        yaw_rate_fresh ? "true" : "false");
 
     diagnostics_scan_totals_ = ScanProcessingStats{};
     diagnostics_tracker_event_totals_ = TrackerUpdateStats{};
@@ -1140,9 +1216,10 @@ void ObstacleDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
         ++stats.detections;
     }
 
-    // ---- tracking: gives every surviving cluster its Frenet flow velocity + a static/dynamic
-    //      label (flow vs the map-flow reference; see obstacle_tracker.hpp) ----
+    // ---- tracking: Frenet association/output geometry plus a supplemental map-frame Kalman
+    //      velocity/significance and position-persistence motion classifier ----
     tracker_.update(detections, stamp, measurement_yaw_rate, yaw_rate_fresh);
+    logMotionDebug();
     stats.scans_processed = 1;
     updateDiagnostics(stats, &tracker_.lastStats(), measurement_yaw_rate, yaw_rate_fresh);
 
@@ -1162,11 +1239,11 @@ void ObstacleDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
     dynamic_members.reserve(tracker_.tracks().size());
     for (const Track &t : tracker_.tracks())
     {
-        if (!t.classified || t.motion_class == MotionClass::Pending)
+        if (t.track_status != TrackStatus::Confirmed)
         {
             continue;
         }
-        if (t.motion_class == MotionClass::Dynamic)
+        if (t.motion_status == MotionStatus::Dynamic)
         {
             dynamic_members.push_back(&t);
         }
@@ -1176,7 +1253,7 @@ void ObstacleDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
             // never creates a one-scan gap in /static_obs. Fan-shaped morphing clusters never
             // reach the stability streak, so they stay out of the published layer entirely.
             static_members.push_back(&t);
-            if (t.motion_class == MotionClass::ConfirmedStatic)
+            if (t.motion_status == MotionStatus::Static)
             {
                 confirmed_static_members.push_back(&t);
             }

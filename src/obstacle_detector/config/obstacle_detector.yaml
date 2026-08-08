@@ -88,7 +88,10 @@ obstacle_detector:
     assoc_mahalanobis_gate: 9.21               # chi-square threshold, 2 DoF, approximately 99%
     ttl_dynamic: 40                            # frames to keep a lost dynamic track
     ttl_static: 25                             # keep a lost static track for ~0.1 s at 250 Hz
-    min_hits_confirm: 3                        # measurements before a track is reported
+    # Track 존재 신뢰도와 motion 분류는 독립입니다. 최근 5 scan 중 association된 measurement가
+    # 3회 이상이어야 CONFIRMED가 되며, RAW/TENTATIVE track은 어떤 장애물 토픽에도 싣지 않습니다.
+    min_hits_confirm: 3
+    confirmation_window: 5
     # 스캔마다 달라지는 AABB extent(정사각형 박스 vs 실제 형태 괴리)를 magnitude 기준으로
     # 완화합니다. 확장은 즉시, 축소는 ~1/alpha 프레임에 걸쳐 서서히. 1.0이면 기존 덮어쓰기.
     extent_shrink_alpha: 0.25
@@ -98,21 +101,36 @@ obstacle_detector:
     envelope_stability_tolerance_m: 0.10
     envelope_stability_frames: 2
 
-    # === LAYER 2 / LAYER 3 CLASSIFICATION (flow vs the map-flow reference) ===
-    # The walls/stationary obstacles stream past the ego at the "map-flow" velocity (measured as
-    # the mean flow of the slow tracks). A track that flows WITH the map -> Layer 2 (static); a
-    # track that clearly flows slower (the same-direction opponent) -> Layer 3 (dynamic).
-    classifier_mode: "velocity"                # "velocity" | "std" | "both"
-    dyn_vel_enter: 0.5                         # flow deviation from the map-flow ref -> dynamic (m/s)
-    dyn_vel_exit: 0.25                         # flow deviation -> back to static (m/s, hysteresis)
-    static_confirm_frames: 3                   # extra consecutive low-speed observations after provisional
-    dynamic_confirm_frames: 25                 # consecutive reliable moving observations -> dynamic
-    dyn_velocity_mahalanobis_gate: 9.21        # velocity confidence, chi-square 2 DoF, ~99%
-    dyn_max_abs_yaw_rate: 1.5                  # do not accumulate moving evidence above this (rad/s)
-    static_ref_gate: 0.3                       # tracks slower than this define the map-flow velocity
-                                               #   (walls + stationary obstacles); opponent excluded (m/s)
-    std_window: 30                             # history window for the std classifier
-    min_nb_meas: 5                             # measurements before the std classifier votes
-    min_std: 0.16                              # below on both axes -> static vote (m)
-    max_std: 0.20                              # above on either axis -> dynamic (m)
+    # === MAP-FRAME MOTION CLASSIFICATION ===
+    # 기존 Frenet KF/association은 유지하고, 각 track에 분류 전용 map-frame CV KF
+    # [x,vx,y,vy]를 병렬로 둡니다. Tv=vᵀ Pv⁻¹v는 inverse 대신 Eigen LDLT solve로 계산합니다.
+    # CONFIRMED+UNKNOWN은 안전을 위해 provisional 객체로 /static_obs에 남지만,
+    # /confirmed_static_obs에는 STATIC만 들어갑니다.
+    motion_classification:
+      dynamic_chi2_threshold: 9.21             # Tv가 이 값보다 크면 dynamic evidence
+      static_chi2_threshold: 5.99              # Tv가 이 값보다 작으면 static evidence
+
+      dynamic_vote_window: 5                   # 최근 유효 measurement evidence window
+      dynamic_vote_required: 3                 # 5개 중 dynamic 3개면 DYNAMIC
+      static_vote_window: 15
+      static_vote_required: 10                 # 위치 지속성도 동시에 만족해야 STATIC
+
+      position_history_size: 15                # prediction이 아닌 map filtered positions
+      static_min_observations: 10
+      static_max_position_rms: 0.10            # map 위치 RMS [m]
+
+      # 한 번 DYNAMIC이 된 track은 잠깐 멈춰도 곧바로 STATIC으로 돌아가지 않습니다.
+      dynamic_to_static_min_observations: 20
+      dynamic_to_static_vote_required: 15
+      dynamic_to_static_max_position_rms: 0.08
+
+      covariance_regularization_epsilon: 1.0e-6
+      minimum_velocity_covariance: 1.0e-5
+      static_score_forgetting_factor: 0.95
+
+      # 모든 confirmed track의 status, map velocity, Tv, vote, RMS, confidence, 마지막
+      # measurement 경과시간을 한 로그로 throttle해 출력합니다.
+      debug_enable: false
+      debug_period_sec: 1.0
+
     dt_max: 0.5                                # clamp for the Kalman prediction step (s)

@@ -1,22 +1,10 @@
 // ================================================================================================
-// OBSTACLE TRACKER - constant-velocity Kalman tracking + static/dynamic classification in Frenet
+// OBSTACLE TRACKER - Frenet association plus map-frame statistical motion classification
 // ================================================================================================
-// State per track: x = [s, vs, d, vd] (constant-velocity model). Measurement: z = [s, d].
-//
-// LAYER 2 / LAYER 3 SPLIT (ego-relative "map-flow" view).
-// The classifier separates the two obstacle layers by how each track FLOWS relative to the map:
-//   - The walls and stationary obstacles all stream past the moving ego at the same apparent
-//     velocity — the "map-flow" reference. In the ego frame this is -v_ego; here it is measured
-//     empirically as static_ref_* (the mean Frenet velocity of the clearly-slow tracks), which is
-//     equivalent and self-calibrating (it cancels common ego-localization drift and needs no
-//     accurate v_ego). In the world-anchored Frenet (s) frame ego motion is already removed, so
-//     the map-flow reference sits at ~0.
-//   - LAYER 2 (static): a track whose flow matches the map-flow reference (|flow - ref| small).
-//   - LAYER 3 (dynamic / opponent): a track that clearly deviates from the map-flow reference. A
-//     same-direction opponent flows "slower" than the walls in the ego frame; equivalently it has
-//     a non-zero along-track velocity vs in the world frame. Both describe the same test.
-// Hysteresis + a low-speed backstop guard the label; a positional-standard-deviation classifier
-// (ForzaETH style) is also available via classifier_mode.
+// Association/output state: x = [s, vs, d, vd], measurement z = [s, d].
+// Classification-only state: map_x = [x, vx, y, vy], measurement z_map = [x, y].
+// Keeping the two filters side-by-side preserves the existing closed-track Frenet association and
+// footprint contract while preventing hairpin s-projection changes from deciding motion status.
 // ================================================================================================
 
 #ifndef OBSTACLE_DETECTOR__OBSTACLE_TRACKER_HPP_
@@ -24,6 +12,9 @@
 
 #include <cstddef>
 #include <deque>
+#include <limits>
+#include <string>
+#include <utility>
 #include <vector>
 
 #include <Eigen/Dense>
@@ -54,19 +45,25 @@ struct Detection
     double variance_scale{1.0};
 };
 
-enum class ClassifierMode
+enum class TrackStatus
 {
-    Velocity,
-    Std,
-    Both
+    Raw,
+    Tentative,
+    Confirmed
 };
 
-enum class MotionClass
+enum class MotionStatus
 {
-    Pending,
-    ProvisionalStatic,
-    ConfirmedStatic,
+    Unknown,
+    Static,
     Dynamic
+};
+
+enum class MotionEvidence
+{
+    StaticEvidence,
+    DynamicEvidence,
+    Uncertain
 };
 
 struct TrackerParams
@@ -84,26 +81,24 @@ struct TrackerParams
     // track lifetime
     int ttl_dynamic{40};
     int ttl_static{25};
-    int min_hits_confirm{3};      // measurements before a track is reported
-    // classification
-    ClassifierMode classifier_mode{ClassifierMode::Velocity};
-    double dyn_vel_enter{0.5};    // [m/s] flow deviation from the map-flow ref to become dynamic
-    double dyn_vel_exit{0.25};    // [m/s] flow deviation to fall back to static (hysteresis)
-    int static_confirm_frames{3};   // extra low-speed observations after provisional publication
-    int dynamic_confirm_frames{25}; // consecutive reliable moving observations before promotion
-    double dyn_velocity_mahalanobis_gate{9.21};  // 2-DoF velocity-confidence threshold
-    double dyn_max_abs_yaw_rate{1.5};  // [rad/s] freeze dynamic evidence above this ego yaw rate
-    // map-flow reference velocity: walls and stationary obstacles all stream past the ego at one
-    // shared apparent velocity (the "map flow"; -v_ego in the ego frame, ~0 in world Frenet plus
-    // any ego-localization drift). Each track is classified by its flow RELATIVE to this reference,
-    // so "flows with the map" -> static (Layer 2) and "clearly deviates" -> dynamic (Layer 3). The
-    // reference is the mean velocity of the clearly-slow tracks (below static_ref_gate), which is
-    // self-calibrating and structurally excludes the fast opponent from contaminating it.
-    double static_ref_gate{0.3};  // [m/s] tracks slower than this define the map-flow reference
-    int std_window{30};           // history window for the std classifier
-    int min_nb_meas{5};           // measurements before the std classifier votes
-    double min_std{0.16};         // [m] below on both axes -> static vote
-    double max_std{0.20};         // [m] above on either axis -> dynamic
+    int min_hits_confirm{3};       // required measurement votes inside confirmation_window
+    int confirmation_window{5};    // existence confirmation only; independent of motion
+    // Map-frame statistical motion classification.
+    double dynamic_chi2_threshold{9.21};
+    double static_chi2_threshold{5.99};
+    int dynamic_vote_window{5};
+    int dynamic_vote_required{3};
+    int static_vote_window{15};
+    int static_vote_required{10};
+    int position_history_size{15};
+    int static_min_observations{10};
+    double static_max_position_rms{0.10};
+    int dynamic_to_static_min_observations{20};
+    int dynamic_to_static_vote_required{15};
+    double dynamic_to_static_max_position_rms{0.08};
+    double covariance_regularization_epsilon{1.0e-6};
+    double minimum_velocity_covariance{1.0e-5};
+    double static_score_forgetting_factor{0.95};
     double dt_max{0.5};           // [s] clamp for prediction step
     // Per-scan AABB extents flap (square box vs real shape). Smooth their magnitude
     // fast-grow/slow-shrink: expand immediately, relax over ~1/alpha matched frames.
@@ -117,26 +112,50 @@ struct TrackerParams
     int envelope_stability_frames{2};
 };
 
+struct VelocityEvidenceResult
+{
+    MotionEvidence evidence{MotionEvidence::Uncertain};
+    double statistic{std::numeric_limits<double>::quiet_NaN()};
+    bool covariance_valid{false};
+};
+
+// Pure utility used by the tracker and covariance edge-case unit tests. It never forms an inverse.
+VelocityEvidenceResult evaluateVelocityEvidence(
+    const Eigen::Vector2d &velocity,
+    const Eigen::Matrix2d &velocity_covariance,
+    const TrackerParams &params);
+
+const char *trackStatusName(TrackStatus status);
+const char *motionStatusName(MotionStatus status);
+
 struct Track
 {
     int id{0};
     Eigen::Vector4d x{Eigen::Vector4d::Zero()};   // [s, vs, d, vd]
     Eigen::Matrix4d P{Eigen::Matrix4d::Identity()};
+    // Supplemental classification-only map-frame CV Kalman filter [x, vx, y, vy].
+    Eigen::Vector4d map_x{Eigen::Vector4d::Zero()};
+    Eigen::Matrix4d map_P{Eigen::Matrix4d::Identity()};
+    bool map_filter_initialized{false};
     int hits{0};
     int ttl{0};
     bool is_static{true};
     bool is_visible{false};
-    // `classified` means the track has passed min_hits_confirm and may be published. It first
-    // enters ProvisionalStatic so a physical obstacle is available to local planning immediately;
-    // motion_class records the separate static/dynamic confidence state.
-    bool classified{false};
-    MotionClass motion_class{MotionClass::Pending};
-    int dyn_streak{0};
-    int static_streak{0};
+    TrackStatus track_status{TrackStatus::Raw};
+    MotionStatus motion_status{MotionStatus::Unknown};
+    std::deque<bool> confirmation_history;
+    std::deque<MotionEvidence> motion_evidence_history;
+    std::deque<std::pair<double, double>> map_position_history;
+    int dynamic_vote_count{0};
+    int static_vote_count{0};
+    int motion_observations_since_transition{0};
+    int total_measurement_updates{0};
+    double map_position_rms{std::numeric_limits<double>::quiet_NaN()};
+    double velocity_statistic{std::numeric_limits<double>::quiet_NaN()};
+    bool velocity_covariance_valid{false};
+    double static_confidence{0.0};
+    double time_since_last_measurement{0.0};
     int envelope_stable_streak{0};  // consecutive matched frames with a settled centre+envelope
-    double relative_speed{0.0};
-    double velocity_mahalanobis_sq{0.0};
-    bool dynamic_motion_reliable{false};
     // Most recent measured Frenet footprint, retained relative to the Kalman centre so a
     // predicted-only output can move its last valid shape without claiming a current Cartesian
     // scan footprint.
@@ -151,12 +170,15 @@ struct Track
     double x_max_map{0.0};
     double y_min_map{0.0};
     double y_max_map{0.0};
-    std::deque<std::pair<double, double>> hist;  // (s, d) for the std classifier
 
     double s() const { return x(0); }
     double vs() const { return x(1); }
     double d() const { return x(2); }
     double vd() const { return x(3); }
+    double mapX() const { return map_x(0); }
+    double mapVx() const { return map_x(1); }
+    double mapY() const { return map_x(2); }
+    double mapVy() const { return map_x(3); }
 };
 
 // Per-update tracker diagnostics. Association rejection counters count track-detection candidate
@@ -172,11 +194,13 @@ struct TrackerUpdateStats
 
     std::size_t total_tracks{0};
     std::size_t visible_tracks{0};
-    std::size_t hit_confirmation_pending{0};
-    std::size_t provisional_static{0};
-    std::size_t confirmed_static{0};
-    std::size_t confirmed_dynamic{0};
-    std::size_t dynamic_motion_gated{0};
+    std::size_t raw_tracks{0};
+    std::size_t tentative_tracks{0};
+    std::size_t motion_unknown{0};
+    std::size_t motion_static{0};
+    std::size_t motion_dynamic{0};
+    std::size_t invalid_velocity_covariance{0};
+    std::size_t predicted_only{0};
 };
 
 class ObstacleTracker
@@ -197,20 +221,25 @@ class ObstacleTracker
     const std::vector<Track> &tracks() const { return tracks_; }
     const TrackerUpdateStats &lastStats() const { return last_stats_; }
 
-    // Current map-flow reference velocity (Frenet): the walls'/stationary obstacles' shared
-    // apparent velocity that the dynamic opponent is measured against (Layer 2 baseline).
-    double staticRefVs() const { return static_ref_vs_; }
-    double staticRefVd() const { return static_ref_vd_; }
-
   private:
     void predict(Track &t, double dt) const;
+    void predictMap(Track &t, double dt) const;
     Eigen::Matrix2d measurementCovariance(const Detection &detection) const;
+    Eigen::Matrix2d mapMeasurementCovariance(
+        const Track &track, const Detection &detection) const;
     double innovationDistanceSquared(const Track &t, const Detection &detection) const;
-    double velocityMahalanobisSquared(const Track &t, double rel_vs, double rel_vd) const;
     void kalmanUpdate(Track &t, const Detection &detection) const;
+    bool mapKalmanUpdate(Track &t, const Detection &detection) const;
     double smoothExtent(double previous, double current) const;
-    void updateStaticReference();
-    void classify(Track &t, double ego_yaw_rate, bool yaw_rate_fresh) const;
+    void updateTrackStatus(Track &t, bool measurement_received) const;
+    void classify(Track &t, bool measurement_received) const;
+    int countEvidence(
+        const std::deque<MotionEvidence> &history,
+        MotionEvidence evidence,
+        int window) const;
+    double positionRms(const std::deque<std::pair<double, double>> &history) const;
+    void updateStaticConfidence(
+        Track &t, MotionEvidence evidence, bool measurement_received) const;
     double frenetDistSquared(double s1, double d1, double s2, double d2) const;
 
     TrackerParams p_;
@@ -219,8 +248,6 @@ class ObstacleTracker
     int next_id_{0};
     double last_stamp_{-1.0};
     bool has_last_stamp_{false};
-    double static_ref_vs_{0.0};   // map-flow reference velocity (Frenet s)
-    double static_ref_vd_{0.0};   // map-flow reference velocity (Frenet d)
     TrackerUpdateStats last_stats_;
 };
 

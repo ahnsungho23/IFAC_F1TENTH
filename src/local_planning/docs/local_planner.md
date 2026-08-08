@@ -53,52 +53,83 @@
 
 1. ego 앞 `detection_lookahead_m` 안의 장애물 상자를 폐루프 `s`로 펼칩니다.
 2. 최초 commitment용 Frenet 경계 합집합에는 `uncertainty_sigma_scale * sqrt(s_var/d_var)`와
-   `uncertainty_min_*_margin_m`을 더해 측정 불확실성 Guard를 만듭니다.
-3. 이 Guard를 다시 종방향 `obstacle_longitudinal_padding_m`, 횡방향
-   `obstacle_clearance_m`만큼 팽창합니다. 현재 횡방향 clearance 기본값은 0.25 m이며,
-   spline 목표에는 `commitment_clearance_reserve_m=0.05 m`의 추가 기하 여유를 둡니다.
-4. 원본 장애물의 가장 가까운 면에서 구한 곡선 기준 `|d|`가 글로벌 `d=0`의 차량 envelope
-   (`vehicle_half_width_m + blocking_margin_m`) 안에 들어올 때만 blocking 장애물로 봅니다.
-   경로 생성용 `obstacle_clearance_m`을 blocking 판정에 다시 더하지 않습니다.
-5. `obstacle_cluster_gap_m`보다 가까운 후속 장애물은 같은 기동으로 처리합니다.
+   `uncertainty_min_*_inflation_m`을 더해 측정 불확실성 Guard를 만듭니다.
+3. 이 Guard를 종방향 `obstacle_longitudinal_padding_m`만큼 넓혀 전환 시작·종료 구간을
+   확보합니다.
+4. 장애물 횡방향 계획 clearance는
+   `vehicle_half_width_m + safety_margin_m + tracking_error_reserve_m`를 사용합니다. 현재 값은
+   `0.1435 + 0.0582293 + 0.140 = 0.3417293 m`입니다.
+5. Guard의 가장 가까운 면이 글로벌 `d=0`에서 이 0.3417293 m 안에 들어올 때만 blocking
+   장애물로 봅니다.
+6. `obstacle_cluster_gap_m`보다 가까운 후속 장애물은 같은 기동으로 처리합니다.
+
+횡방향 처리 순서는 다음과 같습니다.
+
+```text
+detector raw AABB
+  -> uncertainty inflation을 한 번 적용한 Guard
+  -> vehicle_half_width_m + safety_margin_m + tracking_error_reserve_m를
+     한 번 적용한 차량 중심 허용 범위
+```
+
+`vehicle_half_width_m=0.1435`는 폭 0.287 m 실차의 반폭이고 마진이 아닙니다.
+`safety_margin_m`는 물리 안전 여유입니다. `tracking_error_reserve_m=0.14`는 동일 장애물·경로를
+1.5 m/s로 반복한 폐루프 시험에서 측정한 회피경로 오차(max 0.1370 m, P99 0.1345 m)를
+올림한 제어 여유입니다. 장애물, blocking, commitment hard 검사는 같은 장애물 clearance를
+사용합니다. 글로벌 waypoint의 `d_left/d_right`는 차량 반폭과 벽 안전마진이 이미 반영된 차량
+중심 가용 한계이므로, 트랙 경계 검사에서는 어떤 로컬 마진도 추가로 차감하지 않습니다.
+uncertainty inflation은 센서 측정이 실제 물체를 포함하도록 입력 경계를 만드는 관측 모델이며,
+차량 및 제어 오차 여유와 목적이 다릅니다.
 
 ### 3.3 최초 군집 안정화
 
-관측 게이트는 ego에서 가장 가까운 blocking 군집 앞면까지의 폐루프 Frenet 전방거리에 따라
-달라집니다. 기본값은 3m 이내에서 1회/0초, 8m 이상에서 3회/0.15초이며, 3~8m는 관측 횟수와
-최소 시간을 선형 보간합니다. 따라서 코너 직후 가까이 나타난 장애물은 첫 유효 메시지에서 바로
-좌우 spline 생성을 시도하고, 멀리 있는 장애물은 기존처럼 여러 메시지의 경계를 합쳐 안정화합니다.
-planning timer가 같은 메시지를 여러 번 사용하더라도 관측 횟수는 한 번만 증가합니다.
+처음 blocking 장애물이 들어오면 곧바로 좌우 spline을 확정하지 않습니다. 먼저 글로벌 `d=0` 위의
+검증된 감속 prefix를 `ot_line=raceline_static_prepare`로 발행합니다. 가장 가까운 군집의 각
+ID가 서로 다른 `/static_obs` 메시지에서 `initial_observation_count`회 관측되고
+`initial_observation_min_duration_sec`도 지날 때까지 wrap-aware Frenet 경계 합집합과 가장 큰
+`s_var/d_var`를 누적합니다. planning timer가 같은 메시지를 여러 번 사용하더라도 관측 횟수는
+한 번만 증가합니다. 기본 최소 0.15초를 함께 요구하므로 약 250Hz detector의 연속 3개 메시지만
+약 12ms 동안 받은 상태에서 곧바로 commitment하지 않습니다.
 
-게이트가 아직 충족되지 않으면 글로벌 `d=0` 위의 검증된 prefix를
-`ot_line=raceline_static_prepare`로 발행하고, wrap-aware Frenet 경계 합집합과 가장 큰
-`s_var/d_var`를 누적합니다. 게이트를 통과하면 다음 순서로 고정 Guard를 만듭니다.
+기본 3회 관측과 최소 0.15초가 모두 끝나면 다음 순서로 고정 Guard를 만듭니다.
 
-1. 같은 ID의 게이트 통과 전 detector Frenet 경계를 폐루프 `s`를 고려해 합집합으로 만듭니다.
+1. 같은 ID의 세 detector Frenet 경계를 폐루프 `s`를 고려해 합집합으로 만듭니다.
 2. 좌표변환 없이 이 종·횡 경계를 최초 obstacle envelope로 사용합니다.
 3. 종방향 양쪽에
-   `uncertainty_min_longitudinal_margin_m + uncertainty_sigma_scale * sqrt(s_var)`를 더합니다.
+   `uncertainty_min_longitudinal_inflation_m + uncertainty_sigma_scale * sqrt(s_var)`를
+   더합니다.
 4. 횡방향 양쪽에
-   `uncertainty_min_lateral_margin_m + uncertainty_sigma_scale * sqrt(d_var)`를 더하되,
-   `uncertainty_max_lateral_margin_m`으로 상한을 둡니다. 초기 검출의 큰 중심 분산이 Guard를
-   과도하게 키워 정중앙 장애물의 양쪽 목표 `d`를 동시에 불가능하게 만드는 것을 막습니다.
+   `uncertainty_min_lateral_inflation_m + uncertainty_sigma_scale * sqrt(d_var)`를 더하되,
+   `uncertainty_max_lateral_inflation_m`으로 상한을 둡니다. 초기 검출의 큰 중심 분산이
+   Guard를 과도하게 키워 정중앙 장애물의 양쪽 목표 `d`를 동시에 불가능하게 만드는 것을
+   막습니다.
 5. 이 Guard 전체를 피하는 spline을 만들고 Guard와 경로를 함께 commitment에 저장합니다.
 
-분산은 Kalman 중심 위치 불확실성이고 footprint 크기 오차를 직접 포함하지 않으므로 고정 최소 마진을
-별도로 더합니다. 분산이 음수이거나 유한하지 않으면 해당 sigma 항은 0으로 두고 최소 마진은
+분산은 Kalman 중심 위치 불확실성이고 footprint 크기 오차를 직접 포함하지 않으므로 고정 최소
+팽창값을 별도로 더합니다. 이 값은 `safety_margin_m`이 아니며 Guard를 만드는 입력 보정입니다.
+분산이 음수이거나 유한하지 않으면 해당 sigma 항은 0으로 두고 최소 팽창값은
 항상 적용합니다. 관측 횟수와 최소 시간을 모두 만족하면 계획하며, 입력이 누락되어 관측 횟수를
 채우지 못해도
 `initial_observation_max_wait_sec`에 도달하면 그동안의 가장 보수적인 합집합과 분산으로 계획합니다.
-장애물이 이미 `safe_stop_buffer_m` 안에 있어 준비 prefix조차 만들 수 없으면 게이트를 기다리지 않고
+장애물이 이미 `safe_stop_buffer_m` 안에 있어 감속 prefix조차 만들 수 없으면 3회를 기다리지 않고
 즉시 zero-speed safe-stop을 latch합니다.
 
 ### 3.4 좌우 목표 d 계산
 
-- 왼쪽 후보: 군집의 가장 큰 `d_left + clearance + commitment_clearance_reserve_m`
-- 오른쪽 후보: 군집의 가장 작은 `d_right - clearance - commitment_clearance_reserve_m`
+먼저 장애물에 적용할 차량 중심 계획 clearance `C_obs`를 계산합니다.
 
-두 후보를 모두 만들며, 각 글로벌 waypoint의 허용 중심 범위
-`[-d_right + 차량반폭 + boundary_margin, d_left - 차량반폭 - boundary_margin]`를 벗어나면
+```text
+C_obs = vehicle_half_width_m + safety_margin_m + tracking_error_reserve_m
+      = 0.1435 + 0.0582293 + 0.140
+      = 0.3417293 m
+```
+
+- 왼쪽 후보: 군집 Guard의 가장 큰 `d_left + C_obs`
+- 오른쪽 후보: 군집 Guard의 가장 작은 `d_right - C_obs`
+
+두 후보를 모두 만들며, 각 글로벌 waypoint의 허용 중심 범위는
+`[-d_right, d_left]`입니다. `d_left`와
+`d_right`에 이미 반영된 차량 반폭과 벽 안전마진을 다시 차감하지 않습니다. 이 범위를 벗어나면
 폐기합니다. 이때 장애물 군집의 확대된 `s_start~s_end` 구간에서 `target_d` 자체가 이 범위를
 벗어나는 방향은 5차 전환 프로파일을 만들기 전에 조기 폐기합니다. 이 검사는 명백히 불가능한 방향의
 최대 3개 길이 후보 생성을 생략하기 위한 gate이며, 통과한 방향도 전환 구간의 좁은 벽이나 다른
@@ -109,12 +140,9 @@ planning timer가 같은 메시지를 여러 번 사용하더라도 관측 횟�
 트랙 폭 여유(headroom)가 큰 쪽을 고릅니다. reference 폭은 측정 jitter가 없으므로 재계획
 사이에 선택 측면이 뒤집히지 않습니다.
 
-전체 `obstacle_clearance_m`으로 양쪽이 모두 거절되면 곧바로 정지하지 않고, 축소된
-`minimum_avoidance_clearance_m`으로 군집 확장부터 후보 선택까지 한 번 더 시도합니다.
-정중앙 장애물은 양쪽 모두 장애물 전체 폭 + 마진을 요구하므로 이 fallback의 주된 수혜
-대상입니다. 이 clearance는 차체 hard 한계(`vehicle_half_width_m + hard_collision_margin_m`)
-이상, `obstacle_clearance_m` 이하로 제한됩니다. fallback으로도 불가능할 때만 safe-stop으로
-넘어갑니다.
+장애물에는 `C_obs`를 한 번 적용하고, 트랙 경계는 보정된 중심 한계를 그대로 적용합니다. 별도 commitment
+reserve와 reduced-clearance fallback은 없습니다. 한쪽이 불가능하면 반대쪽을
+평가하고, 양쪽 모두 같은 안전거리로 불가능하면 safe-stop으로 넘어갑니다.
 
 commitment 뒤 기존 경로가
 위험해졌더라도 ego가 `commitment_lock_lateral_threshold_m`만큼 횡이동하거나
@@ -122,8 +150,8 @@ commitment 뒤 기존 경로가
 단, 진입 전 한 번 반대편으로 전환한 뒤에는 다시 되돌리지 않습니다. 정중앙 장애물의 동점
 재계획이 반복되어도 차량이 좌우로 흔들리지 않도록 하기 위함입니다.
 둘 중 하나에 도달해 실제 회피에 진입한 뒤에는 진행 중 갑자기 반대편으로 꺾지 않도록 방향을
-고정합니다. 기본 reserve 0.05m는 uncertainty Guard와 clearance의 검증 경계에 spline이 정확히
-접촉하지 않도록 목표를 5cm 더 바깥에 둡니다. 측정 흔들림 자체는 고정 Guard가 담당합니다.
+고정합니다. 측정 흔들림은 고정 uncertainty Guard가 담당하고, 물리 안전거리는 경로 생성과
+재검증 모두 같은 `C`를 사용합니다.
 
 ### 3.5 로컬 d-offset spline
 
@@ -145,9 +173,13 @@ overshoot하지 않으며, 결과 `d`는 `ego_d`, `target_d`, `0`의 최소·최
 중간·가까운 점의 `d`는 위 식에서 계산되므로 모두 0으로 고정되지 않고 목표 쪽으로 점진적으로
 이동합니다. `post_apex_distances_m=[가까운 점, 중간 점, 먼 점]`도 같은 방식으로 복귀 구간을
 표시하며, 먼 점이 전체 복귀 길이입니다. 중간·가까운 값은 실제 프로파일을 RViz 제어점으로
-표본화하는 위치이고 프로파일 자체를 꺾지 않습니다. 기본값은 각각 `[6.0, 4.0, 2.0]`,
-`[1.0, 2.0, 3.0]` m입니다. 필요한 진입 시작점이 ego 뒤라면 현재 `ego.s`에서 `ego.d`와
+표본화하는 위치이고 프로파일 자체를 꺾지 않습니다. 현재 운영값은 각각 `[9.0, 6.0, 3.0]`,
+`[1.6471993, 3.2943986, 4.9415979]` m입니다. 필요한 진입 시작점이 ego 뒤라면 현재 `ego.s`에서 `ego.d`와
 0 기울기·0 이차 미분으로 시작해 남은 거리 전체를 사용합니다.
+
+이 운영값과 `safety_margin_m=0.0582293`, `obstacle_longitudinal_padding_m=0.3661363`,
+`transition_distance_scales=[0.2126429, 1.0747139, 3.5]`는 변경된 동일 장애물 배치를 대상으로
+1.5 m/s CMA-ES 탐색 후 동일 후보를 포함해 3회 연속 무충돌 완주한 조합입니다.
 
 그다음 ego부터 merge 뒤 global tail까지의 글로벌 waypoint를 순서대로 복사합니다. tail 길이는
 다음처럼 거리 하한과 계획 당시 속도 기준 시간 하한 중 큰 값입니다.
@@ -177,18 +209,20 @@ y_local = y_global + d(s) * cos(psi_global)
 4. 이동된 geometry에서 계산한 곡률로 횡가속도 속도 상한 만족
 5. 전·후방 속도 패스로 종가속도와 종감속도 제한 만족
 
-`transition_distance_scales`는 진입과 복귀에 독립적으로 적용합니다. 기본
-`[1.0, 1.25, 1.5]`이면 진입은 1.5배부터 검사해 사용 가능한 접근 거리를 최대한 활용하고,
-복귀는 1.0배부터 검사해 가장 짧은 안전 복귀를 선택합니다. 짧은 복귀가 곡선의 트랙 경계,
-장애물 충돌, 횡기울기, 곡률 또는 곡률 변화율 검사를 통과하지 못할 때만 1.25배, 1.5배로
+`transition_distance_scales`는 진입과 복귀에 독립적으로 적용합니다. 현재 운영값
+`[0.2126429, 1.0747139, 3.5]`이면 진입은 3.5배부터 검사해 사용 가능한 접근 거리를 최대한 활용하고,
+복귀는 0.2126429배부터 검사해 가장 짧은 안전 복귀를 선택합니다. 짧은 복귀가 곡선의 트랙 경계,
+장애물 충돌, 횡기울기, 곡률 또는 곡률 변화율 검사를 통과하지 못할 때만 다음 배율로
 늘립니다. 이것은 자유공간 후보 탐색이 아니라 동일한 글로벌 점에 적용하는 5차 프로파일 길이
 조정입니다.
 
-좌우가 모두 실패하면 글로벌 `d=0` 위에서 장애물 앞 `safe_stop_buffer_m`까지의 충돌 없는 prefix를
-만들고 마지막 속도를 0으로 둡니다. 회피 spline의 `minimum_path_points`보다 짧더라도 2점 이상의
-정지 prefix는 별도로 검증해 사용합니다. 장애물이 이미 buffer 안에 있어 prefix를 만들 수 없으면
-현재 `d`를 유지하는 전방 waypoint들의 속도를 모두 0으로 둔 emergency hold를 발행합니다. 따라서
-정지 실패가 빈 `/avoid_waypoints`를 통해 global 경로 선택으로 이어지지 않습니다.
+좌우가 모두 실패하면 글로벌 `d=0` 위에서 longitudinal padding이 적용된 장애물 경계 앞
+`safe_stop_buffer_m`까지의 충돌 없는 prefix를 만들고 마지막 속도를 0으로 둡니다. 현재 설정은
+`safe_stop_buffer_m=0.40 m`, `obstacle_longitudinal_padding_m=0.3661363 m`이므로 detector 원본 AABB
+앞 기준 nominal 정지 거리는 0.7661363 m입니다. 회피 spline의 `minimum_path_points`보다 짧더라도 2점
+이상의 정지 prefix는 별도로 검증해 사용합니다. 장애물이 이미 buffer 안에 있어 prefix를 만들 수
+없으면 현재 `d`를 유지하는 전방 waypoint들의 속도를 모두 0으로 둔 emergency hold를 발행합니다.
+따라서 정지 실패가 빈 `/avoid_waypoints`를 통해 global 경로 선택으로 이어지지 않습니다.
 
 ### 3.7 commitment와 합류
 
@@ -200,13 +234,17 @@ y_local = y_global + d(s) * cos(psi_global)
 
 최신 uncertainty envelope가 Guard를 벗어나면 기존 경로를 두 단계로 검사합니다.
 
-1. detector 원본 Frenet 경계에 `vehicle_half_width_m + hard_collision_margin_m`을 더한
-   hard 영역과 겹치면 실제 차체 충돌 가능성이므로 그 planning cycle에서 즉시 재계획합니다.
-2. 원본 hard 영역은 피하지만 uncertainty Guard와 전체 `obstacle_clearance_m`을 적용한 영역만
-   침범하면 soft 충돌로 분류합니다. `commitment_soft_violation_confirm_cycles`회 연속일 때만
-   재계획하고, 그 전에 해소되면 카운터를 지우고 고정 경로를 유지합니다.
+1. detector 원본 Frenet 경계에 동일한 `C_obs`를 적용한 hard 영역과 겹치면 실제 차체 충돌
+   가능성이므로 그 planning cycle에서 즉시 재계획합니다.
+2. 원본 hard 영역은 피하지만 uncertainty Guard에 동일한 `C_obs`를 적용한 영역만 침범하면 soft
+   충돌로 분류합니다. `commitment_soft_violation_confirm_cycles`회 연속일 때만 재계획하고,
+   그 전에 해소되면 카운터를 지우고 고정 경로를 유지합니다.
 3. 충돌 로그에는 장애물 ID, 충돌 waypoint의 `s/d`, 장애물 `s` 범위, 입력 및 검사 `d` 범위와
-   적용 clearance를 기록합니다.
+   적용된 장애물 clearance `C_obs`를 기록합니다.
+
+soft와 hard의 차이는 마진 크기가 아니라 검사 입력입니다. soft는 불확실성이 포함된 Guard,
+hard는 detector raw AABB를 검사합니다. 둘 다 차량 반폭, `safety_margin_m`,
+`tracking_error_reserve_m`을 정확히 한 번만 사용합니다.
 
 기본 planning 주기 25ms와 3회 확인은 약 75ms입니다. hard 충돌과 경로 끝 소진, 트랙 경계 및
 기하 오류에는 이 지연을 적용하지 않습니다. 재계획 시 회피 진입 전에는 반대편 전환을 commitment당
@@ -246,10 +284,10 @@ ego가 마지막 `state_handoff_tail_ratio` 구간의 첫 부분에 위치하도
 merge 뒤 controller 시야 확보용 global tail만 겹치는 장애물은 현재 maneuver를 실패시키지
 않습니다.
 
-다음 maneuver 군집도 첫 회피를 수행하는 동안 현재 ego와 군집 앞면 사이의 거리를 사용해 같은
-가변 게이트를 적용합니다. 입력이 부족할 때는 `initial_observation_max_wait_sec=0.35초`를 최대
-대기시간으로 사용합니다. 현재 장애물 Guard의
-뒤쪽을 `chain_release_margin_m`만큼 완전히 지난 뒤 다음 군집이 안정화되어 있으면 다음 순서로
+다음 maneuver 군집은 첫 회피를 수행하는 동안에도 기존 최초 관측 조건, 즉 각 ID의 실제
+`/static_obs` 3회 관측, 최소 `initial_observation_min_duration_sec=0.15초`와 최대
+`initial_observation_max_wait_sec=0.35초`를 사용해 동시에 안정화합니다. 현재 장애물 Guard의
+뒤쪽을 `chain_release_distance_m`만큼 완전히 지난 뒤 다음 군집이 안정화되어 있으면 다음 순서로
 직접 연결합니다.
 
 1. 완료한 군집 ID를 이번 연속 회피가 끝날 때까지 제외 목록에 넣습니다.
@@ -309,24 +347,21 @@ commitment는 지우지 않으므로 odometry가 회복되면 다시 검증한 �
 모든 운영값은 `config/local_planning.yaml`에 있습니다.
 
 - 검출: `detection_lookahead_m`, `obstacle_cluster_gap_m`
-- 장애물 여유: `obstacle_longitudinal_padding_m`, `obstacle_clearance_m`, `blocking_margin_m`
-- 차체/트랙: `vehicle_half_width_m`, `boundary_margin_m`(기본 0.13 m),
-  `fallback_track_half_width_m`
+- 종방향 계획 확장: `obstacle_longitudinal_padding_m`
+- 장애물 clearance: `vehicle_half_width_m + safety_margin_m + tracking_error_reserve_m`
+- 트랙 경계 reserve: `0.0 m` (`d_left/d_right`에 차량 반폭·벽 마진 반영 완료)
+- 트랙 폭 fallback: `fallback_track_half_width_m`
 - spline 제어점: `pre_apex_distances_m`, `post_apex_distances_m`
 - spline 길이: `transition_distance_scales`, `outside_line_transition_scale`
 - 합류 후 시야: `post_merge_lookahead_m`, `post_merge_min_time_sec`
-- 목표 제한: `minimum_target_offset_m`, `maximum_target_offset_m`,
-  `commitment_clearance_reserve_m`, `minimum_avoidance_clearance_m`, `side_tie_epsilon_m`
+- 목표 제한: `minimum_target_offset_m`, `maximum_target_offset_m`, `side_tie_epsilon_m`
 - 최초 관측: `initial_observation_count`, `initial_observation_min_duration_sec`,
-  `initial_observation_max_wait_sec`, `stabilization_near_distance_m`,
-  `stabilization_far_distance_m`, `near_observation_count`,
-  `near_observation_min_duration_sec`
-- 불확실성 Guard: `uncertainty_sigma_scale`, `uncertainty_min_longitudinal_margin_m`,
-  `uncertainty_min_lateral_margin_m`, `uncertainty_max_lateral_margin_m`
-- commitment 충돌 확인: `commitment_soft_violation_confirm_cycles`,
-  `hard_collision_margin_m`
+  `initial_observation_max_wait_sec`
+- 불확실성 Guard: `uncertainty_sigma_scale`, `uncertainty_min_longitudinal_inflation_m`,
+  `uncertainty_min_lateral_inflation_m`, `uncertainty_max_lateral_inflation_m`
+- commitment 충돌 확인: `commitment_soft_violation_confirm_cycles`
 - 방향 잠금: `commitment_lock_lateral_threshold_m`, `commitment_lock_longitudinal_m`
-- maneuver 연결: `chain_release_margin_m`
+- maneuver 연결: `chain_release_distance_m`
 - 기하 제한: `maximum_lateral_slope`, `maximum_curvature_radpm`,
   `maximum_curvature_rate_radpm2`
 - 실패 시 정지: `safe_stop_buffer_m`, `safe_stop_deceleration_mps2`,
@@ -361,7 +396,7 @@ colcon test-result --verbose --test-result-base build/local_planning
 2. 글로벌 waypoint의 `s`와 순서를 보존한 d-offset
 3. 한쪽 트랙 폭이 부족할 때 반대쪽 선택
 4. 회피 진입 전 반대편 재평가와 진입 후 commitment 방향 고정
-5. reserve가 적용된 목표, 작은 Frenet 경계 흔들림과 soft/hard 충돌 경계 구분
+5. 단일 safety margin이 목표·트랙·Guard/raw 충돌 검사에 동일하게 적용되는지 확인
 6. 준비 감속 경로와 전체 blocking cluster ID 전달
 7. safe-stop buffer 안의 장애물에 준비 지연을 적용하지 않음
 8. 글로벌 라인과 원본 clearance가 충분한 옆 장애물 무시
@@ -372,14 +407,13 @@ colcon test-result --verbose --test-result-base build/local_planning
 13. 현재 `ego.d`에서 다음 maneuver spline으로 연속 연결
 14. 0속도 emergency hold와 랩 경계 장애물 처리
 15. 가까운 반대편 스네이크 branch로 점프하지 않음
-16. 좁은 트랙의 정중앙 장애물에 축소 clearance fallback으로 회피하고, fallback 비활성 시
-    safe-stop을 유지
+16. 차량 중심 한계 `d_left/d_right`를 그대로 사용해 로컬 벽 마진의 이중 차감을 방지
 17. 정중앙 동점에서 트랙 폭 여유가 큰 쪽을 안정적으로 선택
 18. 5차 진입·복귀 표본의 `d`가 직선에서 점진적으로 증가·감소
 19. 가장 긴 안전 진입 scale과 가장 짧은 안전 복귀 scale을 독립적으로 선택
 20. 곡선 Race Line에서도 5차 회피 경로가 경계·곡률 검증을 통과
 
-`test/test_obstacle_guard.cpp`는 `s_var/d_var`의 표준편차 확장, 최소 크기 마진, 폐루프 `s` wrap,
+`test/test_obstacle_guard.cpp`는 `s_var/d_var`의 표준편차 확장, 최소 크기 팽창값, 폐루프 `s` wrap,
 고정 Guard 안의 작은 중심 이동 허용, 누적 이동의 Guard 이탈, 잘못된 분산의 fallback, 횡방향
 마진 상한을 검사합니다.
 
@@ -387,10 +421,9 @@ colcon test-result --verbose --test-result-base build/local_planning
 ±1cm 흔들고 `s_var/d_var`를 제공해도 10회 연속 동일 commitment가 발행되는지 확인합니다.
 Cartesian AABB-to-Frenet 투영 단위 테스트는 좌표변환의 소유자인
 `obstacle_detector/test/test_aabb_frenet_projector.cpp`에 있습니다.
-`test/initial_cluster_stabilization_pipeline_test.py`는 먼 장애물에서 보수적인 관측 게이트가
-유지되고, 늦게 합류한 같은 군집 ID까지 반영한 뒤 최초 commitment가 만들어지는지 확인합니다.
-`test/test_observation_gate.cpp`는 가까운 거리, 보간 구간, 먼 거리의 관측 횟수와 최소 시간을
-검사합니다.
+`test/initial_cluster_stabilization_pipeline_test.py`는 첫 검출 0.1초 뒤 같은 군집에 ID를 하나
+추가해 최소 0.15초 및 실제 토픽 3회 관측을 모두 거친 뒤, 넓어진 군집을 반영한 방향으로 최초
+commitment가 만들어지는지 확인합니다.
 `test/soft_violation_confirmation_pipeline_test.py`는 한두 cycle의 soft 충돌에서 고정 경로를
 유지하고, 지속되는 soft 충돌만 3회 확인 뒤 같은 방향으로 재계획하는지 검사합니다.
 `test/pre_engagement_side_switch_pipeline_test.py`는 ego가 회피 진입

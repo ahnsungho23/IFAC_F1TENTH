@@ -195,9 +195,9 @@ class SequentialObstacleProbe(Node):
             self.failure = 'second maneuver committed before its obstacle was published'
             return
         stabilization_elapsed = time.monotonic() - self.second_first_publish_time
-        if stabilization_elapsed < 0.05:
+        if stabilization_elapsed < 0.15:
             self.failure = (
-                'second maneuver skipped the distance-adaptive cluster stabilization '
+                'second maneuver skipped the 0.15 s cluster stabilization '
                 f'({stabilization_elapsed:.3f} s)')
             return
         self.passed = True
@@ -225,7 +225,7 @@ def main():
                 else 'directly from the active avoidance')
             print(
                 f'PASS: first-left avoidance chained {transition} to '
-                f'second-right avoidance {timing} after distance-adaptive stabilization over '
+                f'second-right avoidance {timing} after stabilization over '
                 f'{node.outputs_after_first} outputs')
             return 0
         print(f'FAIL: {node.failure or "sequential maneuver did not complete"}')

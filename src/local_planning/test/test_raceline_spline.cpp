@@ -94,9 +94,9 @@ RacelineSplineParameters testParameters()
 {
   RacelineSplineParameters parameters;
   parameters.detection_lookahead_m = 12.0;
-  parameters.obstacle_clearance_m = 0.25;
   parameters.vehicle_half_width_m = 0.12;
-  parameters.boundary_margin_m = 0.08;
+  parameters.safety_margin_m = 0.03;
+  parameters.tracking_error_reserve_m = 0.0;
   parameters.maximum_curvature_radpm = 5.0;
   parameters.maximum_curvature_rate_radpm2 = 50.0;
   return parameters;
@@ -270,7 +270,7 @@ TEST(RacelineSplinePlanner, BuildsClosedGlobalHandoffWithEgoInStateTail)
 
 TEST(RacelineSplinePlanner, UsesRightSideWhenLeftTrackSpaceIsInsufficient)
 {
-  auto reference = makeStraightReference(300, 0.1, 0.55, 1.5);
+  auto reference = makeStraightReference(300, 0.1, 0.45, 1.5);
   RacelineSplinePlanner planner(testParameters());
   ASSERT_TRUE(planner.setReference(reference));
   const auto result = planner.plan(EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(3, 7.0)});
@@ -281,7 +281,7 @@ TEST(RacelineSplinePlanner, UsesRightSideWhenLeftTrackSpaceIsInsufficient)
 
 TEST(RacelineSplinePlanner, RejectsWallBlockedTargetsBeforeSplineConstruction)
 {
-  auto reference = makeStraightReference(300, 0.1, 0.55, 0.55);
+  auto reference = makeStraightReference(300, 0.1, 0.34, 0.34);
   RacelineSplinePlanner planner(testParameters());
   ASSERT_TRUE(planner.setReference(reference));
 
@@ -297,34 +297,23 @@ TEST(RacelineSplinePlanner, RejectsWallBlockedTargetsBeforeSplineConstruction)
     std::string::npos);
 }
 
-TEST(RacelineSplinePlanner, FallsBackToTightClearanceForCentredObstacleOnNarrowTrack)
+TEST(RacelineSplinePlanner, DoesNotSubtractVehicleClearanceTwiceFromTrackBounds)
 {
-  auto reference = makeStraightReference(300, 0.1, 0.65, 0.65);
-  RacelineSplinePlanner planner(testParameters());
-  ASSERT_TRUE(planner.setReference(reference));
-
-  // Centred obstacle: the full-clearance target (0.50) exceeds the 0.45 track gate on BOTH
-  // sides at once. The reduced-clearance fallback target (0.43) still fits, so the planner
-  // avoids instead of stopping.
-  const auto result = planner.plan(
+  // A centred obstacle ending at d=0.20 produces target d=0.35 after obstacle clearance.
+  // d_left/d_right already describe vehicle-centre limits, so 0.35 is exactly feasible when
+  // tracking reserve is zero. Vehicle half-width and safety margin must not be deducted again.
+  RacelineSplinePlanner feasible_planner(testParameters());
+  ASSERT_TRUE(feasible_planner.setReference(makeStraightReference(300, 0.1, 0.35, 0.35)));
+  const auto feasible = feasible_planner.plan(
     EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(3, 7.0)});
-  ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
-  EXPECT_TRUE(result.go_left);
-  EXPECT_NEAR(result.target_d, 0.43, 1.0e-9);
-  EXPECT_NE(result.reason.find("reduced-clearance fallback"), std::string::npos);
-}
+  ASSERT_EQ(feasible.kind, SplinePlanKind::kAvoidance) << feasible.reason;
+  EXPECT_NEAR(std::abs(feasible.target_d), 0.35, 1.0e-9);
 
-TEST(RacelineSplinePlanner, KeepsSafeStopWhenReducedClearanceFallbackIsDisabled)
-{
-  auto parameters = testParameters();
-  parameters.minimum_avoidance_clearance_m = parameters.obstacle_clearance_m;
-  auto reference = makeStraightReference(300, 0.1, 0.65, 0.65);
-  RacelineSplinePlanner planner(parameters);
-  ASSERT_TRUE(planner.setReference(reference));
-
-  const auto result = planner.plan(
+  RacelineSplinePlanner blocked_planner(testParameters());
+  ASSERT_TRUE(blocked_planner.setReference(makeStraightReference(300, 0.1, 0.34, 0.34)));
+  const auto blocked = blocked_planner.plan(
     EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(3, 7.0)});
-  EXPECT_EQ(result.kind, SplinePlanKind::kSafeStop) << result.reason;
+  EXPECT_EQ(blocked.kind, SplinePlanKind::kSafeStop) << blocked.reason;
 }
 
 TEST(RacelineSplinePlanner, BreaksCentredObstacleScoreTieWithTrackHeadroom)
@@ -336,14 +325,14 @@ TEST(RacelineSplinePlanner, BreaksCentredObstacleScoreTieWithTrackHeadroom)
   RacelineSplinePlanner planner(testParameters());
   ASSERT_TRUE(planner.setReference(reference));
 
-  // Centred obstacle: both targets are +/-0.50 and the scores tie within
+  // Centred obstacle: both targets are +/-0.35 and the scores tie within
   // side_tie_epsilon_m. The wider right side offers more headroom, so the tie resolves to
   // the right even though the raw score marginally favours the left.
   const auto result = planner.plan(
     EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(3, 8.0)});
   ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
   EXPECT_FALSE(result.go_left);
-  EXPECT_NEAR(result.target_d, -0.50, 1.0e-9);
+  EXPECT_NEAR(result.target_d, -0.35, 1.0e-9);
 }
 
 TEST(RacelineSplinePlanner, HonorsCommittedSideWhenItRemainsFeasible)
@@ -356,23 +345,36 @@ TEST(RacelineSplinePlanner, HonorsCommittedSideWhenItRemainsFeasible)
   EXPECT_TRUE(result.go_left);
 }
 
-TEST(RacelineSplinePlanner, AddsReserveOutsideValidatedObstacleClearance)
+TEST(RacelineSplinePlanner, AppliesSingleSafetyMarginToAvoidanceTarget)
+{
+  RacelineSplinePlanner planner(testParameters());
+  ASSERT_TRUE(planner.setReference(makeStraightReference()));
+  const auto result = planner.plan(
+    EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(2, 7.0)}, true, false);
+  ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
+  // raw d_left 0.20 + vehicle half-width 0.12 + the only safety margin 0.03
+  EXPECT_NEAR(result.target_d, 0.35, 1.0e-9);
+}
+
+TEST(RacelineSplinePlanner, AppliesTrackingErrorReserveAsSeparateClearanceTerm)
 {
   auto parameters = testParameters();
-  parameters.commitment_clearance_reserve_m = 0.05;
+  parameters.tracking_error_reserve_m = 0.14;
+  EXPECT_NEAR(parameters.obstacleSafetyClearance(), 0.29, 1.0e-9);
+  EXPECT_DOUBLE_EQ(parameters.trackBoundaryReserve(), 0.0);
+
   RacelineSplinePlanner planner(parameters);
   ASSERT_TRUE(planner.setReference(makeStraightReference()));
   const auto result = planner.plan(
     EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(2, 7.0)}, true, false);
   ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
-  EXPECT_NEAR(result.target_d, 0.50, 1.0e-9);
+  // raw d_left 0.20 + half-width 0.12 + safety 0.03 + tracking reserve 0.14
+  EXPECT_NEAR(result.target_d, 0.49, 1.0e-9);
 }
 
-TEST(RacelineSplinePlanner, KeepsCommittedPathValidAcrossSmallAabbJitter)
+TEST(RacelineSplinePlanner, RejectsCommittedPathWhenObstacleEnvelopeGrows)
 {
-  auto parameters = testParameters();
-  parameters.commitment_clearance_reserve_m = 0.05;
-  RacelineSplinePlanner planner(parameters);
+  RacelineSplinePlanner planner(testParameters());
   ASSERT_TRUE(planner.setReference(makeStraightReference()));
   const EgoFrenetState ego{0.0, 0.0, 2.0};
   const auto committed = planner.plan(ego, {makeObstacle(2, 7.0)}, true, false);
@@ -382,42 +384,42 @@ TEST(RacelineSplinePlanner, KeepsCommittedPathValidAcrossSmallAabbJitter)
   EXPECT_TRUE(
     planner.validatePath(
       EgoFrenetState{0.2, 0.0, 2.0}, committed.path,
-      {makeObstacle(2, 7.0, -0.22, 0.22)}, &reason)) << reason;
+      {makeObstacle(2, 7.0)}, &reason)) << reason;
   EXPECT_FALSE(
     planner.validatePath(
       EgoFrenetState{0.2, 0.0, 2.0}, committed.path,
-      {makeObstacle(2, 7.0, -0.35, 0.35)}, &reason));
+      {makeObstacle(2, 7.0, -0.21, 0.21)}, &reason));
 }
 
-TEST(RacelineSplinePlanner, DistinguishesSoftEnvelopeFromHardVehicleCollision)
+TEST(RacelineSplinePlanner, UsesSameClearanceForGuardAndRawObstacleInputs)
 {
-  auto parameters = testParameters();
-  parameters.commitment_clearance_reserve_m = 0.05;
-  RacelineSplinePlanner planner(parameters);
+  RacelineSplinePlanner planner(testParameters());
   ASSERT_TRUE(planner.setReference(makeStraightReference()));
   const EgoFrenetState ego{0.0, 0.0, 2.0};
   const auto committed = planner.plan(ego, {makeObstacle(23, 7.0)}, true, false);
   ASSERT_EQ(committed.kind, SplinePlanKind::kAvoidance) << committed.reason;
 
-  const auto expanded_obstacle = makeObstacle(23, 7.0, -0.20, 0.30);
+  // Soft/hard behavior differs only by the input envelope. Both calls add the same 0.15 m:
+  // the uncertainty Guard reaches d=0.21 and collides, while raw geometry reaches d=0.19
+  // and remains clear.
+  const auto uncertainty_guard = makeObstacle(23, 7.0, -0.20, 0.21);
   std::string reason;
   PathValidationFailure failure;
   EXPECT_FALSE(
     planner.validatePath(
-      ego, committed.path, {expanded_obstacle}, &reason, &failure));
+      ego, committed.path, {uncertainty_guard}, &reason, &failure));
   EXPECT_EQ(failure.kind, PathValidationFailureKind::kObstacleCollision);
   EXPECT_EQ(failure.obstacle_id, 23);
   EXPECT_TRUE(std::isfinite(failure.waypoint_s));
   EXPECT_TRUE(std::isfinite(failure.waypoint_d));
-  EXPECT_NEAR(failure.obstacle_source_d_left, 0.30, 1.0e-9);
-  EXPECT_NEAR(failure.obstacle_test_d_left, 0.55, 1.0e-9);
-  EXPECT_NEAR(failure.obstacle_clearance, 0.25, 1.0e-9);
+  EXPECT_NEAR(failure.obstacle_source_d_left, 0.21, 1.0e-9);
+  EXPECT_NEAR(failure.obstacle_test_d_left, 0.36, 1.0e-9);
+  EXPECT_NEAR(failure.obstacle_clearance, 0.15, 1.0e-9);
 
-  constexpr double kHardVehicleClearance = 0.15;
   EXPECT_TRUE(
     planner.validatePath(
-      ego, committed.path, {expanded_obstacle}, &reason, &failure,
-      kHardVehicleClearance)) << reason;
+      ego, committed.path, {makeObstacle(23, 7.0, -0.20, 0.19)},
+      &reason, &failure)) << reason;
   EXPECT_EQ(failure.kind, PathValidationFailureKind::kNone);
 }
 
@@ -446,7 +448,7 @@ TEST(RacelineSplinePlanner, IgnoresPostMergeTailCollisionForCurrentCommitment)
   EXPECT_TRUE(
     planner.validatePath(
       ego, committed.path, {next_obstacle}, &reason, &failure,
-      std::nullopt, merge_horizon)) << reason;
+      merge_horizon)) << reason;
 }
 
 TEST(RacelineSplinePlanner, StartsNextManeuverContinuouslyFromNonzeroEgoD)
@@ -475,7 +477,7 @@ TEST(RacelineSplinePlanner, StartsNextManeuverContinuouslyFromNonzeroEgoD)
 
 TEST(RacelineSplinePlanner, DoesNotReverseCommittedSideWhenItBecomesBlocked)
 {
-  auto reference = makeStraightReference(300, 0.1, 0.55, 1.5);
+  auto reference = makeStraightReference(300, 0.1, 0.34, 1.5);
   RacelineSplinePlanner planner(testParameters());
   ASSERT_TRUE(planner.setReference(reference));
   const EgoFrenetState ego{0.0, 0.0, 2.0};
@@ -628,6 +630,7 @@ TEST(RacelineSplinePlanner, AllowsShortValidatedSafeStopPrefix)
   auto parameters = testParameters();
   parameters.maximum_target_offset_m = 0.45;
   parameters.minimum_path_points = 8;
+  parameters.safe_stop_buffer_m = 0.80;
   RacelineSplinePlanner planner(parameters);
   ASSERT_TRUE(planner.setReference(makeStraightReference()));
   const auto result = planner.plan(
