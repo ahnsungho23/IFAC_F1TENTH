@@ -38,6 +38,15 @@ def generate_launch_description():
         default_value=default_config,
         description='Path to the obstacle_detector parameter file',
     )
+    runtime_profile_arg = DeclareLaunchArgument(
+        'runtime_profile',
+        default_value=os.path.join(
+            get_package_share_directory('f1tenth_control'),
+            'config',
+            'runtime_visualization.yaml',
+        ),
+        description='Shared visualization/output profile YAML',
+    )
     # NOTE: decoupled from `simulator`. The f1tenth_gym_ros bridge runs on WALL CLOCK (no /clock),
     # so use_sim_time must stay false there or the node stalls. Only true if /clock is published.
     use_sim_time_arg = DeclareLaunchArgument(
@@ -74,7 +83,11 @@ def generate_launch_description():
         executable='obstacle_detector_node',
         name='obstacle_detector',
         output='screen',
-        parameters=[config_file, common_params],
+        parameters=[
+            config_file,
+            common_params,
+            LaunchConfiguration('runtime_profile'),
+        ],
     )
 
     # private clean-map server (latched /obstacle_detector/map), only when detector_map_yaml is set
@@ -103,6 +116,7 @@ def generate_launch_description():
     return LaunchDescription([
         simulator_arg,
         config_arg,
+        runtime_profile_arg,
         use_sim_time_arg,
         detector_map_arg,
         detector_node,

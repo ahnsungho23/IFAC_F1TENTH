@@ -120,4 +120,5 @@ local_planner_node:
     state_topic: "/state"
     ot_waypoints_topic: "/avoid_waypoints"
     local_path_topic: "/local_planning/path"
+    publish_path_visualization: true
     frame_id: "map"

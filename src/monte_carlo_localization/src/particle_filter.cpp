@@ -83,6 +83,7 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
     this->declare_parameter("publish_odom", true);
     this->declare_parameter("viz", true);
     this->declare_parameter("timer_frequency", 100.0);
+    this->declare_parameter("publish_map", true);
     
     // Performance
     this->declare_parameter("use_parallel_raycasting", true);
@@ -157,6 +158,7 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
     // ROS interface
     PUBLISH_ODOM = this->get_parameter("publish_odom").as_bool();
     DO_VIZ = this->get_parameter("viz").as_bool();
+    PUBLISH_MAP = this->get_parameter("publish_map").as_bool();
     TIMER_FREQUENCY = this->get_parameter("timer_frequency").as_double();
 
     // Performance
@@ -249,7 +251,11 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
     }
 
     // Map publisher
-    map_pub_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>("/map", rclcpp::QoS(1).transient_local());
+    if (PUBLISH_MAP)
+    {
+        map_pub_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>(
+            "/map", rclcpp::QoS(1).transient_local());
+    }
 
     // TF broadcaster and listener
     pub_tf_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
@@ -296,10 +302,13 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
     full_timer_interval_ = static_cast<int>(1000.0 / TIMER_FREQUENCY);
 
     // Map publisher timer
-    map_timer_ = this->create_wall_timer(
-        std::chrono::milliseconds(200),
-        std::bind(&ParticleFilter::publish_map_periodically, this)
-    );
+    if (PUBLISH_MAP)
+    {
+        map_timer_ = this->create_wall_timer(
+            std::chrono::milliseconds(200),
+            std::bind(&ParticleFilter::publish_map_periodically, this)
+        );
+    }
 
 
     RCLCPP_INFO(this->get_logger(), "Particle filter initialized - %.1fHz, %s threading (%d threads)", 

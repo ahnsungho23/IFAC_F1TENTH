@@ -384,3 +384,8 @@ PASS 조건은 동적 상대차가 먼저 `/static_obs`에 provisional로 나타
 5포인트 미만 LiDAR 파편들이 tracking 전에 하나의 detection으로 복원되고, 별도 track으로 남은
 조각난 정적 물체도 layer merge에서 하나의 출력 객체로 병합되며, 모든 출력 Frenet 경계가
 유한하고 `d_right <= d_left`인 것이다. 폐루프 경계를 넘는 객체의 `s_start > s_end`는 정상이다.
+## 통합 시각화 프로파일
+
+launch는 `f1tenth_control/config/runtime_visualization.yaml`을 패키지 YAML 뒤에 읽는다.
+`publish_markers=false`이면 `/static_obs/markers`, `/opp_obs/markers` publisher와 MarkerArray
+생성을 생략한다. `/static_obs`, `/confirmed_static_obs`, `/opp_obs`에는 영향이 없다.

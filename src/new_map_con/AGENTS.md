@@ -12,3 +12,5 @@ Rules:
 - Keep standalone/offline trajectory generation outside `/src`; this package should consume its CSV output through parameters.
 - Keep the packaged default waypoint CSV aligned with the simulator map used by `f1sim`; if `global_waypoints_csv` changes to a different map, update docs and any simulator run instructions in the same change.
 - User-facing package documentation must be written in Korean under `docs/`.
+- Load the shared `f1tenth_control/config/runtime_visualization.yaml` after `config/config.yaml`;
+  it may override `publish_debug_markers` only and must not change control behavior.

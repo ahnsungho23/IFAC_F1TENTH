@@ -36,6 +36,15 @@ def generate_launch_description():
         default_value=default_config,
         description='Parameter file for obstacle_detector_node',
     )
+    runtime_profile_arg = DeclareLaunchArgument(
+        'runtime_profile',
+        default_value=os.path.join(
+            get_package_share_directory('f1tenth_control'),
+            'config',
+            'runtime_visualization.yaml',
+        ),
+        description='Shared visualization/output profile YAML',
+    )
     use_sim_time_arg = DeclareLaunchArgument(
         'use_sim_time',
         default_value='false',
@@ -65,6 +74,7 @@ def generate_launch_description():
             'simulator': LaunchConfiguration('simulator'),
             'config_file': LaunchConfiguration('config_file'),
             'use_sim_time': LaunchConfiguration('use_sim_time'),
+            'runtime_profile': LaunchConfiguration('runtime_profile'),
             'detector_map_yaml': LaunchConfiguration('detector_map_yaml'),
         }.items(),
     )
@@ -82,6 +92,7 @@ def generate_launch_description():
     return LaunchDescription([
         simulator_arg,
         config_arg,
+        runtime_profile_arg,
         use_sim_time_arg,
         detector_map_arg,
         rviz_arg,

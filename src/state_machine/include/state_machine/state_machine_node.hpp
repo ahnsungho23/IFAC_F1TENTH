@@ -76,6 +76,7 @@ private:
 
   bool allow_avoid_transition_{true};
   bool allow_overtake_transition_{true};
+  bool publish_path_visualization_{true};
   int64_t local_path_confirmation_window_size_{5};
   int64_t local_path_confirmation_min_hits_{3};
   int waypoint_num_{50};

@@ -53,6 +53,8 @@ not weaken the repository-root `AGENTS.md`.
   independently of ROS graph timing.
 - Node implementation belongs in `src/static_obstacle_map_node.cpp`.
 - Keep `launch/static_obstacle_map.launch.py` loading the package YAML.
+- Load the shared `f1tenth_control/config/runtime_visualization.yaml` after the package YAML so
+  `publish_visualization=false` skips only the RViz mirror.
 - Keep step-by-step Korean documentation in `docs/static_obstacle_map_node.md`.
 
 ## Verification
