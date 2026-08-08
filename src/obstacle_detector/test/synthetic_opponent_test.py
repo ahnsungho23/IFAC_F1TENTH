@@ -9,14 +9,15 @@ missing ray; neither fragment reaches min_cluster_points alone. Then it checks t
   * /opp_obs (Layer 3)    reports the moving object as a single dynamic obstacle with non-zero vs;
   * /static_obs (Layer 2) reports the car-sized stationary object and keeps it static;
   * pre-tracking cluster merge restores the 3+2 beam fragments as one detectable static object;
-  * a one-frame 0.45 m static-object jump passes the Euclidean hard gate but is rejected by the
-    Mahalanobis gate, so the confirmed track does not jump with it;
+  * a one-frame 0.45 m static-object scan-face jump that fails the Mahalanobis gate is spatially
+    re-associated to the same cluster ID, while the published confirmed envelope does not jump;
   * the farther five-point object keeps greater position uncertainty than the nearer dense object;
   * every visible output has a finite Cartesian AABB, AABB centre, and enclosing-circle radius;
   * the layer-merged fragmented object publishes the union of both Cartesian AABBs;
-  * a predicted-only track keeps its Frenet state but does not publish its stale Cartesian AABB;
-  * the moving object is first published provisionally on /static_obs, then moves to /opp_obs with
-    the same stable ID and never returns to /static_obs;
+  * physical IDs are independent of motion state: the moving object is first published
+    provisionally on /static_obs, then moves to /opp_obs with the same ID, while the stationary
+    cluster keeps one ID despite scan-face changes;
+  * periodic byte-identical /global_waypoints republishes do not rebuild CLCS or reset IDs;
   * the stationary object NEVER leaks into /opp_obs;
   * the per-layer merge folds the fragmented object into ONE /static_obs entry whose d-envelope
     covers BOTH fragments (never two simultaneous entries).
@@ -177,6 +178,9 @@ class Harness(Node):
         self.static_position_var = None
         self.premerge_position_var = None
         self.static_baseline_s = None
+        self.static_object_ids = set()
+        self.confirmed_static_object_ids = set()
+        self.global_waypoint_republish_count = 0
         self.max_static_s_deviation = 0.0
         self.outlier_injected = False
         self.visible_cartesian_missing = False
@@ -193,6 +197,8 @@ class Harness(Node):
         self.publish_static_inputs()
         self.t0 = time.time()
         self.timer = self.create_timer(1.0 / RATE_HZ, self.tick)
+        self.global_waypoint_timer = self.create_timer(
+            2.0, self.republish_global_waypoints)
 
     # ---- static / latched inputs ----
     def publish_static_inputs(self):
@@ -210,7 +216,8 @@ class Harness(Node):
             w.d_right = 2.0
             w.vx_mps = 5.0
             arr.wpnts.append(w)
-        self.wpnt_pub.publish(arr)
+        self.global_waypoints = arr
+        self.wpnt_pub.publish(self.global_waypoints)
 
         # all-free occupancy grid covering the scene
         grid = OccupancyGrid()
@@ -231,6 +238,13 @@ class Harness(Node):
         tf.child_frame_id = "laser"
         tf.transform.rotation.w = 1.0
         self.static_tf.sendTransform(tf)
+
+    def republish_global_waypoints(self):
+        """Mirror the production global planner's unchanged two-second retransmission."""
+        if self.done:
+            return
+        self.wpnt_pub.publish(self.global_waypoints)
+        self.global_waypoint_republish_count += 1
 
     # ---- periodic scan + odom ----
     def tick(self):
@@ -311,6 +325,7 @@ class Harness(Node):
             )
             if near_static:
                 self.saw_static = True
+                self.static_object_ids.add(ob.id)
                 self.static_size = max(self.static_size, ob.size)
                 self.static_position_var = ob.s_var + ob.d_var
                 # The visible L-shaped faces have a centroid offset from the geometric box centre.
@@ -352,6 +367,7 @@ class Harness(Node):
                 self.visible_cartesian_missing = True
             if abs(ob.d_center - STATIC_OBJ[1]) < 0.5:
                 self.saw_confirmed_static = True
+                self.confirmed_static_object_ids.add(ob.id)
 
     def on_opp(self, msg: ObstacleArray):
         # Layer 3: at most one obstacle, the dynamic opponent.
@@ -432,6 +448,14 @@ class Harness(Node):
               f"{not self.opp_static_after_dynamic}", flush=True)
         print(f"  /opp_obs populated at least once:                         {self.opp_populated}", flush=True)
         print(f"  one-frame 0.45 m outlier injected:                        {self.outlier_injected}", flush=True)
+        print(f"  static cluster kept exactly one ID:                       "
+              f"{len(self.static_object_ids) == 1} ({sorted(self.static_object_ids)})", flush=True)
+        print(f"  /static_obs -> /confirmed_static_obs kept that ID:         "
+              f"{self.confirmed_static_object_ids == self.static_object_ids} "
+              f"({sorted(self.confirmed_static_object_ids)})", flush=True)
+        print(f"  identical /global_waypoints republishes preserved IDs:     "
+              f"{self.global_waypoint_republish_count >= 2} "
+              f"({self.global_waypoint_republish_count} republishes)", flush=True)
         print(f"  max confirmed static-track s deviation [m]:               "
               f"{self.max_static_s_deviation:.3f} "
               "(Mahalanobis target < 0.10)", flush=True)
@@ -449,8 +473,6 @@ class Harness(Node):
               f"{self.saw_opp_frenet_marker}", flush=True)
         print(f"  layer-merged object publishes Cartesian AABB union:        "
               f"{self.saw_merged_cartesian_union}", flush=True)
-        print(f"  predicted-only obstacle observed with has_cartesian=false: "
-              f"{self.saw_predicted_without_cartesian}", flush=True)
         print(f"  stale Cartesian AABB NEVER leaked from invisible track:   "
               f"{not self.stale_cartesian_leak}", flush=True)
         print(f"  pre-tracking 3+2 beam fragments restored as ONE track:    {self.saw_pretracking_merge} "
@@ -463,6 +485,9 @@ class Harness(Node):
                    and not self.opp_static_after_dynamic and self.static_size > 0.5
                    and self.opp_populated and abs(self.max_dyn_vs - OPP_SPEED) < 0.6
                    and self.outlier_injected and self.static_baseline_s is not None
+                   and len(self.static_object_ids) == 1
+                   and self.confirmed_static_object_ids == self.static_object_ids
+                   and self.global_waypoint_republish_count >= 2
                    and self.max_static_s_deviation < 0.10
                    and self.static_position_var is not None
                    and self.premerge_position_var is not None
@@ -472,7 +497,6 @@ class Harness(Node):
                    and self.saw_static_frenet_marker
                    and self.saw_opp_frenet_marker
                    and self.saw_merged_cartesian_union
-                   and self.saw_predicted_without_cartesian
                    and not self.stale_cartesian_leak
                    and self.saw_pretracking_merge and self.max_premerge_entries == 1
                    and self.saw_frag_merged and self.max_frag_entries == 1)

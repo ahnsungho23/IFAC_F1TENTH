@@ -47,6 +47,19 @@
 vote로 세지 않는다. 기본값에서 최근 5개 중 dynamic evidence 3개면 같은 ID로 `/opp_obs`로
 이동한다. STATIC은 최근 15개 중 static evidence 10개와 위치 RMS 0.10 m 이하를 함께 요구한다.
 
+외부로 발행하는 `Obstacle.id`는 내부 Kalman track 번호와 분리된 물리 객체 ID다. 1차
+Frenet/Kalman association이 끊겨도 AABB가 같은 공간 cluster이면 motion 상태와 무관하게 2차로
+기존 track에 연결한다. 한 scan에서 같은 객체가 여러 track으로 갈라져도 같은 공개 ID를 쓰며,
+확정 객체가 처음 `STATIC`으로 안정화된 실측 Frenet footprint와 map-frame AABB를 identity
+anchor로 고정한다. 이후 관측면 변화나 잘못된 `DYNAMIC` evidence가 생겨도 anchor는 움직이지
+않는다. `STATIC`에 도달하지 않은 객체는 마지막 실측 footprint를 사용한다. track 폐기 뒤에도
+기본 30초 동안 이 anchor와 ID를 기억하며, Frenet envelope 또는 map AABB가 같은 공간 cluster인
+재검출에 ID를 재사용한다. 미관측 구간의 Kalman 예측 위치는 ID 기억에 사용하지 않는다. 따라서
+`UNKNOWN`, `STATIC`, `DYNAMIC` 전환으로 출력 토픽이
+`/static_obs`, `/confirmed_static_obs`, `/opp_obs` 사이에서 바뀌어도 ID는 유지된다.
+Global planner가 같은 `/global_waypoints`를 주기적으로 재발행해도 CLCS와 tracker를 유지하며,
+`x/y/s/d_left/d_right` 기준 형상이 실제로 바뀔 때만 tracker와 ID 기억을 초기화한다.
+
 각 visible 객체는 map-frame AABB 전체를 CLCS에 투영한
 `s_start/s_end/d_right/d_left`를 authoritative geometry로 제공한다. 같은 footprint의
 `has_cartesian=true`, AABB 중심, AABB를 감싸는 원의 반지름도 함께 제공한다. Detection이 끊겨
@@ -127,6 +140,8 @@ ros2 launch obstacle_detector obstacle_detector.launch.py \
   `meas_yaw_rate_var_scale`, `meas_reference_points`
 - 추적: `meas_var_s/d`, `process_var_vs/vd`, `assoc_gate`,
   `assoc_use_mahalanobis`, `assoc_mahalanobis_gate`, `ttl_dynamic/static`
+- 물리 객체 ID 연속성: `physical_id_reassociation_enable`,
+  `physical_id_reassociation_gap_s/d/map`, `physical_id_memory_sec`
 - 존재 확인: `min_hits_confirm`, `confirmation_window`
 - 분류: `motion_classification.dynamic_chi2_threshold`, `static_chi2_threshold`,
   `dynamic_vote_*`, `static_vote_*`, `position_history_size`, `static_max_position_rms`,

@@ -33,7 +33,10 @@ explicitly outside this package. Do not add an overtake planner, `/state`, `/avo
 
 Keep the scan-driven pipeline ordered as follows:
 
-1. Require a valid CLCS reference built from `/global_waypoints`.
+1. Require a valid CLCS reference built from `/global_waypoints`. The upstream global planner
+   periodically republishes identical geometry; ignore those retransmissions so active tracks and
+   physical-ID memory survive. Rebuild CLCS and clear tracker state only when `x/y/s/d_left/d_right`
+   geometry actually changes.
 2. Resolve the scan frame to `map` using the scan header.
 3. Reject invalid/out-of-range beams and perform adaptive-breakpoint clustering.
 4. Before tracking, merge nearby scan fragments only when their Cartesian AABBs and actual point
@@ -53,12 +56,25 @@ Keep the scan-driven pipeline ordered as follows:
 10. Track surviving detections with the constant-velocity Frenet Kalman state
     `[s, vs, d, vd]`. Associate with the existing physical Frenet hard gate, then the
     detection-specific Mahalanobis gate, then deterministic Frenet-distance-ordered greedy 1:1
-    assignment. Mahalanobis is a gate, not the sorting cost. In parallel, maintain a
-    classification-only map-frame CV Kalman state `[x, vx, y, vy]` from associated AABB centres.
+    assignment. Mahalanobis is a gate, not the sorting cost. Treat the public `Obstacle.id` as a
+    physical-object ID, separate from the internal Kalman-track instance. After primary
+    assignment, reconnect unmatched tracks whose Frenet AABB edge gaps still form the same
+    configured spatial cluster regardless of `Unknown`/`Static`/`Dynamic` motion state. New split
+    tracks in that cluster share the public ID, and confirmed IDs remain available for matching
+    re-detections after track retirement. When a confirmed track first becomes statistically
+    Static, freeze that measured Frenet footprint and map-frame AABB as its stable identity anchor;
+    later viewpoint drift and false Dynamic evidence must not move it. Tracks that never become
+    Static fall back to their last associated measurement, never a prediction-only Kalman
+    position. Re-identify dormant IDs when either the Frenet envelopes or measured map-frame AABBs
+    form the same configured spatial cluster. Clear this identity memory on CLCS rebuild. In parallel,
+    maintain a classification-only map-frame CV Kalman state `[x, vx, y, vy]` from associated
+    AABB centres.
 11. Keep existence and motion state machines separate. Existence uses
     `Raw -> Tentative -> Confirmed` with measurement votes inside `confirmation_window`.
     `Raw/Tentative` never publish. Only `Confirmed` tracks collect map-velocity chi-square
-    evidence and transition among `Unknown`, `Static`, and `Dynamic`.
+    evidence and transition among `Unknown`, `Static`, and `Dynamic`. Motion status only selects
+    the output layer; the same public physical-object ID must be used on `/static_obs`,
+    `/confirmed_static_obs`, and `/opp_obs`.
 12. Compute `Tv=vᵀPv⁻¹v` from the map KF velocity and covariance through a regularized Eigen LDLT
     solve. Never form an inverse. Vote only on associated measurements; prediction-only frames add
     neither motion evidence nor map-position history. Require map-position RMS persistence for
@@ -157,7 +173,8 @@ published Frenet bounds instead of reprojecting the Cartesian metadata.
   tests.
 - `test/test_frenet_marker_builder.cpp` — Frenet-to-map interpolation and final-envelope marker
   tests.
-- `test/test_obstacle_tracker.cpp` — motion-state transition and ID-continuity unit tests.
+- `test/test_obstacle_tracker.cpp` — motion-state transition, spatial reassociation, retired-ID
+  reuse, and ID-continuity unit tests.
 
 ## Verification
 

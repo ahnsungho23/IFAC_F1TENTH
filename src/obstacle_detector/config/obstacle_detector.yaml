@@ -86,6 +86,16 @@ obstacle_detector:
     aggro_multi: 2.0                           # gate multiplier once a track is dynamic
     assoc_use_mahalanobis: true                # second gate after the physical Frenet hard gate
     assoc_mahalanobis_gate: 9.21               # chi-square threshold, 2 DoF, approximately 99%
+    # obstacle.id는 Kalman track 수명이나 UNKNOWN/STATIC/DYNAMIC 상태가 아니라 물리 객체를
+    # 나타냅니다. 1차 association이 실패해도 같은 Frenet AABB cluster면 motion 상태와 무관하게
+    # 기존 object ID에 연결합니다. STATIC으로 안정화된 첫 실측 map AABB를 identity anchor로
+    # 고정하고, Kalman track이 폐기돼도 한 랩보다 긴 30초 동안 기억해 Frenet 또는 map AABB가
+    # 같은 재검출과 토픽 간 이동에 재사용합니다. CLCS 재생성 시 기억은 초기화됩니다.
+    physical_id_reassociation_enable: true
+    physical_id_reassociation_gap_s: 0.4       # longitudinal AABB edge gap [m]
+    physical_id_reassociation_gap_d: 0.3       # lateral AABB edge gap [m]
+    physical_id_reassociation_gap_map: 0.4     # Euclidean map-frame AABB edge gap [m]
+    physical_id_memory_sec: 30.0               # dormant confirmed-object ID memory [s]
     ttl_dynamic: 40                            # frames to keep a lost dynamic track
     ttl_static: 25                             # keep a lost static track for ~0.1 s at 250 Hz
     # Track 존재 신뢰도와 motion 분류는 독립입니다. 최근 5 scan 중 association된 measurement가

@@ -196,6 +196,9 @@ class ObstacleDetectorNode : public rclcpp::Node
     // lookup, s-wrap, and map interpolation for visualization of the final Frenet envelopes.
     global_planning::ClcsFrenetConverter::Ptr converter_;
     std::uint64_t clcs_version_{0};
+    // Geometry that produced the active CLCS. The global planner republishes the same latched
+    // route periodically; identical messages must not reset tracks or physical-ID memory.
+    std::vector<FrenetProjector::Waypoint> active_reference_waypoints_;
     FrenetProjector frenet_;
     ObstacleTracker tracker_;
     nav_msgs::msg::OccupancyGrid::SharedPtr map_msg_;

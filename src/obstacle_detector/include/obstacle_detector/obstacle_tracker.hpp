@@ -78,6 +78,14 @@ struct TrackerParams
     double aggro_multi{2.0};      // gate multiplier once a track is dynamic
     bool assoc_use_mahalanobis{true};
     double assoc_mahalanobis_gate{9.21};  // chi-square gate, 2 DoF (99%)
+    // Public obstacle IDs represent physical objects, independently of a Kalman track's lifetime
+    // and Unknown/Static/Dynamic motion state. Reconnect matching Frenet envelopes in every motion
+    // state and retain a confirmed object's physical ID across a complete track dropout.
+    bool physical_id_reassociation_enable{true};
+    double physical_id_reassociation_gap_s{0.4};
+    double physical_id_reassociation_gap_d{0.3};
+    double physical_id_reassociation_gap_map{0.4};
+    double physical_id_memory_sec{30.0};
     // track lifetime
     int ttl_dynamic{40};
     int ttl_static{25};
@@ -128,9 +136,24 @@ VelocityEvidenceResult evaluateVelocityEvidence(
 const char *trackStatusName(TrackStatus status);
 const char *motionStatusName(MotionStatus status);
 
+struct PhysicalIdentityAnchor
+{
+    bool valid{false};
+    double s{0.0};
+    double d{0.0};
+    double s_half_extent{0.0};
+    double d_right_offset{0.0};
+    double d_left_offset{0.0};
+    double x_min_map{0.0};
+    double x_max_map{0.0};
+    double y_min_map{0.0};
+    double y_max_map{0.0};
+};
+
 struct Track
 {
-    int id{0};
+    int id{0};  // persistent physical object ID published on every obstacle topic
+    int track_uid{0};  // ephemeral Kalman-track instance ID, never published
     Eigen::Vector4d x{Eigen::Vector4d::Zero()};   // [s, vs, d, vd]
     Eigen::Matrix4d P{Eigen::Matrix4d::Identity()};
     // Supplemental classification-only map-frame CV Kalman filter [x, vx, y, vy].
@@ -155,7 +178,18 @@ struct Track
     bool velocity_covariance_valid{false};
     double static_confidence{0.0};
     double time_since_last_measurement{0.0};
+    // Raw Frenet centre and timestamp from the most recently associated detection. Unlike x,
+    // these values never advance during prediction-only frames and therefore anchor dormant IDs
+    // to an observed physical location.
+    double last_measured_s{std::numeric_limits<double>::quiet_NaN()};
+    double last_measured_d{std::numeric_limits<double>::quiet_NaN()};
+    double last_measurement_stamp{std::numeric_limits<double>::quiet_NaN()};
     int envelope_stable_streak{0};  // consecutive matched frames with a settled centre+envelope
+    // A confirmed physical ID may be remembered after this Kalman-track instance retires.
+    bool physical_identity_eligible{false};
+    // Captured once from a statistically Static, existence-confirmed measurement. It stays fixed
+    // if later viewpoint changes or false motion evidence move the live Kalman state.
+    PhysicalIdentityAnchor stable_identity_anchor;
     // Most recent measured Frenet footprint, retained relative to the Kalman centre so a
     // predicted-only output can move its last valid shape without claiming a current Cartesian
     // scan footprint.
@@ -191,6 +225,8 @@ struct TrackerUpdateStats
     std::size_t retired{0};
     std::size_t euclidean_pair_rejected{0};
     std::size_t mahalanobis_pair_rejected{0};
+    std::size_t spatially_reassociated{0};
+    std::size_t physical_id_reused{0};
 
     std::size_t total_tracks{0};
     std::size_t visible_tracks{0};
@@ -222,6 +258,14 @@ class ObstacleTracker
     const TrackerUpdateStats &lastStats() const { return last_stats_; }
 
   private:
+    struct DormantPhysicalIdentity
+    {
+        int id{0};
+        PhysicalIdentityAnchor anchor;
+        bool stable_anchor{false};
+        double last_seen_stamp{0.0};
+    };
+
     void predict(Track &t, double dt) const;
     void predictMap(Track &t, double dt) const;
     Eigen::Matrix2d measurementCovariance(const Detection &detection) const;
@@ -241,11 +285,22 @@ class ObstacleTracker
     void updateStaticConfidence(
         Track &t, MotionEvidence evidence, bool measurement_received) const;
     double frenetDistSquared(double s1, double d1, double s2, double d2) const;
+    bool belongsToSamePhysicalCluster(
+        double track_s, double track_d, double track_s_half_extent,
+        double track_d_right_offset, double track_d_left_offset,
+        const Detection &detection) const;
+    bool belongsToSameMapCluster(
+        const PhysicalIdentityAnchor &anchor, const Detection &detection) const;
+    double mapCenterDistSquared(
+        const PhysicalIdentityAnchor &anchor, const Detection &detection) const;
+    void captureStableIdentityAnchor(Track &track, const Detection &detection) const;
 
     TrackerParams p_;
     const FrenetProjector *frenet_{nullptr};
     std::vector<Track> tracks_;
-    int next_id_{0};
+    std::vector<DormantPhysicalIdentity> dormant_physical_identities_;
+    int next_track_uid_{0};
+    int next_physical_id_{0};
     double last_stamp_{-1.0};
     bool has_last_stamp_{false};
     TrackerUpdateStats last_stats_;

@@ -149,6 +149,11 @@ void ObstacleTracker::configure(const TrackerParams &params, const FrenetProject
     invalid(params.static_score_forgetting_factor < 0.0 ||
             params.static_score_forgetting_factor > 1.0,
             "static_score_forgetting_factor must be in [0, 1]");
+    invalid(params.physical_id_reassociation_gap_s < 0.0 ||
+            params.physical_id_reassociation_gap_d < 0.0 ||
+            params.physical_id_reassociation_gap_map < 0.0 ||
+            params.physical_id_memory_sec < 0.0,
+            "physical ID reassociation gaps and memory must be non-negative");
 
     p_ = params;
     frenet_ = frenet;
@@ -159,6 +164,7 @@ void ObstacleTracker::clear()
     // Called when the CLCS reference is rebuilt: existing tracks live in the old s-domain and
     // must not be predicted or published against the new reference.
     tracks_.clear();
+    dormant_physical_identities_.clear();
     has_last_stamp_ = false;
 }
 
@@ -167,6 +173,95 @@ double ObstacleTracker::frenetDistSquared(double s1, double d1, double s2, doubl
     const double ds = frenet_ ? frenet_->wrapDelta(s1, s2) : (s1 - s2);
     const double dd = d1 - d2;
     return ds * ds + dd * dd;
+}
+
+bool ObstacleTracker::belongsToSamePhysicalCluster(
+    double track_s, double track_d, double track_s_half_extent,
+    double track_d_right_offset, double track_d_left_offset,
+    const Detection &detection) const
+{
+    const double ds = std::abs(
+        frenet_ ? frenet_->wrapDelta(track_s, detection.s) : track_s - detection.s);
+    const double gap_s = std::max(
+        0.0, ds - std::abs(track_s_half_extent) - std::abs(detection.s_half_extent));
+
+    const double track_right = std::min(
+        track_d + track_d_right_offset, track_d + track_d_left_offset);
+    const double track_left = std::max(
+        track_d + track_d_right_offset, track_d + track_d_left_offset);
+    const double detection_right = std::min(
+        detection.d + detection.d_right_offset,
+        detection.d + detection.d_left_offset);
+    const double detection_left = std::max(
+        detection.d + detection.d_right_offset,
+        detection.d + detection.d_left_offset);
+    const double gap_d = std::max(
+        {0.0, track_right - detection_left, detection_right - track_left});
+    return gap_s <= p_.physical_id_reassociation_gap_s &&
+           gap_d <= p_.physical_id_reassociation_gap_d;
+}
+
+bool ObstacleTracker::belongsToSameMapCluster(
+    const PhysicalIdentityAnchor &anchor, const Detection &detection) const
+{
+    const bool finite = anchor.valid &&
+        std::isfinite(anchor.x_min_map) && std::isfinite(anchor.x_max_map) &&
+        std::isfinite(anchor.y_min_map) && std::isfinite(anchor.y_max_map) &&
+        std::isfinite(detection.x_min) && std::isfinite(detection.x_max) &&
+        std::isfinite(detection.y_min) && std::isfinite(detection.y_max);
+    if (!finite || anchor.x_min_map > anchor.x_max_map ||
+        anchor.y_min_map > anchor.y_max_map || detection.x_min > detection.x_max ||
+        detection.y_min > detection.y_max)
+    {
+        return false;
+    }
+
+    const double gap_x = std::max(
+        {0.0, anchor.x_min_map - detection.x_max,
+         detection.x_min - anchor.x_max_map});
+    const double gap_y = std::max(
+        {0.0, anchor.y_min_map - detection.y_max,
+         detection.y_min - anchor.y_max_map});
+    return std::hypot(gap_x, gap_y) <= p_.physical_id_reassociation_gap_map;
+}
+
+double ObstacleTracker::mapCenterDistSquared(
+    const PhysicalIdentityAnchor &anchor, const Detection &detection) const
+{
+    const double anchor_x = 0.5 * (anchor.x_min_map + anchor.x_max_map);
+    const double anchor_y = 0.5 * (anchor.y_min_map + anchor.y_max_map);
+    const double detection_x = 0.5 * (detection.x_min + detection.x_max);
+    const double detection_y = 0.5 * (detection.y_min + detection.y_max);
+    const double dx = anchor_x - detection_x;
+    const double dy = anchor_y - detection_y;
+    return dx * dx + dy * dy;
+}
+
+void ObstacleTracker::captureStableIdentityAnchor(
+    Track &track, const Detection &detection) const
+{
+    if (track.stable_identity_anchor.valid ||
+        track.track_status != TrackStatus::Confirmed ||
+        track.motion_status != MotionStatus::Static)
+    {
+        return;
+    }
+
+    PhysicalIdentityAnchor anchor;
+    anchor.valid = true;
+    anchor.s = detection.s;
+    anchor.d = detection.d;
+    anchor.s_half_extent = detection.s_half_extent;
+    anchor.d_right_offset = detection.d_right_offset;
+    anchor.d_left_offset = detection.d_left_offset;
+    anchor.x_min_map = detection.x_min;
+    anchor.x_max_map = detection.x_max;
+    anchor.y_min_map = detection.y_min;
+    anchor.y_max_map = detection.y_max;
+    if (belongsToSameMapCluster(anchor, detection))
+    {
+        track.stable_identity_anchor = anchor;
+    }
 }
 
 void ObstacleTracker::predict(Track &t, double dt) const
@@ -622,6 +717,23 @@ void ObstacleTracker::update(
     (void)yaw_rate_fresh;
     last_stats_ = TrackerUpdateStats{};
 
+    if (!p_.physical_id_reassociation_enable || p_.physical_id_memory_sec <= 0.0)
+    {
+        dormant_physical_identities_.clear();
+    }
+    else
+    {
+        dormant_physical_identities_.erase(
+            std::remove_if(
+                dormant_physical_identities_.begin(), dormant_physical_identities_.end(),
+                [stamp, this](const DormantPhysicalIdentity &identity) {
+                    return !std::isfinite(identity.last_seen_stamp) ||
+                           stamp < identity.last_seen_stamp ||
+                           stamp - identity.last_seen_stamp > p_.physical_id_memory_sec;
+                }),
+            dormant_physical_identities_.end());
+    }
+
     double dt = 0.0;
     if (has_last_stamp_)
     {
@@ -699,6 +811,61 @@ void ObstacleTracker::update(
         ++last_stats_.matched;
     }
 
+    // Motion classification selects an output layer; it must never break physical identity.
+    // After statistically valid assignments take priority, reconnect every unmatched track whose
+    // Frenet envelope still belongs to the same physical cluster, including Dynamic tracks.
+    if (p_.physical_id_reassociation_enable)
+    {
+        std::vector<Pair> spatial_pairs;
+        for (std::size_t ti = 0; ti < nt; ++ti)
+        {
+            if (trk_assigned[ti] >= 0)
+            {
+                continue;
+            }
+            for (std::size_t di = 0; di < nd; ++di)
+            {
+                if (det_assigned[di] >= 0)
+                {
+                    continue;
+                }
+                const Track &track = tracks_[ti];
+                if (belongsToSamePhysicalCluster(
+                        track.s(), track.d(), track.s_half_extent,
+                        track.d_right_offset, track.d_left_offset, detections[di]))
+                {
+                    spatial_pairs.push_back(
+                        {ti, di, frenetDistSquared(
+                            track.s(), track.d(), detections[di].s, detections[di].d)});
+                }
+            }
+        }
+        std::sort(
+            spatial_pairs.begin(), spatial_pairs.end(),
+            [this](const Pair &a, const Pair &b) {
+                if (a.cost != b.cost)
+                {
+                    return a.cost < b.cost;
+                }
+                if (tracks_[a.ti].track_uid != tracks_[b.ti].track_uid)
+                {
+                    return tracks_[a.ti].track_uid < tracks_[b.ti].track_uid;
+                }
+                return a.di < b.di;
+            });
+        for (const Pair &pair : spatial_pairs)
+        {
+            if (trk_assigned[pair.ti] >= 0 || det_assigned[pair.di] >= 0)
+            {
+                continue;
+            }
+            trk_assigned[pair.ti] = static_cast<int>(pair.di);
+            det_assigned[pair.di] = static_cast<int>(pair.ti);
+            ++last_stats_.matched;
+            ++last_stats_.spatially_reassociated;
+        }
+    }
+
     // 3) update matched tracks
     for (std::size_t ti = 0; ti < nt; ++ti)
     {
@@ -733,6 +900,9 @@ void ObstacleTracker::update(
             t.s_half_extent = smoothExtent(t.s_half_extent, det.s_half_extent);
             t.d_right_offset = smoothExtent(t.d_right_offset, det.d_right_offset);
             t.d_left_offset = smoothExtent(t.d_left_offset, det.d_left_offset);
+            t.last_measured_s = det.s;
+            t.last_measured_d = det.d;
+            t.last_measurement_stamp = stamp;
             t.size = det.size;
             t.x_min_map = det.x_min;
             t.x_max_map = det.x_max;
@@ -751,6 +921,11 @@ void ObstacleTracker::update(
             }
             updateTrackStatus(t, true);
             classify(t, map_updated);
+            if (t.track_status == TrackStatus::Confirmed)
+            {
+                t.physical_identity_eligible = true;
+            }
+            captureStableIdentityAnchor(t, det);
             t.ttl = t.is_static ? p_.ttl_static : p_.ttl_dynamic;
         }
         else
@@ -769,7 +944,98 @@ void ObstacleTracker::update(
             continue;
         }
         Track t;
-        t.id = next_id_++;
+        t.track_uid = next_track_uid_++;
+        const Track *active_identity = nullptr;
+        double reused_cost = std::numeric_limits<double>::infinity();
+        if (p_.physical_id_reassociation_enable)
+        {
+            // A scan split can leave a second detection after the existing physical track has
+            // already received its 1:1 measurement. Give the fragment the same public object ID
+            // while keeping a separate internal Kalman-track instance.
+            for (const Track &existing : tracks_)
+            {
+                if (!belongsToSamePhysicalCluster(
+                        existing.s(), existing.d(), existing.s_half_extent,
+                        existing.d_right_offset, existing.d_left_offset, detections[di]))
+                {
+                    continue;
+                }
+                const double cost = frenetDistSquared(
+                    existing.s(), existing.d(), detections[di].s, detections[di].d);
+                if (cost < reused_cost ||
+                    (cost == reused_cost && active_identity != nullptr &&
+                    existing.track_uid < active_identity->track_uid))
+                {
+                    active_identity = &existing;
+                    reused_cost = cost;
+                }
+            }
+        }
+
+        std::size_t dormant_identity = dormant_physical_identities_.size();
+        if (active_identity == nullptr && p_.physical_id_reassociation_enable)
+        {
+            for (std::size_t i = 0; i < dormant_physical_identities_.size(); ++i)
+            {
+                const auto &identity = dormant_physical_identities_[i];
+                const bool same_frenet = belongsToSamePhysicalCluster(
+                    identity.anchor.s, identity.anchor.d,
+                    identity.anchor.s_half_extent,
+                    identity.anchor.d_right_offset,
+                    identity.anchor.d_left_offset, detections[di]);
+                const bool same_map = belongsToSameMapCluster(identity.anchor, detections[di]);
+                if (!same_frenet && !same_map)
+                {
+                    continue;
+                }
+                double cost = std::numeric_limits<double>::infinity();
+                if (same_frenet)
+                {
+                    cost = frenetDistSquared(
+                        identity.anchor.s, identity.anchor.d,
+                        detections[di].s, detections[di].d);
+                }
+                if (same_map)
+                {
+                    cost = std::min(
+                        cost, mapCenterDistSquared(identity.anchor, detections[di]));
+                }
+                if (cost < reused_cost ||
+                    (cost == reused_cost && dormant_identity < dormant_physical_identities_.size() &&
+                    identity.id < dormant_physical_identities_[dormant_identity].id))
+                {
+                    dormant_identity = i;
+                    reused_cost = cost;
+                }
+            }
+        }
+
+        if (active_identity != nullptr)
+        {
+            t.id = active_identity->id;
+            t.physical_identity_eligible = active_identity->physical_identity_eligible;
+            t.stable_identity_anchor = active_identity->stable_identity_anchor;
+            ++last_stats_.physical_id_reused;
+        }
+        else if (dormant_identity < dormant_physical_identities_.size())
+        {
+            const DormantPhysicalIdentity reused_identity =
+                dormant_physical_identities_[dormant_identity];
+            t.id = reused_identity.id;
+            t.physical_identity_eligible = true;
+            if (reused_identity.stable_anchor)
+            {
+                t.stable_identity_anchor = reused_identity.anchor;
+            }
+            dormant_physical_identities_.erase(
+                dormant_physical_identities_.begin() +
+                static_cast<std::ptrdiff_t>(dormant_identity));
+            ++last_stats_.physical_id_reused;
+        }
+        else
+        {
+            t.id = next_physical_id_++;
+        }
         t.x << detections[di].s, 0.0, detections[di].d, 0.0;
         t.P = Eigen::Matrix4d::Identity();
         t.P(0, 0) = 0.5;
@@ -783,6 +1049,9 @@ void ObstacleTracker::update(
         t.s_half_extent = detections[di].s_half_extent;
         t.d_right_offset = detections[di].d_right_offset;
         t.d_left_offset = detections[di].d_left_offset;
+        t.last_measured_s = detections[di].s;
+        t.last_measured_d = detections[di].d;
+        t.last_measurement_stamp = stamp;
         t.size = detections[di].size;
         t.x_min_map = detections[di].x_min;
         t.x_max_map = detections[di].x_max;
@@ -797,12 +1066,62 @@ void ObstacleTracker::update(
         }
         updateTrackStatus(t, true);
         classify(t, map_updated);
+        if (t.track_status == TrackStatus::Confirmed)
+        {
+            t.physical_identity_eligible = true;
+        }
+        captureStableIdentityAnchor(t, detections[di]);
         tracks_.push_back(std::move(t));
         ++last_stats_.spawned;
     }
 
     // 5) retire dead tracks
     const std::size_t tracks_before_retirement = tracks_.size();
+    if (p_.physical_id_reassociation_enable && p_.physical_id_memory_sec > 0.0)
+    {
+        for (const Track &track : tracks_)
+        {
+            if (track.ttl > 0 || !track.physical_identity_eligible)
+            {
+                continue;
+            }
+            const bool same_physical_object_still_active = std::any_of(
+                tracks_.begin(), tracks_.end(),
+                [&track](const Track &other) {
+                    return &other != &track && other.ttl > 0 && other.id == track.id;
+                });
+            if (same_physical_object_still_active)
+            {
+                continue;
+            }
+            dormant_physical_identities_.erase(
+                std::remove_if(
+                    dormant_physical_identities_.begin(), dormant_physical_identities_.end(),
+                    [&track](const DormantPhysicalIdentity &identity) {
+                        return identity.id == track.id;
+                    }),
+                dormant_physical_identities_.end());
+            DormantPhysicalIdentity identity;
+            identity.id = track.id;
+            identity.anchor = track.stable_identity_anchor;
+            identity.stable_anchor = identity.anchor.valid;
+            if (!identity.anchor.valid)
+            {
+                identity.anchor.valid = true;
+                identity.anchor.s = track.last_measured_s;
+                identity.anchor.d = track.last_measured_d;
+                identity.anchor.s_half_extent = track.s_half_extent;
+                identity.anchor.d_right_offset = track.d_right_offset;
+                identity.anchor.d_left_offset = track.d_left_offset;
+                identity.anchor.x_min_map = track.x_min_map;
+                identity.anchor.x_max_map = track.x_max_map;
+                identity.anchor.y_min_map = track.y_min_map;
+                identity.anchor.y_max_map = track.y_max_map;
+            }
+            identity.last_seen_stamp = track.last_measurement_stamp;
+            dormant_physical_identities_.push_back(identity);
+        }
+    }
     tracks_.erase(std::remove_if(tracks_.begin(), tracks_.end(),
                                  [](const Track &t) { return t.ttl <= 0; }),
                   tracks_.end());

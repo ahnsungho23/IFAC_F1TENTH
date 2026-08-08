@@ -44,6 +44,20 @@ velocity statistic `Tv=vᵀPv⁻¹v` and map-position RMS without adding predict
 the defaults, three Dynamic evidence samples in the latest five move the same ID to `/opp_obs`;
 Static requires ten Static evidence samples in the latest fifteen plus persistent map position.
 
+The published `Obstacle.id` is a physical-object ID separated from the internal Kalman-track
+instance. If the primary Frenet/Kalman association breaks, an unmatched track is reconnected when
+its AABB and the detection still belong to the same spatial cluster, regardless of motion state.
+Split tracks in one scan share that public ID. When a confirmed object first becomes statistically
+Static, its measured Frenet footprint and map-frame AABB are frozen as a stable identity anchor;
+later viewpoint drift or false Dynamic evidence cannot move it. Objects that never become Static
+fall back to their last measured footprint. The anchor and ID are retained for 30 seconds after
+retirement, and either a matching Frenet envelope or map-frame AABB can recover the ID.
+Prediction-only Kalman positions never move this dormant identity. The ID therefore remains
+stable when `Unknown`, `Static`, and `Dynamic` transitions move the object among `/static_obs`,
+`/confirmed_static_obs`, and `/opp_obs`.
+Periodic republishes of identical `/global_waypoints` preserve the CLCS, tracks, and ID memory.
+They are reset only when the `x/y/s/d_left/d_right` reference geometry actually changes.
+
 Every visible object publishes authoritative `s_start/s_end/d_right/d_left` bounds projected from
 its complete map-frame AABB. It also sets `has_cartesian=true` and provides that same footprint's
 AABB centre and enclosing-circle radius. A predicted-only object keeps the last measured Frenet

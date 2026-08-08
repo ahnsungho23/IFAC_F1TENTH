@@ -77,6 +77,214 @@ TEST(ObstacleTrackerClassification, SeparatesThreeOfFiveExistenceFromMotionStatu
     EXPECT_TRUE(tracker.tracks().front().is_static);
 }
 
+TEST(ObstacleTrackerIdentity, ReassociatesSameSpatialClusterAfterKalmanGateRejects)
+{
+    TrackerParams params = testParams();
+    params.assoc_use_mahalanobis = true;
+    params.assoc_mahalanobis_gate = 0.01;
+    params.physical_id_reassociation_gap_s = 0.10;
+    params.physical_id_reassociation_gap_d = 0.05;
+    ObstacleTracker tracker;
+    tracker.configure(params, nullptr);
+
+    tracker.update({makeDetection(10.0)}, 0.0);
+    const int id = tracker.tracks().front().id;
+    tracker.update({makeDetection(10.0)}, 0.1);
+    tracker.update({makeDetection(10.0)}, 0.2);
+
+    // Centre displacement 0.45 m fails the deliberately strict Mahalanobis gate, but the two
+    // 0.4 m-wide Frenet envelopes have only a 0.05 m edge gap and are one spatial cluster.
+    tracker.update({makeDetection(10.45)}, 0.3);
+
+    ASSERT_EQ(tracker.tracks().size(), 1U);
+    EXPECT_EQ(tracker.tracks().front().id, id);
+    EXPECT_EQ(tracker.lastStats().spatially_reassociated, 1U);
+    EXPECT_EQ(tracker.lastStats().spawned, 0U);
+}
+
+TEST(ObstacleTrackerIdentity, ReusesPhysicalIdAcrossKalmanTrackLifetimes)
+{
+    TrackerParams params = testParams();
+    params.min_hits_confirm = 1;
+    params.confirmation_window = 1;
+    params.envelope_stability_frames = 0;
+    params.ttl_static = 1;
+    params.physical_id_reassociation_gap_s = 0.10;
+    params.physical_id_reassociation_gap_d = 0.05;
+    params.physical_id_memory_sec = 2.0;
+    ObstacleTracker tracker;
+    tracker.configure(params, nullptr);
+
+    tracker.update({makeDetection(10.0)}, 0.0);
+    ASSERT_EQ(tracker.tracks().size(), 1U);
+    const int id = tracker.tracks().front().id;
+    const int track_uid = tracker.tracks().front().track_uid;
+
+    tracker.update({}, 0.1);
+    ASSERT_TRUE(tracker.tracks().empty());
+    tracker.update({makeDetection(10.05)}, 0.2);
+
+    ASSERT_EQ(tracker.tracks().size(), 1U);
+    EXPECT_EQ(tracker.tracks().front().id, id);
+    EXPECT_NE(tracker.tracks().front().track_uid, track_uid);
+    EXPECT_EQ(tracker.lastStats().physical_id_reused, 1U);
+}
+
+TEST(ObstacleTrackerIdentity, DormantIdUsesLastMeasurementInsteadOfPredictedPosition)
+{
+    TrackerParams params = testParams();
+    params.min_hits_confirm = 1;
+    params.confirmation_window = 1;
+    params.envelope_stability_frames = 0;
+    params.ttl_static = 2;
+    params.ttl_dynamic = 2;
+    params.physical_id_reassociation_gap_s = 0.10;
+    params.physical_id_reassociation_gap_d = 0.05;
+    params.physical_id_memory_sec = 2.0;
+    ObstacleTracker tracker;
+    tracker.configure(params, nullptr);
+
+    tracker.update({makeDetection(10.0)}, 0.0);
+    tracker.update({makeDetection(11.0)}, 0.1);
+    tracker.update({makeDetection(12.0)}, 0.2);
+    tracker.update({makeDetection(13.0)}, 0.3);
+    ASSERT_EQ(tracker.tracks().size(), 1U);
+    const int physical_id = tracker.tracks().front().id;
+    EXPECT_DOUBLE_EQ(tracker.tracks().front().last_measured_s, 13.0);
+
+    // Let the constant-velocity state run far beyond the final measured footprint before the
+    // track retires. The dormant identity must remain anchored at the 13.0 m measurement.
+    tracker.update({}, 0.8);
+    ASSERT_EQ(tracker.tracks().size(), 1U);
+    EXPECT_GT(std::abs(tracker.tracks().front().s() - 13.0), 0.5);
+    EXPECT_DOUBLE_EQ(tracker.tracks().front().last_measured_s, 13.0);
+    tracker.update({}, 0.9);
+    ASSERT_TRUE(tracker.tracks().empty());
+
+    tracker.update({makeDetection(13.05)}, 1.0);
+    ASSERT_EQ(tracker.tracks().size(), 1U);
+    EXPECT_EQ(tracker.tracks().front().id, physical_id);
+    EXPECT_EQ(tracker.lastStats().physical_id_reused, 1U);
+}
+
+TEST(ObstacleTrackerIdentity, StableStaticAnchorIgnoresLateViewpointDrift)
+{
+    TrackerParams params = testParams();
+    params.min_hits_confirm = 1;
+    params.confirmation_window = 1;
+    params.static_vote_required = 1;
+    params.static_min_observations = 1;
+    params.envelope_stability_frames = 0;
+    params.ttl_static = 1;
+    params.ttl_dynamic = 1;
+    params.physical_id_reassociation_gap_s = 0.05;
+    params.physical_id_reassociation_gap_d = 0.05;
+    params.physical_id_reassociation_gap_map = 0.05;
+    ObstacleTracker tracker;
+    tracker.configure(params, nullptr);
+
+    tracker.update({makeDetection(10.0)}, 0.0);
+    ASSERT_EQ(tracker.tracks().size(), 1U);
+    ASSERT_TRUE(tracker.tracks().front().stable_identity_anchor.valid);
+    EXPECT_DOUBLE_EQ(tracker.tracks().front().stable_identity_anchor.s, 10.0);
+    const int physical_id = tracker.tracks().front().id;
+
+    // Later scan faces drift along the same object. The first statistically Static measurement
+    // remains the identity anchor even if subsequent motion evidence becomes Dynamic.
+    tracker.update({makeDetection(10.2)}, 0.1);
+    tracker.update({makeDetection(10.4)}, 0.2);
+    tracker.update({makeDetection(10.6)}, 0.3);
+    ASSERT_EQ(tracker.tracks().size(), 1U);
+    EXPECT_DOUBLE_EQ(tracker.tracks().front().last_measured_s, 10.6);
+    EXPECT_DOUBLE_EQ(tracker.tracks().front().stable_identity_anchor.s, 10.0);
+
+    tracker.update({}, 0.4);
+    ASSERT_TRUE(tracker.tracks().empty());
+    tracker.update({makeDetection(10.0)}, 0.5);
+
+    ASSERT_EQ(tracker.tracks().size(), 1U);
+    EXPECT_EQ(tracker.tracks().front().id, physical_id);
+    EXPECT_TRUE(tracker.tracks().front().stable_identity_anchor.valid);
+    EXPECT_DOUBLE_EQ(tracker.tracks().front().stable_identity_anchor.s, 10.0);
+    EXPECT_EQ(tracker.lastStats().physical_id_reused, 1U);
+}
+
+TEST(ObstacleTrackerIdentity, DormantIdCanReassociateByMapAabbWhenFrenetGateFails)
+{
+    TrackerParams params = testParams();
+    params.min_hits_confirm = 1;
+    params.confirmation_window = 1;
+    params.envelope_stability_frames = 0;
+    params.ttl_static = 1;
+    params.ttl_dynamic = 1;
+    params.physical_id_reassociation_gap_s = 0.05;
+    params.physical_id_reassociation_gap_d = 0.05;
+    params.physical_id_reassociation_gap_map = 0.05;
+    ObstacleTracker tracker;
+    tracker.configure(params, nullptr);
+
+    tracker.update({makeDetection(10.0)}, 0.0);
+    ASSERT_EQ(tracker.tracks().size(), 1U);
+    const int physical_id = tracker.tracks().front().id;
+    tracker.update({}, 0.1);
+    ASSERT_TRUE(tracker.tracks().empty());
+
+    Detection curved_projection = makeDetection(12.0);
+    curved_projection.x_min = 9.8;
+    curved_projection.x_max = 10.2;
+    curved_projection.y_min = -0.2;
+    curved_projection.y_max = 0.2;
+    tracker.update({curved_projection}, 0.2);
+
+    ASSERT_EQ(tracker.tracks().size(), 1U);
+    EXPECT_EQ(tracker.tracks().front().id, physical_id);
+    EXPECT_EQ(tracker.lastStats().physical_id_reused, 1U);
+}
+
+TEST(ObstacleTrackerIdentity, DoesNotReuseRetiredIdForAnotherCluster)
+{
+    TrackerParams params = testParams();
+    params.min_hits_confirm = 1;
+    params.confirmation_window = 1;
+    params.envelope_stability_frames = 0;
+    params.ttl_static = 1;
+    params.physical_id_reassociation_gap_s = 0.10;
+    params.physical_id_reassociation_gap_d = 0.05;
+    params.physical_id_memory_sec = 2.0;
+    ObstacleTracker tracker;
+    tracker.configure(params, nullptr);
+
+    tracker.update({makeDetection(10.0)}, 0.0);
+    const int old_id = tracker.tracks().front().id;
+    tracker.update({}, 0.1);
+    tracker.update({makeDetection(11.0)}, 0.2);
+
+    ASSERT_EQ(tracker.tracks().size(), 1U);
+    EXPECT_NE(tracker.tracks().front().id, old_id);
+    EXPECT_EQ(tracker.lastStats().physical_id_reused, 0U);
+}
+
+TEST(ObstacleTrackerIdentity, SplitTracksShareOnePhysicalObjectId)
+{
+    TrackerParams params = testParams();
+    params.physical_id_reassociation_gap_s = 0.10;
+    params.physical_id_reassociation_gap_d = 0.05;
+    ObstacleTracker tracker;
+    tracker.configure(params, nullptr);
+
+    tracker.update({makeDetection(10.0)}, 0.0);
+    const int physical_id = tracker.tracks().front().id;
+    const int original_track_uid = tracker.tracks().front().track_uid;
+    tracker.update({makeDetection(10.0), makeDetection(10.45)}, 0.1);
+
+    ASSERT_EQ(tracker.tracks().size(), 2U);
+    EXPECT_EQ(tracker.tracks()[0].id, physical_id);
+    EXPECT_EQ(tracker.tracks()[1].id, physical_id);
+    EXPECT_NE(tracker.tracks()[0].track_uid, tracker.tracks()[1].track_uid);
+    EXPECT_EQ(tracker.tracks()[0].track_uid, original_track_uid);
+    EXPECT_EQ(tracker.lastStats().physical_id_reused, 1U);
+}
+
 TEST(ObstacleTrackerClassification, RepeatedStableMapMeasurementsBecomeStatic)
 {
     ObstacleTracker tracker;
@@ -201,6 +409,7 @@ TEST(ObstacleTrackerClassification, ConstantMapVelocityBecomesDynamicByRecentVot
 
     double stamp = 0.0;
     double s = 5.0;
+    int physical_id = -1;
     bool became_dynamic = false;
     for (int i = 0; i < 30; ++i)
     {
@@ -208,6 +417,11 @@ TEST(ObstacleTrackerClassification, ConstantMapVelocityBecomesDynamicByRecentVot
         stamp += 0.1;
         s += 0.1;
         ASSERT_EQ(tracker.tracks().size(), 1U);
+        if (physical_id < 0)
+        {
+            physical_id = tracker.tracks().front().id;
+        }
+        EXPECT_EQ(tracker.tracks().front().id, physical_id);
         if (tracker.tracks().front().motion_status == MotionStatus::Dynamic)
         {
             became_dynamic = true;
@@ -218,6 +432,48 @@ TEST(ObstacleTrackerClassification, ConstantMapVelocityBecomesDynamicByRecentVot
     EXPECT_TRUE(became_dynamic);
     EXPECT_GE(tracker.tracks().front().dynamic_vote_count, 3);
     EXPECT_FALSE(tracker.tracks().front().is_static);
+    EXPECT_EQ(tracker.tracks().front().id, physical_id);
+}
+
+TEST(ObstacleTrackerIdentity, SpatialFallbackAlsoReconnectsDynamicTrack)
+{
+    TrackerParams params = testParams();
+    params.assoc_use_mahalanobis = true;
+    params.assoc_mahalanobis_gate = 0.5;
+    params.physical_id_reassociation_gap_s = 0.10;
+    params.physical_id_reassociation_gap_d = 0.05;
+    ObstacleTracker tracker;
+    tracker.configure(params, nullptr);
+
+    double stamp = 0.0;
+    double s = 5.0;
+    while (stamp < 3.0)
+    {
+        tracker.update({makeDetection(s)}, stamp);
+        ASSERT_EQ(tracker.tracks().size(), 1U);
+        if (tracker.tracks().front().motion_status == MotionStatus::Dynamic)
+        {
+            break;
+        }
+        stamp += 0.1;
+        s += 0.1;
+    }
+    ASSERT_EQ(tracker.tracks().front().motion_status, MotionStatus::Dynamic);
+    const int physical_id = tracker.tracks().front().id;
+    const int track_uid = tracker.tracks().front().track_uid;
+
+    // The expected next centre is s + 0.1. Move the measured scan face another 0.45 m: the
+    // strict Kalman gate rejects it, while the two 0.4 m envelopes remain one spatial cluster.
+    stamp += 0.1;
+    s += 0.55;
+    tracker.update({makeDetection(s)}, stamp);
+
+    ASSERT_EQ(tracker.tracks().size(), 1U);
+    EXPECT_EQ(tracker.tracks().front().motion_status, MotionStatus::Dynamic);
+    EXPECT_EQ(tracker.tracks().front().id, physical_id);
+    EXPECT_EQ(tracker.tracks().front().track_uid, track_uid);
+    EXPECT_EQ(tracker.lastStats().spatially_reassociated, 1U);
+    EXPECT_EQ(tracker.lastStats().spawned, 0U);
 }
 
 TEST(ObstacleTrackerClassification, SmallVelocityWithTinyCovarianceIsDynamicEvidence)

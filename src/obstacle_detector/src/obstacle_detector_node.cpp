@@ -36,6 +36,20 @@ double yawFromQuat(const geometry_msgs::msg::Quaternion &q)
 {
     return std::atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z));
 }
+
+bool sameReferenceGeometry(
+    const std::vector<FrenetProjector::Waypoint> &lhs,
+    const std::vector<FrenetProjector::Waypoint> &rhs)
+{
+    return lhs.size() == rhs.size() &&
+           std::equal(
+               lhs.begin(), lhs.end(), rhs.begin(),
+               [](const FrenetProjector::Waypoint &a,
+                  const FrenetProjector::Waypoint &b) {
+                   return a.x == b.x && a.y == b.y && a.s == b.s &&
+                          a.d_left == b.d_left && a.d_right == b.d_right;
+               });
+}
 }  // namespace
 
 ObstacleDetectorNode::ObstacleDetectorNode(const rclcpp::NodeOptions &options)
@@ -83,6 +97,7 @@ ObstacleDetectorNode::ObstacleDetectorNode(const rclcpp::NodeOptions &options)
         "static_obs=%s, confirmed_static_obs=%s, opp_obs=%s, "
         "cluster_merge=%s[dist=%.2f, min_frag=%d], "
         "layer_merge=%s[gap_s=%.2f, gap_d=%.2f], mahalanobis=%s[gate=%.2f], "
+        "physical_id_reassoc=%s[gap_s=%.2f, gap_d=%.2f, gap_map=%.2f, memory=%.2fs], "
         "motion_chi2[static<%.2f dynamic>%.2f], diagnostics=%s[period=%.2fs])",
         scan_topic_.c_str(), global_wpnts_topic_.c_str(), use_map_filter_ ? "on" : "off",
         static_obs_topic_.c_str(), confirmed_static_obs_topic_.c_str(), opp_obs_topic_.c_str(),
@@ -90,7 +105,12 @@ ObstacleDetectorNode::ObstacleDetectorNode(const rclcpp::NodeOptions &options)
         cluster_merge_min_fragment_points_, layer_merge_enable_ ? "on" : "off",
         layer_merge_gap_s_, layer_merge_gap_d_,
         tracker_params_.assoc_use_mahalanobis ? "on" : "off",
-        tracker_params_.assoc_mahalanobis_gate, tracker_params_.static_chi2_threshold,
+        tracker_params_.assoc_mahalanobis_gate,
+        tracker_params_.physical_id_reassociation_enable ? "on" : "off",
+        tracker_params_.physical_id_reassociation_gap_s,
+        tracker_params_.physical_id_reassociation_gap_d,
+        tracker_params_.physical_id_reassociation_gap_map,
+        tracker_params_.physical_id_memory_sec, tracker_params_.static_chi2_threshold,
         tracker_params_.dynamic_chi2_threshold,
         diagnostics_enable_ ? "on" : "off", diagnostics_period_sec_);
 }
@@ -164,6 +184,11 @@ void ObstacleDetectorNode::declareParameters()
     this->declare_parameter<double>("aggro_multi", 2.0);
     this->declare_parameter<bool>("assoc_use_mahalanobis", true);
     this->declare_parameter<double>("assoc_mahalanobis_gate", 9.21);
+    this->declare_parameter<bool>("physical_id_reassociation_enable", true);
+    this->declare_parameter<double>("physical_id_reassociation_gap_s", 0.4);
+    this->declare_parameter<double>("physical_id_reassociation_gap_d", 0.3);
+    this->declare_parameter<double>("physical_id_reassociation_gap_map", 0.4);
+    this->declare_parameter<double>("physical_id_memory_sec", 30.0);
     this->declare_parameter<int>("ttl_dynamic", 40);
     this->declare_parameter<int>("ttl_static", 25);
     this->declare_parameter<int>("min_hits_confirm", 3);
@@ -269,6 +294,16 @@ void ObstacleDetectorNode::loadParameters()
         this->get_parameter("assoc_use_mahalanobis").as_bool();
     tracker_params_.assoc_mahalanobis_gate =
         std::max(0.0, this->get_parameter("assoc_mahalanobis_gate").as_double());
+    tracker_params_.physical_id_reassociation_enable =
+        this->get_parameter("physical_id_reassociation_enable").as_bool();
+    tracker_params_.physical_id_reassociation_gap_s =
+        this->get_parameter("physical_id_reassociation_gap_s").as_double();
+    tracker_params_.physical_id_reassociation_gap_d =
+        this->get_parameter("physical_id_reassociation_gap_d").as_double();
+    tracker_params_.physical_id_reassociation_gap_map =
+        this->get_parameter("physical_id_reassociation_gap_map").as_double();
+    tracker_params_.physical_id_memory_sec =
+        this->get_parameter("physical_id_memory_sec").as_double();
     tracker_params_.ttl_dynamic = this->get_parameter("ttl_dynamic").as_int();
     tracker_params_.ttl_static = this->get_parameter("ttl_static").as_int();
     tracker_params_.min_hits_confirm = this->get_parameter("min_hits_confirm").as_int();
@@ -365,15 +400,30 @@ void ObstacleDetectorNode::globalWpntsCallback(const f110_msgs::msg::WpntArray::
         rw.s = w.s_m;
         ref.push_back(rw);
     }
+
+    // /global_waypoints is intentionally republished at a fixed period. Rebuilding an identical
+    // CLCS used to clear every active track and dormant physical ID on each message, creating a
+    // new obstacle ID in the middle of an avoidance maneuver. Only geometry changes invalidate
+    // the Frenet domain; velocity, message stamp, and periodic retransmission do not.
+    if (converter_ && sameReferenceGeometry(wpnts, active_reference_waypoints_))
+    {
+        RCLCPP_INFO_ONCE(
+            this->get_logger(),
+            "Unchanged /global_waypoints received; preserving CLCS, tracks, and physical IDs.");
+        return;
+    }
+
     // CLCS converter: the accurate (x,y) -> (s,d) projection used for clusters and ego.
     try
     {
+        auto next_reference_waypoints = wpnts;
         global_planning::ClcsFrenetConfig cfg;  // closed_loop=true + sane projection-domain defaults
         auto conv = global_planning::ClcsFrenetConverter::create(ref, cfg, ++clcs_version_);
         FrenetProjector next_frenet;
         next_frenet.build(std::move(wpnts), true, conv->stats().track_length);
         frenet_ = std::move(next_frenet);
         converter_ = conv;
+        active_reference_waypoints_ = std::move(next_reference_waypoints);
         tracker_.clear();  // old tracks live in the previous reference's s-domain
         ego_s_ = -1.0;  // wait for an odometry sample projected against the new CLCS reference
         ego_s_stamp_ = -1.0;
@@ -944,7 +994,8 @@ void ObstacleDetectorNode::logMotionDebug()
             continue;
         }
         has_confirmed_track = true;
-        stream << "\nID=" << track.id
+        stream << "\nobject_ID=" << track.id
+               << " track_uid=" << track.track_uid
                << " " << trackStatusName(track.track_status)
                << "/" << motionStatusName(track.motion_status)
                << " v_map=(" << track.mapVx() << "," << track.mapVy() << ")"
@@ -1011,6 +1062,8 @@ void ObstacleDetectorNode::updateDiagnostics(const ScanProcessingStats &scan_sta
         events.retired += tracker_stats->retired;
         events.euclidean_pair_rejected += tracker_stats->euclidean_pair_rejected;
         events.mahalanobis_pair_rejected += tracker_stats->mahalanobis_pair_rejected;
+        events.spatially_reassociated += tracker_stats->spatially_reassociated;
+        events.physical_id_reused += tracker_stats->physical_id_reused;
     }
 
     const auto now = std::chrono::steady_clock::now();
@@ -1037,7 +1090,8 @@ void ObstacleDetectorNode::updateDiagnostics(const ScanProcessingStats &scan_sta
         "reject(size=%zu clcs_projection=%zu view=%zu boundary=%zu map=%zu) "
         "track(total=%zu visible=%zu raw=%zu tentative=%zu "
         "unknown=%zu static=%zu dynamic=%zu predicted=%zu invalid_Pv=%zu) "
-        "assoc(pairs=%zu match=%zu spawn=%zu retire=%zu euclid_reject=%zu maha_reject=%zu) "
+        "assoc(pairs=%zu match=%zu spatial=%zu physical_id_reuse=%zu spawn=%zu retire=%zu "
+        "euclid_reject=%zu maha_reject=%zu) "
         "motion(yaw_used=%.3f fresh=%s)",
         elapsed, total.scans_processed, total.scans_received, total.clcs_unavailable,
         total.tf_unavailable, total.valid_beams, total.total_beams,
@@ -1049,7 +1103,8 @@ void ObstacleDetectorNode::updateDiagnostics(const ScanProcessingStats &scan_sta
         snapshot.visible_tracks, snapshot.raw_tracks, snapshot.tentative_tracks,
         snapshot.motion_unknown, snapshot.motion_static, snapshot.motion_dynamic,
         snapshot.predicted_only, snapshot.invalid_velocity_covariance,
-        events.candidate_pairs, events.matched, events.spawned,
+        events.candidate_pairs, events.matched, events.spatially_reassociated,
+        events.physical_id_reused, events.spawned,
         events.retired, events.euclidean_pair_rejected,
         events.mahalanobis_pair_rejected, measurement_yaw_rate,
         yaw_rate_fresh ? "true" : "false");

@@ -3,7 +3,7 @@
   <name>global_planning</name>
   <version>0.0.1</version>
   <description>Minimal integration global planner pipeline for IFAC.</description>
-  <maintainer email="haejum@example.com">haejum</maintainer>
+  <maintainer email="sungho@example.com">sungho</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>

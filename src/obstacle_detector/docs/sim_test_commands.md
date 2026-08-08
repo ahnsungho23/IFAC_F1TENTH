@@ -58,17 +58,22 @@ python3 src/obstacle_detector/test/synthetic_opponent_test.py
 3. 정지 장애물이 `/opp_obs`로 새지 않는다.
 4. 상대차가 먼저 `/static_obs`에 provisional로 나타난 뒤 같은 ID로 `/opp_obs`에 이동하고,
    dynamic 확정 후에는 `/static_obs`로 돌아오지 않는다.
-5. 각각 5포인트 미만인 3+2 beam 파편이 tracking 전에 하나의 detection으로 복원된다.
-6. 두 track으로 관측된 정적 객체가 layer merge를 거쳐 `/static_obs`의 한 객체로 병합된다.
-7. Hard gate 안의 1프레임 0.45 m outlier가 Mahalanobis gate에서 거부되어 확정 track이 뛰지 않는다.
-8. 원거리 5포인트 detection의 위치 공분산이 근거리 조밀 detection보다 크게 유지된다.
-9. 모든 visible 객체가 유효한 Cartesian AABB, 중심, 반지름을 발행한다.
-10. Layer merge 객체의 Cartesian AABB가 구성 track AABB의 합집합을 포함한다.
-11. Predicted-only 객체는 Frenet 상태를 유지하면서 `has_cartesian=false`로 stale AABB를 차단한다.
-12. 모든 객체의 `s_start/s_end/d_right/d_left`가 유한하고 `d_right <= d_left`이며, visible
+5. 정지 장애물은 scan face가 변해도 하나의 ID를 유지하고 `/confirmed_static_obs`에서도
+   `/static_obs`와 같은 ID를 사용한다.
+6. Production과 같이 동일한 `/global_waypoints`를 2초마다 재발행해도 CLCS와 물리 객체 ID가
+   초기화되지 않는다.
+7. 각각 5포인트 미만인 3+2 beam 파편이 tracking 전에 하나의 detection으로 복원된다.
+8. 두 track으로 관측된 정적 객체가 layer merge를 거쳐 `/static_obs`의 한 객체로 병합된다.
+9. Hard gate 안의 1프레임 0.45 m outlier가 Mahalanobis gate에서 거부된 뒤 공간적으로 같은
+   cluster에 재연결되며, 확정 track의 공개 envelope는 뛰지 않는다.
+10. 원거리 5포인트 detection의 위치 공분산이 근거리 조밀 detection보다 크게 유지된다.
+11. 모든 visible 객체가 유효한 Cartesian AABB, 중심, 반지름을 발행한다.
+12. Layer merge 객체의 Cartesian AABB가 구성 track AABB의 합집합을 포함한다.
+13. Invisible track이 과거 Cartesian AABB를 `has_cartesian=true`로 잘못 발행하지 않는다.
+14. 모든 객체의 `s_start/s_end/d_right/d_left`가 유한하고 `d_right <= d_left`이며, visible
     객체의 경계는 같은 Cartesian AABB 전체를 투영한 결과다. 폐루프 wrap의
     `s_start > s_end`는 허용한다.
-13. `/static_obs/markers`와 `/opp_obs/markers`에 최종 Frenet 경계 기반 `LINE_STRIP`이 나타난다.
+15. `/static_obs/markers`와 `/opp_obs/markers`에 최종 Frenet 경계 기반 `LINE_STRIP`이 나타난다.
 
 테스트가 끝난 뒤 터미널 A의 detector를 `Ctrl+C`로 종료한다.
 

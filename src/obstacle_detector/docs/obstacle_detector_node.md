@@ -18,8 +18,10 @@
 ### 2.1 기준 경로 준비
 
 1. `/global_waypoints`를 받는다.
-2. `FrenetProjector`에 트랙 길이와 `d_left/d_right` 경계를 저장한다.
-3. `global_planning::ClcsFrenetConverter`를 생성한다.
+2. 현재 기준과 `x/y/s/d_left/d_right`가 모두 같으면 주기적 재발행으로 판단하고 기존 CLCS,
+   track, physical-ID 기억을 그대로 유지한다.
+3. 기준 형상이 실제로 바뀐 경우에만 `FrenetProjector`에 트랙 길이와 경계를 다시 저장하고
+   `global_planning::ClcsFrenetConverter`를 생성한다. 이때만 기존 tracker 상태를 초기화한다.
 
 CLCS가 준비되기 전에는 scan을 처리하지 않는다.
 
@@ -99,11 +101,34 @@ Association은 다음 순서로 수행한다.
 2. `S = HPHᵀ + R`로 detection별 Mahalanobis distance를 계산해 `assoc_mahalanobis_gate`를
    넘는 후보를 제거한다.
 3. 남은 후보를 기존 Frenet 거리순으로 정렬해 greedy 1:1 연결한다.
+4. 아직 연결되지 않은 track과 detection의 Frenet AABB edge gap을 비교한다. `s`, `d` gap이
+   각각 `physical_id_reassociation_gap_s/d` 이내이면 같은 공간 cluster로 보고 기존 track에
+   연결한다. 이 단계는 1~3의 통계 association이 끝난 뒤에만 실행하며
+   `UNKNOWN`/`STATIC`/`DYNAMIC` 모든 motion 상태에 동일하게 적용한다.
 
 Adaptive `R`이 큰 원거리 detection이 작은 정규화 거리를 얻어 우선되는 것을 막기 위해
 Mahalanobis distance는 gate로만 사용하고 정렬 기준은 Frenet 거리를 유지한다. 연결된 track은
 adaptive `R`로 Kalman 측정 갱신하고, 연결되지 않은 track은 TTL을 감소시키며, 남은 detection은
-새 track으로 생성한다.
+새 내부 Kalman track으로 생성한다. 이때 공개 `Obstacle.id`는 내부 `track_uid`와 분리된 물리
+객체 ID다. 같은 scan에서 같은 공간 cluster가 여러 track으로 갈라져도 공개 ID를 공유한다.
+확정 객체가 처음 `STATIC`으로 판정되면 그 프레임의 실측 Frenet footprint와 map-frame AABB를
+안정 identity anchor로 고정한다. 이후 관측면 변화나 잘못된 `DYNAMIC` 전환은 anchor를 움직이지
+않는다. `STATIC`에 도달하지 않은 객체는 마지막 실측 footprint를 anchor로 사용한다.
+track 폐기 뒤 `physical_id_memory_sec` 동안 anchor와 ID를 보존하며, prediction-only Kalman
+위치는 이 기억을 움직이지 않는다. 이 시간 안에 Frenet envelope가 기존 `s/d` gap 안에 들거나
+map AABB의 Euclidean edge gap이 `physical_id_reassociation_gap_map` 이내이면 새 `track_uid`에
+기존 공개 ID를 재사용한다. 기본
+기억 시간은 한 랩보다 긴 30초다. 동일 `/global_waypoints`의 주기적 재발행은 CLCS 재생성이
+아니므로 ID 기억을 유지한다. 기준 형상이 실제로 달라져 CLCS가 재생성될 때만 좌표계가
+바뀌므로 ID 기억도 함께 비운다.
+
+motion 상태는 출력 레이어를 선택할 뿐 ID를 만들지 않는다. 따라서 같은 객체가 `UNKNOWN` 또는
+`STATIC`일 때 `/static_obs`에 실린 ID와, `STATIC` 확정 뒤 `/confirmed_static_obs`에 실린 ID,
+`DYNAMIC` 전환 뒤 `/opp_obs`에 실린 ID는 모두 같다.
+
+이 방식은 센서가 같은 물체에 대해 공간적으로 겹치는 envelope를 다시 제공한다는 조건에서 ID를
+유지한다. 장시간 완전 가림, 물체의 실제 이동, 서로 붙은 물체의 split/merge처럼 공간 단서 자체가
+모호한 경우까지 동일 ID를 수학적으로 보장하지는 않는다.
 
 ### 2.5 존재 상태와 motion 상태 분리
 
@@ -234,7 +259,8 @@ cluster=...->... fragment_drop=... detections=...
 reject(size=... clcs_projection=... view=... boundary=... map=...)
 track(total=... visible=... raw=... tentative=...
       unknown=... static=... dynamic=... predicted=... invalid_Pv=...)
-assoc(pairs=... match=... spawn=... retire=... euclid_reject=... maha_reject=...)
+assoc(pairs=... match=... spatial=... physical_id_reuse=... spawn=... retire=...
+      euclid_reject=... maha_reject=...)
 motion(yaw_used=... fresh=...)
 ```
 
@@ -246,6 +272,9 @@ motion(yaw_used=... fresh=...)
 - `reject(...)`는 detection 생성 전 각 Layer 1 gate에서 탈락한 클러스터 수다.
 - `assoc`는 1초 동안 누적한 tracker event다. `pairs`, `euclid_reject`, `maha_reject`는 장애물 수가
   아니라 `track × detection` 후보 쌍 수다.
+- `spatial`은 1차 Kalman association 실패 뒤 같은 Frenet AABB cluster로 기존 track에 연결한
+  횟수이고, `physical_id_reuse`는 split track 또는 폐기 ID 기억에서 기존 물리 객체 ID를
+  재사용한 횟수다.
 - `track`은 누적합이 아니라 로그 시점의 최신 snapshot이다. `raw/tentative`는 존재 확인 상태,
   `unknown/static/dynamic`은 CONFIRMED track의 motion 상태다. `predicted`는 이번 scan에
   measurement가 없었던 track, `invalid_Pv`는 map 속도 공분산이 유효하지 않았던 visible
@@ -291,7 +320,8 @@ motion(yaw_used=... fresh=...)
 | 경계 | `boundaries_inflation`, `fallback_track_halfwidth` | 트랙 내부 통과 조건 |
 | 지도 | `use_map_filter`, `map_occupied_thresh`, `map_inflation_cells`, `map_point_reject_ratio` | 점유지도 필터 |
 | 측정 불확실성 | `meas_range_var_scale`, `meas_sparse_var_scale`, `meas_yaw_rate_var_scale`, `meas_reference_points`, `meas_variance_scale_max`, `meas_motion_timeout` | Detection별 adaptive Kalman `R` |
-| 추적 | `meas_var_s/d`, `process_var_vs/vd`, `assoc_gate`, `aggro_multi`, `assoc_use_mahalanobis`, `assoc_mahalanobis_gate` | Kalman 및 2단계 association |
+| 추적 | `meas_var_s/d`, `process_var_vs/vd`, `assoc_gate`, `aggro_multi`, `assoc_use_mahalanobis`, `assoc_mahalanobis_gate` | Kalman 1차 association |
+| 물리 객체 ID 연속성 | `physical_id_reassociation_enable`, `physical_id_reassociation_gap_s/d/map`, `physical_id_memory_sec` | 안정 실측 anchor와 Frenet/map AABB 기반 track 폐기 뒤 ID 재식별 |
 | 수명 | `ttl_dynamic`, `ttl_static`, `min_hits_confirm`, `confirmation_window`, `extent_shrink_alpha`, `envelope_stability_tolerance_m`, `envelope_stability_frames` | 3-of-5 존재 확인, track 유지, extent 완화와 정적 레이어 envelope 안정성 gate |
 | 분류 | `motion_classification.dynamic_chi2_threshold`, `static_chi2_threshold`, `dynamic_vote_*`, `static_vote_*` | map 속도의 통계적 evidence와 최근 voting |
 | 위치 지속성 | `motion_classification.position_history_size`, `static_min_observations`, `static_max_position_rms`, `dynamic_to_static_*` | STATIC 진입과 보수적인 DYNAMIC→STATIC 복귀 |
