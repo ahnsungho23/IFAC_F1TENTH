@@ -1,7 +1,7 @@
 # 2026_IFAC shared visualization profile.
 #
-# false: race/embedded mode. Nodes skip creating and publishing RViz-only messages.
-# true:  change the required entries below to true, then restart the affected nodes.
+# true: competition monitoring mode. Nodes publish RViz visualization messages.
+# false: change individual entries below to false when reducing Jetson/network load.
 #
 # This file is loaded after each package's normal YAML, so it overrides only the
 # visualization/output switches listed here. Driving and planning parameters remain
@@ -9,41 +9,41 @@
 
 particle_filter:
   ros__parameters:
-    viz: false
-    # Stops particle_filter's 5 Hz full OccupancyGrid mirror. The map_server
-    # launched by MCL can still provide the latched /map when needed.
-    publish_map: false
+    viz: true
+    # Controls particle_filter's 5 Hz full OccupancyGrid mirror. The map_server
+    # launched by MCL can also provide a latched /map.
+    publish_map: true
 
 global_trajectory_publisher_node:
   ros__parameters:
-    publish_markers: false
-    publish_lattice: false
+    publish_markers: true
+    publish_lattice: true
 
 obstacle_detector:
   ros__parameters:
-    publish_markers: false
+    publish_markers: true
 
 local_planner_node:
   ros__parameters:
-    publish_path_visualization: false
+    publish_path_visualization: true
 
 state_machine_node:
   ros__parameters:
-    publish_path_visualization: false
+    publish_path_visualization: true
 
 control_map_node:
   ros__parameters:
-    publish_l1_markers: false
+    publish_l1_markers: true
 
 static_obstacle_map:
   ros__parameters:
-    publish_visualization: false
+    publish_visualization: true
 
 map_controller:
   ros__parameters:
-    publish_debug_markers: false
+    publish_debug_markers: true
 
 lap_timer:
   ros__parameters:
-    rviz_text: false
-    publish_hud: false
+    rviz_text: true
+    publish_hud: true

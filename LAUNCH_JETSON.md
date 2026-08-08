@@ -189,13 +189,14 @@ PROFILE="$PWD/src/f1tenth_control/config/runtime_visualization.yaml"
 ros2 launch particle_filter_cpp mcl_launch.py \
   mod:=real \
   map_name:=map \
-  use_rviz:=false \
+  use_rviz:=true \
   publish_odom_base_tf:=false \
   runtime_profile:="$PROFILE"
 ```
 
-Jetson에서는 RViz를 띄우지 않으므로 `use_rviz:=false`를 사용합니다. 초기 위치 지정과 RViz
-확인은 같은 ROS domain에 연결된 로컬 PC에서 수행합니다.
+대회 중 상태와 초기 위치를 계속 확인할 수 있도록 `use_rviz:=true`로 RViz를 함께 실행합니다.
+SSH에서 실행할 때는 Jetson의 그래픽 세션에 접근할 수 있도록 `DISPLAY` 설정 또는 X11 전달이
+필요합니다. RViz는 같은 ROS domain에 연결된 로컬 PC에서 별도로 실행해도 됩니다.
 
 실차의 TF 책임은 MCL이 `map -> odom`, 터미널 1의 `vesc_to_odom_node`가
 `odom -> base_link`를 맡습니다. 따라서 `publish_odom_base_tf:=false`를 유지해야 합니다.

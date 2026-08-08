@@ -18,9 +18,9 @@ src/f1tenth_control/config/runtime_visualization.yaml
 ros2 pkg prefix f1tenth_control
 ```
 
-## 2. 실차 경량 설정
+## 2. 대회 모니터링 설정
 
-저장소 기본 프로파일은 다음 출력을 끈다.
+저장소 기본 프로파일은 실차 주행 중 상태 확인을 위해 다음 출력을 켠다.
 
 - MCL particle pose와 particle cloud
 - MCL의 5 Hz `/map` 미러
@@ -34,8 +34,9 @@ ros2 pkg prefix f1tenth_control
 `/pf/pose/odom`, `/global_waypoints`, `/static_obs`, `/avoid_waypoints`, `/state`,
 `/local_waypoints`, `/drive_autonomous`, `/drive` 같은 주행 토픽은 유지된다.
 
-디버깅할 때는 필요한 항목만 `true`로 바꾸고 관련 노드를 재시작한다. 노드들은 이 스위치를
-기동 시 읽으므로 파일 편집만으로 실행 중인 프로세스가 동적으로 바뀌지는 않는다.
+Jetson 또는 네트워크 부하를 줄여야 할 때는 불필요한 항목만 `false`로 바꾸고 관련 노드를
+재시작한다. 노드들은 이 스위치를 기동 시 읽으므로 파일 편집만으로 실행 중인 프로세스가
+동적으로 바뀌지는 않는다.
 
 ## 3. 공통 실행 준비
 
@@ -92,7 +93,7 @@ ros2 launch new_map_con opponent_simulator.launch.py
 
 ```bash
 ros2 launch particle_filter_cpp mcl_launch.py \
-  mod:=real map_name:=map use_rviz:=false runtime_profile:="$PROFILE"
+  mod:=real map_name:=map use_rviz:=true runtime_profile:="$PROFILE"
 ```
 
 ```bash
@@ -115,7 +116,7 @@ ros2 launch f1tenth_control control_real.launch.py runtime_profile:="$PROFILE"
 
 ## 6. 적용 확인
 
-경량 프로파일에서는 다음 토픽이 없어야 한다.
+대회 모니터링 프로파일에서는 다음 시각화 토픽이 보여야 한다.
 
 ```bash
 ros2 topic list | grep -E '/pf/viz|/markers$|/lattice_viz$|/local_.*/path|/debug/l1_lookahead|/lap_(time_text|hud)$'
@@ -127,9 +128,8 @@ ros2 topic list | grep -E '/pf/viz|/markers$|/lattice_viz$|/local_.*/path|/debug
 ros2 topic list | grep -E '/pf/pose/odom|/global_waypoints$|/static_obs$|/avoid_waypoints$|/state$|/local_waypoints$|/drive$'
 ```
 
-MCL의 `publish_map: false`는 particle filter의 반복 `/map` 미러만 끈다. MCL launch의
-`nav2_map_server`가 제공하는 latched `/map`은 남을 수 있다. `/map`의 실제 publisher는 다음으로
-확인한다.
+MCL의 `publish_map: true`는 particle filter의 반복 `/map` 미러를 켠다. MCL launch의
+`nav2_map_server`도 latched `/map`을 제공할 수 있다. `/map`의 실제 publisher는 다음으로 확인한다.
 
 ```bash
 ros2 topic info -v /map
