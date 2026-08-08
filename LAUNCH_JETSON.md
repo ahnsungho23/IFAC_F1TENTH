@@ -190,7 +190,7 @@ ros2 launch particle_filter_cpp mcl_launch.py \
   mod:=real \
   map_name:=map \
   use_rviz:=true \
-  publish_odom_base_tf:=false \
+  publish_odom_base_tf:=true \
   runtime_profile:="$PROFILE"
 ```
 
@@ -198,9 +198,10 @@ ros2 launch particle_filter_cpp mcl_launch.py \
 SSH에서 실행할 때는 Jetson의 그래픽 세션에 접근할 수 있도록 `DISPLAY` 설정 또는 X11 전달이
 필요합니다. RViz는 같은 ROS domain에 연결된 로컬 PC에서 별도로 실행해도 됩니다.
 
-실차의 TF 책임은 MCL이 `map -> odom`, 터미널 1의 `vesc_to_odom_node`가
-`odom -> base_link`를 맡습니다. 따라서 `publish_odom_base_tf:=false`를 유지해야 합니다.
-두 노드가 `odom -> base_link`를 동시에 발행하면 TF가 흔들릴 수 있습니다.
+8월 8일 이전 실차 설정과 동일하게 MCL이 `map -> odom`과 `odom -> base_link`를 모두
+발행하도록 `publish_odom_base_tf:=true`를 사용합니다. 터미널 1의 `vesc_to_odom_node`도
+`odom -> base_link`를 발행하도록 설정되어 있다면 발행자가 중복되어 TF가 흔들릴 수 있으므로,
+둘 중 한 노드만 해당 TF를 발행하도록 설정해야 합니다.
 
 ### 터미널 3 — Global planning
 
@@ -230,7 +231,7 @@ export ROS_LOCALHOST_ONLY=0
 PROFILE="$PWD/src/f1tenth_control/config/runtime_visualization.yaml"
 
 F1_MAP=map ros2 launch local_planning local_planning.launch.py \
-  simulator:=false \
+  simulator:=true \
   runtime_profile:="$PROFILE"
 ```
 
