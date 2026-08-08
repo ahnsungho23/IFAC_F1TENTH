@@ -42,7 +42,7 @@ struct ClcsFrenetConfig
   VelocityFrame velocity_frame{VelocityFrame::kBody};
 
   // --- Monotonic s-window tracking (convertTracked) --------------------------
-  // Skidpad-converter-derived design, adapted for closed loops: after the
+  // Monotonic progress tracking for closed loops: after the
   // first fix only the arc slice [s_prev - backward_tolerance, s_prev +
   // forward_window] (modulo track length when closed_loop) is searched, so
   // reference branches that are close in Euclidean space but far in arc
@@ -51,7 +51,7 @@ struct ClcsFrenetConfig
   double backward_tolerance{1.0};    // epsilon [m]
   // First fix: <= 0 searches the whole path (closed track may start
   // anywhere); > 0 restricts the first fix to [0, initial_seed_window]
-  // (skidpad-style known start region).
+  // (use only when the start region is known in advance).
   double initial_seed_window{0.0};
   // Euclidean gate applied to tracked fixes only (stateless convert() keeps
   // max_projection_distance). Must exceed the largest legitimate |d|
@@ -60,7 +60,7 @@ struct ClcsFrenetConfig
   double tracked_max_projection_distance{1.5};
   // A window miss fails closed. After this many consecutive misses one loud
   // global re-search re-acquires progress (teleport / 2D Pose Estimate).
-  // 0 = never re-acquire (strict skidpad fail-closed semantics).
+  // 0 = never re-acquire (strict fail-closed).
   int reacquire_after_misses{15};
 };
 

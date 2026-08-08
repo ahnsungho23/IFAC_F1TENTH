@@ -340,7 +340,7 @@ TEST(ClcsFrenetConverter, TrackedWindowWrapsAcrossSeam)
 TEST(ClcsFrenetConverter, TrackedFailsClosedOnTeleport)
 {
   auto config = baseConfig();
-  config.reacquire_after_misses = 0;  // strict skidpad semantics
+  config.reacquire_after_misses = 0;  // strict fail-closed, no re-acquisition
   auto converter = ClcsFrenetConverter::create(longStraightPath(), config, 1);
   ClcsContinuityState state;
 

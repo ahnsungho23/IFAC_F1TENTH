@@ -27,8 +27,8 @@ The package name, C++ namespace (`namespace global_planning`), include prefix
 - For closed-loop tracks, close the reference path before building CLCS and wrap published `s` by CLCS path length.
 - Skip zero-length or invalid segments and avoid publishing if fewer than two waypoints are available.
 - The previous polyline-based implementation was removed; consult git history (commit `301a06e` and earlier) if the legacy `frenet_odom_node_legacy_polyline.cpp` reference is ever needed.
-- `frenet_odom_node` publishes via `ClcsFrenetConverter::convertTracked()` (monotonic
-  s-window, skidpad-converter-derived): after the first fix only
+- `frenet_odom_node` publishes via `ClcsFrenetConverter::convertTracked()`
+  (monotonic s-window): after the first fix only
   `[s_prev - backward_tolerance, s_prev + forward_window]` (mod track length for
   closed loops) is searched, which is what prevents hairpin opposite-leg flips
   (branch-proximity non-uniqueness). A window miss FAILS CLOSED — never add a

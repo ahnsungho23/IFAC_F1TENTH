@@ -246,7 +246,7 @@ ClcsConversionResult ClcsFrenetConverter::convertTracked(
         miss_reason = "tracked projection exceeds tracked_max_projection_distance";
       }
     } else if (config_.initial_seed_window > 0.0) {
-      // Skidpad-style first fix: only the configured start slice.
+      // First fix restricted to the configured start slice.
       const double s_hi = std::min(stats_.track_length, config_.initial_seed_window);
       projected = projectInWindow(input.x, input.y, 0.0, s_hi, raw_s, d, segment_index);
       if (!projected) {
@@ -429,8 +429,8 @@ bool ClcsFrenetConverter::projectInWindow(
       continue;
     }
     const double candidate_raw_s = curvilinear.x() + seg_start;
-    // The candidate itself must land inside the window (skidpad semantics),
-    // not merely on a segment that touches it.
+    // The candidate itself must land inside the window, not merely on a
+    // segment that touches it.
     constexpr double kWindowSlack = 1.0e-9;
     if (!overlaps_window(candidate_raw_s - kWindowSlack, candidate_raw_s + kWindowSlack)) {
       continue;

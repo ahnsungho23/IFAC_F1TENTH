@@ -65,14 +65,14 @@ frenet_odom_node:
     # is a fixed anchor between which every bend is refined with pinned ends
     # (the paper's partition boundaries, required for curvature to decrease).
     anchor_curvature_threshold: 0.1
-    # --- Monotonic s-window tracking (skidpad-derived, closed-loop wrap) ---
+    # --- Monotonic s-window tracking (closed-loop wrap) ---
     # After the first fix only [s_prev - backward_tolerance, s_prev +
     # forward_window] (mod track length) is searched, so branches that are
     # near in space but far in arc length (hairpin opposite leg: 1.41 m away,
     # ~half a lap in s) can never capture the projection. A window miss fails
     # closed (projection_failure_policy applies); after reacquire_after_misses
     # consecutive misses ONE loud global re-search re-acquires progress
-    # (teleport / RViz 2D Pose Estimate). 0 = strict skidpad fail-closed.
+    # (teleport / RViz 2D Pose Estimate). 0 = strict fail-closed.
     continuity_enabled: true
     forward_window: 1.0             # [m] W ahead of s_prev
     backward_tolerance: 0.5         # [m] epsilon behind s_prev
@@ -81,7 +81,7 @@ frenet_odom_node:
     # legitimate |d| (avoidance excursions ~1.1 m) and stay below the
     # smallest branch gap (hairpin legs 1.41 m).
     tracked_max_projection_distance: 1.5
-    reacquire_after_misses: 15      # ~0.5 s at 30 Hz odom
+    reacquire_after_misses: 5      # ~0.5 s at 30 Hz odom
     max_projection_distance: 2.5
     projection_domain_limit: 2.7
     projection_domain_epsilon: 0.1

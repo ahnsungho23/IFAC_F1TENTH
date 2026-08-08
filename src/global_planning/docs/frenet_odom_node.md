@@ -149,8 +149,8 @@ step만 >0                → 균일 리샘플만
 
 ## 9. 단조 s-윈도우 추적 (Monotonic s-window tracking, 기본 활성)
 
-HYU-Formula-Student 스키드패드 컨버터의 단조 윈도우 설계를 폐루프 트랙용으로
-이식한 것으로, `convertTracked()`가 담당한다. **브랜치 근접형 비유일성**
+호길이 s의 단조 진행을 이용한 윈도우 탐색으로, `convertTracked()`가 담당한다.
+**브랜치 근접형 비유일성**
 (헤어핀 반대 레그: 공간상 1.41 m 옆이지만 호길이로는 반 바퀴 거리)에 의한
 투영 플립을 방어한다 — §8의 경로 적응(곡률 특이형)과는 다른 종류의 문제를
 다루며 서로 독립적으로 동작한다.
@@ -159,7 +159,8 @@ HYU-Formula-Student 스키드패드 컨버터의 단조 윈도우 설계를 폐�
 
 1. **첫 fix**: `initial_seed_window <= 0`(기본)이면 전체 탐색으로 초기 s를
    획득한다 (폐루프 트랙은 2D Pose Estimate로 임의 위치에서 시작 가능).
-   `> 0`이면 스키드패드처럼 `[0, initial_seed_window]` 구간만 탐색한다.
+   `> 0`이면 `[0, initial_seed_window]` 구간만 탐색한다 (출발 위치가 사전에
+   정해져 있는 경우에만 사용).
 2. **추적**: 이후에는 호길이 구간 `[s_prev − backward_tolerance,
    s_prev + forward_window]`와 교차하는 세그먼트만 후보로 투영한다.
    폐루프에서는 윈도우가 봉합점(s=0/L)을 넘어 wrap된다. 반대 레그는 이
@@ -172,7 +173,7 @@ HYU-Formula-Student 스키드패드 컨버터의 단조 윈도우 설계를 폐�
    바로 이 로직이 막는 플립이기 때문.
 5. **재획득 탈출구**: `reacquire_after_misses`회 연속 미스가 쌓이면 단 한 번
    전역 재탐색으로 s를 재획득하고 WARN 로그를 남긴다 (충돌·텔레포트·RViz
-   2D Pose Estimate 복구용). `0`이면 스키드패드와 동일한 엄격 fail-closed.
+   2D Pose Estimate 복구용). `0`이면 재획득 없이 엄격 fail-closed로 동작한다.
 6. 성공 시에만 `s_prev`가 갱신되고 미스 카운터가 리셋된다. 참조 경로가
    재빌드되면 상태는 초기화되어 재획득한다.
 

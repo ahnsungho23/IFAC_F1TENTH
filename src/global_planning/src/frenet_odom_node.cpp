@@ -173,7 +173,7 @@ private:
     declare_parameter<double>("max_absolute_curvature", 0.0);
     declare_parameter<double>("anchor_curvature_threshold", 0.1);
 
-    // Monotonic s-window tracking (skidpad-derived; closed-loop wrap).
+    // Monotonic s-window tracking (closed-loop wrap).
     declare_parameter<bool>("continuity_enabled", true);
     declare_parameter<double>("forward_window", 1.0);
     declare_parameter<double>("backward_tolerance", 1.0);
