@@ -123,15 +123,6 @@ def generate_launch_description():
         default_value='true',
         description='Launch RViz visualization'
     )
-    runtime_profile_arg = DeclareLaunchArgument(
-        'runtime_profile',
-        default_value=os.path.join(
-            get_package_share_directory('f1tenth_control'),
-            'config',
-            'runtime_visualization.yaml',
-        ),
-        description='Shared visualization/output profile YAML',
-    )
 
     start_map_server_arg = DeclareLaunchArgument(
         'start_map_server',
@@ -139,15 +130,6 @@ def generate_launch_description():
         description="Map server policy: 'auto' skips it when a particle_filter_map_server is already "
                     "running in this ROS_DOMAIN_ID (prevents duplicates); 'true' always starts it; "
                     "'false' never starts it (attach to a map_server provided elsewhere)."
-    )
-
-    publish_odom_base_tf_arg = DeclareLaunchArgument(
-        'publish_odom_base_tf',
-        default_value='false',
-        description=(
-            'Publish odom->base_link from MCL. Keep false on the real vehicle because '
-            'vesc_to_odom_node owns this TF; enable only for bag playback without an odometry TF.'
-        ),
     )
     
     # === CONFIGURATION ===
@@ -206,7 +188,9 @@ def generate_launch_description():
         'publish_map_odom_tf': PythonExpression([
             "'false' if '", LaunchConfiguration('mod'), "' == 'sim' else 'true'"
         ]),
-        'publish_odom_base_tf': LaunchConfiguration('publish_odom_base_tf'),
+        'publish_odom_base_tf': PythonExpression([
+            "'false' if '", LaunchConfiguration('mod'), "' == 'sim' else 'true'"
+        ]),
 
         # ※ 튜닝값(모션 노이즈/스묻싱 등)은 전부 YAML이 단일 소스. launch는
         #    모드 배선(토픽/프레임/TF 플래그)과 설정 파일 선택만 담당한다.
@@ -266,8 +250,7 @@ def generate_launch_description():
                 parameters=[
                     LaunchConfiguration('config_file'),
                     common_params,
-                    dynamic_params,
-                    LaunchConfiguration('runtime_profile'),
+                    dynamic_params
                 ],
                 remappings=[
                     ('/map_server/map', '/particle_filter_map_server/map')
@@ -307,9 +290,7 @@ def generate_launch_description():
         mode_arg,
         map_name_arg,
         use_rviz_arg,
-        runtime_profile_arg,
         start_map_server_arg,
-        publish_odom_base_tf_arg,
         config_arg,
 
         # Nodes

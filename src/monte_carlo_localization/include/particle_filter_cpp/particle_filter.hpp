@@ -125,7 +125,6 @@ class ParticleFilter : public rclcpp::Node
     bool PUBLISH_MAP_ODOM_TF;
     bool PUBLISH_ODOM_BASE_TF;
     bool DO_VIZ;
-    bool PUBLISH_MAP;
     double TIMER_FREQUENCY;
     bool USE_PARALLEL_RAYCASTING;
     int NUM_THREADS;

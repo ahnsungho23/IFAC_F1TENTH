@@ -12,7 +12,6 @@
   <exec_depend>visualization_msgs</exec_depend>
   <exec_depend>builtin_interfaces</exec_depend>
   <exec_depend>std_srvs</exec_depend>
-  <exec_depend>f1tenth_control</exec_depend>
   <!-- rviz_2d_overlay_msgs/plugins: Jazzy 바이너리 미배포 — 노드에서 선택적 import로 처리 -->
 
 
@@ -20,3 +19,4 @@
     <build_type>ament_python</build_type>
   </export>
 </package>
+

@@ -139,9 +139,3 @@ RViz2에서는 다음 순서로 표시한다.
 ```bash
 ros2 service call /static_obstacle_map/reset std_srvs/srv/Empty "{}"
 ```
-
-## 통합 시각화 프로파일
-
-launch는 `f1tenth_control/config/runtime_visualization.yaml`을 패키지 YAML 뒤에 읽는다.
-`publish_visualization=false`이면 `/adaptive_obstacle_map/markers`만 끄며 핵심
-`/adaptive_obstacle_map` ObstacleArray 발행은 유지한다.

@@ -108,7 +108,7 @@ install(TARGETS
   DESTINATION lib/${PROJECT_NAME}
 )
 
-install(DIRECTORY config docs launch
+install(DIRECTORY launch
   DESTINATION share/${PROJECT_NAME}
 )
 

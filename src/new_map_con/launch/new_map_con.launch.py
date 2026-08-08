@@ -30,11 +30,6 @@ def generate_launch_description():
 
     params_file = LaunchConfiguration("params_file")
     simulator = LaunchConfiguration("simulator")
-    runtime_profile = os.path.join(
-        get_package_share_directory("f1tenth_control"),
-        "config",
-        "runtime_visualization.yaml",
-    )
 
     return LaunchDescription(
         [
@@ -48,11 +43,6 @@ def generate_launch_description():
                 default_value="false",
                 description="Use simulator topic profile when true.",
             ),
-            DeclareLaunchArgument(
-                "runtime_profile",
-                default_value=runtime_profile,
-                description="Shared visualization/output profile YAML.",
-            ),
             Node(
                 package="new_map_con",
                 executable="map_controller",
@@ -64,7 +54,6 @@ def generate_launch_description():
                         "simulator": ParameterValue(simulator, value_type=bool),
                         "package_resource_root": package_resource_root,
                     },
-                    LaunchConfiguration("runtime_profile"),
                 ],
             ),
         ]

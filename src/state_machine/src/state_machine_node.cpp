@@ -47,7 +47,6 @@ StateMachineNode::StateMachineNode()
   declare_parameter<std::string>("global_waypoints_topic", "/global_waypoints");
   declare_parameter<std::string>("avoid_waypoints_topic", "/avoid_waypoints");
   declare_parameter<std::string>("overtake_waypoints_topic", "/overtake_waypoints");
-  declare_parameter<bool>("publish_path_visualization", true);
   declare_parameter<std::string>("frame_id", "map");
   declare_parameter<std::string>("default_state", "global");
   declare_parameter<std::string>("invalid_local_path_policy", "global_fallback");
@@ -71,7 +70,6 @@ StateMachineNode::StateMachineNode()
   state_topic_ = get_parameter("state_topic").as_string();
   local_waypoints_topic_ = get_parameter("local_waypoints_topic").as_string();
   local_path_topic_ = get_parameter("local_path_topic").as_string();
-  publish_path_visualization_ = get_parameter("publish_path_visualization").as_bool();
   frame_id_ = get_parameter("frame_id").as_string();
   default_state_name_ = get_parameter("default_state").as_string();
   invalid_local_path_policy_ = get_parameter("invalid_local_path_policy").as_string();
@@ -135,9 +133,7 @@ StateMachineNode::StateMachineNode()
   state_pub_ = create_publisher<f110_msgs::msg::StateMachine>(state_topic_, state_qos);
   local_waypoints_pub_ =
     create_publisher<f110_msgs::msg::WpntArray>(local_waypoints_topic_, volatile_qos);
-  if (publish_path_visualization_) {
-    local_path_pub_ = create_publisher<nav_msgs::msg::Path>(local_path_topic_, volatile_qos);
-  }
+  local_path_pub_ = create_publisher<nav_msgs::msg::Path>(local_path_topic_, volatile_qos);
 
   frenet_sub_ = create_subscription<nav_msgs::msg::Odometry>(
     get_parameter("frenet_odom_topic").as_string(),
@@ -569,9 +565,7 @@ void StateMachineNode::publish_selected_waypoints(uint8_t state)
   }
 
   local_waypoints_pub_->publish(waypoints.value());
-  if (local_path_pub_) {
-    local_path_pub_->publish(build_path(waypoints.value()));
-  }
+  local_path_pub_->publish(build_path(waypoints.value()));
 }
 
 std::optional<f110_msgs::msg::WpntArray> StateMachineNode::select_waypoints(

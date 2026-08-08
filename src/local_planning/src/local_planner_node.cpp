@@ -251,8 +251,6 @@ void LocalPlannerNode::initializeParameters()
     declare_parameter<int>("minimum_path_points", 8);
 
   require_obstacles_message_ = declare_parameter<bool>("require_obstacles_message", true);
-  publish_path_visualization_ =
-    declare_parameter<bool>("publish_path_visualization", true);
   obstacle_stale_timeout_sec_ = declare_parameter<double>("obstacle_stale_timeout_sec", 0.75);
   odometry_stale_timeout_sec_ = declare_parameter<double>("odometry_stale_timeout_sec", 0.50);
   merge_lateral_tolerance_m_ = declare_parameter<double>("merge_lateral_tolerance_m", 0.15);
@@ -392,9 +390,7 @@ void LocalPlannerNode::initializeInterfaces()
 
   avoid_waypoints_pub_ =
     create_publisher<f110_msgs::msg::OTWpntArray>(ot_waypoints_topic_, volatile_qos);
-  if (publish_path_visualization_) {
-    local_path_pub_ = create_publisher<nav_msgs::msg::Path>(local_path_topic_, volatile_qos);
-  }
+  local_path_pub_ = create_publisher<nav_msgs::msg::Path>(local_path_topic_, volatile_qos);
 
   planning_timer_ = create_wall_timer(
     std::chrono::milliseconds(planning_period_ms_),
@@ -1475,7 +1471,7 @@ void LocalPlannerNode::publishResult(const RacelineSplineResult & result)
   last_published_side_ = current_side;
   avoid_waypoints_pub_->publish(output);
 
-  if (local_path_pub_ && local_path_pub_->get_subscription_count() > 0U) {
+  if (local_path_pub_->get_subscription_count() > 0U) {
     local_path_pub_->publish(makePath(result.path.wpnts, output.header));
   }
 }
@@ -1489,7 +1485,7 @@ void LocalPlannerNode::publishEmpty(const std::string & reason)
   output.ot_line = reason;
   avoid_waypoints_pub_->publish(output);
 
-  if (local_path_pub_ && local_path_pub_->get_subscription_count() > 0U) {
+  if (local_path_pub_->get_subscription_count() > 0U) {
     nav_msgs::msg::Path empty_path;
     empty_path.header = output.header;
     local_path_pub_->publish(empty_path);

@@ -42,15 +42,6 @@ def generate_launch_description():
         default_value=default_config,
         description='Full path to the local_planning YAML parameter file'
     )
-    runtime_profile_arg = DeclareLaunchArgument(
-        'runtime_profile',
-        default_value=os.path.join(
-            get_package_share_directory('f1tenth_control'),
-            'config',
-            'runtime_visualization.yaml',
-        ),
-        description='Shared visualization/output profile YAML',
-    )
     simulator_arg = DeclareLaunchArgument(
         'simulator',
         default_value='true',
@@ -112,7 +103,6 @@ def generate_launch_description():
                 'simulator': LaunchConfiguration('simulator'),
                 'use_sim_time': LaunchConfiguration('use_sim_time'),
                 'rviz': 'false',
-                'runtime_profile': LaunchConfiguration('runtime_profile'),
             }.items(),
         ),
     ])
@@ -125,13 +115,11 @@ def generate_launch_description():
         parameters=[
             LaunchConfiguration('params_file'),
             {'use_sim_time': LaunchConfiguration('use_sim_time')},
-            LaunchConfiguration('runtime_profile'),
         ]
     )
 
     return LaunchDescription([
         params_file_arg,
-        runtime_profile_arg,
         simulator_arg,
         use_sim_time_arg,
         start_detector_arg,

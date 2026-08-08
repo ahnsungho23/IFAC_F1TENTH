@@ -28,15 +28,6 @@ def generate_launch_description():
         default_value='false',
         description='true only when a /clock publisher exists',
     )
-    runtime_profile_arg = DeclareLaunchArgument(
-        'runtime_profile',
-        default_value=os.path.join(
-            get_package_share_directory('f1tenth_control'),
-            'config',
-            'runtime_visualization.yaml',
-        ),
-        description='Shared visualization/output profile YAML',
-    )
 
     node = Node(
         package='static_obstacle_map',
@@ -46,13 +37,11 @@ def generate_launch_description():
         parameters=[
             LaunchConfiguration('params_file'),
             {'use_sim_time': LaunchConfiguration('use_sim_time')},
-            LaunchConfiguration('runtime_profile'),
         ],
     )
 
     return LaunchDescription([
         params_arg,
         use_sim_time_arg,
-        runtime_profile_arg,
         node,
     ])

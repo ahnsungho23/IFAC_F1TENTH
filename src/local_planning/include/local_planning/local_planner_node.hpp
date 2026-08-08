@@ -165,7 +165,6 @@ private:
   std::set<int> completed_obstacle_ids_;
 
   bool require_obstacles_message_{true};
-  bool publish_path_visualization_{true};
   double obstacle_stale_timeout_sec_{0.75};
   double odometry_stale_timeout_sec_{0.50};
   double merge_lateral_tolerance_m_{0.15};

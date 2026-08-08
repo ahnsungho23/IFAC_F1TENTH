@@ -22,22 +22,9 @@ Jetson의 각 터미널에서 공통으로 실행합니다.
 
 ```zsh
 cd ~/2026_IFAC
-source /opt/ros/jazzy/setup.zsh
+source /opt/ros/humble/setup.zsh
 source install/setup.zsh
-export ROS_DOMAIN_ID=70
-export ROS_LOCALHOST_ONLY=0
 ```
-
-시각화 출력을 제어하는 노드를 실행할 터미널에서는 다음 변수도 선언합니다. 변수는 터미널마다
-독립적이므로 MCL, Global planning, Local planning, State machine, Control 터미널에서 각각
-선언해야 합니다.
-
-```zsh
-PROFILE="$PWD/src/f1tenth_control/config/runtime_visualization.yaml"
-```
-
-`runtime_profile` 인자를 생략하면 설치 공간의 기본 YAML을 읽지만, 위처럼 소스 YAML을 명시하면
-파일 수정 결과를 재빌드하지 않고 노드 재시작만으로 시험할 수 있습니다.
 
 터미널 7의 실차 제어는 추가로 VESC 패키지 워크스페이스를 소싱해야 합니다.
 
@@ -58,8 +45,8 @@ source ~/f1tenth_ws/install/setup.zsh
 로컬 PC가 Jetson의 ROS 2 토픽을 보려면 양쪽 장비의 ROS 환경과 네트워크 설정이 일치해야 합니다.
 
 ```zsh
-source /opt/ros/jazzy/setup.zsh
-export ROS_DOMAIN_ID=70
+source /opt/ros/humble/setup.zsh
+export ROS_DOMAIN_ID=67
 export ROS_LOCALHOST_ONLY=0
 ```
 
@@ -97,9 +84,9 @@ ros2 run tf2_ros tf2_echo base_link laser
 
 ```zsh
 cd ~/slam_toolbox
-source /opt/ros/jazzy/setup.zsh
+source /opt/ros/humble/setup.zsh
 source install/setup.zsh
-export ROS_DOMAIN_ID=70
+export ROS_DOMAIN_ID=67
 export ROS_LOCALHOST_ONLY=0
 ros2 launch slam_toolbox online_async_launch.py use_sim_time:=false
 ```
@@ -112,22 +99,17 @@ RViz에서 LaserScan이 보이지 않으면 `/scan` 토픽 이름과 SLAM 설정
 
 ```zsh
 cd ~/slam_toolbox
-source /opt/ros/jazzy/setup.zsh
+source /opt/ros/humble/setup.zsh
 source install/setup.zsh
-export ROS_DOMAIN_ID=70
-export ROS_LOCALHOST_ONLY=0
-mkdir -p ~/slam_toolbox/maps
-ros2 topic echo /map --once
 ros2 run nav2_map_server map_saver_cli \
-  -f ~/slam_toolbox/maps/map \
-  --ros-args -p map_subscribe_transient_local:=true
+  -f ~/slam_toolbox/map
 ```
 
 생성되는 주요 파일은 다음과 같습니다.
 
 ```text
-~/slam_toolbox/maps/map.yaml
-~/slam_toolbox/maps/map.pgm 또는 map.png
+~/slam_toolbox/map.yaml
+~/slam_toolbox/map.pgm 또는 map.png
 ```
 
 ### 2.4 지도를 Jetson으로 전송
@@ -135,7 +117,7 @@ ros2 run nav2_map_server map_saver_cli \
 로컬 PC에서 실행합니다.
 
 ```zsh
-scp ~/slam_toolbox/maps/map.png ~/slam_toolbox/maps/map.yaml \
+scp ~/slam_toolbox/map.png ~/slam_toolbox/map.yaml \
   miru@10.1.1.3:~/2026_IFAC/src/monte_carlo_localization/maps/
 ```
 
@@ -165,9 +147,6 @@ ros2 run tf2_tools view_frames
 
 아래 명령은 모두 Jetson에 SSH로 접속한 각각의 터미널에서 실행합니다. 터미널 1의 센서 드라이버는 별도 f110 단축어/launch로 먼저 실행되어 있어야 합니다.
 
-아래 예시는 지도 이름이 `map`인 경우입니다. 다른 지도를 사용할 때는 MCL의 `map_name`과
-Global/Local planning의 `F1_MAP`을 모두 같은 이름으로 변경해야 합니다.
-
 ### 터미널 1 — 센서 및 차량 드라이버
 
 프로젝트에 설치된 f110 드라이버 실행 명령을 사용합니다. 이 단계에서 `/scan`, `/joy`, VESC IMU, odometry 등이 발행되어야 합니다.
@@ -180,94 +159,55 @@ Global/Local planning의 `F1_MAP`을 모두 같은 이름으로 변경해야 합
 
 ```zsh
 cd ~/2026_IFAC
-source /opt/ros/jazzy/setup.zsh
+source /opt/ros/humble/setup.zsh
 source install/setup.zsh
-export ROS_DOMAIN_ID=70
-export ROS_LOCALHOST_ONLY=0
-PROFILE="$PWD/src/f1tenth_control/config/runtime_visualization.yaml"
-
-ros2 launch particle_filter_cpp mcl_launch.py \
-  mod:=real \
-  map_name:=map \
-  use_rviz:=true \
-  publish_odom_base_tf:=true \
-  runtime_profile:="$PROFILE"
+ros2 launch particle_filter_cpp mcl_launch.py mod:=real map_name:=map
 ```
-
-대회 중 상태와 초기 위치를 계속 확인할 수 있도록 `use_rviz:=true`로 RViz를 함께 실행합니다.
-SSH에서 실행할 때는 Jetson의 그래픽 세션에 접근할 수 있도록 `DISPLAY` 설정 또는 X11 전달이
-필요합니다. RViz는 같은 ROS domain에 연결된 로컬 PC에서 별도로 실행해도 됩니다.
-
-8월 8일 이전 실차 설정과 동일하게 MCL이 `map -> odom`과 `odom -> base_link`를 모두
-발행하도록 `publish_odom_base_tf:=true`를 사용합니다. 터미널 1의 `vesc_to_odom_node`도
-`odom -> base_link`를 발행하도록 설정되어 있다면 발행자가 중복되어 TF가 흔들릴 수 있으므로,
-둘 중 한 노드만 해당 TF를 발행하도록 설정해야 합니다.
 
 ### 터미널 3 — Global planning
 
 ```zsh
 cd ~/2026_IFAC
-source /opt/ros/jazzy/setup.zsh
+source /opt/ros/humble/setup.zsh
 source install/setup.zsh
-export ROS_DOMAIN_ID=70
-export ROS_LOCALHOST_ONLY=0
-PROFILE="$PWD/src/f1tenth_control/config/runtime_visualization.yaml"
-
-F1_MAP=map ros2 launch global_planning global_planning.launch.py \
-  runtime_profile:="$PROFILE"
+ros2 launch global_planning global_planning.launch.py
 ```
-
-공통 프로파일은 Global planning의 MarkerArray/Lattice 출력만 제어하며 waypoint와 Frenet
-odometry 데이터 출력은 유지합니다.
 
 ### 터미널 4 — Local planning
 
 ```zsh
 cd ~/2026_IFAC
-source /opt/ros/jazzy/setup.zsh
+source /opt/ros/humble/setup.zsh
 source install/setup.zsh
-export ROS_DOMAIN_ID=70
-export ROS_LOCALHOST_ONLY=0
-PROFILE="$PWD/src/f1tenth_control/config/runtime_visualization.yaml"
-
-F1_MAP=map ros2 launch local_planning local_planning.launch.py \
-  simulator:=true \
-  runtime_profile:="$PROFILE"
+ros2 launch local_planning local_planning.launch.py
 ```
 
 ### 터미널 5 — State machine
 
 ```zsh
 cd ~/2026_IFAC
-source /opt/ros/jazzy/setup.zsh
+source /opt/ros/humble/setup.zsh
 source install/setup.zsh
-export ROS_DOMAIN_ID=70
-export ROS_LOCALHOST_ONLY=0
-PROFILE="$PWD/src/f1tenth_control/config/runtime_visualization.yaml"
-
-ros2 launch state_machine state_machine.launch.py \
-  runtime_profile:="$PROFILE"
+ros2 launch state_machine state_machine.launch.py
 ```
 
-### 터미널 6 — 사용하지 않음
+### 터미널 6 — Waypoint publisher
 
-현재 `state_machine_node`가 `/local_waypoints`를 직접 발행하므로 별도 `wpnt_publisher`를
-실행하지 않습니다. 패키지나 실행 파일이 디스크에 존재하는 것만으로 런타임 성능이 저하되지는
-않습니다.
+```zsh
+cd ~/2026_IFAC
+source /opt/ros/humble/setup.zsh
+source install/setup.zsh
+ros2 run wpnt_publisher wpnt_publisher
+```
 
 ### 터미널 7 — 실차 제어
 
 ```zsh
 cd ~/2026_IFAC
-source /opt/ros/jazzy/setup.zsh
+source /opt/ros/humble/setup.zsh
 source ~/f1tenth_ws/install/setup.zsh
 source install/setup.zsh
-export ROS_DOMAIN_ID=70
-export ROS_LOCALHOST_ONLY=0
-PROFILE="$PWD/src/f1tenth_control/config/runtime_visualization.yaml"
-
-ros2 launch f1tenth_control control_real.launch.py \
-  runtime_profile:="$PROFILE"
+ros2 launch f1tenth_control control_real.launch.py
 ```
 
 `control_real.launch.py`는 자체적으로 LiDAR, 조이스틱, VESC 드라이버를 실행하지 않습니다. 터미널 1의 드라이버가 먼저 실행되어야 합니다.
@@ -283,6 +223,7 @@ ros2 launch f1tenth_control control_real.launch.py \
   -> global planning
   -> local planning
   -> state machine
+  -> waypoint publisher
   -> control_real
 ```
 
@@ -292,32 +233,17 @@ ros2 launch f1tenth_control control_real.launch.py \
 ros2 topic list
 ros2 topic hz /scan
 ros2 topic hz /odom
-ros2 topic hz /pf/pose/odom
-ros2 topic echo /drive_mode --once
-ros2 topic info /tf --verbose
-ros2 run tf2_ros tf2_echo map odom
-ros2 run tf2_ros tf2_echo odom base_link
-ros2 run tf2_ros tf2_echo base_link laser
 ros2 run tf2_tools view_frames
 ```
 
-`/scan` 또는 `/odom`이 없으면 MCL 문제가 아니라 센서 드라이버/ROS 네트워크 문제입니다.
-`/pf/pose/odom`이 없으면 MCL의 지도 로딩, 초기화, `/scan`, `/odom` 입력을 확인합니다.
-`odom -> base_link`는 터미널 1의 VESC odometry에서 발행자가 정확히 하나여야 합니다.
-`/drive_mode`는 자율 모드에서 `autonomous`여야 제어기의 engage gate가 열립니다.
+`/scan`이 없으면 SLAM이나 MCL 문제가 아니라 센서 드라이버/ROS 네트워크 문제입니다. `odom`, `base_link`, `laser` 프레임이 없으면 odometry 또는 TF 발행 설정을 확인해야 합니다.
 
 ## 6. 시뮬레이터를 사용하는 경우
 
 시뮬레이터는 Jetson 실차 드라이버 대신 별도 시뮬레이터 워크스페이스에서 실행합니다. 시뮬레이션 제어에는 다음 launch를 사용합니다.
 
 ```zsh
-cd ~/2026_IFAC
-source /opt/ros/jazzy/setup.zsh
-source install/setup.zsh
-PROFILE="$PWD/src/f1tenth_control/config/runtime_visualization.yaml"
-
-ros2 launch f1tenth_control control_sim.launch.py \
-  runtime_profile:="$PROFILE"
+ros2 launch f1tenth_control control_sim.launch.py
 ```
 
 시뮬레이션에서는 `control_real.launch.py`를 사용하지 않습니다. 실차용 `control_real.launch.py`는 VESC 하드웨어 명령 변환을 포함하기 때문입니다.

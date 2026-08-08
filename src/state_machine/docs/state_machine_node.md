@@ -113,8 +113,3 @@ ros2 topic info -v /local_waypoints
 
 GLOBAL 모드에서 `child_frame_id`가 빈 문자열, 음수, 숫자가 아닌 값 또는 글로벌 경로 범위
 밖의 index이면 local waypoint를 발행하지 않고 경고를 출력합니다.
-## RViz 경로 출력 제어
-
-`publish_path_visualization`이 `false`이면 `/local_waypoints/path` publisher와 Path 메시지
-생성을 생략한다. 제어 입력인 `/local_waypoints`와 상태 출력 `/state`는 그대로 발행한다.
-전체 주행 스택에서는 `f1tenth_control/config/runtime_visualization.yaml`이 이 값을 덮어쓴다.

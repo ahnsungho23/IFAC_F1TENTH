@@ -535,9 +535,3 @@ perception 메시지는 유지하고, local planner와 state machine 사이의 `
 - 회피 결과: `/avoid_waypoints` 각 점의 `x_m/y_m`은 map-frame Cartesian 좌표입니다.
 
 `f110_msgs` 형식과 토픽은 변경하지 않았습니다.
-## RViz 경로 출력 제어
-
-`publish_path_visualization`이 `false`이면 `/local_planning/path` publisher를 만들지 않고
-`nav_msgs/msg/Path`도 생성하지 않는다. 핵심 `/avoid_waypoints` 출력에는 영향이 없다.
-전체 주행 스택에서는 `f1tenth_control/config/runtime_visualization.yaml`이 패키지 YAML 뒤에
-로드되어 이 값을 일괄 덮어쓴다.

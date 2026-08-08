@@ -39,7 +39,6 @@ class FrenetLapTimer(Node):
         self.declare_parameter('frame_id', 'map')
         self.declare_parameter('use_position_x_as_s', True)
         self.declare_parameter('rviz_text', True)
-        self.declare_parameter('publish_hud', True)
         self.declare_parameter('exact_zero_mode', False)
         self.declare_parameter('exact_zero_eps', 0.05)
 
@@ -58,7 +57,6 @@ class FrenetLapTimer(Node):
         self.frame_id = gp('frame_id').value
         self.use_position_x_as_s = bool(gp('use_position_x_as_s').value)
         self.show_rviz_text = bool(gp('rviz_text').value)
-        self.publish_hud = bool(gp('publish_hud').value)
         self.exact_zero_mode = bool(gp('exact_zero_mode').value)
         self.exact_zero_eps = float(gp('exact_zero_eps').value)
 
@@ -87,12 +85,11 @@ class FrenetLapTimer(Node):
         self.pub_lap = self.create_publisher(Float64, 'lap_time', 10)
         self.pub_best = self.create_publisher(Float64, 'best_lap_time', 10)
         self.pub_marker = self.create_publisher(Marker, 'lap_time_text', 10) if self.show_rviz_text else None
-        if self.publish_hud and OverlayText is not None:
+        if OverlayText is not None:
             self.pub_overlay = self.create_publisher(OverlayText, 'lap_hud', 10)
         else:
             self.pub_overlay = None
-            if self.publish_hud:
-                self.get_logger().warn('rviz_2d_overlay_msgs not found. lap_hud overlay disabled.')
+            self.get_logger().warn('rviz_2d_overlay_msgs not found. lap_hud overlay disabled.')
 
         self.pub_speed = self.create_publisher(Float32, 'speed', 10)
         self.pub_steer = self.create_publisher(Float32, 'steer', 10)
@@ -112,7 +109,7 @@ class FrenetLapTimer(Node):
 
         # HUD 주기 퍼블리시 타이머
         period = 1.0 / max(self.hud_rate, 0.1)
-        self.hud_timer = self.create_timer(period, self.tick_hud) if self.publish_hud else None
+        self.hud_timer = self.create_timer(period, self.tick_hud)
 
         self.get_logger().info(
             f'LapTimer running: odom={self.odom_topic}, drive={self.drive_topic} ({self.drive_msg_type}), '
@@ -286,3 +283,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+

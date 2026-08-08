@@ -117,8 +117,8 @@
 - Publish: `/avoid_waypoints` (`f110_msgs/msg/OTWpntArray`) as an ego-to-merge segment with
   map-frame Cartesian `x_m/y_m` populated for every waypoint.
 - Publish debug: `/local_planning/path` (`nav_msgs/msg/Path`) only.
-- Never publish `/local_waypoints`; `state_machine_node` selects and publishes it according to
-  its committed state.
+- Never publish `/local_waypoints`; `wpnt_publisher` exclusively selects and publishes it according
+  to `/state`.
 
 ## Package layout and maintenance
 
@@ -161,8 +161,5 @@
   `local_planner_node` to verify frozen-path retention beyond the stale timeout, GLOBAL handoff
   completion, and last-snapshot reuse on the next lap while `/static_obs` remains silent.
 - Keep all runtime values configurable in YAML and load that YAML from the launch file.
-- `publish_path_visualization=false` must avoid creating `/local_planning/path` and constructing
-  its `nav_msgs/msg/Path`; it must not affect `/avoid_waypoints`.
-- Load the shared `f1tenth_control/config/runtime_visualization.yaml` after the package YAML.
 - Update this file and the Korean documentation when behavior, topics, parameters, or launch usage
   changes.

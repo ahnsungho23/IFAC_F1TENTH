@@ -50,9 +50,6 @@ State machine package rules. These instructions apply to `src/state_machine`.
 - All topic names, frame names, publish rates, stale/diagnostic timeouts, hold durations, waypoint
   counts, and default states must be parameters with YAML defaults.
 - Keep `launch/state_machine.launch.py` loading `config/state_machine.yaml`.
-- `publish_path_visualization=false` must disable only `/local_waypoints/path`; keep
-  `/local_waypoints` publication unchanged.
-- Load the shared `f1tenth_control/config/runtime_visualization.yaml` after the package YAML.
 - Keep Korean operational documentation in `docs/state_machine_node.md` current, including both
   state and selected-waypoint interfaces.
 - Update this `AGENTS.md` (and `README.md` if run/launch changes) when changing node behavior, topics, parameters, or launch usage.

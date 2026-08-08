@@ -27,9 +27,6 @@
 
 4. **TF 및 Odometry 발행**:
    - 추정된 포즈를 바탕으로 `map -> odom` TF 트랜스폼을 브로드캐스팅합니다.
-   - 실차에서는 `vesc_to_odom_node`가 `odom -> base_link`를 담당하므로 MCL의
-     `publish_odom_base_tf` launch 인자는 기본적으로 `false`입니다. 해당 TF 발행자가 없는
-     bag 재생에서만 `true`로 켭니다.
 
 5. **구조 결함 수정 (2026-08-03, D1~D6)**:
    - **D1**: 최종 출력(`get_current_pose()`)이 EKF 모드에서 `ekf_state_`를 우선 반환. 이전에는
@@ -94,8 +91,6 @@
   - `scan_topic` (`string`, 기본값: `/scan`): 라이다 스캔 토픽 이름
   - `odom_topic` (`string`, 기본값: `/odom`): 오도메트리 토픽 이름
   - `publish_map_odom_tf` (`bool`, 기본값: `true`): `map -> odom` TF 발행 여부
-  - `publish_odom_base_tf` (`bool`, launch 기본값: `false`): MCL의 `odom -> base_link` TF 발행
-    여부. 실차에서는 VESC odometry와 중복되지 않도록 `false` 유지
   - `use_pose_ekf` (`bool`, 기본값: `true`): 출력단 pose fusion EKF 활성화 (false = 구 EMA)
   - `ekf_trans_error_rate` (`double`, 기본값: `0.01`): 주행거리 대비 휠 odom 병진 오차율
   - `ekf_meas_long_inflation` (`double`, 기본값: `25.0`): 차체 종방향 측정 불신 배율
@@ -114,23 +109,9 @@ colcon build --packages-select particle_filter_cpp
 - **실차 모드**:
   ```bash
   export F1_MAP=map
-  ros2 launch particle_filter_cpp mcl_launch.py \
-    mod:=real map_name:=map publish_odom_base_tf:=false
+  ros2 launch particle_filter_cpp mcl_launch.py mod:=real map_name:=map
   ```
 - **시뮬레이션 모드**:
   ```bash
   ros2 launch particle_filter_cpp mcl_launch.py mod:=sim map_name:=map use_rviz:=true
   ```
-- **`odom -> base_link` TF가 없는 bag 재생**:
-  ```bash
-  ros2 launch particle_filter_cpp mcl_launch.py \
-    mod:=bag map_name:=map publish_odom_base_tf:=true
-  ```
-## RViz 출력과 지도 미러 제어
-
-- `viz=false`: `/pf/viz/inferred_pose`, `/pf/viz/particles`를 생성하지 않는다.
-- `publish_map=false`: particle filter의 5 Hz `/map` publisher와 timer를 생성하지 않는다.
-
-`publish_map`은 내부 지도 로딩과 MCL 계산에 영향을 주지 않는다. MCL launch가 함께 실행하는
-`nav2_map_server`의 latched `/map`은 별도로 남을 수 있다. 전체 주행 스택은
-`f1tenth_control/config/runtime_visualization.yaml`을 MCL YAML 뒤에 로드한다.

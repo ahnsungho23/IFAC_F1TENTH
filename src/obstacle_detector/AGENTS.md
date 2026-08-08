@@ -136,8 +136,6 @@ published Frenet bounds instead of reprojecting the Cartesian metadata.
   plus optional RViz. It must not launch a planner.
 - Keep `simulator:=true` selecting `/ego_racecar/odom`; real mode uses `/pf/pose/odom`.
 - `use_sim_time` is independent of simulator mode and should be true only when `/clock` exists.
-- Load the shared visualization profile after `obstacle_detector.yaml`; `publish_markers=false`
-  must skip both marker publishers/builders without changing obstacle-array outputs.
 
 ## Layout
 
