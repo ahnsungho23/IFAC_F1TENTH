@@ -1,7 +1,8 @@
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch_ros.substitutions import FindPackageShare
 
 # ============================================================================
 # 시뮬/실차 런치파일 공용 헬퍼 (control_sim.launch.py / control_real.launch.py)
@@ -25,6 +26,12 @@ IMU_LINEAR_SCALE_SIM  = 1.0          # sim_imu_bridge_node는 0 고정
 def declare_common_args():
     """두 런치파일에서 동일하게 쓰는 인자 선언 목록."""
     return [
+        DeclareLaunchArgument(
+            'runtime_profile',
+            default_value=PathJoinSubstitution([
+                FindPackageShare('f1tenth_control'), 'config', 'runtime_visualization.yaml']),
+            description='전체 노드에 공통 적용할 시각화 출력 프로파일 YAML 경로'
+        ),
         # ⚠️ force_autonomous·speed_to_erpm_gain 인자는 teleop 제거(2026-07-29)와 함께 폐지됐다 —
         #    유일한 소비처가 joy_teleop_monitor였다. 시뮬은 drive_source_selector가 자율 명령을
         #    /drive로 직결하므로 기동 즉시 자율주행이다.
@@ -199,7 +206,7 @@ def declare_common_args():
         #   v ≤ √((ratio·δ_max − L·κ) / (K_us·κ))
         # 07-26 실차 κ=1.190(R=0.84m) 헤어핀에서 그립 2.11 m/s vs 조향 0.87 m/s — 조향이 먼저 걸린다.
         DeclareLaunchArgument(
-            'understeer_gradient', default_value='0.014',
+            'understeer_gradient', default_value='0.018',
             description='언더스티어 그래디언트 K_us [rad/(m/s^2)]. 0이면 조향 권한 캡 비활성'
         ),
         DeclareLaunchArgument(
@@ -368,7 +375,7 @@ def build_control_map_node(*, odom_topic, max_speed, max_lateral_accel, base_max
             'speed_lookahead_for_steering': LaunchConfiguration('speed_lookahead_for_steering'),
             'local_fresh_timeout': LaunchConfiguration('local_fresh_timeout'),
             'closest_idx_max_heading_err': LaunchConfiguration('closest_idx_max_heading_err'),
-        }]
+        }, LaunchConfiguration('runtime_profile')]
     )
 
 # ⚠️ build_control_mppi_node()는 2026-08-01 MPPI 노드/솔버 전체 제거와 함께 삭제됐다 —
