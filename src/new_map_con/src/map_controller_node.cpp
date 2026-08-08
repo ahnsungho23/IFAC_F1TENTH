@@ -156,14 +156,11 @@ public:
     global_pub_ = create_publisher<f110_msgs::msg::WpntArray>(
       global_waypoints_topic_, rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local());
     drive_pub_ = create_publisher<ackermann_msgs::msg::AckermannDriveStamped>(drive_topic_, 10);
-    if (publish_debug_markers_) {
-      steering_pub_ = create_publisher<visualization_msgs::msg::Marker>(steering_marker_topic_, 10);
-      lookahead_pub_ = create_publisher<visualization_msgs::msg::Marker>(lookahead_marker_topic_,
-        10);
-      waypoint_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>(
-        waypoint_marker_topic_,
-        10);
-    }
+    steering_pub_ = create_publisher<visualization_msgs::msg::Marker>(steering_marker_topic_, 10);
+    lookahead_pub_ = create_publisher<visualization_msgs::msg::Marker>(lookahead_marker_topic_, 10);
+    waypoint_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>(
+      waypoint_marker_topic_,
+      10);
     l1_pub_ = create_publisher<geometry_msgs::msg::Point>(l1_topic_, 10);
 
     local_sub_ = create_subscription<f110_msgs::msg::WpntArray>(

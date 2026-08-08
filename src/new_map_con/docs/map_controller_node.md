@@ -105,8 +105,3 @@ id,s,x_m,y_m,psi_rad,kappa_radpm,vx_mps,ax_mps2
 ```
 
 따라서 `global_waypoints_csv`에 해당 CSV 경로를 지정하면 `new_map_con`에서 바로 읽어 `/global_waypoints`로 발행할 수 있다. 단, RViz에서 path가 map 위에 올라오려면 generator에서 선택한 map YAML과 f1sim/map server가 띄우는 map YAML의 `resolution`과 `origin`이 같아야 한다.
-## 통합 시각화 프로파일
-
-`new_map_con.launch.py`는 `f1tenth_control/config/runtime_visualization.yaml`을 패키지 YAML
-뒤에 읽는다. `publish_debug_markers=false`이면 `steering`, `lookahead_point`, `my_waypoints`
-출력을 생략하고 `/drive`, `/global_waypoints`, `l1_distance`는 유지한다.

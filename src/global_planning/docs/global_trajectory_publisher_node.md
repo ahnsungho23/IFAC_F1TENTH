@@ -79,9 +79,3 @@ ros2 launch global_planning global_planning.launch.py
 3. RViz에서 `/global_waypoints/markers`를 Add하면 속도 색상 궤적선이 보인다.
 4. RViz에서 `/trackbounds/markers`를 Add하면 좌/우 트랙 경계선이 보인다.
    - Fixed Frame은 `marker_frame_id`(기본 `map`)와 일치시켜야 한다.
-
-## 통합 시각화 프로파일
-
-launch는 `f1tenth_control/config/runtime_visualization.yaml`을 패키지 YAML 뒤에 읽는다.
-`publish_markers=false`, `publish_lattice=false`이면 MarkerArray 생성과 출력을 생략한다.
-`/global_waypoints`, shortest-path, centerline 및 Frenet odometry 데이터 출력은 유지한다.

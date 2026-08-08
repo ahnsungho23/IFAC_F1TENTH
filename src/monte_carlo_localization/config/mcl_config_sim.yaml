@@ -96,7 +96,6 @@ particle_filter:
     odom_topic: "/odom"                # Odometry input topic
     publish_odom: true                 # Publish pose as odometry message
     viz: true                          # Enable particle visualization
-    publish_map: true                  # Publish /map periodically for RViz (race profile overrides false)
     timer_frequency: 30.0              # MCL update frequency (Hz) - increased for simulation
     
     # === TF FRAME NAMES ===

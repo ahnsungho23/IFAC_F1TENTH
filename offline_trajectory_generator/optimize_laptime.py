@@ -7,11 +7,11 @@ time itself by gradient descent through a differentiable vehicle model:
   1. The raceline is parameterized as a lateral offset ``alpha`` along the
      centerline normals, mapped through a sigmoid so it can never leave the
      drivable corridor: ``alpha = lower + (upper - lower) * sigmoid(theta)``.
-  2. Speed at every waypoint is capped by the speed-dependent lateral limit
-     table, then propagated through the table's longitudinal accel/decel
-     limits with a min-plus transitive closure (doubling trick, O(N log N),
-     fully vectorized and differentiable — the same physics as
-     ``velocity_profile`` but batched).
+  2. Speed at every waypoint is the curvature-limited speed
+     ``v = sqrt(a_lat / |kappa|)`` capped at ``max_speed``, then propagated
+     through the longitudinal accel/decel limits with an exact min-plus
+     transitive closure (doubling trick, O(N log N), fully vectorized and
+     differentiable — the same physics as ``velocity_profile`` but batched).
   3. Loss = lap time  +  smoothness regularizer. Gradients flow from the lap
      time back into ``theta`` because every step above is differentiable.
 
@@ -74,17 +74,15 @@ class LapTimeParams:
     # vehicle limits (same semantics as velocity_profile)
     v_max: float = 4.0
     v_min: float = 1.0
-    limit_speeds: tuple[float, ...] = (0.0, 9.0)
-    a_acc_limits: tuple[float, ...] = (3.0, 3.0)
-    a_dec_limits: tuple[float, ...] = (5.0, 5.0)
-    a_lat_limits: tuple[float, ...] = (4.0, 4.0)
+    a_lat: float = 4.0
+    a_acc: float = 3.0
+    a_dec: float = 5.0
     # steering limit: bends sharper than this are undrivable (0 disables)
     kappa_max: float = 1.2
     kappa_weight: float = 20.0
 
 
 def params_from_args(args) -> LapTimeParams:
-    limits = np.asarray(args.velocity_limits, dtype=np.float64)
     return LapTimeParams(
         iters=int(getattr(args, "laptime_iters", 2000)),
         restarts=int(getattr(args, "laptime_restarts", 16)),
@@ -96,10 +94,9 @@ def params_from_args(args) -> LapTimeParams:
         device=str(getattr(args, "laptime_device", "auto")),
         v_max=float(args.max_speed),
         v_min=float(args.min_speed),
-        limit_speeds=tuple(float(value) for value in limits[:, 0]),
-        a_acc_limits=tuple(float(value) for value in limits[:, 1]),
-        a_dec_limits=tuple(float(value) for value in limits[:, 2]),
-        a_lat_limits=tuple(float(value) for value in limits[:, 3]),
+        a_lat=float(args.max_lateral_accel),
+        a_acc=float(args.max_accel),
+        a_dec=float(args.max_decel),
         kappa_max=float(getattr(args, "max_curvature", 1.2)),
     )
 
@@ -125,20 +122,6 @@ class _Ops:
     mean0: callable  # mean over everything -> scalar
 
 
-def _interp_table(ops: _Ops, x, xp, fp):
-    """Piecewise-linear interpolation with constant endpoint extrapolation."""
-    zero = x * 0.0
-    result = zero + fp[0]
-    previous_slope = 0.0
-    for index in range(int(xp.shape[0]) - 1):
-        slope = (fp[index + 1] - fp[index]) / (xp[index + 1] - xp[index])
-        hinge = ops.maximum(x - xp[index], zero)
-        result = result + (slope - previous_slope) * hinge
-        previous_slope = slope
-    result = result - previous_slope * ops.maximum(x - xp[-1], zero)
-    return result
-
-
 def _lap_time_terms(ops: _Ops, theta, center, normals, lower, span, p: LapTimeParams,
                     smooth_w=None):
     """Return (per-restart loss (B,), per-restart lap time (B,)).
@@ -161,40 +144,25 @@ def _lap_time_terms(ops: _Ops, theta, center, normals, lower, span, p: LapTimePa
     dpsi = ops.atan2(ops.sin(dpsi_raw), ops.cos(dpsi_raw))  # wrapped heading change
     kappa = dpsi / (0.5 * (seg + ops.roll(seg, -1, 1)) + 1e-9)
 
-    # Solve v^2*|kappa| <= ay_max(v) by fixed-point iteration. The damping
-    # keeps decreasing/non-monotonic tables stable while a final direct update
-    # makes the common constant-table case exact.
-    u = ops.abs(kappa) * 0.0 + p.v_max * p.v_max
-    for _ in range(12):
-        v_guess = ops.sqrt(ops.maximum(u, u * 0.0 + 1e-4))
-        a_lat = _interp_table(ops, v_guess, p.limit_speeds, p.a_lat_limits)
-        target = a_lat / (ops.abs(kappa) + 1e-4)
-        target = ops.minimum(target, target * 0.0 + p.v_max * p.v_max)
-        target = ops.maximum(target, target * 0.0 + p.v_min * p.v_min)
-        u = 0.5 * (u + target)
-    v_guess = ops.sqrt(ops.maximum(u, u * 0.0 + 1e-4))
-    a_lat = _interp_table(ops, v_guess, p.limit_speeds, p.a_lat_limits)
-    u = a_lat / (ops.abs(kappa) + 1e-4)
+    # Curvature-limited squared speed clipped to [v_min, v_max] (identical to
+    # velocity_profile: the accel/decel closure below may still go under v_min).
+    u = p.a_lat / (ops.abs(kappa) + 1e-4)
     u = ops.minimum(u, u * 0.0 + p.v_max * p.v_max)
     u = ops.maximum(u, u * 0.0 + p.v_min * p.v_min)
 
-    # Freeze the speed-dependent edge limits, solve the full closed-loop
-    # min-plus closure, then refresh the limits. Eight refreshes mirror the
-    # reported numpy profile while keeping the batched GPU model vectorized.
+    # Longitudinal limits as an exact min-plus transitive closure (doubling):
+    # forward (accel): u[i] <= min_j (u[i-j] + 2*a_acc*dist(i-j, i))
+    # backward (decel): u[i] <= min_j (u[i+j] + 2*a_dec*dist(i, i+j))
     n = int(theta.shape[1])
-    for _ in range(8):
-        v_guess = ops.sqrt(ops.maximum(u, u * 0.0 + 1e-4))
-        a_acc = _interp_table(ops, v_guess, p.limit_speeds, p.a_acc_limits)
-        a_dec = _interp_table(ops, v_guess, p.limit_speeds, p.a_dec_limits)
-        w_fwd = 2.0 * ops.roll(a_acc, 1, 1) * ops.roll(seg, 1, 1)
-        w_bwd = 2.0 * ops.roll(a_dec, -1, 1) * seg
-        shift = 1
-        while shift < n:
-            u = ops.minimum(u, ops.roll(u, shift, 1) + w_fwd)
-            u = ops.minimum(u, ops.roll(u, -shift, 1) + w_bwd)
-            w_fwd = w_fwd + ops.roll(w_fwd, shift, 1)
-            w_bwd = w_bwd + ops.roll(w_bwd, -shift, 1)
-            shift *= 2
+    w_fwd = ops.roll(seg, 1, 1)  # distance from i-1 to i
+    w_bwd = seg  # distance from i to i+1
+    shift = 1
+    while shift < n:
+        u = ops.minimum(u, ops.roll(u, shift, 1) + 2.0 * p.a_acc * w_fwd)
+        u = ops.minimum(u, ops.roll(u, -shift, 1) + 2.0 * p.a_dec * w_bwd)
+        w_fwd = w_fwd + ops.roll(w_fwd, shift, 1)
+        w_bwd = w_bwd + ops.roll(w_bwd, -shift, 1)
+        shift *= 2
 
     v = ops.sqrt(ops.maximum(u, u * 0.0 + 1e-2))  # floor 0.1 m/s
     lap = ops.sum(seg / v, 1)  # (B,)
@@ -267,13 +235,6 @@ def _run_torch(theta0, center, normals, lower, span, p: LapTimeParams, log,
     )
     c, nrm, lo, sp = t(center), t(normals), t(lower), t(span)
     sw = t(smooth_vec) if smooth_vec is not None else None
-    p_device = replace(
-        p,
-        limit_speeds=t(p.limit_speeds),
-        a_acc_limits=t(p.a_acc_limits),
-        a_dec_limits=t(p.a_dec_limits),
-        a_lat_limits=t(p.a_lat_limits),
-    )
     theta = torch.tensor(theta0, device=device, requires_grad=True)
     opt = torch.optim.Adam([theta], lr=p.lr)
 
@@ -281,7 +242,7 @@ def _run_torch(theta0, center, normals, lower, span, p: LapTimeParams, log,
         for group in opt.param_groups:
             group["lr"] = _lr_at(it, p)
         opt.zero_grad()
-        losses, laps = _lap_time_terms(ops, theta, c, nrm, lo, sp, p_device, sw)
+        losses, laps = _lap_time_terms(ops, theta, c, nrm, lo, sp, p, sw)
         loss = losses.sum()
         loss.backward()
         opt.step()
@@ -289,7 +250,7 @@ def _run_torch(theta0, center, normals, lower, span, p: LapTimeParams, log,
             log(f"[laptime] iter {it:4d} best_lap={float(laps.min()):.3f}s")
 
     with torch.no_grad():
-        losses, laps = _lap_time_terms(ops, theta, c, nrm, lo, sp, p_device, sw)
+        losses, laps = _lap_time_terms(ops, theta, c, nrm, lo, sp, p, sw)
         alpha = lo + sp * torch.sigmoid(theta)
     return alpha.cpu().numpy(), laps.cpu().numpy()
 
@@ -312,17 +273,10 @@ def _run_mlx(theta0, center, normals, lower, span, p: LapTimeParams, log,
     lo = mx.array(np.asarray(lower, dtype=np.float32))
     sp = mx.array(np.asarray(span, dtype=np.float32))
     sw = mx.array(np.asarray(smooth_vec, dtype=np.float32)) if smooth_vec is not None else None
-    p_device = replace(
-        p,
-        limit_speeds=mx.array(np.asarray(p.limit_speeds, dtype=np.float32)),
-        a_acc_limits=mx.array(np.asarray(p.a_acc_limits, dtype=np.float32)),
-        a_dec_limits=mx.array(np.asarray(p.a_dec_limits, dtype=np.float32)),
-        a_lat_limits=mx.array(np.asarray(p.a_lat_limits, dtype=np.float32)),
-    )
     theta = mx.array(theta0)
 
     def objective(th):
-        losses, _ = _lap_time_terms(ops, th, c, nrm, lo, sp, p_device, sw)
+        losses, _ = _lap_time_terms(ops, th, c, nrm, lo, sp, p, sw)
         return mx.sum(losses)
 
     grad_fn = mx.value_and_grad(objective)
@@ -340,11 +294,11 @@ def _run_mlx(theta0, center, normals, lower, span, p: LapTimeParams, log,
         theta = theta - _lr_at(it, p) * mh / (mx.sqrt(vh) + eps)
         mx.eval(theta, m, v)
         if it % max(p.iters // 5, 1) == 0 or it == p.iters - 1:
-            _, laps = _lap_time_terms(ops, theta, c, nrm, lo, sp, p_device, sw)
+            _, laps = _lap_time_terms(ops, theta, c, nrm, lo, sp, p)
             mx.eval(laps)
             log(f"[laptime] iter {it:4d} best_lap={float(laps.min()):.3f}s")
 
-    losses, laps = _lap_time_terms(ops, theta, c, nrm, lo, sp, p_device, sw)
+    losses, laps = _lap_time_terms(ops, theta, c, nrm, lo, sp, p)
     alpha = lo + sp * mx.sigmoid(theta)
     mx.eval(alpha, laps)
     return np.array(alpha), np.array(laps)

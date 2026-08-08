@@ -18,15 +18,6 @@ def generate_launch_description():
         default_value=default_param_file,
         description="Path to global planning parameter yaml",
     )
-    runtime_profile_arg = DeclareLaunchArgument(
-        "runtime_profile",
-        default_value=os.path.join(
-            get_package_share_directory("f1tenth_control"),
-            "config",
-            "runtime_visualization.yaml",
-        ),
-        description="Shared visualization/output profile YAML",
-    )
     # 맵 이름 단일화: F1_MAP 환경변수로 MCL/global/local 이 같은 맵을 보게 한다.
     # yaml 의 map_name 을 이 인자로 덮어쓴다(미설정 시 'map').
     map_name_arg = DeclareLaunchArgument(
@@ -42,11 +33,7 @@ def generate_launch_description():
         executable="global_trajectory_publisher_node",
         name="global_trajectory_publisher_node",
         output="screen",
-        parameters=[
-            params,
-            {"map_name": LaunchConfiguration("map_name")},
-            LaunchConfiguration("runtime_profile"),
-        ],
+        parameters=[params, {"map_name": LaunchConfiguration("map_name")}],
     )
 
     frenet_odom = Node(
@@ -54,13 +41,21 @@ def generate_launch_description():
         executable="frenet_odom_node",
         name="frenet_odom_node",
         output="screen",
-        parameters=[params, LaunchConfiguration("runtime_profile")],
+        parameters=[params],
+    )
+
+    lap_counter = Node(
+        package="global_planning",
+        executable="lap_counter_node",
+        name="lap_counter_node",
+        output="screen",
+        parameters=[params],
     )
 
     return LaunchDescription([
         params_arg,
-        runtime_profile_arg,
         map_name_arg,
         global_republisher,
         frenet_odom,
+        lap_counter,
     ])

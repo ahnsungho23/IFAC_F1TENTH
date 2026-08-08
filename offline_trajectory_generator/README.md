@@ -27,114 +27,6 @@ GUI로 파라미터를 조정하면서 확인하려면 다음 명령을 사용�
 python3 offline_trajectory_generator/trajectory_gui.py
 ```
 
-### ForzaETH Jazzy 로직 GUI
-
-기존 생성기와 분리해서 ForzaETH `race_stack`의 centerline 및 IQP minimum-curvature 로직만
-사용하려면 다음 파일을 실행한다.
-
-```bash
-python3 offline_trajectory_generator/forza_trajectory_gui.py
-```
-
-특정 map을 바로 열 수도 있다.
-
-```bash
-python3 offline_trajectory_generator/forza_trajectory_gui.py \
-  --map-yaml src/monte_carlo_localization/maps/ifac_track.yaml
-```
-
-이 GUI는 공식 `race_stack` `ros2-jazzy` 커밋
-`202450f51081b618fcca71924ad6d33f44f90e44`와 그 저장소의
-`global_racetrajectory_optimization` 서브모듈 커밋
-`b1b38ecfefec7200d5bcb243f115af1d795b3766`을 기준으로 포팅했다. 최적화 코드와
-F110 설정은 이 저장소의 `src/global_planning/vendor/gb_optimizer`에 포함된 동일 버전을 직접
-불러오므로 ROS 2 노드를 실행하지 않는다.
-
-처리 순서는 다음과 같다.
-
-1. map 이미지를 occupancy 값으로 변환하고 `Occupancy threshold`(공식 기본값 `10`)로 이진화한다.
-2. `Filter kernel`(공식 기본값 `9`)로 morphology open을 정확히 2회 적용한다.
-3. `skimage.morphology.skeletonize(..., method="lee")`로 skeleton을 만든다.
-4. 공식 로직처럼 skeleton의 폐곡선 후보 중 **길이가 가장 짧은 contour**를 centerline으로 고른다.
-5. 공식 두 단계 Savitzky–Golay 필터로 시작/끝 이음부까지 평활하고 약 `0.1 m` 간격으로 보간한다.
-6. watershed로 좌·우 경계를 구한다. 정확히 두 경계를 얻지 못하면 공식 로직처럼 distance
-   transform으로 좌·우 동일 폭을 사용한다.
-7. `racecar_f110.ini`, `ggv.csv`, `ax_max_machines.csv`와 TUM helper의 `mincurv_iqp`를 사용해
-   minimum-curvature 경로, 속도, 가속도, 예상 랩타임을 만든다.
-
-파란 선은 위 1~5단계에서 map skeleton으로 직접 얻은 Forza centerline이고, 빨간 선은 그
-centerline과 좌·우 폭을 입력으로 IQP가 이동시킨 minimum-curvature 글로벌 경로다. shortest-path,
-minimum-time, 기존 SciPy optimizer는 이 파일에서 실행하지 않는다.
-GUI의 빨간 minimum-curvature 선은 확대/축소된 최종 미리보기 이미지에서 항상 1픽셀 두께로 그린다.
-따라서 `global_waypoints.json`의 `global_traj_wpnts_iqp`에만 생성 경로가 들어가며,
-`global_traj_wpnts_sp.wpnts`는 호환용 필드만 유지하고 빈 배열로 저장된다.
-
-왼쪽 숫자 파라미터는 슬라이더로 빠르게 조절하거나 이름 오른쪽 입력칸에 정확한 값을 직접 입력할
-수 있다. 직접 입력한 값은 `Enter`, 다른 항목으로 포커스 이동 또는 `Rebuild`를 누를 때 적용된다.
-슬라이더 표시 범위를 벗어난 값도 입력칸과 저장 YAML에는 유지되며, 슬라이더 손잡이만 가까운 범위
-끝에 표시된다. 파라미터의 물리·알고리즘 제약을 벗어난 값은 `Rebuild`에서 입력 오류로 안내한다.
-
-원본 ROS 노드는 차량의 최초 `(x, y, yaw)`와 centerline 방향을 맞추고 그 pose로 좌·우 경계를
-판별한다. 오프라인 map 파일에는 실차 pose가 없으므로 이 포트는 추출된 contour 순서를 기본 주행
-방향으로 쓰고, centerline 접선의 오른쪽 법선으로 좌·우를 정한다. 방향이 반대면 `Reverse
-direction`을 켜면 된다. 이것이 공식 런타임 코드와 다른 유일한 입력 조건 처리다.
-
-`Expected center length`가 `0`이면 공식 map-editor 동작과 같이 모든 폐곡선 중 가장 짧은 것을
-선택한다. SLAM 노이즈 안에 작은 폐곡선이 있어 잘못 선택될 때는 주행해 측정한 대략적인 한 바퀴
-길이를 입력한다. 그러면 공식 주행 중 생성 동작과 동일하게 그 길이의 ±15% 후보만 남긴 뒤 가장
-짧은 contour를 선택한다.
-
-GUI 설정은 기존 `gui_params.yaml`과 분리된 다음 파일에 저장된다.
-
-```text
-offline_trajectory_generator/forza_gui_params.yaml
-```
-
-GUI 없이 포팅 파이프라인과 저장까지 검사하려면 다음처럼 실행한다.
-
-```bash
-python3 offline_trajectory_generator/forza_trajectory_gui.py \
-  --map-yaml src/monte_carlo_localization/maps/ifac_track.yaml \
-  --output-dir /tmp/forza_ifac_waypoints \
-  --render-test /tmp/forza_ifac_overlay.png
-```
-
-headless 실행에서도 `--occupancy-grid-threshold`, `--filter-kernel-size`,
-`--expected-centerline-length`, `--safety-width`, `--max-curvature`, `--reverse`를 지정할 수 있다.
-`Max curvature`의 단위는 `rad/m`이며 값의 역수는 대략적인 최소 회전반경이다. 예를 들어 `1.0
-rad/m`는 최소 회전반경 약 `1.0 m`를 뜻한다. 이 값을 높이면 IQP가 더 급한 코너를 허용하지만 실제
-차량의 조향 한계를 넘는 값을 사용하면 생성된 경로를 주행할 수 없으므로 실차 한계 안에서만 조절한다.
-
-#### Forza 속도 프로파일 조절
-
-왼쪽 `Speed profile` 영역에서 다음 값을 바꾸고 `Rebuild`를 누르면 속도·가속도와
-예상 랩타임이 다시 계산된다.
-
-1. `Max speed [m/s]`는 직선을 포함한 전체 경로의 최고속도를 제한한다.
-2. `Longitudinal accel scale`은 `ggv.csv`의 종방향 타이어 가속도 한계를 배율로 조절한다.
-3. `Lateral accel scale`은 횡가속도 한계를 조절해 코너 속도에 직접 영향을 준다.
-4. `Machine accel scale`은 `ax_max_machines.csv`의 모터 가속 한계를 조절한다.
-5. `Dynamic model exponent`는 종·횡 가속도를 합성하는 TUM 동역학 모델 지수로, 허용 범위는
-   `1.0~2.0`이다.
-6. `Velocity filter window`은 속도 프로파일 이동평균 필터 크기다. `0`은 필터를 끄고, 켤 때는
-   `3` 이상 홀수를 사용한다.
-
-이 값들은 `forza_gui_params.yaml`에 저장되며, vendored `racecar_f110.ini`, `ggv.csv`,
-`ax_max_machines.csv`는 수정하지 않고 생성 시 메모리에서만 적용한다. headless 실행에서는
-`--max-speed`, `--longitudinal-accel-scale`, `--lateral-accel-scale`,
-`--machine-accel-scale`, `--dynamic-model-exponent`, `--velocity-filter-window`로 같은 값을
-지정할 수 있다.
-
-`Problem not solvable, track might be too small...` 오류가 나면 검출된
-트랙 폭보다 `Safety width`가 큰 것이므로 map 경계를 먼저 확인하고 차량 폭 이상의 현실적인 값으로
-낮춰 다시 계산한다.
-
-GUI에서 IQP 제약조건을 만족하는 경로가 없으면 별도의 오류 팝업을 띄우지 않는다. 오른쪽 map
-미리보기 대신 실패 원인, 현재 `Expected center length`/`Safety width`/`Max curvature`, 권장 점검
-항목을 포함한 경고 화면이 표시된다. 왼쪽 파라미터는 계속 조절할 수 있으며 값을 바꾼 뒤 `Rebuild`를
-다시 누르면 같은 GUI에서 즉시 재생성할 수 있다. 상세 traceback은 디버깅을 위해 실행한 터미널에
-계속 출력된다.
-
 처음 실행하면 map YAML 선택 창이 열린다. 예를 들어 `monte_carlo_localization/maps/slam_map.yaml`을 선택하면 된다.
 
 f1sim에서 쓸 trajectory를 만들 때는 f1sim의 `config/sim.yaml`에 있는 `map_path`와 같은 map YAML을 선택해야 한다. 현재 f1sim 기본 map은 `src/monte_carlo_localization/maps/fuck_f1.yaml`이고, `new_map_con` 기본 CSV도 이 map 좌표계의 `src/new_map_con/maps/fuck_f1.csv`를 사용한다.
@@ -146,7 +38,7 @@ python3 offline_trajectory_generator/trajectory_gui.py \
   --map-yaml monte_carlo_localization/maps/slam_map.yaml
 ```
 
-화면 왼쪽에는 map 경로, 저장 위치, `Velocity limits` CSV 경로와 trajectory 파라미터가 표시된다. 숫자 파라미터는 `Sampling`, `Track & safety`, `Speed profile`, `Map cleanup`, `Centerline`, `Min-curvature`, `Straightening` 그룹별 소제목으로 묶여 있어 원하는 항목을 빠르게 찾을 수 있다. 오른쪽에는 map 이미지 위에 centerline과 RT lane이 함께 표시된다. 슬라이더·체크박스·CSV 경로를 바꾸면 잠시 후 자동으로 다시 계산되어 overlay가 갱신된다.
+화면 왼쪽에는 map 경로, 저장 위치, trajectory 파라미터가 표시된다. 숫자 파라미터는 `Sampling`, `Track & safety`, `Speed profile`, `Map cleanup`, `Centerline`, `Min-curvature`, `Straightening` 그룹별 소제목으로 묶여 있어 원하는 항목을 빠르게 찾을 수 있다. 오른쪽에는 map 이미지 위에 centerline과 RT lane이 함께 표시된다. 슬라이더나 체크박스를 바꾸면 잠시 후 자동으로 다시 계산되어 overlay가 갱신된다.
 
 `AI Optimize` 버튼을 누르면 옵티마이저가 `ai`로 전환되고, GPU 경사하강 포트폴리오 + 정확 재채점 + 진화 탐색(ES) 폴리싱을 `AI epochs`(Optimizer 탭)만큼 반복해 랩타임이 가장 짧은 라인을 자동으로 찾는다(자세한 동작은 3장의 `--optimizer ai` 설명 참고). torch 또는 MLX가 설치되어 있어야 한다. 최적화 진행 로그(`[laptime] iter ...`, `[ai] epoch ...`)는 실행 중 상태바에 실시간으로 표시되므로, 반복 수가 커서 수십 초가 걸려도 멈춘 것이 아니다.
 
@@ -173,7 +65,6 @@ CLI로 바로 파일만 생성하려면 다음 명령을 사용한다.
 python3 offline_trajectory_generator/generate_global_trajectory.py \
   --map-yaml monte_carlo_localization/maps/slam_map.yaml \
   --output-dir /tmp/offline_traj_slam_map \
-  --velocity-limits-csv offline_trajectory_generator/config/velocity_limits.csv \
   --debug-image
 ```
 
@@ -190,12 +81,8 @@ offline_trajectory_generator/output/<map_yaml_file_name>/
 - `--safety-width`: 차량 폭과 안전 여유를 포함한 폭이다.
 - `--boundary-margin`: 벽에서 추가로 띄울 거리이다.
 - `--max-speed`: waypoint 속도 상한이다. 기본값은 `4.0` m/s이다.
-- `--min-speed`: waypoint 속도 하한이다. 기본값은 `1.0` m/s이다. 이 하한이 횡가속 테이블로
-  계산한 코너 허용 속도보다 높으면 하한을 우선하되 경고한다. 물리 제약을 엄격히 지키려면 경고가
-  없어질 때까지 낮춰야 한다.
-- `--velocity-limits-csv`: 속도별 최대 가속·감속·횡가속 한계를 읽는 4열 CSV이다. 기본값은
-  `offline_trajectory_generator/config/velocity_limits.csv`이다. 첫 속도는 `0.0`, 속도 열은 엄격한
-  오름차순이어야 하고 마지막 속도는 `--max-speed` 이상을 덮어야 한다. 중간값은 선형 보간한다.
+- `--min-speed`: waypoint 속도 하한이다. 기본값은 `1.0` m/s이다.
+- `--max-lateral-accel`: 곡률 기반 속도 계산에 쓰는 횡가속도 한계이다.
 - `--max-curvature`: 차량 조향 한계를 경로 최대 곡률[rad/m]로 지정한다(= `tan(최대조향각)/휠베이스`,
   F1TENTH 기준 약 `1.2`). 속도 모델은 급커브에서 감속만 할 뿐 "그 커브를 아예 돌 수 없다"는 사실을
   모르기 때문에, 이 한계가 없으면 옵티마이저가 차가 물리적으로 추종 불가능한 꺾임(회전반경 수 cm)으로
@@ -222,8 +109,8 @@ offline_trajectory_generator/output/<map_yaml_file_name>/
 - `--optimizer centerline`: 기본값이다. SLAM map에서 안정적으로 동작한다.
 - `--optimizer mincurv`: scipy 기반 최소 곡률 보정을 시도한다. map 품질에 따라 튜닝이 필요할 수 있다.
 - `--optimizer laptime`: **랩타임 자체를 손실함수로 GPU에서 직접 경사하강**하는 옵티마이저다(`optimize_laptime.py`).
-  mincurv처럼 곡률·평활·길이 가중치를 손으로 맞춰 간접적으로 시간을 줄이는 대신, CSV의 속도별
-  횡가속·가감속 한계까지 미분 가능하게 모델링한 랩타임을 직접 최소화한다. 경계는
+  mincurv처럼 곡률·평활·길이 가중치를 손으로 맞춰 간접적으로 시간을 줄이는 대신, 곡률 제한 속도
+  `v=√(a_lat/|κ|)`와 가감속 한계까지 미분 가능하게 모델링한 랩타임을 직접 최소화한다. 경계는
   sigmoid 재매개변수화로 하드 보장되어 트랙을 절대 벗어나지 않는다. `--laptime-restarts`개의 후보
   라인을 GPU에서 **동시에** 최적화(멀티스타트)하고 가장 빠른 라인을 선택하며, 한 후보는 mincurv
   해로 웜스타트한다(`--laptime-no-warm-start`로 끔). torch(CUDA) 또는 Apple MLX(Metal)가 필요하고
@@ -254,24 +141,6 @@ offline_trajectory_generator/output/<map_yaml_file_name>/
 - `--straight-clearance-margin`: 직선 보정 검증에 추가로 요구하는 벽 여유 거리이다.
 - `--straight-blend-length`: 직선 보정 구간 양끝에서 원래 경로와 직선을 부드럽게 섞는 길이이다.
 
-### 속도 제한 CSV 형식
-
-```csv
-# speed_mps,max_accel_mps2,max_decel_mps2,max_lateral_accel_mps2
-0.0,3.7,2.0,5.5
-2.0,3.7,2.0,5.5
-4.0,3.7,2.0,5.5
-6.5,3.7,2.0,5.5
-9.0,3.7,2.0,5.5
-```
-
-각 행은 해당 속도에서 차량에 최종 적용할 순가속도 한계이며 `mass`, `dragcoeff`를 별도로 적용하지
-않는다. Forward pass는 현재 속도의 `max_accel`, backward pass는 다음 waypoint 속도의
-`max_decel`을 보간한다. 곡률 제한은 `v²|κ| <= max_lateral_accel(v)`를 만족하는 가장 높은 속도를
-각 CSV 구간에서 구한다. 단, `--min-speed`가 이 값보다 높으면 기존 동작과 같이 `min-speed`를
-우선하고 명시적인 경고를 출력한다. 기본 파일은 기존 GUI의 `3.7/2.0/5.5 m/s²` 결과를 그대로 보존하기 위해
-모든 속도 knot에 같은 값을 넣었다. 실차 데이터가 준비되면 행별 값만 교체한다.
-
 ROS map의 trinary 회색 unknown 영역은 기본적으로 주행 가능 영역에서 제외된다. 회색 unknown까지 free-space로 쓰고 싶을 때만 GUI의 `Unknown as free`를 켠다.
 
 직선 보정은 곡률이 낮은 구간의 내부 waypoint를 endpoint 직선 위로 당긴 뒤, distance transform으로 전체 직선이 free-space와 clearance 조건을 만족하는 경우에만 적용한다. 따라서 SLAM 노이즈 때문에 직선 구간의 곡률이 흔들리는 경우 속도 프로파일이 더 높게 잡힌다. 경로가 너무 많이 당겨지면 `straight_kappa_threshold`를 낮추고, 직선화가 부족하면 값을 올린다.
@@ -282,7 +151,7 @@ ROS map의 trinary 회색 unknown 영역은 기본적으로 주행 가능 영역
 2. 위 실행 명령으로 `global_waypoints.json`을 만든다.
 3. `debug_overlay.png`를 열어서 경로가 트랙 중앙을 따라가는지 확인한다.
 4. 방향이 반대이면 같은 명령에 `--reverse`를 추가해서 다시 생성한다.
-5. 속도가 너무 높거나 낮으면 `--max-speed`, `--min-speed`와 `velocity_limits.csv`의 해당 속도 구간을 조정한다.
+5. 속도가 너무 높거나 낮으면 `--max-speed`, `--min-speed`, `--max-lateral-accel`을 조정한다.
 
 GUI를 사용할 때는 3-5단계를 화면에서 바로 확인한 뒤 `Save`만 누르면 된다.
 
@@ -300,7 +169,7 @@ CSV 포맷은 `src/new_map_con/maps/fuck_f1.csv`와 같은 10개 컬럼 구조�
 - `distance`: distance transform 기반. 빠르지만 최근접 벽 한 값만 주므로 `d_left == d_right`가 되어 좌/우 구분이 불가능하다.
 - `raycast`: 방향별 raycast만 사용(robust 게이트 포함). gap 새어나감 보정은 없다.
 
-`d_left`/`d_right`는 `local_planning` 회피 안전 마진 계산과 `new_map_con`의 경로 경계 판정에 직접 사용되므로, 좌/우 비대칭이 필요한 회피 로직에는 `hybrid` 모드를 사용해야 한다. `--max-width-distance`는 raycast 상한이며 트랙 폭에 맞춰 설정한다(F1TENTH 실내 트랙은 3.0m 권장). `d_m`, `s_m` 등 나머지 ROS waypoint 필드는 `global_waypoints.json` 안에 유지된다.
+`d_left`/`d_right`는 `obstacle_detector`와 `local_planning`의 회피 안전 계산 및 `new_map_con`의 경로 경계 판정에 사용되므로, 좌/우 비대칭이 필요한 회피 로직에는 `hybrid` 모드를 사용해야 한다. `--max-width-distance`는 raycast 상한이며 트랙 폭에 맞춰 설정한다(F1TENTH 실내 트랙은 3.0m 권장). `d_m`, `s_m` 등 나머지 ROS waypoint 필드는 `global_waypoints.json` 안에 유지된다.
 
 CSV의 `x_m`, `y_m`은 선택한 ROS map YAML의 `resolution`과 `origin`이 적용된 map frame 좌표이다. RViz에서 map과 path가 어긋나면 generator에 넣은 map YAML과 f1sim/map server가 띄운 map YAML이 같은 파일인지 먼저 확인한다.
 
@@ -313,8 +182,7 @@ CSV의 `x_m`, `y_m`은 선택한 ROS map YAML의 `resolution`과 `origin`이 적
 
 ## 6. 의존성
 
-기존 생성기는 `numpy`, `opencv`, `PyYAML`, `scipy`를 사용한다. ForzaETH 포팅 GUI는 공식
-centerline과 IQP 구현을 위해 `scikit-image`와 `quadprog`도 사용한다.
+현재 환경에서는 `numpy`, `opencv`, `PyYAML`, `scipy`가 사용된다.
 
 ```bash
 python3 -m pip install -r offline_trajectory_generator/requirements.txt
@@ -335,14 +203,7 @@ centerline 추출은 노이즈에 강건하게 동작한다: ① `--min-track-wi
 크기 이하의 점 노이즈는 제외). 최종 경로는 웨이포인트 사이 구간까지 ~2픽셀 간격으로 조밀하게
 검사해 free-space를 벗어나면 경고를 출력한다(GUI 상태바에도 ⚠ 표시).
 
-두 GUI 모두 ROS 2와 `rclpy`는 필요하지 않다. 기존 `trajectory_gui.py`만 사용할 때는
-`quadprog`와 `scikit-image`를 import하지 않지만, `forza_trajectory_gui.py`에는 두 패키지가
-필수다.
-
-Forza GUI는 vendored optimizer의 package root를 import하지 않고 mincurv에 필요한
-`interp_track`과 `prep_track`만 직접 불러온다. 따라서 사용하지 않는 minimum-time·sklearn·pandas와
-Matplotlib plotting 모듈은 로드되지 않으며, 시스템 Matplotlib이 다른 NumPy ABI로 빌드되어 있어도
-centerline/mincurv 생성에는 영향을 주지 않는다.
+ROS 2, `rclpy`, `quadprog`, `skimage`는 필요하지 않다.
 
 GUI는 Python 표준 라이브러리인 `tkinter`를 사용한다. Ubuntu에서 `tkinter`가 빠져 있으면 다음 패키지를 설치한다.
 

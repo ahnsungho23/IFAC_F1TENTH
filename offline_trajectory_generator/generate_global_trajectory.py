@@ -18,11 +18,6 @@ from scipy.ndimage import gaussian_filter1d
 from scipy.optimize import minimize
 
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_VELOCITY_LIMITS_CSV = SCRIPT_DIR / "config" / "velocity_limits.csv"
-VELOCITY_LIMIT_COLUMNS = 4
-
-
 @dataclass(frozen=True)
 class MapInfo:
     yaml_path: Path
@@ -104,13 +99,9 @@ def add_generator_arguments(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--max-speed", type=float, default=4.0, help="Maximum waypoint speed [m/s].")
     parser.add_argument("--min-speed", type=float, default=1.0, help="Minimum waypoint speed [m/s].")
-    parser.add_argument(
-        "--velocity-limits-csv",
-        type=Path,
-        default=DEFAULT_VELOCITY_LIMITS_CSV,
-        help="Four-column speed-dependent limits CSV: "
-             "[speed_mps,max_accel_mps2,max_decel_mps2,max_lateral_accel_mps2].",
-    )
+    parser.add_argument("--max-lateral-accel", type=float, default=4.0, help="Lateral acceleration limit [m/s^2].")
+    parser.add_argument("--max-accel", type=float, default=3.0, help="Longitudinal acceleration limit [m/s^2].")
+    parser.add_argument("--max-decel", type=float, default=5.0, help="Longitudinal deceleration limit [m/s^2].")
     parser.add_argument(
         "--max-curvature", type=float, default=1.2,
         help="Vehicle steering limit as max path curvature [rad/m] "
@@ -237,47 +228,12 @@ def validate_args(args: argparse.Namespace) -> None:
         raise RuntimeError("speed parameters must be positive.")
     if args.min_speed > args.max_speed:
         raise RuntimeError("min-speed must be <= max-speed.")
-    velocity_limits_path = Path(args.velocity_limits_csv).expanduser().resolve()
-    args.velocity_limits_csv = velocity_limits_path
-    args.velocity_limits = load_velocity_limits(velocity_limits_path, args.max_speed).tolist()
     if args.straight_kappa_threshold < 0.0:
         raise RuntimeError("straight-kappa-threshold must be non-negative.")
     if args.straight_min_length < 0.0 or args.straight_clearance_margin < 0.0:
         raise RuntimeError("straight length and clearance parameters must be non-negative.")
     if args.straight_blend_length < 0.0:
         raise RuntimeError("straight-blend-length must be non-negative.")
-
-
-def load_velocity_limits(path: Path, max_speed: float | None = None) -> np.ndarray:
-    """Load [speed, accel, decel, lateral accel] limits with strict checks."""
-    try:
-        limits = np.loadtxt(path, comments="#", delimiter=",")
-    except (OSError, ValueError) as exc:
-        raise RuntimeError(f"Could not read velocity limits CSV {path}: {exc}") from exc
-
-    if limits.ndim == 1:
-        limits = np.expand_dims(limits, axis=0)
-    if limits.ndim != 2 or limits.shape[1] != VELOCITY_LIMIT_COLUMNS:
-        raise RuntimeError(
-            "velocity limits CSV must have four columns: "
-            "[speed_mps,max_accel_mps2,max_decel_mps2,max_lateral_accel_mps2]."
-        )
-    if limits.shape[0] < 2:
-        raise RuntimeError("velocity limits CSV must contain at least two rows.")
-    if not bool(np.all(np.isfinite(limits))):
-        raise RuntimeError("velocity limits CSV contains NaN or infinite values.")
-    if abs(float(limits[0, 0])) > 1e-9:
-        raise RuntimeError("velocity limits CSV must start at speed 0.0 m/s.")
-    if bool(np.any(np.diff(limits[:, 0]) <= 0.0)):
-        raise RuntimeError("velocity limits CSV speeds must be strictly increasing.")
-    if bool(np.any(limits[:, 1:] <= 0.0)):
-        raise RuntimeError("all acceleration limits in velocity limits CSV must be positive.")
-    if max_speed is not None and float(limits[-1, 0]) + 1e-9 < max_speed:
-        raise RuntimeError(
-            f"velocity limits CSV ends at {limits[-1, 0]:.3f} m/s but "
-            f"max-speed is {max_speed:.3f} m/s. Extend the table first."
-        )
-    return np.asarray(limits, dtype=np.float64)
 
 
 def load_map(map_yaml: Path, unknown_as_free: bool) -> tuple[MapInfo, np.ndarray, np.ndarray]:
@@ -1007,7 +963,7 @@ def optimize_raceline(
             _, _, kappa = headings_and_curvature(pts)
             _, _, lap = velocity_profile(
                 pts, kappa, args.max_speed, args.min_speed,
-                np.asarray(args.velocity_limits, dtype=np.float64),
+                args.max_lateral_accel, args.max_accel, args.max_decel,
             )
             max_curv = float(getattr(args, "max_curvature", 0.0))
             if max_curv > 0.0:
@@ -1044,124 +1000,32 @@ def optimize_raceline(
     return raceline
 
 
-def _rightmost_lateral_speed(
-    kappa_abs: float,
-    velocity_limits: np.ndarray,
-    max_speed: float,
-) -> float:
-    """Highest speed satisfying v^2*kappa <= piecewise-linear ay_max(v)."""
-    if kappa_abs <= 1e-12:
-        return max_speed
-
-    speeds = velocity_limits[:, 0]
-    lateral = velocity_limits[:, 3]
-    interior = speeds[(speeds > 0.0) & (speeds < max_speed)]
-    breakpoints = np.concatenate(([0.0], interior, [max_speed]))
-
-    def residual(speed: float) -> float:
-        ay_max = float(np.interp(speed, speeds, lateral))
-        return speed * speed * kappa_abs - ay_max
-
-    def bisect_feasible(left: float, right: float) -> float:
-        # left is feasible and right is infeasible. Returning the feasible
-        # side keeps the generated profile inside the table limit.
-        for _ in range(60):
-            middle = 0.5 * (left + right)
-            if residual(middle) <= 0.0:
-                left = middle
-            else:
-                right = middle
-        return left
-
-    # Scan high-speed intervals first. Within one table interval residual is
-    # a convex quadratic, so checking both ends and its vertex finds the
-    # rightmost feasible root even for a non-monotonic lateral-accel table.
-    for index in range(len(breakpoints) - 1, 0, -1):
-        lower = float(breakpoints[index - 1])
-        upper = float(breakpoints[index])
-        upper_residual = residual(upper)
-        if upper_residual <= 0.0:
-            return upper
-
-        lower_residual = residual(lower)
-        if lower_residual <= 0.0:
-            return bisect_feasible(lower, upper)
-
-        ay_lower = float(np.interp(lower, speeds, lateral))
-        ay_upper = float(np.interp(upper, speeds, lateral))
-        slope = (ay_upper - ay_lower) / (upper - lower)
-        vertex = slope / (2.0 * kappa_abs)
-        if lower < vertex < upper and residual(vertex) <= 0.0:
-            return bisect_feasible(vertex, upper)
-
-    return 0.0
-
-
-def lateral_speed_limits(
-    kappa: np.ndarray,
-    max_speed: float,
-    velocity_limits: np.ndarray,
-) -> np.ndarray:
-    limits = np.asarray(velocity_limits, dtype=np.float64)
-    return np.array(
-        [_rightmost_lateral_speed(abs(float(curvature)), limits, max_speed) for curvature in kappa],
-        dtype=np.float64,
-    )
-
-
 def velocity_profile(
     points_xy: np.ndarray,
     kappa: np.ndarray,
     max_speed: float,
     min_speed: float,
-    velocity_limits: np.ndarray,
+    max_lateral_accel: float,
+    max_accel: float,
+    max_decel: float,
 ) -> tuple[np.ndarray, np.ndarray, float]:
-    limits = np.asarray(velocity_limits, dtype=np.float64)
     seg = np.linalg.norm(np.roll(points_xy, -1, axis=0) - points_xy, axis=1)
-    curve_speed = lateral_speed_limits(kappa, max_speed, limits)
-    infeasible = curve_speed < min_speed - 1e-9
-    if bool(np.any(infeasible)):
-        print(
-            f"[WARN] min-speed {min_speed:.3f} m/s overrides the velocity-table "
-            f"lateral limit at {int(np.count_nonzero(infeasible))} waypoints; lower "
-            "min-speed for a strictly feasible profile."
-        )
+    curve_speed = np.sqrt(max_lateral_accel / np.maximum(np.abs(kappa), 1e-4))
     v = np.clip(curve_speed, min_speed, max_speed)
 
-    for _ in range(100):
-        previous = v.copy()
+    for _ in range(8):
         for i in range(len(v)):
             j = (i + 1) % len(v)
-            max_accel = float(np.interp(v[i], limits[:, 0], limits[:, 1]))
-            possible = math.sqrt(max(v[i] * v[i] + 2.0 * max_accel * seg[i], 0.0))
-            v[j] = min(v[j], possible)
+            v[j] = min(v[j], math.sqrt(max(v[i] * v[i] + 2.0 * max_accel * seg[i], 0.0)))
         for i in range(len(v) - 1, -1, -1):
             j = (i - 1) % len(v)
-            max_decel = float(np.interp(v[i], limits[:, 0], limits[:, 2]))
-            possible = math.sqrt(max(v[i] * v[i] + 2.0 * max_decel * seg[j], 0.0))
-            v[j] = min(v[j], possible)
-        if float(np.max(np.abs(v - previous))) <= 1e-10:
-            break
-    else:
-        raise RuntimeError("speed-dependent forward/backward profile did not converge.")
-
-    next_v = np.roll(v, -1)
-    lateral_excess = v * v * np.abs(kappa) - np.interp(v, limits[:, 0], limits[:, 3])
-    accel_excess = next_v * next_v - v * v - 2.0 * np.interp(v, limits[:, 0], limits[:, 1]) * seg
-    decel_excess = v * v - next_v * next_v - 2.0 * np.interp(next_v, limits[:, 0], limits[:, 2]) * seg
-    max_excess = max(
-        float(np.max(np.where(v > min_speed + 1e-9, lateral_excess, -np.inf))),
-        float(np.max(accel_excess)),
-        float(np.max(decel_excess)),
-    )
-    if max_excess > 1e-7:
-        raise RuntimeError(
-            f"velocity profile violates the interpolated table constraints by {max_excess:.3e}."
-        )
+            v[j] = min(v[j], math.sqrt(max(v[i] * v[i] + 2.0 * max_decel * seg[j], 0.0)))
 
     ax = np.zeros_like(v)
-    valid = seg > 1e-6
-    ax[valid] = (next_v[valid] * next_v[valid] - v[valid] * v[valid]) / (2.0 * seg[valid])
+    for i in range(len(v)):
+        j = (i + 1) % len(v)
+        if seg[i] > 1e-6:
+            ax[i] = (v[j] * v[j] - v[i] * v[i]) / (2.0 * seg[i])
 
     lap_time = float(np.sum(seg / np.maximum(v, 1e-3)))
     return v, ax, lap_time
@@ -1315,7 +1179,9 @@ def build_trajectory(
         kappa,
         args.max_speed,
         args.min_speed,
-        np.asarray(args.velocity_limits, dtype=np.float64),
+        args.max_lateral_accel,
+        args.max_accel,
+        args.max_decel,
     )
     return Trajectory(points_xy, d_right, d_left, s_m, psi, kappa, vx, ax), lap_time
 

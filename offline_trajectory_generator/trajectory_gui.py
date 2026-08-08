@@ -19,7 +19,6 @@ import yaml
 from tkinter import filedialog, messagebox, ttk
 
 from generate_global_trajectory import (
-    DEFAULT_VELOCITY_LIMITS_CSV,
     GenerationResult,
     default_output_dir,
     generate_trajectory,
@@ -59,6 +58,9 @@ NUMERIC_SPECS = [
     # Speed profile
     NumericSpec("max_speed", "Max speed", 4.0, 0.5, 9.0, 0.1, group="Speed profile"),
     NumericSpec("min_speed", "Min speed", 1.0, 0.1, 4.0, 0.1, group="Speed profile"),
+    NumericSpec("max_lateral_accel", "Max lat accel", 4.0, 0.5, 10.0, 0.1, group="Speed profile"),
+    NumericSpec("max_accel", "Max accel", 3.0, 0.1, 6.0, 0.1, group="Speed profile"),
+    NumericSpec("max_decel", "Max decel", 5.0, 0.1, 10.0, 0.1, group="Speed profile"),
     NumericSpec("max_curvature", "Max curvature", 1.2, 0.0, 3.0, 0.05, group="Speed profile"),
     # Map cleanup & smoothing
     NumericSpec("smooth_sigma", "Smooth sigma", 2.0, 0.0, 6.0, 0.1, group="Map cleanup"),
@@ -154,7 +156,6 @@ def default_gui_values() -> dict[str, Any]:
         {
             "map_yaml": "",
             "output_dir": "",
-            "velocity_limits_csv": str(DEFAULT_VELOCITY_LIMITS_CSV.relative_to(REPO_ROOT)),
             "optimizer": "centerline",
             "width_mode": "distance",
             "show_centerline": True,
@@ -204,14 +205,6 @@ def make_namespace(values: dict[str, Any]) -> argparse.Namespace:
     map_yaml = Path(map_yaml_text).expanduser()
     if not map_yaml.is_file():
         raise ValueError(f"map YAML does not exist: {map_yaml}")
-    velocity_limits_text = str(values["velocity_limits_csv"]).strip()
-    if not velocity_limits_text:
-        raise ValueError("velocity limits CSV is empty")
-    velocity_limits_csv = Path(velocity_limits_text).expanduser()
-    if not velocity_limits_csv.is_absolute():
-        velocity_limits_csv = REPO_ROOT / velocity_limits_csv
-    if not velocity_limits_csv.is_file():
-        raise ValueError(f"velocity limits CSV does not exist: {velocity_limits_csv}")
 
     return argparse.Namespace(
         map_yaml=map_yaml,
@@ -225,7 +218,9 @@ def make_namespace(values: dict[str, Any]) -> argparse.Namespace:
         width_mode=str(values["width_mode"]),
         max_speed=float(values["max_speed"]),
         min_speed=float(values["min_speed"]),
-        velocity_limits_csv=velocity_limits_csv,
+        max_lateral_accel=float(values["max_lateral_accel"]),
+        max_accel=float(values["max_accel"]),
+        max_decel=float(values["max_decel"]),
         max_curvature=float(values["max_curvature"]),
         smooth_sigma=float(values["smooth_sigma"]),
         median_kernel=int(values["median_kernel"]),
@@ -485,12 +480,12 @@ class TrajectoryGui:
         self.root.rowconfigure(0, weight=1)
         self.root.rowconfigure(1, weight=0)
 
-        left = ttk.Frame(self.root, width=400)
+        left = ttk.Frame(self.root, width=560)
         left.grid(row=0, column=0, sticky="nsw")
         left.grid_propagate(False)
         left.rowconfigure(0, weight=1)
 
-        panel_canvas = tk.Canvas(left, highlightthickness=0, width=400, background=self.BG)
+        panel_canvas = tk.Canvas(left, highlightthickness=0, width=560, background=self.BG)
         panel_scroll = ttk.Scrollbar(left, orient="vertical", command=panel_canvas.yview)
         self.panel = ttk.Frame(panel_canvas)
         panel_window = panel_canvas.create_window((0, 0), window=self.panel, anchor="nw")
@@ -590,14 +585,6 @@ class TrajectoryGui:
             default_output = saved_output
         self.variables["output_dir"] = tk.StringVar(value=default_output)
         self._entry_with_button(row, "Output", self.variables["output_dir"], self.browse_output)
-        row += 1
-
-        self.variables["velocity_limits_csv"] = tk.StringVar(
-            value=str(initial_values.get("velocity_limits_csv", DEFAULT_VELOCITY_LIMITS_CSV))
-        )
-        self._entry_with_button(
-            row, "Velocity limits", self.variables["velocity_limits_csv"], self.browse_velocity_limits
-        )
         row += 1
 
         buttons = ttk.Frame(self.panel)
@@ -797,15 +784,6 @@ class TrajectoryGui:
         dirname = filedialog.askdirectory(initialdir=str(REPO_ROOT))
         if dirname:
             self.variables["output_dir"].set(dirname)
-
-    def browse_velocity_limits(self) -> None:
-        filename = filedialog.askopenfilename(
-            title="Select velocity limits CSV",
-            initialdir=str(DEFAULT_VELOCITY_LIMITS_CSV.parent),
-            filetypes=(("Velocity limits CSV", "*.csv"), ("All files", "*")),
-        )
-        if filename:
-            self.variables["velocity_limits_csv"].set(filename)
 
     def collect_values(self) -> dict[str, Any]:
         values: dict[str, Any] = {}
@@ -1070,7 +1048,6 @@ def run_render_test(map_yaml: Path, output_png: Path) -> int:
         {
             "map_yaml": str(map_yaml),
             "output_dir": "",
-            "velocity_limits_csv": str(DEFAULT_VELOCITY_LIMITS_CSV),
             "optimizer": "centerline",
             "width_mode": "distance",
             "reverse": False,

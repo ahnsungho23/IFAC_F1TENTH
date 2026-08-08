@@ -42,50 +42,23 @@ frenet_odom_node:
     velocity_frame: "body"
     covariance_mode: "zero"
     use_path_preprocessing: true
-    # --- Reference path adaptation (C++ port of Würsching & Althoff, IEEE IV
-    # 2024, Alg. 1; closed-loop variant) ---
-    # enable_path_smoothing: one Lane-Riesenfeld cubic subdivision pass (C^2
-    #   approximating spline of the input polyline).
-    # enable_curvature_reduction: full iterative loop — subdivide, check
-    #   rho = |kappa| * (inner-bound distance + boundary_margin) < 1 for every
-    #   point, resample at reference_resample_step, guard track-bound
-    #   crossings. Needs d_left/d_right in /global_waypoints.
-    # NOTE: obstacle_detector builds its own CLCS from the RAW
-    #   /global_waypoints. Enabling adaptation here makes the ego Frenet frame
-    #   differ from the obstacle frame — keep disabled unless both sides use
-    #   the same preprocessing. The current IQP raceline already satisfies
-    #   rho < 1 everywhere (max ~0.77), so the loop is a no-op on it anyway.
     enable_path_smoothing: false
-    enable_curvature_reduction: true
-    subdivision_refinements: 5     # k: refinements per iteration (paper: 5)
-    adaptation_max_iterations: 10  # n_iter cap for the reduction loop
-    boundary_margin: 0.05          # [m] epsilon added to the boundary distance
-    max_absolute_curvature: 0.0    # [1/m] global kappa cap; 0 disables
-    # |kappa| below this counts as "straight"; the middle of each straight run
-    # is a fixed anchor between which every bend is refined with pinned ends
-    # (the paper's partition boundaries, required for curvature to decrease).
-    anchor_curvature_threshold: 0.1
-    # --- Monotonic s-window tracking (closed-loop wrap) ---
-    # After the first fix only [s_prev - backward_tolerance, s_prev +
-    # forward_window] (mod track length) is searched, so branches that are
-    # near in space but far in arc length (hairpin opposite leg: 1.41 m away,
-    # ~half a lap in s) can never capture the projection. A window miss fails
-    # closed (projection_failure_policy applies); after reacquire_after_misses
-    # consecutive misses ONE loud global re-search re-acquires progress
-    # (teleport / RViz 2D Pose Estimate). 0 = strict fail-closed.
-    continuity_enabled: true
-    forward_window: 1.0             # [m] W ahead of s_prev
-    backward_tolerance: 0.5         # [m] epsilon behind s_prev
-    initial_seed_window: 0.0        # [m] first fix: 0 = full search; >0 = [0, this]
-    # Euclidean gate for tracked fixes only. Must exceed the largest
-    # legitimate |d| (avoidance excursions ~1.1 m) and stay below the
-    # smallest branch gap (hairpin legs 1.41 m).
-    tracked_max_projection_distance: 1.5
-    reacquire_after_misses: 5      # ~0.5 s at 30 Hz odom
-    max_projection_distance: 2.5
-    projection_domain_limit: 2.7
+    enable_curvature_reduction: false
+    max_projection_distance: 20.0
+    projection_domain_limit: 20.0
     projection_domain_epsilon: 0.1
     projection_domain_eps2: 0.0
     projection_domain_method: 1
     min_path_length: 0.5
     large_gap_factor: 5.0
+
+lap_counter_node:
+  ros__parameters:
+    frenet_odom_topic: "/car_state/frenet/odom"
+    lap_count_topic: "/lap_count"
+    # Count one lap only when the previous sample is in the finish region and
+    # the current sample has wrapped into the start region.
+    finish_s_min: 10.0
+    start_s_max: 0.5
+    min_lap_time_sec: 3.0
+    initial_lap_count: 0

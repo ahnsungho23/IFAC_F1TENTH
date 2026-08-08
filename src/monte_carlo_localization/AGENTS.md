@@ -20,14 +20,10 @@ This document defines package-specific developer rules and guidelines for `monte
   - `scan_topic` (string, default: `/scan`): LiDAR scan input topic.
   - `odom_topic` (string, default: `/odom`): Odometry input topic.
   - `publish_map_odom_tf` (bool, default: `true`): Controls publication of `map -> odom` TF.
-  - `publish_map` (bool, default: `true`): Controls the RViz-oriented 5 Hz `/map` mirror. It must
-    not affect internal map loading or localization.
 
 ## Launch Policy
 
 - Launch file: `launch/mcl_launch.py`
-- Load the shared visualization profile after the mode-specific package YAML. This exception may
-  override only `viz` and `publish_map`; algorithm tuning remains owned by the MCL YAML files.
 - Command example: `ros2 launch particle_filter_cpp mcl_launch.py mod:=real map_name:=map`
 - Ensure `CMakeLists.txt` installs `launch`, `config`, `maps`, and documentation directories.
 

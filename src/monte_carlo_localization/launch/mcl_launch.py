@@ -123,15 +123,6 @@ def generate_launch_description():
         default_value='true',
         description='Launch RViz visualization'
     )
-    runtime_profile_arg = DeclareLaunchArgument(
-        'runtime_profile',
-        default_value=os.path.join(
-            get_package_share_directory('f1tenth_control'),
-            'config',
-            'runtime_visualization.yaml',
-        ),
-        description='Shared visualization/output profile YAML',
-    )
 
     start_map_server_arg = DeclareLaunchArgument(
         'start_map_server',
@@ -259,8 +250,7 @@ def generate_launch_description():
                 parameters=[
                     LaunchConfiguration('config_file'),
                     common_params,
-                    dynamic_params,
-                    LaunchConfiguration('runtime_profile'),
+                    dynamic_params
                 ],
                 remappings=[
                     ('/map_server/map', '/particle_filter_map_server/map')
@@ -300,7 +290,6 @@ def generate_launch_description():
         mode_arg,
         map_name_arg,
         use_rviz_arg,
-        runtime_profile_arg,
         start_map_server_arg,
         config_arg,
 

@@ -13,6 +13,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(ackermann_msgs REQUIRED)
 
 add_executable(lap_referee src/lap_referee_node.cpp)
@@ -20,6 +21,7 @@ target_link_libraries(lap_referee
   rclcpp::rclcpp
   ${nav_msgs_TARGETS}
   ${sensor_msgs_TARGETS}
+  ${std_msgs_TARGETS}
   ${ackermann_msgs_TARGETS}
 )
 
