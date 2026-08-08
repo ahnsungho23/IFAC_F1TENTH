@@ -147,6 +147,36 @@ step만 >0                → 균일 리샘플만
 - 로그 형식: `Reference path adaptation: <stop_reason> (iterations=..
   points=..-><.. max|kappa|=..->.. max_rho=..->..)`.
 
+### 8.4 권장 구조: publisher 단 적용 (미구현, 적응을 실제로 쓰려면 선행 필요)
+
+현재 구조에서 적응은 `frenet_odom_node` 안에서만 일어나고, `obstacle_detector`와
+`overtake_planning`은 원본 `/global_waypoints`로 각자 CLCS를 빌드한다. 적응이
+경로를 실제로 변형하면 **에고·장애물·추월 플래너가 서로 다른 Frenet 프레임**을
+쓰게 되어, 장애물 (s,d)이 에고 좌표계 기준으로 어긋난 회피 경로(벽 박힘)를 만든다.
+`global_planning.yaml`의 `enable_curvature_reduction: true`와 §8.3의 "한쪽만 켜지
+말 것" 주석이 공존하는 현재 설정은, 현재 raceline에서 적응이 no-op이라는 사실에만
+안전을 의존하는 상태다.
+
+적응을 유효하게 쓰려면 아래 구조 수정이 선행되어야 한다.
+
+1. **적응 지점을 `global_trajectory_publisher_node`로 이동**: 경로를 한 번만 적응해
+   발행하고, 모든 소비자(`frenet_odom_node`, `obstacle_detector`,
+   `overtake_planning`, `state_machine`)는 적응된 경로를 그대로 받아 쓴다.
+   소비자 측에서는 로컬 적응을 두지 않는다.
+2. **경계 거리 재계산**: 적응이 점을 옮기면 waypoint별 `d_left`/`d_right`도
+   새 법선 기준으로 다시 구해 함께 발행해야 한다. 옮겨진 점에 옛 경계 거리를
+   달면 복도 게이트와 회피 여유가 틀어진다.
+3. **`stop_reason` 모니터링**: `criterion_met`가 아닌 종료(`max_iterations`,
+   `boundary_hit`)는 유일 투영 보장이 성립하지 않았다는 뜻이므로 WARN 이상으로
+   올리고 주행 전 확인 항목에 넣는다.
+4. **보장 범위를 오해하지 말 것**: 적응은 곡률 특이형(rho ≥ 1) 비유일성만
+   제거한다. 헤어핀 레그 근접형 플립은 여전히 §9의 윈도우 추적이 막고, stateless
+   장애물 투영의 관측 창 안쪽 오캡처는 어느 쪽으로도 막을 수 없으므로
+   장애물 측 게이트(에고 s 기준 관측 창 등)가 별도로 필요하다.
+
+이 작업 전까지는 적응 플래그를 끄고(no-op 확인) §9 윈도우 추적에만 의존하는
+것이 안전하다.
+
 ## 9. 단조 s-윈도우 추적 (Monotonic s-window tracking, 기본 활성)
 
 호길이 s의 단조 진행을 이용한 윈도우 탐색으로, `convertTracked()`가 담당한다.
