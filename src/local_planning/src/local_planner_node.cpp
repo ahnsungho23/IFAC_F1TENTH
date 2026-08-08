@@ -272,6 +272,14 @@ void LocalPlannerNode::initializeParameters()
     declare_parameter<double>("initial_observation_min_duration_sec", 0.15);
   initial_observation_max_wait_sec_ =
     declare_parameter<double>("initial_observation_max_wait_sec", 0.35);
+  stabilization_near_distance_m_ =
+    declare_parameter<double>("stabilization_near_distance_m", 3.0);
+  stabilization_far_distance_m_ =
+    declare_parameter<double>("stabilization_far_distance_m", 8.0);
+  near_observation_count_ =
+    declare_parameter<int>("near_observation_count", 1);
+  near_observation_min_duration_sec_ =
+    declare_parameter<double>("near_observation_min_duration_sec", 0.0);
   commitment_soft_violation_confirm_cycles_ =
     declare_parameter<int>("commitment_soft_violation_confirm_cycles", 3);
   hard_collision_margin_m_ =
@@ -343,6 +351,15 @@ void LocalPlannerNode::initializeParameters()
     !std::isfinite(initial_observation_max_wait_sec_) ||
     initial_observation_max_wait_sec_ < 0.0 ||
     initial_observation_max_wait_sec_ < initial_observation_min_duration_sec_ ||
+    !std::isfinite(stabilization_near_distance_m_) ||
+    !std::isfinite(stabilization_far_distance_m_) ||
+    stabilization_near_distance_m_ < 0.0 ||
+    stabilization_far_distance_m_ <= stabilization_near_distance_m_ ||
+    near_observation_count_ <= 0 ||
+    near_observation_count_ > initial_observation_count_ ||
+    !std::isfinite(near_observation_min_duration_sec_) ||
+    near_observation_min_duration_sec_ < 0.0 ||
+    near_observation_min_duration_sec_ > initial_observation_min_duration_sec_ ||
     commitment_soft_violation_confirm_cycles_ <= 0 ||
     !std::isfinite(hard_collision_margin_m_) ||
     hard_collision_margin_m_ < 0.0 ||
@@ -591,7 +608,40 @@ std::vector<f110_msgs::msg::Obstacle> LocalPlannerNode::buildGuardedObstacles(
   return guarded;
 }
 
+double LocalPlannerNode::nearestClusterDistance(
+  const EgoFrenetState & ego,
+  const std::vector<int> & cluster_ids,
+  const std::vector<f110_msgs::msg::Obstacle> & obstacles) const
+{
+  double nearest = stabilization_far_distance_m_;
+  for (const auto & obstacle : obstacles) {
+    if (std::find(cluster_ids.begin(), cluster_ids.end(), obstacle.id) == cluster_ids.end()) {
+      continue;
+    }
+    const double center = planner_.forwardDistance(ego.s, obstacle.s_center);
+    const double span_forward = planner_.forwardDistance(obstacle.s_start, obstacle.s_end);
+    const double span_reverse = planner_.forwardDistance(obstacle.s_end, obstacle.s_start);
+    double span = std::min(span_forward, span_reverse);
+    if (!(span > kGeometryEpsilon)) {
+      span = std::max(0.05, std::abs(obstacle.size));
+    }
+    const double front = std::max(
+      0.0, center - 0.5 * span - planner_parameters_.obstacle_longitudinal_padding_m);
+    nearest = std::min(nearest, front);
+  }
+  return nearest;
+}
+
+ObservationGate LocalPlannerNode::observationGate(double obstacle_distance_m) const
+{
+  return interpolateObservationGate(
+    obstacle_distance_m, stabilization_near_distance_m_, stabilization_far_distance_m_,
+    near_observation_count_, initial_observation_count_,
+    near_observation_min_duration_sec_, initial_observation_min_duration_sec_);
+}
+
 bool LocalPlannerNode::updateInitialStabilization(
+  const EgoFrenetState & ego,
   const std::vector<int> & cluster_ids,
   const std::vector<f110_msgs::msg::Obstacle> & conservative_obstacles,
   const rclcpp::Time & update_time)
@@ -642,16 +692,19 @@ bool LocalPlannerNode::updateInitialStabilization(
     }
   }
 
+  const double obstacle_distance = nearestClusterDistance(
+    ego, cluster_ids, conservative_obstacles);
+  const auto gate = observationGate(obstacle_distance);
   const bool observation_count_reached = std::all_of(
     cluster_ids.begin(), cluster_ids.end(),
-    [this](int id) {
+    [this, &gate](int id) {
       const auto count = initial_observation_counts_.find(id);
       return count != initial_observation_counts_.end() &&
-             count->second >= initial_observation_count_;
+             count->second >= gate.observation_count;
     });
   const double total_duration = (update_time - initial_stabilization_start_).seconds();
   const bool minimum_duration_reached =
-    total_duration >= initial_observation_min_duration_sec_;
+    total_duration >= gate.minimum_duration_sec;
   return (observation_count_reached && minimum_duration_reached) ||
          total_duration >= initial_observation_max_wait_sec_;
 }
@@ -749,16 +802,18 @@ bool LocalPlannerNode::updateNextManeuverStabilization(
     }
   }
 
+  const double obstacle_distance = nearestClusterDistance(ego, cluster_ids, next_obstacles);
+  const auto gate = observationGate(obstacle_distance);
   const bool observation_count_reached = std::all_of(
     cluster_ids.begin(), cluster_ids.end(),
-    [this](int id) {
+    [this, &gate](int id) {
       const auto count = next_observation_counts_.find(id);
       return count != next_observation_counts_.end() &&
-             count->second >= initial_observation_count_;
+             count->second >= gate.observation_count;
     });
   const double duration = (update_time - next_stabilization_start_).seconds();
   return obstacle_perception_degraded_ ||
-         (observation_count_reached && duration >= initial_observation_min_duration_sec_) ||
+         (observation_count_reached && duration >= gate.minimum_duration_sec) ||
          duration >= initial_observation_max_wait_sec_;
 }
 
@@ -1315,7 +1370,7 @@ void LocalPlannerNode::onPlanningTimer()
         return;
       } else {
         const bool stable = updateInitialStabilization(
-          preparation.obstacle_ids, conservative_obstacles, now());
+          ego, preparation.obstacle_ids, conservative_obstacles, now());
         if (!stable) {
           initial_prepare_published_ = true;
           publishResult(preparation);

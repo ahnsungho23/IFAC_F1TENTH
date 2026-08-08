@@ -64,17 +64,17 @@
 
 ### 3.3 최초 군집 안정화
 
-처음 blocking 장애물이 들어오면 곧바로 좌우 spline을 확정하지 않습니다. 먼저 글로벌 `d=0` 위의
-검증된 감속 prefix를 `ot_line=raceline_static_prepare`로 발행합니다. 가장 가까운 군집의 각
-ID가 서로 다른 `/static_obs` 메시지에서 `initial_observation_count`회 관측되고
-`initial_observation_min_duration_sec`도 지날 때까지 wrap-aware Frenet 경계 합집합과 가장 큰
-`s_var/d_var`를 누적합니다. planning timer가 같은 메시지를 여러 번 사용하더라도 관측 횟수는
-한 번만 증가합니다. 기본 최소 0.15초를 함께 요구하므로 약 250Hz detector의 연속 3개 메시지만
-약 12ms 동안 받은 상태에서 곧바로 commitment하지 않습니다.
+관측 게이트는 ego에서 가장 가까운 blocking 군집 앞면까지의 폐루프 Frenet 전방거리에 따라
+달라집니다. 기본값은 3m 이내에서 1회/0초, 8m 이상에서 3회/0.15초이며, 3~8m는 관측 횟수와
+최소 시간을 선형 보간합니다. 따라서 코너 직후 가까이 나타난 장애물은 첫 유효 메시지에서 바로
+좌우 spline 생성을 시도하고, 멀리 있는 장애물은 기존처럼 여러 메시지의 경계를 합쳐 안정화합니다.
+planning timer가 같은 메시지를 여러 번 사용하더라도 관측 횟수는 한 번만 증가합니다.
 
-기본 3회 관측과 최소 0.15초가 모두 끝나면 다음 순서로 고정 Guard를 만듭니다.
+게이트가 아직 충족되지 않으면 글로벌 `d=0` 위의 검증된 prefix를
+`ot_line=raceline_static_prepare`로 발행하고, wrap-aware Frenet 경계 합집합과 가장 큰
+`s_var/d_var`를 누적합니다. 게이트를 통과하면 다음 순서로 고정 Guard를 만듭니다.
 
-1. 같은 ID의 세 detector Frenet 경계를 폐루프 `s`를 고려해 합집합으로 만듭니다.
+1. 같은 ID의 게이트 통과 전 detector Frenet 경계를 폐루프 `s`를 고려해 합집합으로 만듭니다.
 2. 좌표변환 없이 이 종·횡 경계를 최초 obstacle envelope로 사용합니다.
 3. 종방향 양쪽에
    `uncertainty_min_longitudinal_margin_m + uncertainty_sigma_scale * sqrt(s_var)`를 더합니다.
@@ -89,7 +89,7 @@ ID가 서로 다른 `/static_obs` 메시지에서 `initial_observation_count`회
 항상 적용합니다. 관측 횟수와 최소 시간을 모두 만족하면 계획하며, 입력이 누락되어 관측 횟수를
 채우지 못해도
 `initial_observation_max_wait_sec`에 도달하면 그동안의 가장 보수적인 합집합과 분산으로 계획합니다.
-장애물이 이미 `safe_stop_buffer_m` 안에 있어 감속 prefix조차 만들 수 없으면 3회를 기다리지 않고
+장애물이 이미 `safe_stop_buffer_m` 안에 있어 준비 prefix조차 만들 수 없으면 게이트를 기다리지 않고
 즉시 zero-speed safe-stop을 latch합니다.
 
 ### 3.4 좌우 목표 d 계산
@@ -246,9 +246,9 @@ ego가 마지막 `state_handoff_tail_ratio` 구간의 첫 부분에 위치하도
 merge 뒤 controller 시야 확보용 global tail만 겹치는 장애물은 현재 maneuver를 실패시키지
 않습니다.
 
-다음 maneuver 군집은 첫 회피를 수행하는 동안에도 기존 최초 관측 조건, 즉 각 ID의 실제
-`/static_obs` 3회 관측, 최소 `initial_observation_min_duration_sec=0.15초`와 최대
-`initial_observation_max_wait_sec=0.35초`를 사용해 동시에 안정화합니다. 현재 장애물 Guard의
+다음 maneuver 군집도 첫 회피를 수행하는 동안 현재 ego와 군집 앞면 사이의 거리를 사용해 같은
+가변 게이트를 적용합니다. 입력이 부족할 때는 `initial_observation_max_wait_sec=0.35초`를 최대
+대기시간으로 사용합니다. 현재 장애물 Guard의
 뒤쪽을 `chain_release_margin_m`만큼 완전히 지난 뒤 다음 군집이 안정화되어 있으면 다음 순서로
 직접 연결합니다.
 
@@ -318,7 +318,9 @@ commitment는 지우지 않으므로 odometry가 회복되면 다시 검증한 �
 - 목표 제한: `minimum_target_offset_m`, `maximum_target_offset_m`,
   `commitment_clearance_reserve_m`, `minimum_avoidance_clearance_m`, `side_tie_epsilon_m`
 - 최초 관측: `initial_observation_count`, `initial_observation_min_duration_sec`,
-  `initial_observation_max_wait_sec`
+  `initial_observation_max_wait_sec`, `stabilization_near_distance_m`,
+  `stabilization_far_distance_m`, `near_observation_count`,
+  `near_observation_min_duration_sec`
 - 불확실성 Guard: `uncertainty_sigma_scale`, `uncertainty_min_longitudinal_margin_m`,
   `uncertainty_min_lateral_margin_m`, `uncertainty_max_lateral_margin_m`
 - commitment 충돌 확인: `commitment_soft_violation_confirm_cycles`,
@@ -385,9 +387,10 @@ colcon test-result --verbose --test-result-base build/local_planning
 ±1cm 흔들고 `s_var/d_var`를 제공해도 10회 연속 동일 commitment가 발행되는지 확인합니다.
 Cartesian AABB-to-Frenet 투영 단위 테스트는 좌표변환의 소유자인
 `obstacle_detector/test/test_aabb_frenet_projector.cpp`에 있습니다.
-`test/initial_cluster_stabilization_pipeline_test.py`는 첫 검출 0.1초 뒤 같은 군집에 ID를 하나
-추가해 최소 0.15초 및 실제 토픽 3회 관측을 모두 거친 뒤, 넓어진 군집을 반영한 방향으로 최초
-commitment가 만들어지는지 확인합니다.
+`test/initial_cluster_stabilization_pipeline_test.py`는 먼 장애물에서 보수적인 관측 게이트가
+유지되고, 늦게 합류한 같은 군집 ID까지 반영한 뒤 최초 commitment가 만들어지는지 확인합니다.
+`test/test_observation_gate.cpp`는 가까운 거리, 보간 구간, 먼 거리의 관측 횟수와 최소 시간을
+검사합니다.
 `test/soft_violation_confirmation_pipeline_test.py`는 한두 cycle의 soft 충돌에서 고정 경로를
 유지하고, 지속되는 soft 충돌만 3회 확인 뒤 같은 방향으로 재계획하는지 검사합니다.
 `test/pre_engagement_side_switch_pipeline_test.py`는 ego가 회피 진입

@@ -41,9 +41,10 @@
   track-bound clearance before publishing.
 - Before the first lateral commitment, publish `ot_line=raceline_static_prepare` with a validated
   braking prefix while collecting the nearest cluster's IDs and conservative Frenet-envelope union.
-  Count distinct `/static_obs` messages, not planning ticks, and require the configured number of
-  observations for every cluster ID and the configured minimum stabilization duration unless the
-  maximum wait is reached. Expand the final union by
+  Count distinct `/static_obs` messages, not planning ticks. Interpolate the required observation
+  count and minimum duration from the ego-to-cluster-front Frenet distance: use the configured near
+  gate at or below `stabilization_near_distance_m`, the existing conservative gate at or above
+  `stabilization_far_distance_m`, and a linear transition between them. Expand the final union by
   `k*sqrt(s_var/d_var)` plus fixed longitudinal/lateral extent-noise floors, capping the lateral
   margin at `uncertainty_max_lateral_margin_m` so fresh-detection variance cannot inflate a
   centred obstacle's Guard beyond what either side can clear, and freeze that
@@ -134,9 +135,8 @@
 - Manual Frenet contract harness: `test/frenet_static_pipeline_test.py`; run it against a fresh
   `local_planner_node` with a `global_waypoints.csv` path.
 - Initial-cluster harness: `test/initial_cluster_stabilization_pipeline_test.py`; run it against a
-  fresh `local_planner_node` to verify the minimum stabilization time, that each late adjacent ID
-  receives the configured number of real topic observations, and that it affects the first
-  committed side.
+  fresh `local_planner_node` to verify the conservative far-distance gate and late adjacent IDs.
+  Unit-test the near/interpolated/far gate values in `test/test_observation_gate.cpp`.
 - Soft-violation harness: `test/soft_violation_confirmation_pipeline_test.py`; run it against a
   fresh `local_planner_node` to verify a transient uncertainty-only collision keeps the commitment
   and a persistent soft collision replans only after the configured planning-cycle count.

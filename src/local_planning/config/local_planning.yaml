@@ -78,6 +78,13 @@ local_planner_node:
     initial_observation_count: 3
     initial_observation_min_duration_sec: 0.15
     initial_observation_max_wait_sec: 0.35
+    # ego에서 blocking cluster 앞면까지의 Frenet 전방거리에 따라 관측 게이트를 보간합니다.
+    # 3 m 이내는 1회/0초로 즉시 경로 생성을 시도하고, 8 m 이상은 위의 3회/0.15초를 유지합니다.
+    # 중간 거리는 관측 횟수(반올림)와 최소 시간을 선형 보간합니다.
+    stabilization_near_distance_m: 3.0
+    stabilization_far_distance_m: 8.0
+    near_observation_count: 1
+    near_observation_min_duration_sec: 0.0
     # 최초 AABB 합집합을 Kalman 중심 위치의 kσ와 AABB 크기 오차 floor만큼 확장해
     # commitment Guard로 고정합니다. 후속 같은-ID uncertainty envelope가 Guard 안이면
     # 기존 경로 geometry를 그대로 유지합니다.
