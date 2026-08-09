@@ -27,6 +27,17 @@ The package name, C++ namespace (`namespace global_planning`), include prefix
 - For closed-loop tracks, close the reference path before building CLCS and wrap published `s` by CLCS path length.
 - Skip zero-length or invalid segments and avoid publishing if fewer than two waypoints are available.
 - The previous polyline-based implementation was removed; consult git history (commit `301a06e` and earlier) if the legacy `frenet_odom_node_legacy_polyline.cpp` reference is ever needed.
+- Publish ego odometry with `ClcsFrenetConverter::convertTracked()`. After the
+  first fix, search only the configured monotonic s-window. A window miss must
+  fail closed; perform a global re-search only after the configured consecutive
+  miss threshold and emit a warning when re-acquisition occurs.
+- Reset `ClcsContinuityState` whenever the converter or reference path is rebuilt.
+- Keep `ClcsFrenetConverter::convert()` stateless because `obstacle_detector`
+  uses it to project unrelated points. Do not patch the vendored CommonRoad-CLCS
+  library to implement tracked projection.
+- The removed reference-path adapter parameters (`reference_resample_step`,
+  `enable_path_smoothing`, and `enable_curvature_reduction`) must not be restored
+  to YAML unless adaptation is implemented consistently for every Frenet consumer.
 
 ## Global Trajectory Publisher Node
 

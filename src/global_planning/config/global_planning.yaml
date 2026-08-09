@@ -37,7 +37,6 @@ frenet_odom_node:
     projection_failure_policy: "drop_message"
     path_change_tolerance: 0.0001
     duplicate_point_tolerance: 0.001
-    reference_resample_step: 0.0
     tangent_epsilon: 0.05
     publish_heading_error: true
     publish_frenet_velocity: true
@@ -45,10 +44,17 @@ frenet_odom_node:
     velocity_frame: "body"
     covariance_mode: "zero"
     use_path_preprocessing: true
-    enable_path_smoothing: false
-    enable_curvature_reduction: false
-    max_projection_distance: 20.0
-    projection_domain_limit: 20.0
+
+    # Monotonic s-window tracking
+    continuity_enabled: true
+    forward_window: 1.0
+    backward_tolerance: 0.5
+    initial_seed_window: 0.0
+    tracked_max_projection_distance: 1.5
+    reacquire_after_misses: 5
+
+    max_projection_distance: 2.5
+    projection_domain_limit: 2.7
     projection_domain_epsilon: 0.1
     projection_domain_eps2: 0.0
     projection_domain_method: 1
