@@ -27,7 +27,7 @@
   <depend>tf2_geometry_msgs</depend>
   <depend>f110_msgs</depend>
   <depend>eigen</depend>
-  <!-- CLCS Frenet converter library (exported by global_planning as export_global_planning) -->
+  <!-- Waypoint Frenet converter library (exported by global_planning as export_global_planning) -->
   <depend>global_planning</depend>
 
   <!-- launch-only: rviz:=true and the optional clean-map server (detector_map_yaml:=...) -->

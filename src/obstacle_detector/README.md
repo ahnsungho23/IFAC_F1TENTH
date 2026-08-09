@@ -11,14 +11,14 @@
 
 ```text
 /scan + /global_waypoints + /map + ego odom + TF
+  → 구조적 벽 필터(맵의 선형 벽 구조 0.2 m 이내 포인트를 beam 단위로 제거)
   → adaptive-breakpoint clustering
   → tracking 전 LiDAR 파편 병합
   → Cartesian AABB 전체의 Frenet 경계 투영
-  → 크기·관측거리·트랙경계·점유지도 필터
+  → 크기·관측거리·트랙경계 필터
   → 거리·희소도·회전량 기반 adaptive 측정 공분산
-  → Frenet 등속 Kalman association + map-frame 등속 Kalman motion 추정
-  → RAW / TENTATIVE / CONFIRMED 존재 상태
-  → UNKNOWN / STATIC / DYNAMIC motion 상태
+  → Frenet 등속 Kalman tracking
+  → PENDING / PROVISIONAL_STATIC / CONFIRMED_STATIC / DYNAMIC 분류
   → 레이어 내부 객체 병합
   → visible track의 Cartesian AABB 합집합과 일치하는 Frenet 경계
   → 1초 누적 perception 진단 로그
@@ -31,27 +31,28 @@
 
 ### 레이어
 
-- Layer 1: `/map`에 등록된 벽과 알려진 구조물을 제거하는 필터. 발행하지 않는다.
-- Layer 2: 최근 5 scan 중 3회 관측된 `CONFIRMED` 장애물 가운데 motion이 `UNKNOWN` 또는
-  `STATIC`인 객체를 같은 ID로 `/static_obs`에 발행한다.
-- Confirmed Layer 2: 위치 지속성과 속도 통계 voting으로 확정된 `STATIC`만
-  `/confirmed_static_obs`에 별도로 발행한다. 장기 저장
+- Layer 1: `/map`에서 추출한 선형 벽 구조 근처(`wall_assoc_distance_m`, 기본 0.2 m)의 포인트를
+  군집화 전에 제거하는 구조적 필터. 맵에 구워진 비선형 blob은 벽으로 보지 않는다. 발행하지 않는다.
+- Layer 2: 연속 관측으로 확정된 장애물을 우선 provisional static으로, 저속이 확정되면 confirmed static으로
+  같은 ID를 유지하며 `/static_obs`에 발행한다.
+- Confirmed Layer 2: confirmed static만 `/confirmed_static_obs`에 별도로 발행한다. 장기 저장
   노드는 이 토픽을 사용하며 기존 `/static_obs` 계약은 바뀌지 않는다.
 - Layer 3: 확정 동적 물체 중 에고 전방에서 가장 가까운 하나를 `/opp_obs`로 발행한다.
 
 세 장애물 레이어 view는 `f110_msgs/msg/ObstacleArray`이며 매 scan마다 발행된다. 해당 view가
 비어 있으면 빈 배열을 발행한다.
 
-분류는 기존 Frenet KF와 별도의 map-frame KF `[x,vx,y,vy]`를 사용한다. 속도 통계
-`Tv=vᵀPv⁻¹v`와 map 위치 RMS를 최근 measurement history에서 voting하며, prediction-only scan은
-vote로 세지 않는다. 기본값에서 최근 5개 중 dynamic evidence 3개면 같은 ID로 `/opp_obs`로
-이동한다. STATIC은 최근 15개 중 static evidence 10개와 위치 RMS 0.10 m 이하를 함께 요구한다.
+기본값에서 track은 연속 매칭으로 확정되기 전까지(근거리 3프레임, `max_range` 거리 8프레임, 한
+프레임이라도 끊기면 리셋) 두 토픽 모두에 나오지 않는다. 확정되면 `/static_obs`에 바로 나오고,
+상대속도·속도 불확실성·에고 회전율을 모두 통과한 이동 증거가 25회 연속 쌓이면 같은 ID로
+`/opp_obs`로 이동한다.
 
-각 visible 객체는 map-frame AABB 전체를 CLCS에 투영한
+각 visible 객체는 map-frame AABB 전체를 Frenet으로 투영한
 `s_start/s_end/d_right/d_left`를 authoritative geometry로 제공한다. 같은 footprint의
 `has_cartesian=true`, AABB 중심, AABB를 감싸는 원의 반지름도 함께 제공한다. Detection이 끊겨
-Kalman 예측만 남은 객체는 마지막 측정 Frenet 크기를 예측 중심에 유지하지만 stale raw AABB를
-현재 위치로 오해하지 않도록 `has_cartesian=false`로 발행한다.
+Kalman 예측만 남은 동적 객체는 마지막 측정 Frenet 크기를 예측 중심에 유지하지만 stale raw AABB를
+현재 위치로 오해하지 않도록 `has_cartesian=false`로 발행한다. 정적 레이어는 기본 설정
+(`static_publish_requires_visible=true`)에서 이런 predicted-only ghost를 발행하지 않는다.
 
 RViz용 `/static_obs/markers`와 `/opp_obs/markers`는 각각 최종 ObstacleArray의
 `s_start/s_end/d_right/d_left`를 map 좌표로 변환한 테두리다. 따라서 `/static_obs/markers`는
@@ -103,7 +104,8 @@ RViz:
 ros2 launch obstacle_detector obstacle_detector.launch.py rviz:=true
 ```
 
-장애물이 포함된 live map을 사용하는 경우, Layer 1 필터에는 장애물이 없는 별도 지도를 지정한다.
+장애물이 포함된 live map을 사용하는 경우에도 비선형 blob은 벽으로 인정되지 않아 장애물이
+지워지지 않지만, Layer 1 필터에 장애물이 없는 별도 지도를 지정할 수도 있다.
 
 ```bash
 ros2 launch obstacle_detector obstacle_detector.launch.py \
@@ -122,15 +124,14 @@ ros2 launch obstacle_detector obstacle_detector.launch.py \
 - 파편 병합: `cluster_merge_enable`, `cluster_merge_distance`,
   `cluster_merge_min_fragment_points`
 - Layer 1 필터: `max_viewing_distance`, `boundaries_inflation`, `use_map_filter`,
-  `map_point_reject_ratio`
+  `wall_assoc_distance_m`, `wall_linear_ratio`, `wall_min_length_m`
 - 측정 공분산: `meas_range_var_scale`, `meas_sparse_var_scale`,
   `meas_yaw_rate_var_scale`, `meas_reference_points`
 - 추적: `meas_var_s/d`, `process_var_vs/vd`, `assoc_gate`,
   `assoc_use_mahalanobis`, `assoc_mahalanobis_gate`, `ttl_dynamic/static`
-- 존재 확인: `min_hits_confirm`, `confirmation_window`
-- 분류: `motion_classification.dynamic_chi2_threshold`, `static_chi2_threshold`,
-  `dynamic_vote_*`, `static_vote_*`, `position_history_size`, `static_max_position_rms`,
-  `dynamic_to_static_*`
+- 분류: `classifier_mode`, `dyn_vel_enter/exit`, `static_confirm_frames`,
+  `dynamic_confirm_frames`, `dyn_velocity_mahalanobis_gate`, `dyn_max_abs_yaw_rate`,
+  `static_ref_gate`
 - 레이어 출력 병합: `layer_merge_enable`, `layer_merge_gap_s/d`
 - 진단: `diagnostics_enable`, `diagnostics_period_sec`
 

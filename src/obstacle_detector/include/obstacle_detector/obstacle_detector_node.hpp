@@ -4,18 +4,22 @@
 // A single scan-driven perception node that separates LiDAR returns into three layers and
 // publishes the two obstacle layers in the Frenet frame:
 //
-//   LAYER 1 [map]     : /scan -> map-frame points (TF2) -> adaptive-breakpoint clustering ->
-//                       pre-tracking fragment merge -> box fit -> viewing + track-boundary gates
-//                       -> /map occupancy filter.
-//                       Points that ARE the map (walls / known static structure) are removed here;
+//   LAYER 1 [map]     : /scan -> map-frame points (TF2) -> structural wall filter (drop each
+//                       point within wall_assoc_distance_m of a LINEAR wall component extracted
+//                       from the SLAM map by grid-DBSCAN + PCA + distance transform) ->
+//                       adaptive-breakpoint clustering -> pre-tracking fragment merge -> box fit
+//                       -> viewing + track-boundary gates.
+//                       Points that ARE wall structure are removed here;
 //                       the map layer is a filter, it is not published.
-//   (tracking)        : Frenet KF [s,vs,d,vd] preserves association/output geometry. A parallel
-//                       map KF [x,vx,y,vy] provides velocity covariance significance and measured
-//                       map-position persistence for motion classification.
-//   LAYER 2 [static]  : existence-confirmed UNKNOWN or STATIC objects. Published as an
-//                       f110_msgs/ObstacleArray on `static_obs_topic` (/static_obs).
-//   LAYER 3 [dynamic] : the nearest-ahead existence-confirmed DYNAMIC opponent. Published as an
-//                       f110_msgs/ObstacleArray with a single element on `opp_obs_topic` (/opp_obs).
+//   (tracking)        : the surviving clusters are tracked with a constant-velocity Kalman filter
+//                       [s, vs, d, vd], which gives each cluster its Frenet flow velocity. The flow
+//                       is classified against the "map-flow" reference (mean flow of the slow
+//                       clusters) — see obstacle_tracker.hpp.
+//   LAYER 2 [static]  : clusters that flow WITH the map (|flow - ref| small) -> STATIC obstacles.
+//                       Published as an f110_msgs/ObstacleArray on `static_obs_topic` (/static_obs).
+//   LAYER 3 [dynamic] : the one cluster that clearly flows slower than the map (the same-direction
+//                       opponent) -> the DYNAMIC opponent. Published as an f110_msgs/ObstacleArray
+//                       with a single element on `opp_obs_topic` (/opp_obs).
 //   (layer merge)     : before publishing, tracks inside the SAME layer whose Frenet boxes are
 //                       within layer_merge_gap_s/_d of each other are merged into ONE object-level
 //                       obstacle (occlusion/corner fragments of one physical object otherwise show
@@ -54,6 +58,7 @@
 
 #include "obstacle_detector/frenet_projector.hpp"
 #include "obstacle_detector/obstacle_tracker.hpp"
+#include "obstacle_detector/wall_distance_filter.hpp"
 
 namespace obstacle_detector
 {
@@ -85,7 +90,7 @@ class ObstacleDetectorNode : public rclcpp::Node
     {
         std::size_t scans_received{0};
         std::size_t scans_processed{0};
-        std::size_t clcs_unavailable{0};
+        std::size_t converter_unavailable{0};
         std::size_t tf_unavailable{0};
 
         std::size_t total_beams{0};
@@ -122,7 +127,6 @@ class ObstacleDetectorNode : public rclcpp::Node
     // and the merged AABB must remain no larger than max_obs_size.
     std::vector<std::vector<ScanPoint>> mergeClusters(
         std::vector<std::vector<ScanPoint>> clusters, ScanProcessingStats &stats) const;
-    bool occupiedInMap(double x, double y) const;
     // 2nd-stage clustering inside one layer: union tracks whose boxes are within the merge gaps
     // (wrap-aware in s) and emit one envelope obstacle per component. With layer_merge_enable
     // false every track stays a singleton (identical to per-track publishing).
@@ -134,7 +138,6 @@ class ObstacleDetectorNode : public rclcpp::Node
     void updateDiagnostics(const ScanProcessingStats &scan_stats,
                            const TrackerUpdateStats *tracker_stats,
                            double measurement_yaw_rate, bool yaw_rate_fresh);
-    void logMotionDebug();
 
     void declareParameters();
     void loadParameters();
@@ -158,6 +161,7 @@ class ObstacleDetectorNode : public rclcpp::Node
     double min_2_points_dist_;
     int min_cluster_points_;
     double max_obs_size_;
+    double min_obs_size_;
     // pre-tracking scan-fragment merge
     bool cluster_merge_enable_;
     double cluster_merge_distance_;
@@ -176,8 +180,10 @@ class ObstacleDetectorNode : public rclcpp::Node
     double fallback_track_halfwidth_;
     bool use_map_filter_;
     int map_occupied_thresh_;
-    int map_inflation_cells_;
-    double map_point_reject_ratio_;
+    // structural wall filter (grid-DBSCAN + PCA linearity + distance transform)
+    double wall_assoc_distance_m_;
+    double wall_linear_ratio_;
+    double wall_min_length_m_;
     // per-layer 2nd-stage merge
     bool layer_merge_enable_;
     double layer_merge_gap_s_;
@@ -186,21 +192,26 @@ class ObstacleDetectorNode : public rclcpp::Node
     bool publish_markers_;
     bool diagnostics_enable_;
     double diagnostics_period_sec_;
-    bool motion_debug_enable_;
-    double motion_debug_period_sec_;
+    // Layer-2 publish gate: withhold static obstacles on prediction-only (ghost) frames.
+    bool static_publish_requires_visible_;
 
     TrackerParams tracker_params_;
 
     // ---- state ----
-    // CLCS does the accurate (x,y) -> (s,d) projection. FrenetProjector provides track-boundary
-    // lookup, s-wrap, and map interpolation for visualization of the final Frenet envelopes.
+    // The waypoint Frenet converter does the accurate (x,y) -> (s,d) projection. FrenetProjector
+    // provides track-boundary lookup, s-wrap, and map interpolation for visualization of the
+    // final Frenet envelopes.
     global_planning::ClcsFrenetConverter::Ptr converter_;
-    std::uint64_t clcs_version_{0};
+    std::uint64_t converter_version_{0};
     FrenetProjector frenet_;
     ObstacleTracker tracker_;
-    nav_msgs::msg::OccupancyGrid::SharedPtr map_msg_;
+    WallDistanceFilter wall_filter_;
     double ego_s_{-1.0};   // ego arc-length; < 0 disables the ahead-preference until first proj
     double ego_s_stamp_{-1.0};  // odometry stamp of the last ego_s_ update (freshness check)
+    // Continuity state for the ego projection: ego_s_ anchors the viewing-window gate, so it
+    // must come from convertTracked() (windowed + hysteresis), not the stateless full search —
+    // a stateless ego fix can branch-flip at the hairpin and anchor the gate on the wrong leg.
+    global_planning::ClcsContinuityState ego_continuity_;
     double odom_yaw_rate_{0.0};
     double odom_motion_stamp_{-1.0};
     ScanProcessingStats diagnostics_scan_totals_;

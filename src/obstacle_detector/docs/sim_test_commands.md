@@ -113,9 +113,9 @@ ros2 topic echo /opp_obs/markers --no-arr
 | 증상 | 확인 항목 |
 |---|---|
 | 아무 출력도 없음 | `/global_waypoints`, scan→map TF, `/scan` publisher 확인 |
-| 벽이 장애물로 나옴 | `/map`, `use_map_filter`, `map_occupied_thresh`, `map_point_reject_ratio` 확인 |
+| 벽이 장애물로 나옴 | `/map`, `use_map_filter`, `map_occupied_thresh`, `wall_assoc_distance_m`, `wall_linear_ratio` 확인 |
 | 장애물이 전부 사라짐 | live map에 장애물이 baked-in 되었는지 확인하고 `detector_map_yaml`에 clean map 지정 |
-| 상대차가 계속 static/unknown으로 남음 | `motion_classification.dynamic_chi2_threshold`, `dynamic_vote_window/required`, debug 로그의 `Tv`, `votes(S/D)`, `invalid_Pv` 확인 |
+| 상대차가 계속 static으로 남음 | `dyn_vel_enter/exit`, `dynamic_confirm_frames`, `dyn_velocity_mahalanobis_gate`, `dyn_max_abs_yaw_rate`, `static_ref_gate`와 `motion_gated` 진단 확인 |
 | 원거리 중심 변화에 track이 끌림 | adaptive covariance 파라미터와 `assoc_use_mahalanobis` 확인 |
 | 정상 detection이 자주 새 track이 됨 | timestamp, `assoc_mahalanobis_gate`, `meas_var_s/d`, process noise 확인 |
 | 작은 파편이 통째로 사라짐 | `cluster_merge_enable`, `cluster_merge_distance`, `cluster_merge_min_fragment_points` 확인 |
@@ -136,18 +136,9 @@ ros2 launch obstacle_detector obstacle_detector_node.launch.py 2>&1 | \
   grep --line-buffered "DIAG perception"
 ```
 
-`scans=processed/received`와 `drop(clcs/tf)`로 scan 전체 처리 실패를 먼저 확인하고, 이어서 beam,
+`scans=processed/received`와 `drop(conv/tf)`로 scan 전체 처리 실패를 먼저 확인하고, 이어서 beam,
 cluster, Layer 1 reject, association, classification 순서로 원인을 좁힌다. Association의
 `euclid_reject`와 `maha_reject`는 객체 수가 아니라 track-detection 후보 쌍 수다.
-
-Track별 map 속도, `Tv`, vote, 위치 RMS, confidence와 마지막 measurement 경과시간은 다음처럼
-motion debug를 켜서 확인한다.
-
-```bash
-ros2 run obstacle_detector obstacle_detector_node --ros-args \
-  --params-file "$(ros2 pkg prefix obstacle_detector)/share/obstacle_detector/config/obstacle_detector.yaml" \
-  -p motion_classification.debug_enable:=true
-```
 
 Detector 내부에는 scan noise filter와 deskew가 없으므로 해당 통계는 출력하지 않는다. 향후 전처리
 노드를 연결하면 noise/deskew 통계는 그 노드의 로그 또는 diagnostics에서 별도로 확인한다.

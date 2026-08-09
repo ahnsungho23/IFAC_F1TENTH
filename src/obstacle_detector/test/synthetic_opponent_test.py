@@ -334,8 +334,7 @@ class Harness(Node):
                 self.saw_pretracking_merge = True
                 self.premerge_position_var = ob.s_var + ob.d_var
             elif abs(ob.d_center) < 0.5:
-                # At 3-of-5 confirmation, motion-UNKNOWN objects are intentionally provisional
-                # safety objects on /static_obs until map-frame voting resolves their motion.
+                # At hit 3 every detected object is intentionally published as provisional static.
                 self.saw_opp_provisional_static = True
                 self.provisional_opp_ids.add(ob.id)
                 if self.saw_dynamic:

@@ -12,14 +12,14 @@ waypoints, or publish driving state.
 
 ```text
 /scan + /global_waypoints + /map + ego odometry + TF
+  → structural wall filter (drop points within wall_assoc_distance_m of linear map walls, per beam)
   → adaptive-breakpoint clustering
   → pre-tracking LiDAR-fragment merge
   → complete Cartesian AABB-to-Frenet footprint projection
-  → size, viewing-window, track-boundary, and occupancy-map filters
+  → size, viewing-window, and track-boundary filters
   → range-, sparsity-, and yaw-rate-adaptive measurement covariance
-  → constant-velocity Frenet Kalman association and map-frame Kalman motion estimate
-  → Raw / Tentative / Confirmed track existence
-  → Unknown / Static / Dynamic motion classification
+  → constant-velocity Frenet Kalman tracking
+  → Pending / ProvisionalStatic / ConfirmedStatic / Dynamic classification
   → same-layer object merge
   → matching visible-track Cartesian AABB union and Frenet bounds
   → one-second accumulated perception diagnostics
@@ -30,25 +30,30 @@ waypoints, or publish driving state.
   └─ /opp_obs/markers
 ```
 
-- Layer 1 removes walls and known map structure and is not published.
-- Layer 2 publishes every existence-confirmed Unknown or Static object on `/static_obs`.
-- `/confirmed_static_obs` publishes only existence-confirmed Static objects.
+- Layer 1 drops points near LINEAR wall structures extracted from the SLAM map (grid-DBSCAN
+  components + PCA linearity + distance transform, `wall_assoc_distance_m` default 0.2 m) before
+  clustering; non-linear blobs baked into the map are not treated as walls. It is not published.
+- Layer 2 publishes every provisional or confirmed non-map stationary object on `/static_obs`.
+- `/confirmed_static_obs` publishes the confirmed-static subset for persistent map consumers.
 - Layer 3 publishes at most one nearest-ahead confirmed dynamic object on `/opp_obs`.
 
 All three layer views use `f110_msgs/msg/ObstacleArray` and are published on every scan, including
 empty arrays.
 
-Existence confirmation uses three associated measurements inside the latest five scans. Motion is
-estimated by a supplemental map-frame `[x,vx,y,vy]` Kalman filter. The classifier votes on the
-velocity statistic `Tv=vᵀPv⁻¹v` and map-position RMS without adding prediction-only frames. With
-the defaults, three Dynamic evidence samples in the latest five move the same ID to `/opp_obs`;
-Static requires ten Static evidence samples in the latest fifteen plus persistent map position.
+With the defaults, a track remains unpublished until it matches on enough CONSECUTIVE frames
+(3 close, 8 at `max_range`, linearly interpolated by measured range; a single missed frame
+resets the streak). The confirming frame publishes the track immediately as
+provisional static. After three additional consecutive low-relative-speed measurements it becomes
+confirmed static without changing ID. A track moves to `/opp_obs` only after 25 consecutive motion
+measurements also pass the velocity-uncertainty and ego-yaw reliability gates.
 
 Every visible object publishes authoritative `s_start/s_end/d_right/d_left` bounds projected from
 its complete map-frame AABB. It also sets `has_cartesian=true` and provides that same footprint's
-AABB centre and enclosing-circle radius. A predicted-only object keeps the last measured Frenet
+AABB centre and enclosing-circle radius. A predicted-only dynamic object keeps the last measured
+Frenet
 extent around its predicted centre but sets `has_cartesian=false`, because Kalman prediction does
-not move the last raw scan footprint.
+not move the last raw scan footprint. The static layer withholds such predicted-only ghosts by
+default (`static_publish_requires_visible=true`).
 
 `/static_obs/markers` and `/opp_obs/markers` convert the final arrays'
 `s_start/s_end/d_right/d_left` envelopes back into map-frame boundary lines. The static marker
@@ -87,7 +92,8 @@ ros2 launch obstacle_detector obstacle_detector.launch.py simulator:=true
 ros2 launch obstacle_detector obstacle_detector.launch.py rviz:=true
 ```
 
-If the live map contains baked-in obstacles, give Layer 1 an obstacle-free map:
+If the live map contains baked-in obstacles, they are compact non-linear blobs and are therefore
+NOT treated as walls, so the obstacles survive; an obstacle-free map may still be given to Layer 1:
 
 ```bash
 ros2 launch obstacle_detector obstacle_detector.launch.py \

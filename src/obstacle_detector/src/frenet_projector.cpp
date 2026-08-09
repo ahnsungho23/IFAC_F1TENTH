@@ -26,7 +26,7 @@ void FrenetProjector::build(
         return;
     }
 
-    // Use the CLCS length when supplied so tracking, published bounds, and marker wrapping share
+    // Use the converter's track length when supplied so tracking, published bounds, and marker wrapping share
     // one s-domain. Standalone users fall back to the final s plus the geometric closing segment.
     const Waypoint &front = wpnts_.front();
     const Waypoint &back = wpnts_.back();
