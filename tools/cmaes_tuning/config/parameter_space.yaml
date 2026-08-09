@@ -1,0 +1,96 @@
+schema: cmaes_parameter_space/1
+parameters:
+  - name: safety_margin_m
+    baseline: 0.014789254299520768
+    lower: 0.0
+    upper: 0.08
+    unit: m
+    transform: linear
+    target_ros_parameter: safety_margin_m
+    description: Physical obstacle clearance margin added once by the planner.
+
+  - name: obstacle_longitudinal_padding_m
+    baseline: 0.4149924657737441
+    lower: 0.15
+    upper: 0.70
+    unit: m
+    transform: linear
+    target_ros_parameter: obstacle_longitudinal_padding_m
+    description: Longitudinal expansion applied to detected obstacle bounds.
+
+  - name: pre_apex_far_m
+    baseline: 9.669467393145736
+    lower: 6.0
+    upper: 11.5
+    unit: m
+    transform: linear
+    target_ros_parameter: pre_apex_distances_m
+    decode: thirds_descending
+    description: Far entry anchor decoded to [far, 2*far/3, far/3].
+
+  - name: post_apex_far_m
+    baseline: 5.107334552832739
+    lower: 3.0
+    upper: 7.0
+    unit: m
+    transform: linear
+    target_ros_parameter: post_apex_distances_m
+    decode: thirds_ascending
+    description: Far exit anchor decoded to [far/3, 2*far/3, far].
+
+  - name: transition_short
+    baseline: 0.2740569240066383
+    lower: 0.08
+    upper: 0.55
+    unit: ratio
+    transform: linear
+    target_ros_parameter: transition_distance_scales
+    decode: ordered_transition_short
+    description: Short candidate transition multiplier.
+
+  - name: transition_middle
+    baseline: 0.6991537701867223
+    lower: 0.60
+    upper: 1.60
+    unit: ratio
+    transform: linear
+    target_ros_parameter: transition_distance_scales
+    decode: ordered_transition_middle
+    description: Middle candidate transition multiplier.
+
+  - name: transition_long
+    baseline: 3.5816012944405027
+    lower: 1.80
+    upper: 4.50
+    unit: ratio
+    transform: linear
+    target_ros_parameter: transition_distance_scales
+    decode: ordered_transition_long
+    description: Long candidate transition multiplier.
+
+  - name: outside_line_transition_scale
+    baseline: 0.1
+    lower: 0.05
+    upper: 1.20
+    unit: ratio
+    transform: linear
+    target_ros_parameter: outside_line_transition_scale
+    description: Additional transition multiplier for the outside line.
+
+  - name: minimum_target_offset_m
+    baseline: 0.15
+    lower: 0.10
+    upper: 0.30
+    unit: m
+    transform: linear
+    target_ros_parameter: minimum_target_offset_m
+    description: Minimum absolute avoidance target lateral offset.
+
+  - name: wall_safety_margin_m
+    baseline: 0.04
+    lower: 0.02
+    upper: 0.08
+    unit: m
+    transform: linear
+    target_ros_parameter: wall_safety_margin_m
+    description: Additional margin subtracted from waypoint vehicle-center bounds.

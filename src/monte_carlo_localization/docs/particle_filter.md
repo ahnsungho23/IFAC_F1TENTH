@@ -113,5 +113,7 @@ colcon build --packages-select particle_filter_cpp
   ```
 - **시뮬레이션 모드**:
   ```bash
-  ros2 launch particle_filter_cpp mcl_launch.py mod:=sim map_name:=map use_rviz:=true
+  ros2 launch particle_filter_cpp mcl_launch.py mod:=sim map_name:=map use_rviz:=true use_sim_time:=false
   ```
+  `f1tenth_gym_ros` bridge는 `/clock`을 발행하지 않으므로 일반 시뮬레이션은 wall clock을
+  사용한다. `/clock`을 제공하는 별도 시뮬레이터에서만 `use_sim_time:=true`로 바꾼다.

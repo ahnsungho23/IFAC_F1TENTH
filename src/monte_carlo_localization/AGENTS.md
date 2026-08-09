@@ -25,6 +25,8 @@ This document defines package-specific developer rules and guidelines for `monte
 
 - Launch file: `launch/mcl_launch.py`
 - Command example: `ros2 launch particle_filter_cpp mcl_launch.py mod:=real map_name:=map`
+- `use_sim_time` is an explicit launch argument. Keep it `false` for
+  `f1tenth_gym_ros`, which has no `/clock`; bag playback defaults to `true`.
 - Ensure `CMakeLists.txt` installs `launch`, `config`, `maps`, and documentation directories.
 
 ## Documentation Expectations

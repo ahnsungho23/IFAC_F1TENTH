@@ -124,6 +124,17 @@ def generate_launch_description():
         description='Launch RViz visualization'
     )
 
+    use_sim_time_arg = DeclareLaunchArgument(
+        'use_sim_time',
+        default_value=PythonExpression([
+            "'true' if '", LaunchConfiguration('mod'), "' == 'bag' else 'false'"
+        ]),
+        description=(
+            'ROS clock selection. f1tenth_gym_ros does not publish /clock, so sim defaults '
+            'to false; bag playback defaults to true.'
+        )
+    )
+
     start_map_server_arg = DeclareLaunchArgument(
         'start_map_server',
         default_value='auto',
@@ -198,9 +209,7 @@ def generate_launch_description():
     
     # === COMMON PARAMETERS ===
     common_params = {
-        'use_sim_time': PythonExpression([
-            "'true' if '", LaunchConfiguration('mod'), "' in ['sim', 'bag'] else 'false'"
-        ])
+        'use_sim_time': LaunchConfiguration('use_sim_time')
     }
     
     # === MAP SERVER NODE ===
@@ -290,6 +299,7 @@ def generate_launch_description():
         mode_arg,
         map_name_arg,
         use_rviz_arg,
+        use_sim_time_arg,
         start_map_server_arg,
         config_arg,
 
