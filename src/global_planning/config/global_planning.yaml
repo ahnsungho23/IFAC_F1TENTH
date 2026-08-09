@@ -34,7 +34,6 @@ frenet_odom_node:
     projection_failure_policy: "drop_message"
     path_change_tolerance: 0.0001
     duplicate_point_tolerance: 0.001
-    reference_resample_step: 0.0
     tangent_epsilon: 0.05
     publish_heading_error: true
     publish_frenet_velocity: true
@@ -42,29 +41,6 @@ frenet_odom_node:
     velocity_frame: "body"
     covariance_mode: "zero"
     use_path_preprocessing: true
-    # --- Reference path adaptation (C++ port of Würsching & Althoff, IEEE IV
-    # 2024, Alg. 1; closed-loop variant) ---
-    # enable_path_smoothing: one Lane-Riesenfeld cubic subdivision pass (C^2
-    #   approximating spline of the input polyline).
-    # enable_curvature_reduction: full iterative loop — subdivide, check
-    #   rho = |kappa| * (inner-bound distance + boundary_margin) < 1 for every
-    #   point, resample at reference_resample_step, guard track-bound
-    #   crossings. Needs d_left/d_right in /global_waypoints.
-    # NOTE: obstacle_detector builds its own CLCS from the RAW
-    #   /global_waypoints. Enabling adaptation here makes the ego Frenet frame
-    #   differ from the obstacle frame — keep disabled unless both sides use
-    #   the same preprocessing. The current IQP raceline already satisfies
-    #   rho < 1 everywhere (max ~0.77), so the loop is a no-op on it anyway.
-    enable_path_smoothing: false
-    enable_curvature_reduction: true
-    subdivision_refinements: 5     # k: refinements per iteration (paper: 5)
-    adaptation_max_iterations: 10  # n_iter cap for the reduction loop
-    boundary_margin: 0.05          # [m] epsilon added to the boundary distance
-    max_absolute_curvature: 0.0    # [1/m] global kappa cap; 0 disables
-    # |kappa| below this counts as "straight"; the middle of each straight run
-    # is a fixed anchor between which every bend is refined with pinned ends
-    # (the paper's partition boundaries, required for curvature to decrease).
-    anchor_curvature_threshold: 0.1
     # --- Monotonic s-window tracking (closed-loop wrap) ---
     # After the first fix only [s_prev - backward_tolerance, s_prev +
     # forward_window] (mod track length) is searched, so branches that are
@@ -81,7 +57,7 @@ frenet_odom_node:
     # legitimate |d| (avoidance excursions ~1.1 m) and stay below the
     # smallest branch gap (hairpin legs 1.41 m).
     tracked_max_projection_distance: 1.5
-    reacquire_after_misses: 5      # ~0.5 s at 30 Hz odom
+    reacquire_after_misses: 5      # ~0.17 s at 30 Hz odom
     max_projection_distance: 2.5
     projection_domain_limit: 2.7
     projection_domain_epsilon: 0.1

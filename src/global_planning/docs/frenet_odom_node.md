@@ -72,120 +72,21 @@ ros2 run global_planning frenet_odom_node --ros-args --params-file src/global_pl
 3. `/car_state/frenet/odom`의 `pose.pose.position.x`, `pose.pose.position.y`가 각각 계산된 `s`, `d`인지 확인한다.
 4. `/car_state/frenet/odom.child_frame_id`가 closest segment index 문자열인지 확인한다.
 
-## 8. 참조 경로 적응 (Reference Path Adaptation, 기본 비활성)
-
-Würsching & Althoff, *"Robust and Efficient Curvilinear Coordinate
-Transformation with Guaranteed Map Coverage for Motion Planning"* (IEEE IV
-2024)의 Alg. 1을 폐루프 트랙용으로 C++ 포팅한 전처리 단계다
-(`reference_path_adapter.{hpp,cpp}`). CLCS를 빌드하기 **전에** 참조 경로를
-수정해, 트랙 코리도 안의 모든 점이 **유일한 곡선좌표 투영**(곡률 특이형)을
-갖도록 만든다.
-
-### 8.1 동작 원리 (단계별)
-
-1. **앵커 선정**: `|kappa| < anchor_curvature_threshold`인 구간(직선)의
-   중앙점들을 고정 앵커로 잡는다. 논문의 파티션 경계에 해당하며, 앵커 없이
-   폐루프 전체를 세분하면 볼록한 코너가 평탄해지는 대신 수축한다(끝점 고정이
-   Lemma 3의 전제).
-2. **세분(Subdivision)**: 앵커 사이 각 굽음 구간을 양 끝 고정 상태로
-   Lane-Riesenfeld 3차 B-스플라인 세분(`subdivision_refinements`회, 논문 k=5)
-   하여 C² 근사 곡선을 얻는다 (Lemma 1).
-3. **판정**: 모든 점에서 `rho = |kappa| * (안쪽 경계까지 법선 거리 +
-   boundary_margin) < 1`이면 종료 (`criterion_met`, 식 (4)/(6), Lemma 2).
-   안쪽 경계는 입력 waypoint의 `d_left`/`d_right`로 만든 트랙 경계
-   폴리라인이고, 거리는 레이캐스팅으로 매 반복 재측정한다.
-4. **리샘플**: 미충족이면 각 구간을 `reference_resample_step` 간격으로 균일
-   리샘플(끝 고정)한다. 볼록포 성질로 곡률이 줄며(Lemma 3), 이 스텝 크기가
-   수렴 속도를 결정한다 (논문 Sec. IV).
-5. **경계 가드**: 리샘플 결과의 3칸 코드(p_i→p_{i+3})가 트랙 경계와 교차하면
-   수용하지 않고 중단한다 (`boundary_hit`, 논문 Fig. 6). 반복 상한은
-   `adaptation_max_iterations` (`max_iterations`로 보고).
-
-### 8.2 파라미터 (`global_planning.yaml`)
-
-#### 새로 추가된 파라미터 (5개)
-
-| 파라미터 | 기본값 | 의미 | 검증 (위반 시) |
-|---|---|---|---|
-| `subdivision_refinements` | 5 | 반복당 B-스플라인 세분 횟수 k (논문 k=5) | [1, 8] 밖이면 5로 리셋 |
-| `adaptation_max_iterations` | 10 | 세분→판정→리샘플 루프 반복 상한 (논문 n̄_iter) | < 1이면 10으로 리셋 |
-| `boundary_margin` | 0.05 | 경계 거리에 더하는 안전 여유 ε [m] (논문의 거리 과대근사) | < 0 또는 비유한이면 0.05로 리셋 |
-| `max_absolute_curvature` | 0.0 | 전역 \|κ\| 상한 κ̄ [1/m]. **0 = 비활성**. 논문의 파티션 캡 κ̄_Gm을 대신하는 선택적 전역 캡 | — |
-| `anchor_curvature_threshold` | 0.1 | 이 값 미만의 \|κ\|는 "직선"으로 판정 [1/m]. 직선 런의 중앙이 고정 앵커가 됨 | ≤ 0이면 0.1로 리셋 |
-
-#### 기존 선언만 있다가 실동작이 연결된 파라미터 (3개)
-
-| 파라미터 | 기본값 | 이전 | 현재 |
-|---|---|---|---|
-| `enable_path_smoothing` | false | 경고만 출력 | 세분 1회 적용 (Lemma 1만) |
-| `enable_curvature_reduction` | false | 경고만 출력 | **전체 Alg. 1 루프** 실행 |
-| `reference_resample_step` | 0.0 | 경고만 출력 | 리샘플 간격 Δs [m]. **0이면 입력 중앙값 간격 사용**. 수렴 속도를 결정하는 핵심 노브 (혼자 >0이면 리샘플 전용 모드) |
-
-#### 조합별 동작
-
-```
-셋 다 기본값             → 어댑터 완전 미작동 (현행과 동일)
-smoothing만 true         → 세분 1회 (+step>0이면 리샘플)
-curvature_reduction=true → Alg.1 루프 (smoothing 플래그 무관하게 루프에 세분 포함)
-step만 >0                → 균일 리샘플만
-```
-
-### 8.3 주의 사항
-
-- **기본 비활성이며, 켜기 전에 반드시 읽을 것**: `obstacle_detector`는 원본
-  `/global_waypoints`로 자체 CLCS를 빌드한다. 이 노드에서만 적응을 켜면
-  에고 프레임과 장애물 프레임의 (s, d)가 서로 달라진다. 수정이 실제로
-  일어나면 노드가 WARN을 1회 출력한다.
-- **현재 IQP raceline에서는 no-op**: 전 구간 `rho ≈ 0.81 < 1`이라
-  `already_satisfied`로 즉시 종료하고 경로를 건드리지 않는다 (실측 검증됨).
-- **좁은 헤어핀에서는 기준이 불충족일 수 있다**: ifac_track centerline의
-  헤어핀은 필요한 접촉원 반경이 코리도 폭을 넘어 기하적으로 달성 불가능하고,
-  루프는 벽을 넘는 대신 `boundary_hit`/`max_iterations`로 정직하게 보고한다.
-  또한 이 적응은 곡률 특이형 비유일성만 다루며, 헤어핀 레그 간 근접(브랜치
-  근접형)은 원리적으로 해결하지 못한다 — 그 문제는 시간 연속성
-  (`convertTracked`, edge_test 브랜치)이 담당한다.
-- 로그 형식: `Reference path adaptation: <stop_reason> (iterations=..
-  points=..-><.. max|kappa|=..->.. max_rho=..->..)`.
-
-### 8.4 권장 구조: publisher 단 적용 (미구현, 적응을 실제로 쓰려면 선행 필요)
-
-현재 구조에서 적응은 `frenet_odom_node` 안에서만 일어나고, `obstacle_detector`와
-`overtake_planning`은 원본 `/global_waypoints`로 각자 CLCS를 빌드한다. 적응이
-경로를 실제로 변형하면 **에고·장애물·추월 플래너가 서로 다른 Frenet 프레임**을
-쓰게 되어, 장애물 (s,d)이 에고 좌표계 기준으로 어긋난 회피 경로(벽 박힘)를 만든다.
-`global_planning.yaml`의 `enable_curvature_reduction: true`와 §8.3의 "한쪽만 켜지
-말 것" 주석이 공존하는 현재 설정은, 현재 raceline에서 적응이 no-op이라는 사실에만
-안전을 의존하는 상태다.
-
-적응을 유효하게 쓰려면 아래 구조 수정이 선행되어야 한다.
-
-1. **적응 지점을 `global_trajectory_publisher_node`로 이동**: 경로를 한 번만 적응해
-   발행하고, 모든 소비자(`frenet_odom_node`, `obstacle_detector`,
-   `overtake_planning`, `state_machine`)는 적응된 경로를 그대로 받아 쓴다.
-   소비자 측에서는 로컬 적응을 두지 않는다.
-2. **경계 거리 재계산**: 적응이 점을 옮기면 waypoint별 `d_left`/`d_right`도
-   새 법선 기준으로 다시 구해 함께 발행해야 한다. 옮겨진 점에 옛 경계 거리를
-   달면 복도 게이트와 회피 여유가 틀어진다.
-3. **`stop_reason` 모니터링**: `criterion_met`가 아닌 종료(`max_iterations`,
-   `boundary_hit`)는 유일 투영 보장이 성립하지 않았다는 뜻이므로 WARN 이상으로
-   올리고 주행 전 확인 항목에 넣는다.
-4. **보장 범위를 오해하지 말 것**: 적응은 곡률 특이형(rho ≥ 1) 비유일성만
-   제거한다. 헤어핀 레그 근접형 플립은 여전히 §9의 윈도우 추적이 막고, stateless
-   장애물 투영의 관측 창 안쪽 오캡처는 어느 쪽으로도 막을 수 없으므로
-   장애물 측 게이트(에고 s 기준 관측 창 등)가 별도로 필요하다.
-
-이 작업 전까지는 적응 플래그를 끄고(no-op 확인) §9 윈도우 추적에만 의존하는
-것이 안전하다.
-
-## 9. 단조 s-윈도우 추적 (Monotonic s-window tracking, 기본 활성)
+## 8. 단조 s-윈도우 추적 (Monotonic s-window tracking, 기본 활성)
 
 호길이 s의 단조 진행을 이용한 윈도우 탐색으로, `convertTracked()`가 담당한다.
 **브랜치 근접형 비유일성**
 (헤어핀 반대 레그: 공간상 1.41 m 옆이지만 호길이로는 반 바퀴 거리)에 의한
-투영 플립을 방어한다 — §8의 경로 적응(곡률 특이형)과는 다른 종류의 문제를
-다루며 서로 독립적으로 동작한다.
+투영 플립을 방어한다.
 
-### 9.1 동작 원리 (단계별)
+> ℹ️ 곡률 특이형(rho ≥ 1) 비유일성을 다루던 **참조 경로 적응
+> (ReferencePathAdapter, IV'24 Alg.1 포팅)은 2026-08-09에 제거**됐다 —
+> 검증 스냅샷에서 no-op이었고, 이 노드 단독 적용은 obstacle_detector와의
+> Frenet 프레임 불일치를 만들기 때문이다. 재도입하려면 publisher 단 적용이
+> 선행돼야 한다. 상세 경위는 `AGENTS.md`의 제거 기록과
+> `docs/proposal_remove_reference_path_adapter.md` 참고.
+
+### 8.1 동작 원리 (단계별)
 
 1. **첫 fix**: `initial_seed_window <= 0`(기본)이면 전체 탐색으로 초기 s를
    획득한다 (폐루프 트랙은 2D Pose Estimate로 임의 위치에서 시작 가능).
@@ -207,7 +108,7 @@ step만 >0                → 균일 리샘플만
 6. 성공 시에만 `s_prev`가 갱신되고 미스 카운터가 리셋된다. 참조 경로가
    재빌드되면 상태는 초기화되어 재획득한다.
 
-### 9.2 파라미터 (`global_planning.yaml`)
+### 8.2 파라미터 (`global_planning.yaml`)
 
 | 파라미터 | 기본값 | 의미 | 검증 (위반 시) |
 |---|---|---|---|
@@ -218,7 +119,7 @@ step만 >0                → 균일 리샘플만
 | `tracked_max_projection_distance` | 1.5 | 추적 fix 전용 유클리드 게이트 [m]. 정상 회피 \|d\|(~1.1)보다 크고 레그 간격(1.41)보다 작게 | — |
 | `reacquire_after_misses` | 15 | 연속 미스 후 전역 재획득 (30 Hz 기준 ~0.5초). **0 = 재획득 없음** | < 0이면 15로 리셋 |
 
-### 9.3 주의 사항
+### 8.3 주의 사항
 
 - `forward_window`는 프레임당 이동거리(`v·Δt`, 실차 20 Hz × 7.5 m/s ≈ 0.38 m)
   보다 충분히 커야 한다. 기본 1.0 m는 약 2.7배 여유.

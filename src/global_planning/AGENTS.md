@@ -42,31 +42,22 @@ The package name, C++ namespace (`namespace global_planning`), include prefix
   vendored 3-arg `Segment::convertToCurvilinearCoords` overload is private; do
   not patch the vendored library.
 
-## Reference Path Adapter (`reference_path_adapter.{hpp,cpp}`)
+## Removed: Reference Path Adapter (2026-08-09)
 
-- C++ port of Alg. 1 in Würsching & Althoff, IEEE IV 2024 ("Robust and Efficient
-  Curvilinear Coordinate Transformation with Guaranteed Map Coverage"), for closed
-  loops. Guarantees, on success (`criterion_met`), that every corridor point has a
-  unique curvilinear projection of the curvature-singularity type:
-  `rho = |kappa| * (inner-bound distance + boundary_margin) < 1` at every point.
-- Closed-loop deviations from the paper (documented in the header): bounds come
-  from per-waypoint `d_left`/`d_right` instead of lanelets; anchors (middles of
-  straight runs, `anchor_curvature_threshold`) replace partition boundaries and
-  every bend is subdivided/resampled as an open segment with pinned ends — without
-  pinned ends convex bends contract instead of flattening (verified by test);
-  the per-partition constant cap kappa_Gm is replaced by the pointwise rho check.
-- The adapter runs inside `frenet_odom_node` only, is disabled by default, and
-  MUST stay disabled unless `obstacle_detector` (which builds its own CLCS from
-  the raw `/global_waypoints`) applies the same preprocessing — otherwise ego and
-  obstacle Frenet frames diverge. The node logs a WARN_ONCE when it modifies the
-  reference.
-- Known behavior on real data: the IQP raceline already satisfies rho < 1
-  (`already_satisfied`, no-op). The ifac_track centerline hairpin is
-  geometrically infeasible for the criterion (required osculating radius exceeds
-  the corridor); the loop then reports `boundary_hit`/`max_iterations` honestly
-  instead of crossing walls. `resample_step` controls the convergence rate
-  (paper Sec. IV); larger steps on narrow tracks trigger the Fig. 6 boundary
-  guard earlier.
+- The IV'24 Alg.1 port (`reference_path_adapter.{hpp,cpp}`, curvature-singularity
+  smoothing/reduction, 8 parameters incl. `enable_path_smoothing` /
+  `enable_curvature_reduction` / `reference_resample_step`) was removed entirely.
+  On the verified waypoint snapshot it was a no-op (`already_satisfied`,
+  rho 0.92 < 1), and running it inside `frenet_odom_node` alone would desync the
+  ego Frenet frame from `obstacle_detector`, which builds its own CLCS from the
+  RAW `/global_waypoints`.
+- To reintroduce adaptation, apply it once at the publisher
+  (`global_trajectory_publisher_node`) so every consumer receives the same
+  adapted waypoints, and recompute `d_left`/`d_right` for moved points — see
+  commit `09073ff` and `docs/proposal_remove_reference_path_adapter.md`.
+  Note the port deviated from the paper (closed-loop anchors, waypoint bounds),
+  so the paper's formal guarantees do not transfer as-is. Code is recoverable
+  from git history (`c060ad8`).
 
 ## Global Trajectory Publisher Node
 
