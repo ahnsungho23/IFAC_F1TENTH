@@ -417,7 +417,8 @@ private:
         << " --gui-params " << gui_params_yaml_
         << " --output-dir " << outputDir()
         << " --obstacles-json " << outputDir() << "/obstacles.json"
-        << " --min-clearance " << min_clearance_after_;
+        << " --min-clearance " << min_clearance_after_
+        << " --preview-png";
     if (safety_width.has_value()) {
       cmd << " --safety-width " << *safety_width;
     }

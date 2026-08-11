@@ -78,7 +78,8 @@ def main() -> int:
     parser.add_argument("--smooth-sigma", type=float, default=None,
                         help="override gui_params smooth_sigma for a retry pass")
     parser.add_argument("--preview-png", action="store_true",
-                        help="also write preview.png for quick inspection")
+                        help="also write obstacle_debug_overlay.png (painted map + "
+                             "centerline + regenerated raceline) for quick inspection")
     args = parser.parse_args()
 
     if not args.map_yaml.is_file():
@@ -174,7 +175,9 @@ def main() -> int:
                       result.global_traj, result.lap_time, gen_args)
         if args.preview_png:
             import cv2
-            cv2.imwrite(str(args.output_dir / "preview.png"),
+            # 베이스라인 생성 경로의 debug_overlay.png 와 짝이 되는 이름.
+            # 이쪽은 칠해진 obstacle_map 위에 재생성 라인을 그린 것이다.
+            cv2.imwrite(str(args.output_dir / "obstacle_debug_overlay.png"),
                         render_preview_rgb(result)[:, :, ::-1])
     (args.output_dir / "gate_report.json").write_text(
         json.dumps(report, indent=2, ensure_ascii=False))

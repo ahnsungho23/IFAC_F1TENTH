@@ -44,7 +44,13 @@ map_creator package rules. These instructions apply to `src/map_creator`.
 - Launch from the workspace root (`~/2026_IFAC`) — relative paths in the YAML
   resolve from the launch working directory, same convention as global_planning.
 - `map_creator.launch.py` also starts `static_obstacle_map`; do not start a duplicate
-  persistent-map node when using the default launch composition.
+  persistent-map node when using the default launch composition. That include MUST stay
+  wrapped in `GroupAction(..., scoped=True)`: `IncludeLaunchDescription.launch_arguments`
+  is unscoped, so an unwrapped include overwrites the parent `params_file` and
+  `map_creator_node` silently receives `static_obstacle_map.yaml` instead of its own YAML
+  (every parameter falls back to the C++ default, `base_map_yaml` becomes empty, and the
+  gui_params fallback path aborts the pipeline). See `docs/handoff_params_leak.md`.
+  Verify after any launch edit with `ros2 param get /map_creator_node base_map_yaml`.
 - Map creator must not perform Cartesian-to-Frenet conversion. Treat the `s`/`d` geometry in
   `/adaptive_obstacle_map` as the perception contract and only compare or consume those fields.
 - Tests in `test/` are gtest, ROS-free (ledger matching/removal, painter pixels).

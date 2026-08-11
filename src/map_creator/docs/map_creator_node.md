@@ -103,6 +103,9 @@ ros2 launch global_planning global_planning.launch.py
 - `obstacles.json` — 베이크된 장애물 AABB (드라이버의 이격 게이트 입력)
 - `gate_report.json` — 게이트별 통과 여부·수치, `regen_log.txt` — 드라이버 로그
 - `manifest.json` — 트리거 랩, 장애물별 판정·사유, 상태
+- `obstacle_debug_overlay.png` — 칠해진 맵 위에 centerline·재생성 레이스라인을 그린 확인용
+  이미지. 노드가 드라이버에 `--preview-png`를 넘겨 생성합니다. 베이스라인 생성 경로의
+  `output/map/debug_overlay.png`와 짝이 되는 파일입니다.
 
 ## 7. 단계별 확인
 
