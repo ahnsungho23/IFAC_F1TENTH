@@ -21,6 +21,7 @@ from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node, SetRemap
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
@@ -70,6 +71,47 @@ def generate_launch_description():
         default_value=default_reference_map,
         description='Wall-only reference-map YAML loaded for local planning',
     )
+    timing_diagnostics_enable_arg = DeclareLaunchArgument(
+        'timing_diagnostics_enable',
+        default_value='false',
+        description='Publish tuning-only monotonic timing events',
+    )
+    timing_diagnostics_topic_arg = DeclareLaunchArgument(
+        'timing_diagnostics_topic',
+        default_value='/cma_timing/events',
+        description='Companion timing-event topic',
+    )
+    replay_diagnostics_enable_arg = DeclareLaunchArgument(
+        'replay_diagnostics_enable',
+        default_value='false',
+        description='Publish tuning-only detector/planner record/replay diagnostics',
+    )
+    detector_replay_diagnostics_topic_arg = DeclareLaunchArgument(
+        'detector_replay_diagnostics_topic',
+        default_value='/cma_replay/detector_events',
+        description='Detector record/replay companion-event topic',
+    )
+    planner_replay_diagnostics_topic_arg = DeclareLaunchArgument(
+        'planner_replay_diagnostics_topic',
+        default_value='/cma_replay/planner_events',
+        description='Planner record/replay companion-event topic',
+    )
+    lockstep_mode_arg = DeclareLaunchArgument(
+        'lockstep_mode', default_value='false',
+        description='CMA-only deterministic event-driven execution',
+    )
+    p3_mode_arg = DeclareLaunchArgument(
+        'p3_mode', default_value='TEST_ACTIVE',
+        description='Production P3/M1 mode: OFF, SHADOW, or bounded TEST_ACTIVE',
+    )
+    p3_diagnostics_topic_arg = DeclareLaunchArgument(
+        'p3_diagnostics_topic', default_value='/local_planning/p3_shadow',
+        description='Non-commanding P3/M1 ownership and lifecycle diagnostic topic',
+    )
+    lockstep_scan_offset_arg = DeclareLaunchArgument(
+        'lockstep_scan_offset_x_m', default_value='0.275',
+        description='CMA lockstep LiDAR x offset from base_link [m]',
+    )
 
     reference_map_server = Node(
         package='nav2_map_server',
@@ -103,6 +145,13 @@ def generate_launch_description():
                 'simulator': LaunchConfiguration('simulator'),
                 'use_sim_time': LaunchConfiguration('use_sim_time'),
                 'rviz': 'false',
+                'replay_diagnostics_enable': LaunchConfiguration(
+                    'replay_diagnostics_enable'),
+                'replay_diagnostics_topic': LaunchConfiguration(
+                    'detector_replay_diagnostics_topic'),
+                'lockstep_mode': LaunchConfiguration('lockstep_mode'),
+                'lockstep_scan_offset_x_m': LaunchConfiguration(
+                    'lockstep_scan_offset_x_m'),
             }.items(),
         ),
     ])
@@ -114,7 +163,21 @@ def generate_launch_description():
         output='screen',
         parameters=[
             LaunchConfiguration('params_file'),
-            {'use_sim_time': LaunchConfiguration('use_sim_time')},
+            {
+                'use_sim_time': LaunchConfiguration('use_sim_time'),
+                'timing_diagnostics_enable': ParameterValue(
+                    LaunchConfiguration('timing_diagnostics_enable'), value_type=bool),
+                'timing_diagnostics_topic': LaunchConfiguration('timing_diagnostics_topic'),
+                'replay_diagnostics_enable': ParameterValue(
+                    LaunchConfiguration('replay_diagnostics_enable'), value_type=bool),
+                'replay_diagnostics_topic': LaunchConfiguration(
+                    'planner_replay_diagnostics_topic'),
+                'lockstep_mode': ParameterValue(
+                    LaunchConfiguration('lockstep_mode'), value_type=bool),
+                'p3_mode': ParameterValue(
+                    LaunchConfiguration('p3_mode'), value_type=str),
+                'p3_diagnostics_topic': LaunchConfiguration('p3_diagnostics_topic'),
+            },
         ]
     )
 
@@ -125,6 +188,15 @@ def generate_launch_description():
         start_detector_arg,
         planning_map_topic_arg,
         reference_map_arg,
+        timing_diagnostics_enable_arg,
+        timing_diagnostics_topic_arg,
+        replay_diagnostics_enable_arg,
+        detector_replay_diagnostics_topic_arg,
+        planner_replay_diagnostics_topic_arg,
+        lockstep_mode_arg,
+        p3_mode_arg,
+        p3_diagnostics_topic_arg,
+        lockstep_scan_offset_arg,
         reference_map_server,
         reference_map_lifecycle,
         obstacle_detector,

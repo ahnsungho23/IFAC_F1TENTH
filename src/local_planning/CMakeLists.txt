@@ -23,7 +23,10 @@ include_directories(
 add_library(local_planner_core STATIC
   src/local_planner_node.cpp
   src/obstacle_guard.cpp
+  src/p3_maneuver_lifecycle.cpp
+  src/p3_shadow.cpp
   src/raceline_spline_planner.cpp
+  src/safe_stop_lifecycle.cpp
 )
 ament_target_dependencies(local_planner_core
   rclcpp
@@ -77,6 +80,36 @@ if(BUILD_TESTING)
     )
     target_link_libraries(test_obstacle_guard local_planner_core)
   endif()
+
+  ament_add_gtest(test_safe_stop_lifecycle test/test_safe_stop_lifecycle.cpp)
+  if(TARGET test_safe_stop_lifecycle)
+    target_link_libraries(test_safe_stop_lifecycle local_planner_core)
+  endif()
+
+  if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test/test_p3_maneuver_lifecycle.cpp")
+    ament_add_gtest(
+      test_p3_maneuver_lifecycle
+      test/test_p3_maneuver_lifecycle.cpp)
+    if(TARGET test_p3_maneuver_lifecycle)
+      ament_target_dependencies(test_p3_maneuver_lifecycle f110_msgs)
+      target_link_libraries(test_p3_maneuver_lifecycle local_planner_core)
+    endif()
+  endif()
+
+  if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test/test_p3_production_parity.cpp")
+    ament_add_gtest(test_p3_production_parity test/test_p3_production_parity.cpp)
+    if(TARGET test_p3_production_parity)
+      ament_target_dependencies(test_p3_production_parity f110_msgs)
+      target_link_libraries(test_p3_production_parity local_planner_core)
+    endif()
+  endif()
+
+  add_executable(
+    p3_production_parity_harness
+    test/p3_production_parity_harness.cpp)
+  ament_target_dependencies(p3_production_parity_harness f110_msgs)
+  target_link_libraries(p3_production_parity_harness local_planner_core)
+
 endif()
 
 ament_package()

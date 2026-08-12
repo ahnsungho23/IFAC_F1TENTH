@@ -33,6 +33,12 @@ class ScenarioGeneratorTest(unittest.TestCase):
                 self.assertEqual(payload["schema"], "cmaes_scenario/1")
                 self.assertEqual(payload["obstacle"]["shape"], "rect")
                 self.assertEqual(sha256_file(payload["baked_map_image"]), payload["baked_map_image_sha256"])
+                self.assertGreater(
+                    payload["baked_obstacle_raster"]["changed_cell_count"], 0
+                )
+                self.assertIsNotNone(
+                    payload["baked_obstacle_raster"]["world_half_open_bounds_m"]
+                )
 
 
 if __name__ == "__main__":

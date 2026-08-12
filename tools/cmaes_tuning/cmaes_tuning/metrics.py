@@ -26,10 +26,13 @@ def odom_samples(records: list[MessageRecord]) -> list[dict[str, float]]:
         samples.append(
             {
                 "timestamp_ns": record.timestamp_ns,
+                "header_timestamp_ns": int(record.message.header.stamp.sec) * 1_000_000_000
+                + int(record.message.header.stamp.nanosec),
                 "x": float(pose.position.x),
                 "y": float(pose.position.y),
                 "yaw": quaternion_yaw(pose.orientation),
                 "speed": math.hypot(float(twist.linear.x), float(twist.linear.y)),
+                "yaw_rate": float(twist.angular.z),
             }
         )
     return samples

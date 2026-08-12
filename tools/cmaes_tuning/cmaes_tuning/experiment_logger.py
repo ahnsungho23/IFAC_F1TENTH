@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import csv
+import importlib
 import importlib.metadata
 import json
 import os
 from pathlib import Path
 import pickle
+import shutil
 import subprocess
 import tempfile
 from typing import Any
@@ -30,6 +32,23 @@ def dependency_versions() -> dict[str, str]:
         except importlib.metadata.PackageNotFoundError:
             versions[distribution] = "missing"
     return versions
+
+
+def _module_binary_provenance(
+    module_name: str, artifact_directory: Path
+) -> dict[str, str]:
+    module = importlib.import_module(module_name)
+    path = Path(module.__file__).resolve()
+    artifact_directory.mkdir(parents=True, exist_ok=True)
+    snapshot = artifact_directory / path.name
+    shutil.copy2(path, snapshot)
+    return {
+        "module": module_name,
+        "loaded_path": str(path),
+        "loaded_sha256": sha256_file(path),
+        "snapshot_path": str(snapshot.resolve()),
+        "snapshot_sha256": sha256_file(snapshot),
+    }
 
 
 def create_experiment_manifest(
@@ -70,7 +89,46 @@ def create_experiment_manifest(
         "git_status": _git(root, "status", "--short"),
         "config_path": str(Path(config_path).resolve()),
         "config_sha256": sha256_file(config_path),
+        "localization_mode": config["experiment"].get("localization_mode", "mcl"),
+        "localization_contract": {
+            "ground_truth_allowed_for": "ego_pose_only",
+            "ground_truth_obstacle_leakage_allowed": False,
+            "planner_obstacle_input": "/scan -> obstacle_detector -> /static_obs",
+            "mcl_output_interface": "/pf/pose/odom",
+            "simulator_tf_owner": "f1tenth_gym_ros/gym_bridge",
+        },
         "controller_configuration": config["controller"],
+        "simulator_runtime_configuration": config["simulator_runtime"],
+        "timing_audit_configuration": config.get("timing_audit", {}),
+        "timing_runtime_provenance": {
+            name: {
+                "path": str(resolve.resolve()),
+                "sha256": sha256_file(resolve),
+            }
+            for name, resolve in (
+                (
+                    "state_machine",
+                    root / config["paths"]["state_machine_source"],
+                ),
+                (
+                    "control_map",
+                    root / config["paths"]["control_map_source"],
+                ),
+                (
+                    "drive_selector",
+                    root / config["paths"]["drive_selector_source"],
+                ),
+            )
+        },
+        "simulator_runtime_provenance": {
+            "bridge_source": {
+                "path": str(Path(config["paths"]["simulator_bridge_source"]).resolve()),
+                "sha256": sha256_file(config["paths"]["simulator_bridge_source"]),
+            },
+            "loaded_cpp_backend": _module_binary_provenance(
+                "f110_gym._cpp_backend", destination.parent / "artifacts"
+            ),
+        },
         "cma_configuration": config["cma"],
         "objective_configuration": config["objective"],
         "evaluation_configuration": config["evaluation"],
@@ -79,6 +137,16 @@ def create_experiment_manifest(
             "vehicle_width_m": float(config["evaluation"]["vehicle_width_m"]),
             "map_resolutions_m": map_resolutions,
             "simulator_configuration_hashes": simulator_configs,
+            "simulator_collision_source_hashes": {
+                document["simulator_collision_source"]: document[
+                    "simulator_collision_source_sha256"
+                ]
+                for document in scenario_documents
+            },
+            "simulator_collision_models": {
+                document["scenario_id"]: document["simulator_collision_model"]
+                for document in scenario_documents
+            },
             "clean_map_hashes": sorted(
                 {document["clean_map_hash"] for document in scenario_documents}
             ),

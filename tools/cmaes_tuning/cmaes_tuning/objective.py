@@ -15,6 +15,15 @@ PERFORMANCE_KEYS = (
     "curvature_rate_rms",
 )
 
+HARD_FAILURE_KEYS = (
+    "collision",
+    "off_track",
+    "invalid_suffix",
+    "safe_stop",
+    "p0_fallback",
+    "planner_failure",
+)
+
 
 def clamp01(value: float) -> float:
     return max(0.0, min(1.0, float(value)))
@@ -77,9 +86,7 @@ def candidate_fitness(episodes: list[dict], config: dict) -> dict:
     costs = [episode_cost(episode["metrics"], config) for episode in episodes]
     values = [cost["j_performance"] for cost in costs]
     failure_count = sum(
-        bool(episode["failure"]["collision"])
-        or bool(episode["failure"]["off_track"])
-        or bool(episode["failure"]["planner_failure"])
+        any(bool(episode["failure"].get(name, False)) for name in HARD_FAILURE_KEYS)
         for episode in episodes
     )
     weights = config["objective"]["weights"]
@@ -94,6 +101,7 @@ def candidate_fitness(episodes: list[dict], config: dict) -> dict:
     return {
         "fitness": fitness,
         "failure_count": failure_count,
+        "hard_failure_keys": list(HARD_FAILURE_KEYS),
         "mean_performance_cost": mean,
         "cvar_performance_cost": cvar,
         "quality_cost": quality,

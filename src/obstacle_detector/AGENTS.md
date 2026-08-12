@@ -79,6 +79,15 @@ Keep the scan-driven pipeline ordered as follows:
     solve. Never form an inverse. Vote only on associated measurements; prediction-only frames add
     neither motion evidence nor map-position history. Require map-position RMS persistence for
     Static, and use stricter observation, vote, and RMS gates for `Dynamic -> Static`.
+    A large `Tv` is necessary but not sufficient for a Dynamic vote: corroborate it with
+    translation the measured AABB actually proves. An axis proves translation only by the part both
+    of its edges moved together, so a box that grew or shrank in place proves none. Progressive
+    LiDAR revelation of an occluded stationary obstacle moves its centroid several centimetres this
+    way, and reading that as motion drops a real obstacle out of `/static_obs` and blinds the
+    planner. Below `dynamic_min_translation_m` inside `translation_window_sec` the vote is
+    `Uncertain`, never `Dynamic`. This gate only makes entering `Dynamic` harder — it must never be
+    used to weaken the `Dynamic -> Static` hysteresis, and a genuinely moving object still
+    translates far enough within the window to pass it.
 13. A non-dynamic track enters `/static_obs` only while its envelope-stability streak reaches
     `envelope_stability_frames`: consecutive matched frames whose measured centre and extents stay
     within `envelope_stability_tolerance_m`. Fan-shaped morphing clusters never settle and stay
@@ -88,7 +97,8 @@ Keep the scan-driven pipeline ordered as follows:
     through Detection and Track. Smooth the Frenet extents per matched measurement with
     fast-grow/slow-shrink magnitude filtering (`extent_shrink_alpha`) so per-scan AABB flapping
     (square box vs real shape) does not flick the published envelope; expand immediately, relax
-    gradually. For each same-layer component, union only currently visible
+    gradually. A measurement miss resets the envelope-stability streak. For each same-layer
+    component, union only currently visible
     member AABBs, reproject that complete union once, and publish matching Cartesian and Frenet
     bounds. A predicted-only component keeps its last measured Frenet footprint around the
     predicted Kalman centre but must set `has_cartesian=false`; never expose a stale raw scan
@@ -97,8 +107,9 @@ Keep the scan-driven pipeline ordered as follows:
     false-block planners.
 16. Publish all merged Unknown/Static objects on `/static_obs`, the Static subset on
     `/confirmed_static_obs`, and at most one nearest-ahead dynamic object on `/opp_obs`.
-17. Build the two RViz MarkerArrays from those final published arrays' Frenet bounds. Include
-    predicted-only obstacles and distinguish them with lower alpha.
+17. Build the two RViz MarkerArrays from those final published arrays' Frenet bounds. Prediction-
+    only static tracks remain internal for ID continuity and are not part of the published static
+    array; a prediction-retained dynamic opponent may still be shown with lower alpha.
 18. Keep perception diagnostics passive. Accumulate beam, cluster, rejection, and tracker event
     counters over the configured wall-clock interval, but report live track/classification counts
     as a current snapshot. Do not claim noise filtering or deskew statistics in this package;
@@ -132,6 +143,28 @@ published Frenet bounds instead of reprojecting the Cartesian metadata.
   arrays, so downstream consumers receive a deterministic scan-rate tick. The only exception:
   `/opp_obs` (and its marker) is suppressed with a throttled warning while the ego odometry stamp
   is stale beyond `meas_motion_timeout`, because the ahead-ranking would be misplaced.
+- **Confirmed-static occlusion hold (do not revert)**: a `Confirmed` static track is a map-fixed
+  object, so losing sight of it (occlusion, FOV, brake nose-dive) is not evidence of
+  disappearance. It stays alive with its envelope-stability evidence and last measured geometry
+  (Cartesian AABB included) for `static_lost_hold_sec` after the last measurement, and
+  `static_publish_requires_visible` stays `false` so the static layers keep publishing it during
+  the dropout. Reverting either half reintroduces the 2026-08-12 21:11 planner failures
+  (per-lap zero-hold stops at the hairpin, 80 path rebuilds in 91 s). The dynamic layer keeps
+  the visible-only Cartesian rule.
+- **Held tracks freeze their Kalman filters**: during the hold's prediction-only frames both the
+  Frenet and map filters are NOT propagated (first miss frame still predicts). Propagating a CV
+  model through a multi-second dropout integrates a noisy velocity estimate — the state drifts
+  away so re-detection spawns a duplicate zombie track, and the published `s_var`/`d_var` grow
+  until downstream uncertainty guards turn a 10 cm sliver into a multi-metre wall (observed in
+  the lockstep regression as a 14.1-20.8 m latched danger span from a 17.33-17.43 m obstacle).
+  Do not "fix" the freeze back to continuous prediction.
+- **Ego-acceleration transient vote hold**: while the smoothed ego longitudinal acceleration
+  exceeds `motion_classification.dynamic_vote_ego_accel_suppress_mps2`, dynamic motion votes are
+  withheld (evidence downgraded to `Uncertain`), because braking/launch localization jitter
+  mimics obstacle translation. Static votes, existence confirmation, and Kalman updates continue
+  unchanged. Tests: `testParams()` disables the hold (`static_lost_hold_sec = 0`) so
+  retire/dormant-identity tests exercise the legacy path; the hold and the vote hold each have a
+  dedicated test that enables them explicitly.
 
 ## Map filtering
 
@@ -147,6 +180,15 @@ published Frenet bounds instead of reprojecting the Cartesian metadata.
   in the C++ node.
 - `diagnostics_enable` and `diagnostics_period_sec` control the passive INFO diagnostics; they must
   not change scan, detection, association, or Kalman state.
+- `replay_diagnostics_enable` must remain false in the operational YAML. When explicitly enabled
+  for a tuning audit, `/cma_replay/detector_events` is a passive per-scan JSON companion containing
+  raw detections, measurement-covariance inputs, track hit/confirmation history, envelope-stability
+  state, and already-published geometry. It must never become a planner input or alter callback
+  ordering, association, thresholds, or tracker state.
+- `lockstep_mode` must remain false in the operational YAML. In the CMA-only mode, process a scan
+  only after an ego odometry message with the identical header timestamp exists, derive the
+  map-to-laser transform from that immutable pose plus `lockstep_scan_offset_x_m`, and update the
+  tracker exactly once. Never fall back to a latest-state cache or TF lookup in this mode.
 - `launch/obstacle_detector_node.launch.py` is the direct node launch.
 - `launch/obstacle_detector.launch.py` is the package entry point and starts the same detector
   plus optional RViz. It must not launch a planner.
@@ -190,3 +232,6 @@ published Frenet bounds instead of reprojecting the Cartesian metadata.
   wrap may make `s_start > s_end`. Visible merged objects must also have a matching current
   Cartesian AABB.
 - Keep the Korean node document, README pair, configuration comments, and launch examples in sync.
+- For deterministic replay audits, verify every source backend scan has exactly one detector event
+  before interpreting a decision mismatch; a missing event is a transport/executor observation,
+  not an algorithmic detection result.

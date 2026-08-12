@@ -113,6 +113,30 @@ VelocityEvidenceResult evaluateVelocityEvidence(
     return result;
 }
 
+double anchoredAxisTranslation(
+    double previous_min, double previous_max, double current_min, double current_max)
+{
+    if (!std::isfinite(previous_min) || !std::isfinite(previous_max) ||
+        !std::isfinite(current_min) || !std::isfinite(current_max))
+    {
+        return 0.0;
+    }
+    const double delta_min = current_min - previous_min;
+    const double delta_max = current_max - previous_max;
+    // Only motion shared by both edges is proven translation. One edge moving alone means the box
+    // grew or shrank against a stationary opposite face, which is what progressive LiDAR
+    // revelation of a stationary obstacle looks like.
+    if (delta_min > 0.0 && delta_max > 0.0)
+    {
+        return std::min(delta_min, delta_max);
+    }
+    if (delta_min < 0.0 && delta_max < 0.0)
+    {
+        return std::max(delta_min, delta_max);
+    }
+    return 0.0;
+}
+
 void ObstacleTracker::configure(const TrackerParams &params, const FrenetProjector *frenet)
 {
     const auto invalid = [](bool condition, const char *message) {
@@ -149,6 +173,11 @@ void ObstacleTracker::configure(const TrackerParams &params, const FrenetProject
     invalid(params.static_score_forgetting_factor < 0.0 ||
             params.static_score_forgetting_factor > 1.0,
             "static_score_forgetting_factor must be in [0, 1]");
+    invalid(params.translation_corroboration_enable &&
+            (!(params.translation_window_sec > 0.0) ||
+             params.translation_history_max_samples < 2 ||
+             !(params.dynamic_min_translation_m >= 0.0)),
+            "translation corroboration parameters are invalid");
     invalid(params.physical_id_reassociation_gap_s < 0.0 ||
             params.physical_id_reassociation_gap_d < 0.0 ||
             params.physical_id_reassociation_gap_map < 0.0 ||
@@ -631,6 +660,51 @@ void ObstacleTracker::updateStaticConfidence(
     t.static_confidence = std::clamp(score, 0.0, 1.0);
 }
 
+void ObstacleTracker::updateTranslationEvidence(
+    Track &t, const Detection &detection, double stamp) const
+{
+    if (!p_.translation_corroboration_enable)
+    {
+        t.provable_translation_m = std::numeric_limits<double>::quiet_NaN();
+        return;
+    }
+
+    while (!t.measured_aabb_history.empty() &&
+           (stamp - t.measured_aabb_history.front().stamp > p_.translation_window_sec ||
+            t.measured_aabb_history.front().stamp > stamp))
+    {
+        t.measured_aabb_history.pop_front();
+    }
+    while (static_cast<int>(t.measured_aabb_history.size()) >=
+           p_.translation_history_max_samples)
+    {
+        t.measured_aabb_history.pop_front();
+    }
+
+    // Compare against every retained sample rather than only the oldest: the widest separation any
+    // pair proves is the strongest translation evidence inside the window, so a genuinely moving
+    // object is never hidden by where the window happens to start.
+    double widest = 0.0;
+    for (const MeasuredAabbSample &sample : t.measured_aabb_history)
+    {
+        const double translation_x = anchoredAxisTranslation(
+            sample.x_min, sample.x_max, detection.x_min, detection.x_max);
+        const double translation_y = anchoredAxisTranslation(
+            sample.y_min, sample.y_max, detection.y_min, detection.y_max);
+        widest = std::max(widest, std::hypot(translation_x, translation_y));
+    }
+    t.provable_translation_m = t.measured_aabb_history.empty() ?
+        std::numeric_limits<double>::quiet_NaN() : widest;
+
+    MeasuredAabbSample sample;
+    sample.stamp = stamp;
+    sample.x_min = detection.x_min;
+    sample.x_max = detection.x_max;
+    sample.y_min = detection.y_min;
+    sample.y_max = detection.y_max;
+    t.measured_aabb_history.push_back(sample);
+}
+
 void ObstacleTracker::classify(Track &t, bool measurement_received) const
 {
     if (t.track_status != TrackStatus::Confirmed)
@@ -654,7 +728,33 @@ void ObstacleTracker::classify(Track &t, bool measurement_received) const
         Eigen::Vector2d(t.mapVx(), t.mapVy()), velocity_covariance, p_);
     t.velocity_statistic = evidence.statistic;
     t.velocity_covariance_valid = evidence.covariance_valid;
-    t.motion_evidence_history.push_back(evidence.evidence);
+
+    // A map-frame velocity large enough to look dynamic is only believed once the measured AABB
+    // proves the object actually translated. While a stationary obstacle is progressively revealed
+    // its centroid travels several centimetres with both edges never moving together, so the
+    // uncorroborated vote is downgraded to Uncertain and the track keeps its layer instead of
+    // vanishing from /static_obs.
+    MotionEvidence voted_evidence = evidence.evidence;
+    t.dynamic_evidence_suppressed = false;
+    if (p_.translation_corroboration_enable &&
+        voted_evidence == MotionEvidence::DynamicEvidence &&
+        std::isfinite(t.provable_translation_m) &&
+        t.provable_translation_m < p_.dynamic_min_translation_m)
+    {
+        voted_evidence = MotionEvidence::Uncertain;
+        t.dynamic_evidence_suppressed = true;
+    }
+    // Hard braking / launch transients shake the localization pose, and that jitter projects
+    // into every track as apparent map-frame translation. A dynamic vote cast in such a frame
+    // is not evidence about the obstacle, so it is withheld; static votes and all other
+    // bookkeeping continue unchanged, which only delays a real opponent's DYNAMIC entry by the
+    // transient's duration.
+    if (ego_motion_transient_ && voted_evidence == MotionEvidence::DynamicEvidence)
+    {
+        voted_evidence = MotionEvidence::Uncertain;
+        t.dynamic_evidence_suppressed = true;
+    }
+    t.motion_evidence_history.push_back(voted_evidence);
     const int history_limit = std::max(p_.dynamic_vote_window, p_.static_vote_window);
     while (static_cast<int>(t.motion_evidence_history.size()) > history_limit)
     {
@@ -703,18 +803,19 @@ void ObstacleTracker::classify(Track &t, bool measurement_received) const
         }
     }
 
-    updateStaticConfidence(t, evidence.evidence, true);
+    updateStaticConfidence(t, voted_evidence, true);
     t.is_static = t.motion_status != MotionStatus::Dynamic;
 }
 
 void ObstacleTracker::update(
     const std::vector<Detection> &detections, double stamp,
-    double ego_yaw_rate, bool yaw_rate_fresh)
+    double ego_yaw_rate, bool yaw_rate_fresh, bool ego_motion_transient)
 {
     // Retained in the public call signature for source compatibility. Map-frame classification no
     // longer needs an ego-yaw gate because scan points have already been transformed into map.
     (void)ego_yaw_rate;
     (void)yaw_rate_fresh;
+    ego_motion_transient_ = ego_motion_transient;
     last_stats_ = TrackerUpdateStats{};
 
     if (!p_.physical_id_reassociation_enable || p_.physical_id_memory_sec <= 0.0)
@@ -749,8 +850,24 @@ void ObstacleTracker::update(
     // 1) predict all existing tracks to this stamp
     for (auto &t : tracks_)
     {
-        predict(t, dt);
-        predictMap(t, dt);
+        // A held confirmed-static track is a map-fixed object with no measurements: propagating
+        // the constant-velocity models through the dropout only drifts its state (a noisy
+        // velocity estimate integrates over seconds) and inflates its covariance, which (a)
+        // breaks re-association on re-detection, spawning a duplicate zombie track, and (b)
+        // explodes the published s_var/d_var so downstream uncertainty guards turn a 10 cm
+        // sliver into a multi-metre wall (.regression_check2: latched danger span 14.1-20.8 m
+        // from a 17.33-17.43 m obstacle). Freeze the state exactly while unobserved; the first
+        // prediction-only frame (time_since == 0 here) still propagates normally, so visible
+        // tracks are untouched.
+        const bool freeze_lost_static =
+            p_.static_lost_hold_sec > 0.0 && t.is_static &&
+            t.track_status == TrackStatus::Confirmed &&
+            t.time_since_last_measurement > 0.0;
+        if (!freeze_lost_static)
+        {
+            predict(t, dt);
+            predictMap(t, dt);
+        }
         t.time_since_last_measurement += dt;
         t.is_visible = false;
     }
@@ -892,6 +1009,9 @@ void ObstacleTracker::update(
             {
                 t.envelope_stable_streak = 0;
             }
+            // Runs before the retained AABB is overwritten below, so the window still holds the
+            // previously measured boxes this detection is compared against.
+            updateTranslationEvidence(t, det, stamp);
             kalmanUpdate(t, det);
             const bool map_updated = mapKalmanUpdate(t, det);
             t.hits++;
@@ -931,6 +1051,24 @@ void ObstacleTracker::update(
         else
         {
             t.ttl--;
+            // A confirmed STATIC track is a map-fixed object: its geometry cannot change while
+            // unobserved, so an occlusion/FOV dropout is not evidence of disappearance. Hold the
+            // track alive and keep its pre-dropout envelope-stability evidence intact for
+            // static_lost_hold_sec (scan-stamp time, rate independent). Everything else keeps the
+            // original frame-TTL retirement, and the stability streak still resets because a
+            // prediction-only frame breaks consecutive-scan evidence.
+            const bool hold_lost_static =
+                p_.static_lost_hold_sec > 0.0 && t.is_static &&
+                t.track_status == TrackStatus::Confirmed &&
+                t.time_since_last_measurement < p_.static_lost_hold_sec;
+            if (hold_lost_static)
+            {
+                t.ttl = std::max(t.ttl, 1);
+            }
+            else
+            {
+                t.envelope_stable_streak = 0;
+            }
             updateTrackStatus(t, false);
             classify(t, false);
         }
@@ -1164,6 +1302,10 @@ void ObstacleTracker::update(
             !t.velocity_covariance_valid)
         {
             ++last_stats_.invalid_velocity_covariance;
+        }
+        if (t.dynamic_evidence_suppressed)
+        {
+            ++last_stats_.translation_suppressed_dynamic_votes;
         }
     }
 }

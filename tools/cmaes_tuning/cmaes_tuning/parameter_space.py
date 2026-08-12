@@ -21,6 +21,7 @@ class ParameterDefinition:
     transform: str
     target_ros_parameter: str
     decode: str | None
+    fixed_vector: tuple[float, ...] | None
     description: str
 
 
@@ -68,6 +69,10 @@ class ParameterSpace:
                     transform=str(item["transform"]),
                     target_ros_parameter=str(item["target_ros_parameter"]),
                     decode=item.get("decode"),
+                    fixed_vector=(
+                        tuple(float(value) for value in item["fixed_vector"])
+                        if "fixed_vector" in item else None
+                    ),
                     description=str(item["description"]),
                 )
             )
@@ -112,28 +117,66 @@ class ParameterSpace:
 
     @staticmethod
     def _validate_physical(physical: dict[str, float]) -> None:
-        transitions = [
-            physical["transition_short"],
-            physical["transition_middle"],
-            physical["transition_long"],
-        ]
-        if not transitions[0] < transitions[1] < transitions[2]:
-            raise ValueError("transition_short < transition_middle < transition_long is required")
+        if {"transition_short", "transition_middle", "transition_long"}.issubset(physical):
+            transitions = [
+                physical["transition_short"],
+                physical["transition_middle"],
+                physical["transition_long"],
+            ]
+            if not transitions[0] < transitions[1] < transitions[2]:
+                raise ValueError(
+                    "transition_short < transition_middle < transition_long is required")
 
     def planner_patch(self, physical: dict[str, float]) -> dict[str, object]:
         self._validate_physical(physical)
-        pre_far = physical["pre_apex_far_m"]
-        post_far = physical["post_apex_far_m"]
-        patch: dict[str, object] = {
-            name: physical[name] for name in sorted(self._SCALAR_NAMES)
-        }
-        patch["pre_apex_distances_m"] = [pre_far, 2.0 * pre_far / 3.0, pre_far / 3.0]
-        patch["post_apex_distances_m"] = [post_far / 3.0, 2.0 * post_far / 3.0, post_far]
-        patch["transition_distance_scales"] = [
-            physical["transition_short"],
-            physical["transition_middle"],
-            physical["transition_long"],
-        ]
+        patch: dict[str, object] = {}
+        vector_patches: dict[str, list[float]] = {}
+        for definition in self.definitions:
+            value = physical[definition.name]
+            if definition.decode is None:
+                patch[definition.target_ros_parameter] = value
+            elif definition.decode == "thirds_descending":
+                patch[definition.target_ros_parameter] = [
+                    value, 2.0 * value / 3.0, value / 3.0]
+            elif definition.decode == "thirds_ascending":
+                patch[definition.target_ros_parameter] = [
+                    value / 3.0, 2.0 * value / 3.0, value]
+            elif definition.decode.startswith("vector_index_"):
+                if definition.fixed_vector is None:
+                    raise ValueError(
+                        f"{definition.name} vector-index decode requires fixed_vector")
+                target = definition.target_ros_parameter
+                vector = vector_patches.setdefault(target, list(definition.fixed_vector))
+                if tuple(vector) != definition.fixed_vector and target not in patch:
+                    # Multiple definitions may update one vector. They must declare one base.
+                    prior_base = next(
+                        item.fixed_vector for item in self.definitions
+                        if item.target_ros_parameter == target and item.fixed_vector is not None
+                    )
+                    if prior_base != definition.fixed_vector:
+                        raise ValueError(f"inconsistent fixed_vector for {target}")
+                index = int(definition.decode.removeprefix("vector_index_"))
+                if not 0 <= index < len(vector):
+                    raise ValueError(f"vector index outside {target}: {index}")
+                vector[index] = value
+            elif definition.decode.startswith("ordered_transition_"):
+                # Legacy 10-D parameter-space compatibility is assembled below.
+                continue
+            else:
+                raise ValueError(f"unsupported decode for {definition.name}: {definition.decode}")
+        patch.update(vector_patches)
+        if {"transition_short", "transition_middle", "transition_long"}.issubset(physical):
+            patch["transition_distance_scales"] = [
+                physical["transition_short"],
+                physical["transition_middle"],
+                physical["transition_long"],
+            ]
+        for name, value in patch.items():
+            if isinstance(value, list) and name in {
+                "transition_distance_scales", "entry_transition_fractions"
+            }:
+                if any(first >= second for first, second in zip(value, value[1:])):
+                    raise ValueError(f"{name} must remain strictly increasing")
         return patch
 
     @staticmethod

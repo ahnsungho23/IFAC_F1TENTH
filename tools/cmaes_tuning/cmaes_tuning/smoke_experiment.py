@@ -8,6 +8,7 @@ import shutil
 from typing import Any
 
 from .controller_audit import audit_to_file
+from .configuration import resolve_workspace_path
 from .evaluator import evaluate_episode
 from .experiment_logger import (
     append_result_csv,
@@ -32,7 +33,9 @@ class SmokeExperiment:
         self.config = config
         self.workspace_root = Path(workspace_root).resolve()
         self.config_path = Path(config_path).resolve()
-        base_output = Path(config["paths"]["output_root"]).resolve()
+        base_output = resolve_workspace_path(
+            config["paths"]["output_root"], self.workspace_root
+        )
         self.directory = base_output / experiment_id
         self.directory.mkdir(parents=True, exist_ok=True)
         self.config["paths"]["output_root"] = str(self.directory)
@@ -314,6 +317,112 @@ class SmokeExperiment:
             "checkpoint_pickle": str(self.directory / "checkpoints" / "cma_state.pkl"),
         }
         atomic_write_json(self.directory / "test_d.json", report)
+        return report
+
+    def collision_audit(self) -> dict[str, Any]:
+        """Re-evaluate existing bags without running CMA or launching ROS."""
+        rows = []
+        skipped_attempts = []
+        for status_path in sorted(
+            (self.directory / "episodes").glob("*/train_*/attempt_*/runner_status.json")
+        ):
+            attempt_directory = status_path.parent
+            status = json.loads(status_path.read_text(encoding="utf-8"))
+            if status.get("infrastructure_failures"):
+                skipped_attempts.append(str(attempt_directory))
+                continue
+            scenario_id = str(status["scenario_id"])
+            scenario_path = (
+                self.directory / "scenarios" / "train" / scenario_id / "manifest.json"
+            )
+            result = evaluate_episode(
+                attempt_directory / "bag",
+                scenario_path,
+                attempt_directory / "rollout_summary.json",
+                status_path,
+                self.config,
+                attempt_directory / "episode_result.json",
+            )
+            failure = result.get("failure", {})
+            collision_diagnostics = result.get("collision_diagnostics", {})
+            external_diagnostics = collision_diagnostics.get("external", {})
+            yaw_repair = collision_diagnostics.get("odom_yaw_reset_repair", {})
+            topic_timestamp = collision_diagnostics.get(
+                "topic_first_true_timestamp_ns"
+            )
+            external_timestamp = external_diagnostics.get(
+                "first_collision_timestamp_ns"
+            )
+            reconstructed_timestamp = yaw_repair.get("event_timestamp_ns")
+            rows.append(
+                {
+                    "candidate_id": status_path.parts[-4],
+                    "scenario_id": scenario_id,
+                    "attempt": status_path.parent.name,
+                    "valid": bool(result.get("valid", False)),
+                    "collision_topic": bool(failure.get("collision_topic", False)),
+                    "external_collision": bool(
+                        failure.get("external_collision", False)
+                    ),
+                    "agreement": bool(failure.get("collision_agreement", False)),
+                    "external_cause": external_diagnostics.get("cause"),
+                    "external_source": collision_diagnostics.get("external_source"),
+                    "topic_first_collision_timestamp_ns": topic_timestamp,
+                    "external_first_collision_timestamp_ns": external_timestamp,
+                    "external_minus_topic_ms": (
+                        (external_timestamp - topic_timestamp) * 1.0e-6
+                        if external_timestamp is not None and topic_timestamp is not None
+                        else None
+                    ),
+                    "reconstructed_frame_minus_topic_ms": (
+                        (reconstructed_timestamp - topic_timestamp) * 1.0e-6
+                        if reconstructed_timestamp is not None
+                        and topic_timestamp is not None
+                        else None
+                    ),
+                    "external_minus_reconstructed_frame_ms": (
+                        (external_timestamp - reconstructed_timestamp) * 1.0e-6
+                        if external_timestamp is not None
+                        and reconstructed_timestamp is not None
+                        else None
+                    ),
+                    "yaw_reset_repaired": bool(
+                        yaw_repair.get("detected", False)
+                    ),
+                }
+            )
+        mismatches = [row for row in rows if not row["agreement"]]
+        collision_frame_deltas = [
+            abs(float(row["external_minus_topic_ms"]))
+            for row in rows
+            if row["collision_topic"] and row["external_minus_topic_ms"] is not None
+        ]
+        reconstructed_frame_deltas = [
+            abs(float(row["reconstructed_frame_minus_topic_ms"]))
+            for row in rows
+            if row["reconstructed_frame_minus_topic_ms"] is not None
+        ]
+        report = {
+            "schema": "cmaes_collision_audit/1",
+            "episode_count": len(rows),
+            "agreement_count": len(rows) - len(mismatches),
+            "mismatch_count": len(mismatches),
+            "all_agree": not mismatches,
+            "topic_collision_count": sum(row["collision_topic"] for row in rows),
+            "external_collision_count": sum(row["external_collision"] for row in rows),
+            "yaw_reset_repair_count": sum(row["yaw_reset_repaired"] for row in rows),
+            "maximum_collision_frame_delta_ms": max(collision_frame_deltas, default=0.0),
+            "maximum_external_topic_delta_ms": max(
+                collision_frame_deltas, default=0.0
+            ),
+            "maximum_reconstructed_frame_topic_delta_ms": max(
+                reconstructed_frame_deltas, default=0.0
+            ),
+            "skipped_infrastructure_attempts": skipped_attempts,
+            "mismatches": mismatches,
+            "episodes": rows,
+        }
+        atomic_write_json(self.directory / "collision_agreement.json", report)
         return report
 
     def run_all(self) -> dict[str, Any]:

@@ -16,6 +16,12 @@
 
 `d_m`은 waypoint 자체의 lateral offset일 수 있으므로 차량의 `d` 계산에 사용하지 않는다.
 
+공용 `ClcsFrenetConverter`는 단발 점 투영용 `convert()`와 연속 ego stream용
+`convertTracked()`를 함께 제공한다. `convertTracked()`는 직전 `s` 주변의 wrap-aware monotonic
+window만 검색하고 연속 miss 뒤에만 bounded global re-acquisition을 수행한다. 따라서 hairpin에서
+유클리드 거리가 가까운 반대편 branch로 ego 기준점이 순간 이동하는 것을 막는다. 서로 무관한
+장애물 점 투영에는 state를 공유하지 말고 기존 `convert()`를 사용한다.
+
 ## 3. 구독 토픽
 
 | 토픽 | 타입 | 설명 |

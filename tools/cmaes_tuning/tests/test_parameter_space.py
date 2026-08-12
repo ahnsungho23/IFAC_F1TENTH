@@ -55,6 +55,39 @@ class ParameterSpaceTest(unittest.TestCase):
                 allowed,
             )
 
+    def test_p3_production_whitelist_preserves_frozen_vector_members(self):
+        space = ParameterSpace.load(TOOL / "config" / "p3_production_parameter_space.yaml")
+        self.assertEqual(space.dimension, 6)
+        space.validate_baseline(self.baseline)
+        patch = space.planner_patch(space.baseline_physical())
+        self.assertEqual(
+            patch["transition_distance_scales"],
+            [0.2740569240066383, 0.6991537701867223, 3.5816012944405027],
+        )
+        self.assertEqual(patch["entry_transition_fractions"], [0.5, 0.75, 1.0])
+
+    def test_p3_production_candidate_changes_only_six_whitelisted_axes(self):
+        space = ParameterSpace.load(TOOL / "config" / "p3_production_parameter_space.yaml")
+        with tempfile.TemporaryDirectory() as temporary:
+            candidate = Path(temporary) / "candidate.yaml"
+            normalized = [0.5] * space.dimension
+            normalized[-1] = 1.0
+            space.write_candidate_yaml(self.baseline, candidate, normalized)
+            original = yaml.safe_load(self.baseline.read_text())
+            changed = yaml.safe_load(candidate.read_text())
+            original_params = original["local_planner_node"]["ros__parameters"]
+            changed_params = changed["local_planner_node"]["ros__parameters"]
+            self.assertEqual(
+                {key for key in original_params if original_params[key] != changed_params[key]},
+                {
+                    "pre_apex_distances_m",
+                    "post_apex_distances_m",
+                    "transition_distance_scales",
+                    "outside_line_transition_scale",
+                    "entry_transition_fractions",
+                },
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

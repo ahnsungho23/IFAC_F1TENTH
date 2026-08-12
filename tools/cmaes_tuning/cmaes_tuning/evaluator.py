@@ -14,15 +14,23 @@ from .metrics import (
     odom_samples,
     planned_path_metrics,
     progress_metrics,
+    quaternion_yaw,
     speed_loss_during_avoidance,
     steering_metrics,
 )
 from .objective import episode_cost
 from .schemas import atomic_write_json, sha256_file
+from .simulator_collision import (
+    SimulatorRasterCollisionModel,
+    repair_collision_yaw_reset,
+)
 
 
 RECORDED_TOPICS = (
     "/ego_racecar/odom",
+    "/scan",
+    "/pf/pose/odom",
+    "/car_state/frenet/odom",
     "/drive",
     "/drive_autonomous",
     "/ego_racecar/collision",
@@ -48,6 +56,7 @@ def _verify_manifest(manifest: dict[str, Any]) -> list[str]:
         ("baked_map_image", "baked_map_image_sha256"),
         ("waypoint_file", "waypoint_sha256"),
         ("simulator_config", "simulator_config_sha256"),
+        ("simulator_collision_source", "simulator_collision_source_sha256"),
     )
     for path_key, hash_key in checks:
         path = Path(manifest[path_key])
@@ -141,7 +150,15 @@ def evaluate_episode(
         infrastructure_failures.append("missing_or_invalid_lap_summary")
 
     try:
-        bag = read_bag(bag_directory, RECORDED_TOPICS)
+        bag = read_bag(
+            bag_directory,
+            RECORDED_TOPICS,
+            optional_topics=(
+                "/scan",
+                "/pf/pose/odom",
+                "/car_state/frenet/odom",
+            ),
+        )
     except Exception as error:
         result = {
             "schema": "cmaes_episode_result/1",
@@ -167,6 +184,36 @@ def evaluate_episode(
     for topic in required_nonempty:
         if not bag.topic(topic):
             infrastructure_failures.append(f"empty_required_topic:{topic}")
+    recorder_command = runner_status.get("process_commands", {}).get("recorder", [])
+    for diagnostic_topic in (
+        "/scan",
+        "/pf/pose/odom",
+        "/car_state/frenet/odom",
+    ):
+        if diagnostic_topic in recorder_command and not bag.topic(diagnostic_topic):
+            infrastructure_failures.append(f"empty_required_topic:{diagnostic_topic}")
+    pf_records = bag.topic("/pf/pose/odom")
+    if pf_records:
+        first_pf_pose = pf_records[0].message.pose.pose
+        spawn = manifest["spawn_pose"]
+        localization_position_error = math.hypot(
+            float(first_pf_pose.position.x) - float(spawn["x"]),
+            float(first_pf_pose.position.y) - float(spawn["y"]),
+        )
+        localization_yaw_error = abs(
+            math.atan2(
+                math.sin(quaternion_yaw(first_pf_pose.orientation) - float(spawn["yaw"])),
+                math.cos(quaternion_yaw(first_pf_pose.orientation) - float(spawn["yaw"])),
+            )
+        )
+        if localization_position_error > float(
+            config["evaluation"]["localization_start_max_position_error_m"]
+        ):
+            infrastructure_failures.append("localization_start_position_error")
+        if localization_yaw_error > float(
+            config["evaluation"]["localization_start_max_yaw_error_rad"]
+        ):
+            infrastructure_failures.append("localization_start_yaw_error")
     if infrastructure_failures:
         result = {
             "schema": "cmaes_episode_result/1",
@@ -180,7 +227,17 @@ def evaluate_episode(
         return result
 
     evaluation = config["evaluation"]
-    samples = odom_samples(bag.topic("/ego_racecar/odom"))
+    raw_samples = odom_samples(bag.topic("/ego_racecar/odom"))
+    collision_configuration = evaluation["simulator_collision"]
+    samples, yaw_repair = repair_collision_yaw_reset(
+        raw_samples,
+        {
+            **collision_configuration,
+            "physics_timestep_sec": manifest["simulator_collision_model"][
+                "physics_timestep_sec"
+            ],
+        },
+    )
     progress = progress_metrics(
         samples,
         manifest["waypoint_file"],
@@ -190,19 +247,21 @@ def evaluate_episode(
     wall_field = OccupancyDistanceField(manifest["clean_map_yaml"])
     minimum_obstacle_clearance = math.inf
     minimum_wall_clearance = math.inf
-    geometry_collision = False
+    continuous_obstacle_overlap = False
     off_track = False
+    physical_obstacles = manifest.get("obstacles", [manifest["obstacle"]])
     for sample in progress.get("running_samples", samples):
-        clearance, overlap = footprint_obstacle_clearance(
-            sample["x"],
-            sample["y"],
-            sample["yaw"],
-            float(manifest["vehicle_length_m"]),
-            float(manifest["vehicle_width_m"]),
-            manifest["obstacle"],
-        )
-        minimum_obstacle_clearance = min(minimum_obstacle_clearance, clearance)
-        geometry_collision = geometry_collision or overlap
+        for obstacle in physical_obstacles:
+            clearance, overlap = footprint_obstacle_clearance(
+                sample["x"],
+                sample["y"],
+                sample["yaw"],
+                float(manifest["vehicle_length_m"]),
+                float(manifest["vehicle_width_m"]),
+                obstacle,
+            )
+            minimum_obstacle_clearance = min(minimum_obstacle_clearance, clearance)
+            continuous_obstacle_overlap = continuous_obstacle_overlap or overlap
         wall_clearance, wall_overlap = wall_field.footprint_clearance(
             sample["x"],
             sample["y"],
@@ -218,10 +277,19 @@ def evaluate_episode(
     if not math.isfinite(minimum_wall_clearance):
         minimum_wall_clearance = 0.0
 
-    collision_topic = any(
-        bool(record.message.data) for record in bag.topic("/ego_racecar/collision")
+    collision_records = bag.topic("/ego_racecar/collision")
+    collision_topic_records = [record for record in collision_records if record.message.data]
+    collision_topic = bool(collision_topic_records)
+    collision_model = SimulatorRasterCollisionModel(
+        manifest["baked_map_yaml"], manifest["simulator_collision_model"]
     )
-    collision = collision_topic or geometry_collision
+    raster_collision = collision_model.evaluate_trajectory(samples)
+    recorded_scan_collision = collision_model.evaluate_recorded_scans(
+        bag.topic("/scan"), samples
+    )
+    simulator_collision = recorded_scan_collision or raster_collision
+    collision = bool(simulator_collision["collision"])
+    collision_agreement = collision == collision_topic
     planner_failure, planner_diagnostics = _planner_failure(
         bag, bool(progress["completed"]), evaluation
     )
@@ -271,19 +339,40 @@ def evaluate_episode(
             progress, avoidance["start_ns"], avoidance["completion_ns"]
         ),
     }
+    evaluator_failures = []
+    if (
+        bool(collision_configuration["require_topic_agreement"])
+        and not collision_agreement
+    ):
+        evaluator_failures.append("collision_convention_mismatch")
     result = {
         "schema": "cmaes_episode_result/1",
-        "valid": True,
-        "classification": classification,
-        "infrastructure_failures": [],
+        "valid": not evaluator_failures,
+        "classification": "invalid_episode" if evaluator_failures else classification,
+        "infrastructure_failures": evaluator_failures,
         "scenario_id": manifest["scenario_id"],
         "failure": {
             "collision": collision,
             "collision_topic": collision_topic,
-            "ground_truth_obstacle_overlap": geometry_collision,
+            "collision_agreement": collision_agreement,
+            "external_collision": collision,
+            "simulator_raster_collision": collision,
+            "ground_truth_obstacle_overlap": continuous_obstacle_overlap,
             "off_track": off_track,
             "planner_failure": planner_failure,
             "completion_failure": completion_failure,
+        },
+        "collision_diagnostics": {
+            "topic_first_true_timestamp_ns": collision_topic_records[0].timestamp_ns
+            if collision_topic_records
+            else None,
+            "external": simulator_collision,
+            "external_source": "recorded_scan_ttc"
+            if recorded_scan_collision is not None
+            else "legacy_baked_raster_ttc_envelope",
+            "raster_geometry": raster_collision,
+            "odom_yaw_reset_repair": yaw_repair,
+            "model": manifest["simulator_collision_model"],
         },
         "planner_diagnostics": planner_diagnostics,
         "metrics": metrics,

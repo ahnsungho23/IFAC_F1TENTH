@@ -15,6 +15,7 @@
 #include "local_planning/raceline_spline_planner.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <limits>
@@ -111,6 +112,27 @@ struct RacelineSplinePlanner::ExpandedObstacle
   double d_right{0.0};
   double d_left{0.0};
   double target_clearance{0.0};
+  // Same gate evaluated at avoidance_minimum_speed_mps. The preferred gate above reserves the
+  // race-line speed's tracking error, which keeps a wide gap fast; a gap that only opens once the
+  // pass slows down would otherwise be discarded here, before the speed cap ever runs.
+  double relaxed_d_right{0.0};
+  double relaxed_d_left{0.0};
+  double relaxed_target_clearance{0.0};
+};
+
+struct RacelineSplinePlanner::FootprintTrackBoundSample
+{
+  double centerline_clearance_m{std::numeric_limits<double>::infinity()};
+  double footprint_clearance_m{std::numeric_limits<double>::infinity()};
+  bool invalid{false};
+  std::string minimum_side;
+  std::size_t waypoint_index{std::numeric_limits<std::size_t>::max()};
+  double waypoint_s_m{std::numeric_limits<double>::quiet_NaN()};
+  double waypoint_x_m{std::numeric_limits<double>::quiet_NaN()};
+  double waypoint_y_m{std::numeric_limits<double>::quiet_NaN()};
+  double waypoint_yaw_rad{std::numeric_limits<double>::quiet_NaN()};
+  double heading_relative_to_reference_rad{std::numeric_limits<double>::quiet_NaN()};
+  double wallward_corner_protrusion_m{std::numeric_limits<double>::quiet_NaN()};
 };
 
 struct RacelineSplinePlanner::Candidate
@@ -119,8 +141,35 @@ struct RacelineSplinePlanner::Candidate
   bool go_left{false};
   double target_d{0.0};
   double merge_s{0.0};
-  double score{std::numeric_limits<double>::infinity()};
-  double headroom{-std::numeric_limits<double>::infinity()};
+  double entry_transition_scale{std::numeric_limits<double>::quiet_NaN()};
+  double exit_transition_scale{std::numeric_limits<double>::quiet_NaN()};
+  double effective_entry_transition_scale{std::numeric_limits<double>::quiet_NaN()};
+  double effective_exit_transition_scale{std::numeric_limits<double>::quiet_NaN()};
+  double requested_entry_length_m{std::numeric_limits<double>::quiet_NaN()};
+  double effective_entry_length_m{std::numeric_limits<double>::quiet_NaN()};
+  double exit_length_m{std::numeric_limits<double>::quiet_NaN()};
+  double centerline_wall_clearance_m{std::numeric_limits<double>::quiet_NaN()};
+  double rectangular_footprint_wall_clearance_m{
+    std::numeric_limits<double>::quiet_NaN()};
+  bool footprint_invalid{false};
+  std::string footprint_violation_side;
+  std::size_t footprint_violation_waypoint_index{
+    std::numeric_limits<std::size_t>::max()};
+  double footprint_violation_s_m{std::numeric_limits<double>::quiet_NaN()};
+  double footprint_violation_x_m{std::numeric_limits<double>::quiet_NaN()};
+  double footprint_violation_y_m{std::numeric_limits<double>::quiet_NaN()};
+  double footprint_violation_yaw_rad{std::numeric_limits<double>::quiet_NaN()};
+  double footprint_heading_relative_to_reference_rad{
+    std::numeric_limits<double>::quiet_NaN()};
+  double wallward_corner_protrusion_m{std::numeric_limits<double>::quiet_NaN()};
+  double wall_clearance_m{std::numeric_limits<double>::quiet_NaN()};
+  double obstacle_clearance_m{std::numeric_limits<double>::quiet_NaN()};
+  double peak_curvature_radpm{std::numeric_limits<double>::quiet_NaN()};
+  double peak_curvature_rate_radpm2{std::numeric_limits<double>::quiet_NaN()};
+  double velocity_loss{std::numeric_limits<double>::quiet_NaN()};
+  double global_path_deviation_m{std::numeric_limits<double>::quiet_NaN()};
+  double minimum_normalized_safety_slack{-std::numeric_limits<double>::infinity()};
+  std::size_t audit_index{std::numeric_limits<std::size_t>::max()};
   f110_msgs::msg::WpntArray path;
   std::vector<SplineControlPoint> control_points;
   std::string reason;
@@ -241,6 +290,46 @@ double RacelineSplineParameters::limitedAvoidanceSpeed(
   return lower;
 }
 
+double RacelineSplineParameters::gapLimitedAvoidanceSpeed(
+  double requested_speed_mps, double curvature_radpm, double admissible_reserve_m) const
+{
+  const double requested_speed = std::max(0.0, requested_speed_mps);
+  const double floor_speed = std::max(0.0, avoidance_minimum_speed_mps);
+  if (!std::isfinite(admissible_reserve_m) || requested_speed <= floor_speed) {
+    return requested_speed;
+  }
+  const auto fits = [&](double speed_mps) {
+      return trackingErrorReserve(speed_mps, curvature_radpm) <= admissible_reserve_m;
+    };
+  // Deciding whether to slow down at all carries the same tolerance the hard validator applies to
+  // this boundary, so a candidate already sitting exactly on its clearance limit is not slowed by
+  // rounding alone. The search below stays strict: a reduced speed whose reserve overshot by that
+  // tolerance would spend room the path does not have, and the validator -- comparing with the
+  // very same tolerance -- would reject the candidate the cap was meant to enable.
+  if (trackingErrorReserve(requested_speed, curvature_radpm) <=
+    admissible_reserve_m + kEpsilon)
+  {
+    return requested_speed;
+  }
+  // Even crawling does not fit this gap. Hold the floor and let the hard validator reject the
+  // candidate: silently creeping through a gap the reserve says we cannot hold is not a decision
+  // the speed policy is allowed to make.
+  if (!fits(floor_speed)) {
+    return floor_speed;
+  }
+  double lower = floor_speed;
+  double upper = requested_speed;
+  for (int iteration = 0; iteration < 60; ++iteration) {
+    const double middle = 0.5 * (lower + upper);
+    if (fits(middle)) {
+      lower = middle;
+    } else {
+      upper = middle;
+    }
+  }
+  return lower;
+}
+
 double RacelineSplineParameters::trackingErrorReserve(
   double speed_mps, double curvature_radpm) const
 {
@@ -269,6 +358,18 @@ double RacelineSplineParameters::avoidanceTrackingErrorReserve(
 {
   return trackingErrorReserve(
     limitedAvoidanceSpeed(speed_mps, curvature_radpm), curvature_radpm);
+}
+
+double RacelineSplineParameters::cappedCombinedExitScale(double combined_exit_scale) const
+{
+  if (!(maximum_exit_length_m > 0.0) || post_apex_distances_m.empty()) {
+    return combined_exit_scale;
+  }
+  const double post_far = post_apex_distances_m.back();
+  if (!(post_far > kEpsilon)) {
+    return combined_exit_scale;
+  }
+  return std::min(combined_exit_scale, maximum_exit_length_m / post_far);
 }
 
 double RacelineSplineParameters::obstacleBaseClearance() const
@@ -407,7 +508,7 @@ std::size_t RacelineSplinePlanner::nearestReferenceIndex(double s) const
 }
 
 double RacelineSplinePlanner::maximumReferenceTrackingErrorReserve(
-  const EgoFrenetState & ego, double start, double end) const
+  const EgoFrenetState & ego, double start, double end, double speed_cap_mps) const
 {
   const double check_start = std::max(0.0, start);
   const double check_end = std::max(check_start, end);
@@ -427,13 +528,13 @@ double RacelineSplinePlanner::maximumReferenceTrackingErrorReserve(
     maximum = std::max(
       maximum,
       parameters_.avoidanceTrackingErrorReserve(
-        reference.vx_mps, reference.kappa_radpm));
+        std::min(reference.vx_mps, speed_cap_mps), reference.kappa_radpm));
   }
   if (!checked_reference) {
     const auto & reference = reference_.wpnts[
       nearestReferenceIndex(wrapS(ego.s + 0.5 * (check_start + check_end)))];
     maximum = parameters_.avoidanceTrackingErrorReserve(
-      reference.vx_mps, reference.kappa_radpm);
+      std::min(reference.vx_mps, speed_cap_mps), reference.kappa_radpm);
   }
   return maximum;
 }
@@ -473,6 +574,11 @@ RacelineSplinePlanner::expandVisibleObstacles(
       maximumReferenceTrackingErrorReserve(ego, expanded.start, expanded.end);
     expanded.d_right = expanded.raw_d_right - expanded.target_clearance;
     expanded.d_left = expanded.raw_d_left + expanded.target_clearance;
+    expanded.relaxed_target_clearance = parameters_.obstacleBaseClearance() +
+      maximumReferenceTrackingErrorReserve(
+      ego, expanded.start, expanded.end, parameters_.avoidance_minimum_speed_mps);
+    expanded.relaxed_d_right = expanded.raw_d_right - expanded.relaxed_target_clearance;
+    expanded.relaxed_d_left = expanded.raw_d_left + expanded.relaxed_target_clearance;
     if (expanded.end >= 0.0 &&
       expanded.start <= parameters_.detection_lookahead_m)
     {
@@ -490,6 +596,98 @@ RacelineSplinePlanner::expandVisibleObstacles(
 bool RacelineSplinePlanner::isBlockingRaceline(const ExpandedObstacle & obstacle) const
 {
   return obstacle.d_right <= 0.0 && obstacle.d_left >= 0.0;
+}
+
+bool RacelineSplinePlanner::physicallyBlocksRaceline(const ExpandedObstacle & obstacle) const
+{
+  // Physical predicate only: raw measured envelope plus the vehicle's physical footprint
+  // clearance (half width + safety margin). The tracking-error reserve deliberately does not
+  // participate — it decides whether avoidance/slow-down is wanted, not whether the line is
+  // physically drivable.
+  const double physical_clearance = parameters_.obstacleBaseClearance();
+  return obstacle.raw_d_right - physical_clearance <= 0.0 &&
+         obstacle.raw_d_left + physical_clearance >= 0.0;
+}
+
+bool RacelineSplinePlanner::clusterPhysicallyBlocksRaceline(
+  const std::vector<ExpandedObstacle> & cluster) const
+{
+  return std::any_of(
+    cluster.begin(), cluster.end(),
+    [this](const ExpandedObstacle & obstacle) {return physicallyBlocksRaceline(obstacle);});
+}
+
+bool RacelineSplinePlanner::obstaclesPhysicallyBlockRaceline(
+  const EgoFrenetState & ego,
+  const std::vector<f110_msgs::msg::Obstacle> & obstacles) const
+{
+  if (!ready() || !std::isfinite(ego.s) || !std::isfinite(ego.d) ||
+    !std::isfinite(ego.speed))
+  {
+    return false;
+  }
+  return clusterPhysicallyBlocksRaceline(expandVisibleObstacles(ego, obstacles));
+}
+
+RacelineSplineResult RacelineSplinePlanner::buildMarginSlowPass(
+  const EgoFrenetState & ego,
+  const std::vector<ExpandedObstacle> & cluster) const
+{
+  RacelineSplineResult result;
+  result.kind = SplinePlanKind::kNoSafePath;
+  if (cluster.empty()) {
+    result.reason = "margin slow pass requested without a blocking cluster";
+    return result;
+  }
+  double cluster_end = cluster.front().end;
+  double raw_d_sum = 0.0;
+  result.obstacle_ids.reserve(cluster.size());
+  for (const auto & obstacle : cluster) {
+    cluster_end = std::max(cluster_end, obstacle.end);
+    raw_d_sum += 0.5 * (obstacle.raw_d_left + obstacle.raw_d_right);
+    result.obstacle_ids.push_back(obstacle.id);
+  }
+  const double cap = parameters_.margin_pass_speed_cap_mps;
+  if (!(cap > 0.0)) {
+    result.reason = "margin slow pass disabled (margin_pass_speed_cap_mps <= 0)";
+    return result;
+  }
+  // End far enough past the cluster that the merge-completion check (tail reach) fires with the
+  // full vehicle clear of the obstacle span.
+  const double end_at = std::min(
+    cluster_end + parameters_.safe_stop_buffer_m + parameters_.vehicle_length_m,
+    track_length_ - kEpsilon);
+  result.path.header = reference_.header;
+  const std::size_t first_index = nextReferenceIndex(ego.s);
+  for (std::size_t k = 0; k < reference_.wpnts.size(); ++k) {
+    const std::size_t index = (first_index + k) % reference_.wpnts.size();
+    const double forward_s = forwardDistance(ego.s, reference_.wpnts[index].s_m);
+    if (forward_s > end_at + kEpsilon) {
+      break;
+    }
+    auto waypoint = reference_.wpnts[index];
+    waypoint.id = static_cast<int32_t>(result.path.wpnts.size());
+    waypoint.d_m = 0.0;
+    waypoint.vx_mps = std::min(std::max(0.0, waypoint.vx_mps), cap);
+    result.path.wpnts.push_back(waypoint);
+  }
+  if (result.path.wpnts.size() < 2U) {
+    result.path.wpnts.clear();
+    result.reason = "margin slow pass span is already behind ego";
+    return result;
+  }
+  updateGeometryAndAcceleration(result.path);
+  result.kind = SplinePlanKind::kAvoidance;
+  result.margin_pass = true;
+  // The pass stays on the line; the side flag only records which side of the obstacle that is.
+  result.go_left = raw_d_sum < 0.0;
+  result.target_d = 0.0;
+  result.merge_s = result.path.wpnts.back().s_m;
+  result.obstacle_id = result.obstacle_ids.front();
+  result.reason =
+    "margin-only blocking cluster (raw envelope + physical clearance stays clear of the race "
+    "line); passing on the line at the margin_pass speed cap";
+  return result;
 }
 
 std::vector<RacelineSplinePlanner::ExpandedObstacle>
@@ -544,12 +742,14 @@ bool RacelineSplinePlanner::outsideIsLeft(
   return curvature_sum < 0.0;
 }
 
-bool RacelineSplinePlanner::computeSideTarget(
+bool RacelineSplinePlanner::computeSideTargetRange(
+  const EgoFrenetState & ego,
   const std::vector<ExpandedObstacle> & cluster,
   bool go_left,
   double & cluster_start,
   double & cluster_end,
-  double & target_d,
+  double & minimum_clearance_target_d,
+  double & maximum_track_target_d,
   std::string & reason) const
 {
   if (cluster.empty()) {
@@ -559,27 +759,182 @@ bool RacelineSplinePlanner::computeSideTarget(
 
   cluster_start = cluster.front().start;
   cluster_end = cluster.front().end;
-  target_d = go_left ? cluster.front().d_left : cluster.front().d_right;
+  minimum_clearance_target_d = go_left ? cluster.front().d_left : cluster.front().d_right;
+  double relaxed_clearance_target_d =
+    go_left ? cluster.front().relaxed_d_left : cluster.front().relaxed_d_right;
   for (const auto & obstacle : cluster) {
     cluster_start = std::min(cluster_start, obstacle.start);
     cluster_end = std::max(cluster_end, obstacle.end);
-    target_d = go_left ? std::max(target_d, obstacle.d_left) :
-      std::min(target_d, obstacle.d_right);
+    minimum_clearance_target_d = go_left ?
+      std::max(minimum_clearance_target_d, obstacle.d_left) :
+      std::min(minimum_clearance_target_d, obstacle.d_right);
+    relaxed_clearance_target_d = go_left ?
+      std::max(relaxed_clearance_target_d, obstacle.relaxed_d_left) :
+      std::min(relaxed_clearance_target_d, obstacle.relaxed_d_right);
   }
   if (go_left) {
-    target_d = std::max(
-      target_d,
+    minimum_clearance_target_d = std::max(
+      minimum_clearance_target_d,
       parameters_.minimum_target_offset_m);
   } else {
-    target_d = std::min(
-      target_d,
+    minimum_clearance_target_d = std::min(
+      minimum_clearance_target_d,
       -parameters_.minimum_target_offset_m);
   }
-  if (std::abs(target_d) > parameters_.maximum_target_offset_m) {
+  if (std::abs(minimum_clearance_target_d) > parameters_.maximum_target_offset_m) {
     reason = "required d-offset exceeds maximum_target_offset_m";
     return false;
   }
+
+  // Find the farthest target that remains inside the centre-of-vehicle track boundary for the
+  // complete obstacle span. The closest endpoint is determined only by obstacle clearance; the
+  // other endpoint is determined only by track geometry and maximum_target_offset_m.
+  maximum_track_target_d = go_left ? parameters_.maximum_target_offset_m :
+    -parameters_.maximum_target_offset_m;
+  const auto update_track_limit = [&](const f110_msgs::msg::Wpnt & reference) {
+      // The hard validator checks the rotated vehicle rectangle, not the path centre, so the
+      // centre may only approach the wall to within its own half width. Leaving that out here
+      // offers target offsets the footprint check can never accept, and a gap that is only
+      // reachable closer to the obstacle looks unreachable instead of merely slower.
+      const double reserve = parameters_.trackBoundaryReserve(
+        reference.vx_mps, reference.kappa_radpm) + parameters_.vehicle_half_width_m;
+      const double left_width = reference.d_left > 0.05 ?
+        reference.d_left : parameters_.fallback_track_half_width_m;
+      const double right_width = reference.d_right > 0.05 ?
+        reference.d_right : parameters_.fallback_track_half_width_m;
+      if (go_left) {
+        maximum_track_target_d = std::min(maximum_track_target_d, left_width - reserve);
+      } else {
+        maximum_track_target_d = std::max(maximum_track_target_d, -right_width + reserve);
+      }
+    };
+
+  const double check_start = std::max(0.0, cluster_start);
+  bool checked_reference = false;
+  const std::size_t first_index = nextReferenceIndex(wrapS(ego.s + check_start));
+  for (std::size_t k = 0; k < reference_.wpnts.size(); ++k) {
+    const auto & reference = reference_.wpnts[(first_index + k) % reference_.wpnts.size()];
+    const double forward_s = forwardDistance(ego.s, reference.s_m);
+    if (forward_s + kEpsilon < check_start) {
+      continue;
+    }
+    if (forward_s > cluster_end + kEpsilon) {
+      break;
+    }
+    checked_reference = true;
+    update_track_limit(reference);
+  }
+  if (!checked_reference) {
+    const double midpoint = 0.5 * (check_start + std::max(check_start, cluster_end));
+    update_track_limit(
+      reference_.wpnts[nearestReferenceIndex(wrapS(ego.s + midpoint))]);
+  }
+
+  const auto fits_track = [&](double target_d) {
+      return go_left ?
+             target_d <= maximum_track_target_d + kEpsilon :
+             target_d >= maximum_track_target_d - kEpsilon;
+    };
+  if (!fits_track(minimum_clearance_target_d)) {
+    // The race-line-speed gate does not fit between the obstacle and the wall. Retry against the
+    // gate the pass would need at avoidance_minimum_speed_mps: the speed cap lowers this waypoint
+    // to match, and the hard validator still checks the candidate at whatever speed it ends up
+    // with, so this widens what is considered without widening what is accepted.
+    const double relaxed_target_d = go_left ?
+      std::max(relaxed_clearance_target_d, parameters_.minimum_target_offset_m) :
+      std::min(relaxed_clearance_target_d, -parameters_.minimum_target_offset_m);
+    if (std::abs(relaxed_target_d) <= parameters_.maximum_target_offset_m &&
+      fits_track(relaxed_target_d))
+    {
+      minimum_clearance_target_d = relaxed_target_d;
+      return true;
+    }
+    reason = go_left ?
+      "left target d exceeds track bound in obstacle span before spline construction" :
+      "right target d exceeds track bound in obstacle span before spline construction";
+    return false;
+  }
   return true;
+}
+
+P3ShadowPlanningContext RacelineSplinePlanner::buildP3ShadowPlanningContext(
+  const EgoFrenetState & ego,
+  const std::vector<f110_msgs::msg::Obstacle> & obstacles) const
+{
+  P3ShadowPlanningContext context;
+  const auto visible = expandVisibleObstacles(ego, obstacles);
+  const auto cluster = nearestCluster(visible);
+  if (cluster.empty()) {
+    context.reason = "no static obstacle blocks the global race line";
+    return context;
+  }
+  context.valid = true;
+  context.outside_is_left = outsideIsLeft(ego, cluster);
+  context.cluster_ids.reserve(cluster.size());
+  for (const auto & obstacle : cluster) {
+    context.cluster_ids.push_back(obstacle.id);
+  }
+  context.visible.reserve(visible.size());
+  for (const auto & obstacle : visible) {
+    context.visible.push_back({
+        obstacle.id, obstacle.start, obstacle.end, obstacle.center,
+        obstacle.d_right, obstacle.d_left});
+  }
+  const auto fill_side = [&](bool go_left, P3ShadowSideDomain & side) {
+      side.go_left = go_left;
+      side.valid = computeSideTargetRange(
+        ego, cluster, go_left, side.cluster_start, side.cluster_end,
+        side.minimum_target, side.maximum_target, side.reason);
+    };
+  fill_side(false, context.right);
+  fill_side(true, context.left);
+  return context;
+}
+
+void RacelineSplinePlanner::finalizeP3ShadowPath(
+  f110_msgs::msg::WpntArray & path,
+  const EgoFrenetState & ego,
+  const std::vector<f110_msgs::msg::Obstacle> & obstacles) const
+{
+  const auto visible = expandVisibleObstacles(ego, obstacles);
+  updateGeometryAndAcceleration(path);
+  applyAvoidanceVelocityLimit(path, ego, visible);
+  updateGeometryAndAcceleration(path);
+}
+
+P3ShadowPathEvaluation RacelineSplinePlanner::validateP3ShadowPath(
+  const EgoFrenetState & ego,
+  const f110_msgs::msg::WpntArray & path,
+  const std::vector<f110_msgs::msg::Obstacle> & obstacles) const
+{
+  P3ShadowPathEvaluation result;
+  Candidate candidate;
+  candidate.path = path;
+  const auto visible = expandVisibleObstacles(ego, obstacles);
+  measureCandidate(ego, visible, candidate);
+  result.hard_valid = validateCandidate(ego, candidate.path, visible, candidate.reason);
+  result.minimum_normalized_safety_slack = candidate.minimum_normalized_safety_slack;
+  result.minimum_track_margin_m = candidate.rectangular_footprint_wall_clearance_m;
+  result.minimum_obstacle_margin_m = candidate.obstacle_clearance_m;
+  result.peak_curvature_radpm = candidate.peak_curvature_radpm;
+  result.peak_curvature_rate_radpm2 = candidate.peak_curvature_rate_radpm2;
+  result.velocity_loss = candidate.velocity_loss;
+  result.global_path_deviation_m = candidate.global_path_deviation_m;
+  result.rejection_reason = result.hard_valid ? std::string() : candidate.reason;
+  return result;
+}
+
+P3ShadowPathEvaluation RacelineSplinePlanner::evaluateP3PathCurrent(
+  const EgoFrenetState & ego,
+  const f110_msgs::msg::WpntArray & path,
+  const std::vector<f110_msgs::msg::Obstacle> & obstacles) const
+{
+  if (path.wpnts.size() < static_cast<std::size_t>(parameters_.minimum_path_points)) {
+    P3ShadowPathEvaluation result;
+    result.rejection_reason = "spline segment has too few global race-line samples";
+    return result;
+  }
+  return validateP3ShadowPath(ego, path, obstacles);
 }
 
 bool RacelineSplinePlanner::targetFitsTrackBounds(
@@ -715,6 +1070,52 @@ f110_msgs::msg::WpntArray RacelineSplinePlanner::buildEmergencyStopPath(
   return path;
 }
 
+f110_msgs::msg::WpntArray RacelineSplinePlanner::buildLastPathBrake(
+  const EgoFrenetState & ego, const f110_msgs::msg::WpntArray & path) const
+{
+  f110_msgs::msg::WpntArray braked;
+  braked.header = path.header;
+  if (!ready() || !std::isfinite(ego.s) || !std::isfinite(ego.speed) ||
+    path.wpnts.empty())
+  {
+    return braked;
+  }
+  std::size_t start_index = 0U;
+  double nearest_forward = std::numeric_limits<double>::infinity();
+  for (std::size_t i = 0; i < path.wpnts.size(); ++i) {
+    const double forward = forwardDistance(ego.s, path.wpnts[i].s_m);
+    if (forward < nearest_forward) {
+      nearest_forward = forward;
+      start_index = i;
+    }
+  }
+  if (nearest_forward > 0.5 * track_length_) {
+    return braked;
+  }
+  const double deceleration = std::max(parameters_.safe_stop_deceleration_mps2, 0.1);
+  const double speed = std::max(0.0, ego.speed);
+  const double stop_at = nearest_forward + speed * speed / (2.0 * deceleration);
+  for (std::size_t i = start_index; i < path.wpnts.size(); ++i) {
+    const double forward_s = forwardDistance(ego.s, path.wpnts[i].s_m);
+    if (forward_s > stop_at + kEpsilon) {
+      break;
+    }
+    auto waypoint = path.wpnts[i];
+    waypoint.id = static_cast<int32_t>(braked.wpnts.size());
+    waypoint.vx_mps = std::min(
+      std::max(0.0, waypoint.vx_mps),
+      std::sqrt(2.0 * deceleration * std::max(0.0, stop_at - forward_s)));
+    braked.wpnts.push_back(waypoint);
+  }
+  if (braked.wpnts.size() < 2U) {
+    braked.wpnts.clear();
+    return braked;
+  }
+  braked.wpnts.back().vx_mps = 0.0;
+  updateGeometryAndAcceleration(braked);
+  return braked;
+}
+
 RacelineSplineResult RacelineSplinePlanner::buildCommittedPathStop(
   const EgoFrenetState & ego,
   const f110_msgs::msg::WpntArray & committed_path,
@@ -842,11 +1243,21 @@ RacelineSplinePlanner::Candidate RacelineSplinePlanner::buildCandidate(
 {
   Candidate candidate;
   candidate.go_left = go_left;
+  candidate.target_d = target_d;
+  candidate.entry_transition_scale = entry_transition_scale;
+  candidate.exit_transition_scale = exit_transition_scale;
 
+  // outside_line_transition_scale is exit-only. Entry uses its own available-distance-aware
+  // parameter family so one nominal value can no longer be saturated on entry and sensitive on
+  // exit at the same time.
   if (go_left == outside_is_left) {
-    entry_transition_scale *= parameters_.outside_line_transition_scale;
     exit_transition_scale *= parameters_.outside_line_transition_scale;
   }
+  // Cap the absolute exit length: the slack ranking otherwise always selects the longest exit
+  // and the avoidance path keeps owning the lap far past the obstacle before merging.
+  exit_transition_scale = parameters_.cappedCombinedExitScale(exit_transition_scale);
+  candidate.effective_entry_transition_scale = entry_transition_scale;
+  candidate.effective_exit_transition_scale = exit_transition_scale;
 
   std::vector<double> knot_s;
   std::vector<double> knot_d;
@@ -861,22 +1272,41 @@ RacelineSplinePlanner::Candidate RacelineSplinePlanner::buildCandidate(
       knot_d.push_back(d);
     };
 
-  const double pre_far = parameters_.pre_apex_distances_m[0] * entry_transition_scale;
-  const double pre_middle = parameters_.pre_apex_distances_m[1] * entry_transition_scale;
-  const double pre_near = parameters_.pre_apex_distances_m[2] * entry_transition_scale;
+  const double nominal_pre_far = parameters_.pre_apex_distances_m[0];
+  const double requested_entry_length = nominal_pre_far * entry_transition_scale;
   const double post_near = parameters_.post_apex_distances_m[0] * exit_transition_scale;
   const double post_middle = parameters_.post_apex_distances_m[1] * exit_transition_scale;
   const double post_far = parameters_.post_apex_distances_m[2] * exit_transition_scale;
 
-  // A long candidate is allowed to consume all currently available distance, but never starts
-  // behind ego. If perception arrives late, anchoring entry at forward_s=0 still guarantees
-  // d(0)=ego.d and zero Frenet slope/curvature at the new commitment boundary.
   if (!(cluster_start > kEpsilon)) {
     candidate.reason = "blocking obstacle has no positive quintic entry distance";
     return candidate;
   }
-  const double entry_start = std::max(0.0, cluster_start - pre_far);
-  const double entry_length = cluster_start - entry_start;
+  if (!(requested_entry_length > kEpsilon)) {
+    candidate.reason = "requested quintic entry length is not positive";
+    return candidate;
+  }
+  // Parameterize entry directly by the actually available ego-to-cluster distance. The nominal
+  // pre-apex value is a fraction of detection lookahead, and the separate entry candidate scales
+  // that fraction. Within the declared domain this is strictly monotone and has no ego clamp.
+  const double available_entry_length = cluster_start;
+  const double effective_entry_fraction =
+    requested_entry_length / parameters_.detection_lookahead_m;
+  if (!(effective_entry_fraction > kEpsilon) || effective_entry_fraction > 1.0 + kEpsilon) {
+    candidate.reason =
+      "requested entry fraction must be within the available-distance interval";
+    return candidate;
+  }
+  const double entry_length = available_entry_length * effective_entry_fraction;
+  const double entry_start = cluster_start - entry_length;
+  const double pre_middle = entry_length *
+    parameters_.pre_apex_distances_m[1] / nominal_pre_far;
+  const double pre_near = entry_length *
+    parameters_.pre_apex_distances_m[2] / nominal_pre_far;
+  candidate.requested_entry_length_m = requested_entry_length;
+  candidate.effective_entry_length_m = entry_length;
+  candidate.exit_length_m = post_far;
+  candidate.effective_entry_transition_scale = effective_entry_fraction;
   if (!(entry_length > kEpsilon) || !(post_far > kEpsilon)) {
     candidate.reason = "quintic transition length is not positive";
     return candidate;
@@ -965,28 +1395,325 @@ RacelineSplinePlanner::Candidate RacelineSplinePlanner::buildCandidate(
   }
 
   updateGeometryAndAcceleration(candidate.path);
-  applyAvoidanceVelocityLimit(candidate.path);
+  applyAvoidanceVelocityLimit(candidate.path, ego, visible);
   updateGeometryAndAcceleration(candidate.path);
+  candidate.target_d = target_d;
+  measureCandidate(ego, visible, candidate);
   if (!validateCandidate(ego, candidate.path, visible, candidate.reason)) {
     return candidate;
   }
 
   candidate.valid = true;
-  candidate.target_d = target_d;
   // merge_s는 발행 세그먼트 끝이 아니라 d-offset spline이 실제로 d=0에 복귀하는 지점이다.
   // tail 길이를 늘려도 합류 완료 판정 시점이 뒤로 밀리지 않아야 한다.
   candidate.merge_s = wrapS(ego.s + spline_end);
-  candidate.score =
-    std::abs(target_d) + 0.02 * entry_transition_scale + 0.002 * exit_transition_scale;
   return candidate;
 }
 
+void RacelineSplinePlanner::measureCandidate(
+  const EgoFrenetState & ego,
+  const std::vector<ExpandedObstacle> & visible,
+  Candidate & candidate) const
+{
+  if (candidate.path.wpnts.empty()) {
+    return;
+  }
+
+  double wall_clearance = std::numeric_limits<double>::infinity();
+  double obstacle_clearance = std::numeric_limits<double>::infinity();
+  double peak_curvature = 0.0;
+  double peak_curvature_rate = 0.0;
+  double velocity_loss_sum = 0.0;
+  double deviation_sum = 0.0;
+  bool measured_obstacle = false;
+  double previous_forward = 0.0;
+  double previous_curvature = candidate.path.wpnts.front().kappa_radpm;
+  FootprintTrackBoundSample minimum_footprint;
+
+  for (std::size_t i = 0; i < candidate.path.wpnts.size(); ++i) {
+    const auto & waypoint = candidate.path.wpnts[i];
+    const double forward_s = forwardDistance(ego.s, waypoint.s_m);
+    const auto & reference = reference_.wpnts[nearestReferenceIndex(waypoint.s_m)];
+    const double reserve = parameters_.trackBoundaryReserve(
+      waypoint.vx_mps, waypoint.kappa_radpm);
+    const double left_width = reference.d_left > 0.05 ?
+      reference.d_left : parameters_.fallback_track_half_width_m;
+    const double right_width = reference.d_right > 0.05 ?
+      reference.d_right : parameters_.fallback_track_half_width_m;
+    wall_clearance = std::min(
+      wall_clearance,
+      std::min(left_width - reserve - waypoint.d_m,
+      waypoint.d_m + right_width - reserve));
+    const auto footprint = measureFootprintTrackBound(waypoint, i);
+    if (footprint.footprint_clearance_m < minimum_footprint.footprint_clearance_m) {
+      minimum_footprint = footprint;
+    }
+
+    for (const auto & obstacle : visible) {
+      if (forward_s + kEpsilon < obstacle.start || forward_s > obstacle.end + kEpsilon) {
+        continue;
+      }
+      measured_obstacle = true;
+      const double clearance = parameters_.obstacleSafetyClearance(
+        waypoint.vx_mps, waypoint.kappa_radpm);
+      const double test_right = obstacle.raw_d_right - clearance;
+      const double test_left = obstacle.raw_d_left + clearance;
+      double signed_clearance = 0.0;
+      if (waypoint.d_m >= test_left) {
+        signed_clearance = waypoint.d_m - test_left;
+      } else if (waypoint.d_m <= test_right) {
+        signed_clearance = test_right - waypoint.d_m;
+      } else {
+        signed_clearance = -std::min(
+          waypoint.d_m - test_right, test_left - waypoint.d_m);
+      }
+      obstacle_clearance = std::min(obstacle_clearance, signed_clearance);
+    }
+
+    peak_curvature = std::max(peak_curvature, std::abs(waypoint.kappa_radpm));
+    if (i > 0U) {
+      const double ds = forward_s - previous_forward;
+      if (ds > kEpsilon) {
+        peak_curvature_rate = std::max(
+          peak_curvature_rate,
+          std::abs(waypoint.kappa_radpm - previous_curvature) / ds);
+      }
+    }
+    const double reference_speed = std::max(0.0, reference.vx_mps);
+    if (reference_speed > kEpsilon) {
+      velocity_loss_sum += std::max(
+        0.0, reference_speed - std::max(0.0, waypoint.vx_mps)) / reference_speed;
+    }
+    deviation_sum += std::abs(waypoint.d_m);
+    previous_forward = forward_s;
+    previous_curvature = waypoint.kappa_radpm;
+  }
+
+  const double normalization_distance = std::max(
+    kEpsilon, parameters_.maximum_target_offset_m);
+  if (!measured_obstacle) {
+    obstacle_clearance = normalization_distance;
+  }
+  const double wall_slack = wall_clearance / normalization_distance;
+  const double obstacle_slack = obstacle_clearance / normalization_distance;
+  const double curvature_slack =
+    (parameters_.maximum_curvature_radpm - peak_curvature) /
+    std::max(kEpsilon, parameters_.maximum_curvature_radpm);
+  const double curvature_rate_slack =
+    (parameters_.maximum_curvature_rate_radpm2 - peak_curvature_rate) /
+    std::max(kEpsilon, parameters_.maximum_curvature_rate_radpm2);
+
+  candidate.centerline_wall_clearance_m = wall_clearance;
+  candidate.rectangular_footprint_wall_clearance_m =
+    minimum_footprint.footprint_clearance_m;
+  candidate.footprint_invalid = minimum_footprint.invalid;
+  candidate.footprint_violation_side =
+    minimum_footprint.invalid ? minimum_footprint.minimum_side : std::string();
+  candidate.footprint_violation_waypoint_index = minimum_footprint.waypoint_index;
+  candidate.footprint_violation_s_m = minimum_footprint.waypoint_s_m;
+  candidate.footprint_violation_x_m = minimum_footprint.waypoint_x_m;
+  candidate.footprint_violation_y_m = minimum_footprint.waypoint_y_m;
+  candidate.footprint_violation_yaw_rad = minimum_footprint.waypoint_yaw_rad;
+  candidate.footprint_heading_relative_to_reference_rad =
+    minimum_footprint.heading_relative_to_reference_rad;
+  candidate.wallward_corner_protrusion_m =
+    minimum_footprint.wallward_corner_protrusion_m;
+  // Candidate ranking intentionally retains its existing centerline-headroom metric. The
+  // rectangular footprint is an additional hard gate, not a new ranking weight or objective.
+  candidate.wall_clearance_m = wall_clearance;
+  candidate.obstacle_clearance_m = obstacle_clearance;
+  candidate.peak_curvature_radpm = peak_curvature;
+  candidate.peak_curvature_rate_radpm2 = peak_curvature_rate;
+  candidate.velocity_loss = velocity_loss_sum /
+    static_cast<double>(candidate.path.wpnts.size());
+  candidate.global_path_deviation_m = deviation_sum /
+    static_cast<double>(candidate.path.wpnts.size());
+  candidate.minimum_normalized_safety_slack = std::min(
+    {wall_slack, obstacle_slack, curvature_slack, curvature_rate_slack});
+}
+
+RacelineSplinePlanner::FootprintTrackBoundSample
+RacelineSplinePlanner::measureFootprintTrackBound(
+  const f110_msgs::msg::Wpnt & waypoint,
+  std::size_t waypoint_index) const
+{
+  FootprintTrackBoundSample result;
+  result.waypoint_index = waypoint_index;
+  result.waypoint_s_m = waypoint.s_m;
+  result.waypoint_x_m = waypoint.x_m;
+  result.waypoint_y_m = waypoint.y_m;
+  result.waypoint_yaw_rad = waypoint.psi_rad;
+
+  const auto & reference = reference_.wpnts[nearestReferenceIndex(waypoint.s_m)];
+  const double reserve = parameters_.trackBoundaryReserve(
+    waypoint.vx_mps, waypoint.kappa_radpm);
+  const double left_track_width = reference.d_left > 0.05 ?
+    reference.d_left : parameters_.fallback_track_half_width_m;
+  const double right_track_width = reference.d_right > 0.05 ?
+    reference.d_right : parameters_.fallback_track_half_width_m;
+  result.centerline_clearance_m = std::min(
+    left_track_width - reserve - waypoint.d_m,
+    waypoint.d_m + right_track_width - reserve);
+
+  // Global d_left/d_right are distances from the reference to the physical track boundaries.
+  // Project every rotated rectangle corner onto the matching local reference segment instead of
+  // subtracting a heading-independent half-width from the candidate centre. The s-window keeps a
+  // nearby parallel branch of a snake-shaped track from becoming the corner's reference. The
+  // existing wall reserve is applied once; simulator TTC/noise guards intentionally do not enter.
+  const double half_length = 0.5 * parameters_.vehicle_length_m;
+  const double half_width = parameters_.vehicle_half_width_m;
+  const double footprint_radius = std::hypot(half_length, half_width);
+  const double candidate_cos = std::cos(waypoint.psi_rad);
+  const double candidate_sin = std::sin(waypoint.psi_rad);
+  const std::size_t anchor_index = nearestReferenceIndex(waypoint.s_m);
+  std::vector<std::size_t> local_reference_segments;
+  local_reference_segments.reserve(10U);
+  const auto append_segment = [&](std::size_t index) {
+      if (std::find(
+          local_reference_segments.begin(), local_reference_segments.end(), index) ==
+        local_reference_segments.end())
+      {
+        local_reference_segments.push_back(index);
+      }
+    };
+  double covered_forward_s = 0.0;
+  std::size_t forward_index = anchor_index;
+  for (std::size_t count = 0; count < reference_.wpnts.size(); ++count) {
+    if (covered_forward_s > footprint_radius + kEpsilon) {
+      break;
+    }
+    append_segment(forward_index);
+    const std::size_t next = (forward_index + 1U) % reference_.wpnts.size();
+    covered_forward_s += forwardDistance(
+      reference_.wpnts[forward_index].s_m, reference_.wpnts[next].s_m);
+    forward_index = next;
+  }
+  double covered_backward_s = 0.0;
+  std::size_t backward_end_index = anchor_index;
+  for (std::size_t count = 0; count < reference_.wpnts.size(); ++count) {
+    if (covered_backward_s > footprint_radius + kEpsilon) {
+      break;
+    }
+    const std::size_t previous = backward_end_index == 0U ?
+      reference_.wpnts.size() - 1U : backward_end_index - 1U;
+    append_segment(previous);
+    covered_backward_s += forwardDistance(
+      reference_.wpnts[previous].s_m, reference_.wpnts[backward_end_index].s_m);
+    backward_end_index = previous;
+  }
+  struct CornerResult
+  {
+    double clearance_m{std::numeric_limits<double>::infinity()};
+    double heading_relative_rad{0.0};
+    double wallward_protrusion_m{0.0};
+    bool left_is_minimum{true};
+  };
+  const auto project_corner = [&](double longitudinal, double lateral) {
+      const double corner_x = waypoint.x_m + longitudinal * candidate_cos -
+        lateral * candidate_sin;
+      const double corner_y = waypoint.y_m + longitudinal * candidate_sin +
+        lateral * candidate_cos;
+      double nearest_distance_squared = std::numeric_limits<double>::infinity();
+      CornerResult corner;
+      for (const std::size_t index : local_reference_segments) {
+        const std::size_t next = (index + 1U) % reference_.wpnts.size();
+        const auto & first = reference_.wpnts[index];
+        const auto & second = reference_.wpnts[next];
+        const double segment_x = second.x_m - first.x_m;
+        const double segment_y = second.y_m - first.y_m;
+        const double segment_length_squared =
+          segment_x * segment_x + segment_y * segment_y;
+        if (!(segment_length_squared > kEpsilon)) {
+          continue;
+        }
+        const double ratio = std::clamp(
+          ((corner_x - first.x_m) * segment_x +
+          (corner_y - first.y_m) * segment_y) / segment_length_squared,
+          0.0, 1.0);
+        const double projected_x = first.x_m + ratio * segment_x;
+        const double projected_y = first.y_m + ratio * segment_y;
+        const double delta_x = corner_x - projected_x;
+        const double delta_y = corner_y - projected_y;
+        const double distance_squared = delta_x * delta_x + delta_y * delta_y;
+        if (!(distance_squared < nearest_distance_squared)) {
+          continue;
+        }
+        nearest_distance_squared = distance_squared;
+        const double segment_yaw = std::atan2(segment_y, segment_x);
+        const double segment_sin = std::sin(segment_yaw);
+        const double segment_cos = std::cos(segment_yaw);
+        const double corner_d = -delta_x * segment_sin + delta_y * segment_cos;
+        const double center_d =
+          -(waypoint.x_m - projected_x) * segment_sin +
+          (waypoint.y_m - projected_y) * segment_cos;
+        const double interpolated_left =
+          first.d_left + ratio * (second.d_left - first.d_left);
+        const double interpolated_right =
+          first.d_right + ratio * (second.d_right - first.d_right);
+        const double left_width = interpolated_left > 0.05 ?
+          interpolated_left : parameters_.fallback_track_half_width_m;
+        const double right_width = interpolated_right > 0.05 ?
+          interpolated_right : parameters_.fallback_track_half_width_m;
+        const double left_clearance = left_width - reserve - corner_d;
+        const double right_clearance = corner_d + right_width - reserve;
+        corner.left_is_minimum = left_clearance <= right_clearance;
+        corner.clearance_m = std::min(left_clearance, right_clearance);
+        corner.heading_relative_rad = normalizeAngle(waypoint.psi_rad - segment_yaw);
+        const double wallward_extent = corner.left_is_minimum ?
+          corner_d - center_d : center_d - corner_d;
+        corner.wallward_protrusion_m = std::max(
+          0.0, wallward_extent - half_width);
+      }
+      return corner;
+    };
+  const std::array<CornerResult, 4> corners{
+    project_corner(half_length, half_width),
+    project_corner(half_length, -half_width),
+    project_corner(-half_length, half_width),
+    project_corner(-half_length, -half_width)};
+  const auto minimum = std::min_element(
+    corners.begin(), corners.end(),
+    [](const CornerResult & first, const CornerResult & second) {
+      return first.clearance_m < second.clearance_m;
+    });
+  result.minimum_side = minimum->left_is_minimum ? "left" : "right";
+  result.footprint_clearance_m = minimum->clearance_m;
+  result.invalid = result.footprint_clearance_m < -kEpsilon;
+  result.heading_relative_to_reference_rad = minimum->heading_relative_rad;
+  result.wallward_corner_protrusion_m = minimum->wallward_protrusion_m;
+  return result;
+}
+
 void RacelineSplinePlanner::applyAvoidanceVelocityLimit(
-  f110_msgs::msg::WpntArray & path) const
+  f110_msgs::msg::WpntArray & path,
+  const EgoFrenetState & ego,
+  const std::vector<ExpandedObstacle> & visible) const
 {
   for (auto & waypoint : path.wpnts) {
-    waypoint.vx_mps = parameters_.limitedAvoidanceSpeed(
+    double speed = parameters_.limitedAvoidanceSpeed(
       std::max(0.0, waypoint.vx_mps), waypoint.kappa_radpm);
+
+    // Lateral room left over between this waypoint and the face of every obstacle it is passing.
+    // The hard validator spends exactly obstacleBaseClearance() + reserve here, so the reserve
+    // this waypoint may afford is whatever remains once the base clearance is paid.
+    const double forward_s = forwardDistance(ego.s, waypoint.s_m);
+    double admissible_reserve = std::numeric_limits<double>::infinity();
+    for (const auto & obstacle : visible) {
+      if (forward_s < obstacle.start || forward_s > obstacle.end) {
+        continue;
+      }
+      const double side_room = (waypoint.d_m <= obstacle.raw_d_right) ?
+        obstacle.raw_d_right - waypoint.d_m :
+        (waypoint.d_m >= obstacle.raw_d_left ? waypoint.d_m - obstacle.raw_d_left : 0.0);
+      admissible_reserve = std::min(
+        admissible_reserve, side_room - parameters_.obstacleBaseClearance());
+    }
+    speed = parameters_.gapLimitedAvoidanceSpeed(
+      speed, waypoint.kappa_radpm, admissible_reserve);
+
+    // The reserve shrinks with speed, so the curvature cap has to be re-imposed on the reduced
+    // value; it can only lower the speed further, never raise it.
+    waypoint.vx_mps = parameters_.limitedAvoidanceSpeed(speed, waypoint.kappa_radpm);
   }
 }
 
@@ -1115,6 +1842,25 @@ bool RacelineSplinePlanner::validateCandidate(
       return reject(
         PathValidationFailureKind::kTrackBoundary,
         "d-offset leaves the global waypoint track bounds", i, &waypoint);
+    }
+    const auto footprint = measureFootprintTrackBound(waypoint, i);
+    if (footprint.invalid) {
+      const bool rejected = reject(
+        PathValidationFailureKind::kTrackBoundary,
+        "footprint_track_bound", i, &waypoint);
+      if (failure != nullptr) {
+        failure->centerline_wall_clearance = footprint.centerline_clearance_m;
+        failure->rectangular_footprint_wall_clearance = footprint.footprint_clearance_m;
+        failure->footprint_violation_side = footprint.minimum_side;
+        failure->waypoint_x = footprint.waypoint_x_m;
+        failure->waypoint_y = footprint.waypoint_y_m;
+        failure->waypoint_yaw = footprint.waypoint_yaw_rad;
+        failure->heading_relative_to_reference =
+          footprint.heading_relative_to_reference_rad;
+        failure->wallward_corner_protrusion =
+          footprint.wallward_corner_protrusion_m;
+      }
+      return rejected;
     }
     for (const auto & obstacle : visible) {
       const double obstacle_clearance = parameters_.obstacleSafetyClearance(
@@ -1314,6 +2060,19 @@ RacelineSplineResult RacelineSplinePlanner::buildPreparationStop(
     return result;
   }
 
+  // A margin-only cluster never requires stopping: the line itself is physically drivable, so
+  // stabilization is spent holding the line at the capped speed instead of braking to a halt
+  // (and instead of a zero-speed hold when the cluster is first seen inside the stop buffer).
+  if (!clusterPhysicallyBlocksRaceline(cluster)) {
+    auto slow_pass = buildMarginSlowPass(ego, cluster);
+    if (slow_pass.kind == SplinePlanKind::kAvoidance) {
+      slow_pass.reason =
+        "margin-only cluster during initial stabilization; holding the race line at the "
+        "margin_pass speed cap";
+      return slow_pass;
+    }
+  }
+
   result = buildSafeStop(ego, visible, cluster.front());
   result.obstacle_ids.reserve(cluster.size());
   for (const auto & obstacle : cluster) {
@@ -1354,138 +2113,214 @@ RacelineSplineResult RacelineSplinePlanner::plan(
   }
 
   const bool outside_is_left = outsideIsLeft(ego, cluster);
-  Candidate left;
-  Candidate right;
+  std::vector<Candidate> candidates;
+  std::string left_reason = "not evaluated: side locked by active commitment";
+  std::string right_reason = "not evaluated: side locked by active commitment";
   bool left_evaluated = false;
   bool right_evaluated = false;
-  Candidate selected;
 
-  auto run_selection = [&](
-    const std::vector<ExpandedObstacle> & pass_visible,
-    const std::vector<ExpandedObstacle> & pass_cluster) {
-      auto evaluate_side = [&](bool go_left) {
-          Candidate last;
-          last.go_left = go_left;
-          double cluster_start = 0.0;
-          double cluster_end = 0.0;
-          double target_d = 0.0;
-          if (!computeSideTarget(
-              pass_cluster, go_left, cluster_start, cluster_end, target_d, last.reason))
-          {
-            return last;
-          }
-          double headroom = -std::numeric_limits<double>::infinity();
-          if (!targetFitsTrackBounds(
-              ego, cluster_start, cluster_end, go_left, target_d, last.reason, &headroom))
-          {
-            return last;
-          }
-          // Entry and exit have different priorities. Use the longest feasible entry so a distant
-          // obstacle is avoided early, but pair it with the shortest feasible exit so the old
-          // maneuver releases promptly. Lengthen the exit only when validation requires it.
-          for (auto entry_scale = parameters_.transition_distance_scales.rbegin();
-            entry_scale != parameters_.transition_distance_scales.rend(); ++entry_scale)
-          {
-            for (const double exit_scale : parameters_.transition_distance_scales) {
-              last = buildCandidate(
-                ego, pass_visible, go_left, *entry_scale, exit_scale, outside_is_left,
-                cluster_start, cluster_end, target_d);
-              if (last.valid) {
-                last.headroom = headroom;
-                return last;
-              }
-            }
-          }
-          return last;
-        };
-
-      left = Candidate();
-      right = Candidate();
-      left_evaluated = false;
-      right_evaluated = false;
-      selected = Candidate();
-      if (preferred_left.has_value()) {
-        if (preferred_left.value()) {
-          left = evaluate_side(true);
-          left_evaluated = true;
-          if (left.valid) {
-            selected = std::move(left);
-          } else if (allow_side_switch) {
-            right = evaluate_side(false);
-            right_evaluated = true;
-            if (right.valid) {
-              selected = std::move(right);
-            }
-          }
-        } else {
-          right = evaluate_side(false);
-          right_evaluated = true;
-          if (right.valid) {
-            selected = std::move(right);
-          } else if (allow_side_switch) {
-            left = evaluate_side(true);
-            left_evaluated = true;
-            if (left.valid) {
-              selected = std::move(left);
-            }
-          }
-        }
-      } else {
-        left = evaluate_side(true);
-        right = evaluate_side(false);
+  const auto evaluate_side = [&](bool go_left) {
+      if (go_left) {
         left_evaluated = true;
+      } else {
         right_evaluated = true;
-        if (left.valid && right.valid) {
-          // A raceline-centred obstacle ties the score within perception jitter. Break ties
-          // with the reference-width headroom, which does not jitter frame to frame, so the
-          // chosen side cannot flap between replans.
-          if (std::abs(left.score - right.score) <= parameters_.side_tie_epsilon_m &&
-            left.headroom != right.headroom)
-          {
-            selected = left.headroom > right.headroom ? std::move(left) : std::move(right);
-          } else {
-            selected = left.score <= right.score ? std::move(left) : std::move(right);
+      }
+      std::string & side_reason = go_left ? left_reason : right_reason;
+      double cluster_start = 0.0;
+      double cluster_end = 0.0;
+      double minimum_target = 0.0;
+      double maximum_target = 0.0;
+      if (!computeSideTargetRange(
+          ego, cluster, go_left, cluster_start, cluster_end,
+          minimum_target, maximum_target, side_reason))
+      {
+        return;
+      }
+
+      const int requested_count = std::max(1, parameters_.target_d_candidate_count);
+      const bool collapsed_range = std::abs(maximum_target - minimum_target) <= kEpsilon;
+      const int sample_count = collapsed_range ? 1 : requested_count;
+      std::vector<double> entry_scales = parameters_.entry_transition_fractions;
+      // Keep every configured legacy entry candidate in its original order, then add one
+      // production candidate whose effective entry length consumes the complete distance from
+      // ego to the expanded cluster. This is intentionally derived from existing geometry and is
+      // not a tunable parameter.
+      entry_scales.push_back(
+        parameters_.detection_lookahead_m / parameters_.pre_apex_distances_m[0]);
+      std::size_t side_candidate_count = 0U;
+      std::size_t side_feasible_count = 0U;
+      for (int target_index = 0; target_index < sample_count; ++target_index) {
+        const double ratio = sample_count == 1 ? 0.0 :
+          static_cast<double>(target_index) / static_cast<double>(sample_count - 1);
+        const double target_d = minimum_target + ratio * (maximum_target - minimum_target);
+        for (const double entry_fraction : entry_scales) {
+          for (const double exit_scale : parameters_.transition_distance_scales) {
+            Candidate candidate = buildCandidate(
+              ego, visible, go_left, entry_fraction, exit_scale, outside_is_left,
+              cluster_start, cluster_end, target_d);
+            candidate.audit_index = candidates.size();
+            side_reason = candidate.reason;
+            ++side_candidate_count;
+            if (candidate.valid) {
+              ++side_feasible_count;
+            }
+            candidates.push_back(std::move(candidate));
           }
-        } else if (left.valid) {
-          selected = std::move(left);
-        } else if (right.valid) {
-          selected = std::move(right);
         }
+      }
+      if (side_feasible_count == 0U) {
+        side_reason = std::to_string(side_candidate_count) +
+          " generated candidates rejected; last: " + side_reason;
+      } else {
+        side_reason = std::to_string(side_feasible_count) + "/" +
+          std::to_string(side_candidate_count) + " generated candidates feasible";
       }
     };
 
-  run_selection(visible, cluster);
+  if (!preferred_left.has_value()) {
+    evaluate_side(true);
+    evaluate_side(false);
+  } else {
+    evaluate_side(preferred_left.value());
+    if (allow_side_switch) {
+      evaluate_side(!preferred_left.value());
+    }
+  }
 
-  if (!selected.valid) {
+  std::vector<std::size_t> feasible_order;
+  feasible_order.reserve(candidates.size());
+  for (std::size_t index = 0; index < candidates.size(); ++index) {
+    if (candidates[index].valid) {
+      feasible_order.push_back(index);
+    }
+  }
+  const auto better_candidate = [&](std::size_t first_index, std::size_t second_index) {
+      const auto & first = candidates[first_index];
+      const auto & second = candidates[second_index];
+      const double slack_delta =
+        first.minimum_normalized_safety_slack - second.minimum_normalized_safety_slack;
+      if (std::abs(slack_delta) > kEpsilon) {
+        return slack_delta > 0.0;
+      }
+      const double speed_loss_delta = first.velocity_loss - second.velocity_loss;
+      if (std::abs(speed_loss_delta) > kEpsilon) {
+        return speed_loss_delta < 0.0;
+      }
+      const double deviation_delta =
+        first.global_path_deviation_m - second.global_path_deviation_m;
+      if (std::abs(deviation_delta) > kEpsilon) {
+        return deviation_delta < 0.0;
+      }
+      // Exact remaining ties use generation order only. This adds no optimization weight and
+      // guarantees deterministic selection for symmetric geometry.
+      return first.audit_index < second.audit_index;
+    };
+  std::stable_sort(feasible_order.begin(), feasible_order.end(), better_candidate);
+
+  std::vector<int> ranks(candidates.size(), -1);
+  for (std::size_t rank = 0; rank < feasible_order.size(); ++rank) {
+    ranks[feasible_order[rank]] = static_cast<int>(rank + 1U);
+  }
+  const std::size_t selected_index = feasible_order.empty() ?
+    std::numeric_limits<std::size_t>::max() : feasible_order.front();
+  const auto build_audits = [&]() {
+      std::vector<SplineCandidateAudit> audits;
+      audits.reserve(candidates.size());
+      for (std::size_t index = 0; index < candidates.size(); ++index) {
+        const auto & candidate = candidates[index];
+        SplineCandidateAudit audit;
+        audit.generation_index = candidate.audit_index;
+        audit.feasible = candidate.valid;
+        audit.selected = index == selected_index;
+        audit.go_left = candidate.go_left;
+        audit.final_rank = ranks[index];
+        audit.target_d = candidate.target_d;
+        audit.entry_fraction = candidate.entry_transition_scale;
+        audit.exit_transition_scale = candidate.effective_exit_transition_scale;
+        audit.requested_entry_length_m = candidate.requested_entry_length_m;
+        audit.effective_entry_length_m = candidate.effective_entry_length_m;
+        audit.exit_length_m = candidate.exit_length_m;
+        audit.centerline_wall_clearance_m = candidate.centerline_wall_clearance_m;
+        audit.rectangular_footprint_wall_clearance_m =
+          candidate.rectangular_footprint_wall_clearance_m;
+        audit.footprint_invalid = candidate.footprint_invalid;
+        audit.footprint_violation_side = candidate.footprint_violation_side;
+        audit.footprint_violation_waypoint_index =
+          candidate.footprint_violation_waypoint_index ==
+          std::numeric_limits<std::size_t>::max() ?
+          -1 : static_cast<std::int64_t>(candidate.footprint_violation_waypoint_index);
+        audit.footprint_violation_s_m = candidate.footprint_violation_s_m;
+        audit.footprint_violation_x_m = candidate.footprint_violation_x_m;
+        audit.footprint_violation_y_m = candidate.footprint_violation_y_m;
+        audit.footprint_violation_yaw_rad = candidate.footprint_violation_yaw_rad;
+        audit.footprint_heading_relative_to_reference_rad =
+          candidate.footprint_heading_relative_to_reference_rad;
+        audit.wallward_corner_protrusion_m = candidate.wallward_corner_protrusion_m;
+        audit.wall_clearance_m = candidate.wall_clearance_m;
+        audit.obstacle_clearance_m = candidate.obstacle_clearance_m;
+        audit.peak_curvature_radpm = candidate.peak_curvature_radpm;
+        audit.peak_curvature_rate_radpm2 = candidate.peak_curvature_rate_radpm2;
+        audit.velocity_loss = candidate.velocity_loss;
+        audit.global_path_deviation_m = candidate.global_path_deviation_m;
+        audit.minimum_normalized_safety_slack =
+          candidate.minimum_normalized_safety_slack;
+        audit.rejection_reason = candidate.valid ? std::string() : candidate.reason;
+        audits.push_back(std::move(audit));
+      }
+      return audits;
+    };
+
+  if (selected_index == std::numeric_limits<std::size_t>::max()) {
+    // Both spline sides failed. If every cluster member blocks the line only through the
+    // inflated tracking/uncertainty margin, the line itself is physically drivable: degrade to
+    // a capped-speed lane hold instead of braking (2026-08-12 21:11 run: an off-line hairpin
+    // obstacle escalated to a zero-speed hold on every lap through this branch).
+    if (!clusterPhysicallyBlocksRaceline(cluster)) {
+      auto slow_pass = buildMarginSlowPass(ego, cluster);
+      if (slow_pass.kind == SplinePlanKind::kAvoidance) {
+        slow_pass.reason += "; left: " + left_reason + "; right: " + right_reason;
+        slow_pass.candidate_audits = build_audits();
+        return slow_pass;
+      }
+    }
     auto safe_stop = buildSafeStop(ego, visible, cluster.front());
     safe_stop.obstacle_ids.reserve(cluster.size());
     for (const auto & obstacle : cluster) {
       safe_stop.obstacle_ids.push_back(obstacle.id);
     }
-    const std::string left_reason = left_evaluated ?
-      left.reason : "not evaluated: side locked by active commitment";
-    const std::string right_reason = right_evaluated ?
-      right.reason : "not evaluated: side locked by active commitment";
     safe_stop.reason =
       left_evaluated && right_evaluated ?
       "both spline sides rejected; braking before the static obstacle" :
       "committed side rejected; alternate side locked after lateral engagement; braking before "
       "the static obstacle";
     safe_stop.reason += "; left: " + left_reason + "; right: " + right_reason;
+    safe_stop.candidate_audits = build_audits();
     return safe_stop;
   }
+  Candidate selected = std::move(candidates[selected_index]);
   result.kind = SplinePlanKind::kAvoidance;
   result.path = std::move(selected.path);
   result.go_left = selected.go_left;
   result.target_d = selected.target_d;
   result.merge_s = selected.merge_s;
+  result.entry_transition_scale = selected.entry_transition_scale;
+  result.exit_transition_scale = selected.exit_transition_scale;
+  result.effective_entry_transition_scale = selected.effective_entry_transition_scale;
+  result.effective_exit_transition_scale = selected.effective_exit_transition_scale;
+  result.requested_entry_length_m = selected.requested_entry_length_m;
+  result.effective_entry_length_m = selected.effective_entry_length_m;
+  result.exit_length_m = selected.exit_length_m;
   result.obstacle_id = cluster.front().id;
   result.obstacle_ids.reserve(cluster.size());
   for (const auto & obstacle : cluster) {
     result.obstacle_ids.push_back(obstacle.id);
   }
   result.control_points = std::move(selected.control_points);
-  result.reason = "global race-line waypoints shifted by a local quintic d-offset";
+  result.candidate_audits = build_audits();
+  result.reason =
+    "selected maximum normalized safety-slack candidate from " +
+    std::to_string(feasible_order.size()) + "/" + std::to_string(candidates.size()) +
+    " feasible/generated local quintic paths";
   return result;
 }
 

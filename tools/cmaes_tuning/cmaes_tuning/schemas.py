@@ -66,6 +66,7 @@ class SpawnPose:
 class ScenarioManifest:
     schema: str
     scenario_id: str
+    dataset_split: str
     seed: int
     category: str
     lateral_band: str
@@ -87,6 +88,10 @@ class ScenarioManifest:
     waypoint_sha256: str
     simulator_config: str
     simulator_config_sha256: str
+    simulator_collision_source: str
+    simulator_collision_source_sha256: str
+    simulator_collision_model: dict[str, Any]
+    baked_obstacle_raster: dict[str, Any]
     vehicle_length_m: float
     vehicle_width_m: float
     map_resolution_m: float

@@ -3,7 +3,10 @@
 #include <memory>
 #include <vector>
 #include <algorithm>
+#include <cstdint>
+#include <iomanip>
 #include <limits>
+#include <sstream>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -20,12 +23,23 @@
 #include "f1tenth_control/imu_stability_controller.hpp"
 #include "f1tenth_control/steering_lookup_table.hpp"
 #include "f110_msgs/msg/wpnt_array.hpp"
+#include "f110_msgs/msg/state_machine.hpp"
 
 #include "ament_index_cpp/get_package_share_directory.hpp"
 
 using namespace f1tenth_control;
 
 namespace {
+
+std::int64_t steady_now_ns() {
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+std::int64_t stamp_ns(const builtin_interfaces::msg::Time& stamp) {
+    return static_cast<std::int64_t>(stamp.sec) * 1000000000LL +
+           static_cast<std::int64_t>(stamp.nanosec);
+}
 
 // 조향각 물리 한계 [rad] — 좌우 한계 파라미터의 기본값(대칭 하드웨어 기준).
 // ⚠️ 실차는 서보 트림이 기계 중심에서 밀려 좌 0.41 / 우 0.379로 비대칭이다. 이 값은 젯슨
@@ -300,6 +314,13 @@ public:
 
         // 경로 소스 중재
         local_fresh_timeout_ = declare_parameter<double>("local_fresh_timeout", 0.3);
+        timing_diagnostics_enable_ =
+            declare_parameter<bool>("timing_diagnostics_enable", false);
+        timing_diagnostics_topic_ = declare_parameter<std::string>(
+            "timing_diagnostics_topic", "/cma_timing/events");
+        lockstep_mode_ = declare_parameter<bool>("lockstep_mode", false);
+        lockstep_period_sec_ = std::max(
+            1.0e-6, declare_parameter<double>("lockstep_period_sec", 0.01));
 
         acc_now_ = std::vector<double>(10, 0.0);
 
@@ -333,6 +354,11 @@ public:
         local_path_sub_ = this->create_subscription<f110_msgs::msg::WpntArray>(
             "/local_waypoints", rclcpp::QoS(rclcpp::KeepLast(1)).reliable(),
             std::bind(&ControlMapNode::local_path_callback, this, std::placeholders::_1));
+        if (timing_diagnostics_enable_) {
+            timing_state_sub_ = this->create_subscription<f110_msgs::msg::StateMachine>(
+                "/state", rclcpp::QoS(1).reliable().transient_local(),
+                std::bind(&ControlMapNode::timing_state_callback, this, std::placeholders::_1));
+        }
         local_last_recv_time_ = this->now();  // 노드 클럭 타입으로 초기화(clock mismatch 방지)
 
         stability_controller_ = std::make_unique<StabilityController>(0.2);  // alpha_yaw_rate
@@ -358,15 +384,42 @@ public:
             "/drive_autonomous", 10);
         l1_marker_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(
             "/debug/l1_lookahead", 10);
+        if (timing_diagnostics_enable_) {
+            timing_diagnostics_pub_ = this->create_publisher<std_msgs::msg::String>(
+                timing_diagnostics_topic_, rclcpp::QoS(100).reliable());
+        }
 
-        control_timer_ = this->create_wall_timer(
-            std::chrono::milliseconds(20), std::bind(&ControlMapNode::control_loop, this));
+        if (!lockstep_mode_) {
+            control_timer_ = this->create_wall_timer(
+                std::chrono::milliseconds(20), std::bind(&ControlMapNode::control_loop, this));
+        }
 
         last_time_ = this->now();
         RCLCPP_INFO(this->get_logger(), "RoboRacer L1 Guidance & Steer LUT 제어 노드가 시작되었습니다.");
     }
 
 private:
+    void timing_state_callback(const f110_msgs::msg::StateMachine::ConstSharedPtr msg) {
+        timing_latest_state_ = msg->state;
+        timing_latest_state_stamp_ns_ = stamp_ns(msg->header.stamp);
+    }
+
+    void publish_timing_event(const std::string& event, std::int64_t steady_time_ns,
+                              const std::string& fields) {
+        if (!timing_diagnostics_enable_ || timing_diagnostics_pub_ == nullptr) return;
+        std_msgs::msg::String message;
+        std::ostringstream json;
+        json << "{\"schema\":\"cma_timing_event/1\","
+             << "\"event\":\"" << event << "\","
+             << "\"node\":\"control_map_node\","
+             << "\"steady_time_ns\":" << steady_time_ns << ','
+             << "\"ros_time_ns\":" << event_now().nanoseconds();
+        if (!fields.empty()) json << ',' << fields;
+        json << '}';
+        message.data = json.str();
+        timing_diagnostics_pub_->publish(message);
+    }
+
     void odom_callback(const nav_msgs::msg::Odometry::ConstSharedPtr msg) {
         // 웨이포인트와 pose가 같은 프레임에서 직접 뺄셈되므로 L1 마커도 이 프레임에 그린다.
         if (!msg->header.frame_id.empty()) odom_frame_ = msg->header.frame_id;
@@ -392,12 +445,21 @@ private:
         current_yaw_ = yaw;
         current_speed_ = v;
         odom_seen_ = true;
+        if (lockstep_mode_) {
+            lockstep_odom_stamp_ns_ = stamp_ns(msg->header.stamp);
+            // sim_imu_bridge_node와 동일한 odom angular.z 값을 같은 snapshot에서 즉시 적용한다.
+            if (use_imu_) {
+                stability_controller_->update_yaw_rate(
+                    msg->twist.twist.angular.z * imu_angular_scale_);
+            }
+            try_run_lockstep_cycle();
+        }
     }
 
     void imu_callback(const sensor_msgs::msg::Imu::ConstSharedPtr msg) {
         // use_imu=false는 "IMU를 신뢰하지 않는다"는 뜻이므로 파생값을 전부 쓰지 않는다.
         // acc_now_는 0 초기화 상태로 남아 acc_mean=0 → 스케일러 중립(1.0)으로 안전히 떨어진다.
-        if (!use_imu_) return;
+        if (!use_imu_ || lockstep_mode_) return;
 
         // ⚠️ VESC 자이로는 deg/s로 발행한다(2026-07-19 실차 확인). 보정 안 하면 실측 요레이트가
         //    57.3배가 되어 카운터스티어가 즉시 반대로 포화한다.
@@ -501,8 +563,18 @@ private:
         if (msg->wpnts.empty()) {
             local_waypoints_.clear();   // 빈 로컬 → 다음 사이클에 글로벌로 폴백
             local_is_closed_ = false;
+            timing_local_path_is_avoidance_ = false;
+            if (lockstep_mode_) {
+                lockstep_path_stamp_ns_ = stamp_ns(msg->header.stamp);
+                try_run_lockstep_cycle();
+            }
             return;
         }
+        ++timing_local_path_receive_sequence_;
+        timing_local_path_stamp_ns_ = stamp_ns(msg->header.stamp);
+        timing_local_path_is_avoidance_ = timing_diagnostics_enable_ &&
+            timing_latest_state_ == f110_msgs::msg::StateMachine::STATE_AVOID &&
+            timing_local_path_stamp_ns_ >= timing_latest_state_stamp_ns_;
         const size_t prev_size = local_waypoints_.size();
         local_waypoints_.clear();
         local_waypoints_.reserve(msg->wpnts.size());
@@ -547,7 +619,26 @@ private:
                         local_is_closed_ ? "닫힌 루프(wrap 적용)" : "열린 구간", n);
             last_logged_local_closed_ = local_is_closed_;
         }
-        local_last_recv_time_ = this->now();
+        local_last_recv_time_ = lockstep_mode_ ? rclcpp::Time(msg->header.stamp) : this->now();
+        if (lockstep_mode_) {
+            lockstep_path_stamp_ns_ = stamp_ns(msg->header.stamp);
+            try_run_lockstep_cycle();
+        }
+    }
+
+    rclcpp::Time event_now() const {
+        return lockstep_mode_ ? lockstep_event_time_ : this->now();
+    }
+
+    void try_run_lockstep_cycle() {
+        if (!lockstep_mode_ || lockstep_path_stamp_ns_ <= 0 ||
+            lockstep_path_stamp_ns_ != lockstep_odom_stamp_ns_ ||
+            lockstep_path_stamp_ns_ <= lockstep_last_processed_stamp_ns_) {
+            return;
+        }
+        lockstep_last_processed_stamp_ns_ = lockstep_path_stamp_ns_;
+        lockstep_event_time_ = rclcpp::Time(lockstep_path_stamp_ns_, RCL_ROS_TIME);
+        control_loop();
     }
 
     // 경로를 모를 때의 안전 정지. 발행을 멈추지 않고 명시적 0을 보내는 이유는, 침묵하면
@@ -585,17 +676,36 @@ private:
 
     void publish_drive(double steering_angle, double speed, double accel) {
         auto msg = ackermann_msgs::msg::AckermannDriveStamped();
-        msg.header.stamp = this->now();
+        msg.header.stamp = event_now();
         msg.header.frame_id = "base_link";
         msg.drive.steering_angle = steering_angle;
         msg.drive.speed = speed;
         msg.drive.acceleration = accel;
+        const std::int64_t publish_steady_ns = steady_now_ns();
         drive_pub_->publish(msg);
+        if (timing_t5_pending_) {
+            publish_timing_event("T5_CONTROL_CONSUME", timing_t5_steady_ns_, timing_t5_fields_);
+            std::ostringstream fields;
+            fields << std::setprecision(17)
+                   << "\"control_cycle_sequence\":" << timing_control_cycle_sequence_
+                   << ",\"path_stamp_ns\":" << timing_local_path_stamp_ns_
+                   << ",\"drive_stamp_ns\":" << stamp_ns(msg.header.stamp)
+                   << ",\"steering_angle_rad\":" << steering_angle
+                   << ",\"command_speed_mps\":" << speed
+                   << ",\"command_acceleration_mps2\":" << accel
+                   << ",\"ego_x\":" << current_x_
+                   << ",\"ego_y\":" << current_y_
+                   << ",\"speed_mps\":" << current_speed_;
+            publish_timing_event("T6_DRIVE_AUTONOMOUS", publish_steady_ns, fields.str());
+            timing_t5_pending_ = false;
+            timing_t5_published_ = true;
+        }
     }
 
     void control_loop() {
-        rclcpp::Time current_time = this->now();
-        double dt = (current_time - last_time_).seconds();
+        ++timing_control_cycle_sequence_;
+        rclcpp::Time current_time = event_now();
+        double dt = lockstep_mode_ ? lockstep_period_sec_ : (current_time - last_time_).seconds();
         // ⚠️ dt는 **위아래 둘 다** 묶어야 한다. dt는 속도 램프 증분(base_max_*·dt), 런치 킥
         //    타이머, 발행 가속도(Δv/dt)에 전부 곱해지는데 wall_timer는 실시간 보장이 없다.
         //    젯슨에서 로깅/wifi/MCL 부하로 한 사이클이 0.2s 밀리면 램프가 한 스텝에
@@ -631,6 +741,24 @@ private:
         // 사전감속 창이 붕괴했다.
         const bool following_local = local_fresh;
         const bool path_closed = local_fresh ? local_is_closed_ : true;
+
+        if (timing_diagnostics_enable_ && !timing_t5_published_ && !timing_t5_pending_ &&
+            following_local && timing_local_path_is_avoidance_)
+        {
+            timing_t5_steady_ns_ = steady_now_ns();
+            std::ostringstream fields;
+            fields << std::setprecision(17)
+                   << "\"control_cycle_sequence\":" << timing_control_cycle_sequence_
+                   << ",\"local_path_receive_sequence\":"
+                   << timing_local_path_receive_sequence_
+                   << ",\"path_stamp_ns\":" << timing_local_path_stamp_ns_
+                   << ",\"state_stamp_ns\":" << timing_latest_state_stamp_ns_
+                   << ",\"ego_x\":" << current_x_
+                   << ",\"ego_y\":" << current_y_
+                   << ",\"speed_mps\":" << current_speed_;
+            timing_t5_fields_ = fields.str();
+            timing_t5_pending_ = true;
+        }
 
         // 1. 최근접 웨이포인트 인덱스
         const size_t n = wps.size();
@@ -747,7 +875,7 @@ private:
                                     [](size_t, double) { return true; });
 
         const double L1_x = wps[idx_a].x, L1_y = wps[idx_a].y;
-        publish_l1_marker(L1_x, L1_y);   // 표시 전용
+        if (!lockstep_mode_) publish_l1_marker(L1_x, L1_y);   // 표시 전용
 
         // 3. sin(eta) — 차량 헤딩과 L1 목표점 사이의 횡방향 성분
         double L1_vector_x = L1_x - current_x_;
@@ -1035,7 +1163,7 @@ private:
     // 그린다. 제어 경로와 완전 분리된 표시 전용.
     void publish_l1_marker(double L1_x, double L1_y) {
         visualization_msgs::msg::MarkerArray arr;
-        auto stamp = this->now();
+        auto stamp = event_now();
 
         visualization_msgs::msg::Marker sphere;
         sphere.header.frame_id = odom_frame_;
@@ -1177,6 +1305,24 @@ private:
     bool local_is_closed_ = false, last_logged_local_closed_ = false;
     rclcpp::Time local_last_recv_time_;
     double local_fresh_timeout_ = 0.3;
+    bool timing_diagnostics_enable_ = false;
+    std::string timing_diagnostics_topic_ = "/cma_timing/events";
+    uint8_t timing_latest_state_ = f110_msgs::msg::StateMachine::STATE_GLOBAL;
+    std::int64_t timing_latest_state_stamp_ns_ = 0;
+    std::int64_t timing_local_path_stamp_ns_ = 0;
+    std::uint64_t timing_local_path_receive_sequence_ = 0;
+    std::uint64_t timing_control_cycle_sequence_ = 0;
+    bool timing_local_path_is_avoidance_ = false;
+    bool timing_t5_pending_ = false;
+    bool timing_t5_published_ = false;
+    std::int64_t timing_t5_steady_ns_ = 0;
+    std::string timing_t5_fields_;
+    bool lockstep_mode_ = false;
+    double lockstep_period_sec_ = 0.01;
+    std::int64_t lockstep_odom_stamp_ns_ = 0;
+    std::int64_t lockstep_path_stamp_ns_ = 0;
+    std::int64_t lockstep_last_processed_stamp_ns_ = 0;
+    rclcpp::Time lockstep_event_time_{0, 0, RCL_ROS_TIME};
     // 자율 체결 게이트 (bumpless transfer)
     bool engage_gate_enable_ = true;
     std::string drive_mode_topic_ = "/drive_mode", engaged_mode_value_ = "autonomous";
@@ -1194,8 +1340,10 @@ private:
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr drive_mode_sub_;
     rclcpp::Subscription<f110_msgs::msg::WpntArray>::SharedPtr global_path_sub_;
     rclcpp::Subscription<f110_msgs::msg::WpntArray>::SharedPtr local_path_sub_;
+    rclcpp::Subscription<f110_msgs::msg::StateMachine>::SharedPtr timing_state_sub_;
     rclcpp::Publisher<ackermann_msgs::msg::AckermannDriveStamped>::SharedPtr drive_pub_;
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr l1_marker_pub_;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr timing_diagnostics_pub_;
     rclcpp::TimerBase::SharedPtr control_timer_;
 };
 

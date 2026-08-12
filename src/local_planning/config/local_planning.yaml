@@ -12,31 +12,52 @@ local_planner_node:
     #                              + LUT(|speed|, |curvature|)
     #   현재 균일 LUT 기준        = 0.1435 + 0.0147893 + 0.140 = 0.2982893 m
     #
-    # vehicle_half_width_m는 실차 폭 0.287 m의 반폭이며 마진이 아닙니다. safety_margin_m는
+    # vehicle_length_m/vehicle_half_width_m는 evaluator와 동일한 0.56 x 0.287 m,
+    # base_link 중심 직사각형 물리 footprint이며 마진이 아닙니다. safety_margin_m는
     # 물리 안전 여유입니다. tracking_error_reserve_m는 LUT가 비어 있을 때만 쓰는 fallback이며,
     # 정상 운용은 아래 속도 x 절대곡률 LUT를 bilinear interpolation해서 사용합니다. 현재 LUT는
     # 장애물 clearance 동작을 보존하기 위해 모든 셀을 0.14 m로 초기화했습니다.
     #   1. 장애물 좌/우 경계에서 회피 목표 d까지의 거리
     #   2. 글로벌 d=0을 막는 장애물인지 판단하는 거리
     #   3. commitment 경로를 raw 장애물과 즉시 충돌 검사할 때의 거리
-    # global waypoint의 d_left/d_right는 차량 반폭과 waypoint 생성기 벽 마진이 이미 반영된
-    # 차량 중심 가용 한계입니다. 벽 검사에서는 wall_safety_margin_m=0.04 m만 차감하며
-    # tracking-error LUT, 차량 폭, 장애물 물리 마진은 다시 포함하지 않습니다.
+    # global waypoint의 d_left/d_right는 reference에서 물리 track boundary까지의 거리입니다.
+    # 벽 hard validation은 회전된 차량 rectangle 전체와 wall_safety_margin_m=0.04 m를 검사하며,
+    # tracking-error LUT와 obstacle margin은 이 물리 track-bound 검사에 섞지 않습니다.
     # wall_safety_margin_m는 CMA-ES 검증값 0.0369943 m를 운영값 0.04 m로 올림했습니다.
+    vehicle_length_m: 0.56
     vehicle_half_width_m: 0.1435
     safety_margin_m: 0.014789254299520768
     tracking_error_reserve_m: 0.140
     # values는 speed-major row-major입니다. 즉 한 speed 행마다 curvature bin 5개가 연속됩니다.
-    # 측정 시 2D Pose 변경·경로 handoff·정지 구간을 제외하고 실제 선택 경로 대비 횡오차의
-    # 보수적 percentile로 각 셀을 교체합니다. 범위 밖 입력은 가장 가까운 끝 셀로 clamp합니다.
+    # 범위 밖 입력은 가장 가까운 끝 셀로 clamp합니다.
+    #
+    # 아래 값은 tools/cmaes_tuning/tracking_error_lut_from_traces.py가 장애물 없는 주행 구간
+    # 924 샘플(ifac_track, gym_bridge + MCL)에서 셀별 최대 |lat_err|를 뽑아 안전계수 1.25를
+    # 곱한 결과입니다. 장애물이 없으면 발행 경로 = 글로벌 라인이므로 lat_err가 곧 추종오차이며,
+    # 회피 중 의도적 횡이동이 섞이지 않도록 장애물 s +-3 m 구간은 제외했습니다.
+    #
+    # 이전에는 25칸이 모두 0.14였습니다. 그 상수는 코너에서 실측(최대 0.233)보다 작아
+    # 실제로는 마진을 넘어 지나가고 있었고, 저속 직선에서는 실측(0.073)보다 커서 통과 가능한
+    # 간격을 막고 있었습니다. 2D로 채우면 양쪽이 동시에 해결됩니다.
+    #
+    # 레이스라인이 실제로 방문하는 칸은 v>=3.0의 6칸뿐이라 저속 행은 출발 가속·감속 구간에서만
+    # 표본이 나옵니다. 표본이 없는 칸은 단조성(속도·곡률 증가 시 비감소)을 지키도록 채웠으며,
+    # gap 기반 속도 상한이 이 표를 bisection으로 역산하므로 단조성은 필수입니다.
+    #
+    # 실차 갱신 절차: Q1/Q3 연습 랩은 규정상 장애물이 없으므로 그 trace를 그대로 위 스크립트에
+    # 넣으면 고속 6칸이 갱신됩니다. 저속 행은 레이싱으로는 채워지지 않으므로 저속 2랩이 필요합니다.
+    # 2026-08-12 갱신: 클린 맵에서 속도 상한 1.6/2.0/2.5/2.9 + race 프로파일 2랩(총 6랩,
+    # 5360 표본)으로 전 셀을 실측했습니다. 이전 표의 저속·고곡률 칸(0.295)은 표본이 없어
+    # 고속 셀에서 단조 확장으로 채운 비관값이었고, 실측은 0.188~0.223입니다. 저속 직선은
+    # 반대로 이전(0.095)보다 커서(실측 max 0.136) 과소 예약이었습니다.
     tracking_error_lut_speed_bins_mps: [0.0, 1.5, 3.0, 4.5, 6.5]
     tracking_error_lut_curvature_bins_radpm: [0.0, 0.2, 0.5, 0.9, 1.316266519079011]
     tracking_error_lut_values_m: [
-      0.14, 0.14, 0.14, 0.14, 0.14,
-      0.14, 0.14, 0.14, 0.14, 0.14,
-      0.14, 0.14, 0.14, 0.14, 0.14,
-      0.14, 0.14, 0.14, 0.14, 0.14,
-      0.14, 0.14, 0.14, 0.14, 0.14
+      0.115, 0.115, 0.115, 0.125, 0.125,
+      0.175, 0.245, 0.280, 0.280, 0.280,
+      0.175, 0.245, 0.280, 0.280, 0.280,
+      0.185, 0.245, 0.280, 0.280, 0.280,
+      0.185, 0.245, 0.280, 0.280, 0.280
     ]
     # upstream/jazzy_main의 offline_trajectory_generator/config/velocity_limits.csv
     # (commit 3d5fb38)에서 speed와 max_lateral_accel 열을 옮긴 표입니다. 회피 spline의
@@ -45,21 +66,51 @@ local_planner_node:
     # 횡가속 한계는 속도가 증가할 때 커질 수 없습니다.
     avoidance_velocity_limit_speed_bins_mps: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]
     avoidance_velocity_limit_lateral_accel_mps2: [7.0, 7.0, 7.0, 7.0, 7.0, 7.0, 6.5, 6.5, 6.5, 6.5]
+    # 위 횡가속 한계는 곡률이 있을 때만 걸립니다. 직선에 놓인 장애물은 레이스라인 속도 그대로
+    # 계획되어 LUT에서 가장 큰 추종오차를 예약하고, 그 때문에 지나갈 수 있는 간격이 막힙니다.
+    # 그래서 곡률이 아니라 "간격"을 기준으로 한 번 더 제한합니다: 경로와 장애물 면 사이에 남은
+    # 횡여유 안에 LUT 예약이 들어갈 때까지만 감속합니다. 장애물 s 구간을 지나지 않는 waypoint는
+    # 감속하지 않으므로 Q1/Q3(장애물 없음)와 넓은 간격의 회피는 속도 손실이 없습니다.
+    # 이 하한 아래로는 기어가지 않고 candidate를 infeasible로 두어 safe-stop이 판단하게 합니다.
+    # 2.0인 이유: 규정 최소 간격(자유 폭 0.5 m)에서 통과에 필요한 예약이 0.10882 m인데,
+    # 2.5 m/s의 직선 예약은 0.11833 m로 9.5 mm 부족합니다. 2.0 m/s 예약은 0.10667 m로
+    # 안전계수 1.25를 유지한 채 들어갑니다. 이 하한은 좁은 간격을 실제로 지나는 waypoint에만
+    # 걸리므로 랩타임 영향은 해당 구간에 국한됩니다.
+    avoidance_minimum_speed_mps: 2.0
+    # margin-only 클러스터(원본 상자 + 물리 클리어런스 0.158 m가 d=0에 닿지 않음, 예:
+    # 헤어핀 라인 밖 장애물)는 라인 자체가 물리적으로 주행 가능하므로 회피 실패 시
+    # 정지/zero-hold 대신 이 속도 상한으로 라인을 그대로 통과합니다. 0이면 비활성
+    # (기존 safe-stop 에스컬레이션으로 복귀). 2026-08-12 21:11 run의 헤어핀 랩당
+    # 완전정지 5회가 이 경로의 도입 이유입니다.
+    margin_pass_speed_cap_mps: 2.0
     wall_safety_margin_m: 0.04
     fallback_track_half_width_m: 1.50
 
     # 진입/복귀 quintic 프로파일의 [먼 점, 중간 점, 가까운 점]과
-    # [가까운 점, 중간 점, 먼 점] 표본 거리입니다. 먼 점은 각 프로파일의 전체 길이이고,
-    # 중간/가까운 점의 d는 quintic 진행률로 점진적으로 계산되어 RViz 제어점에 표시됩니다.
+    # [가까운 점, 중간 점, 먼 점] 표본 거리입니다. 진입 nominal 길이는 ego에서 cluster까지
+    # 실제 가용 거리에 pre_apex_far/detection_lookahead 비율로 적용하여 요청값이 바뀔 때
+    # 실제 형상도 항상 바뀝니다.
+    # entry fraction과 exit scale은 서로 독립이며, 중간/가까운 점은 실제 길이에 비례합니다.
     # 아래 값은 변경된 동일 장애물 배치에서 1.5 m/s CMA-ES 후 3회 연속 무충돌 완주한 후보입니다.
     pre_apex_distances_m: [9.669467393145736, 6.44631159543049, 3.223155797715245]
     post_apex_distances_m: [1.7024448509442465, 3.404889701888493, 5.107334552832739]
-    # 진입은 큰 scale부터 검사해 접근 여유를 사용하고, 복귀는 작은 scale부터 검사해 빠르게
-    # 다음 maneuver를 준비합니다. 짧은 복귀가 기하 검사를 실패할 때만 복귀 scale을 늘립니다.
+    # 장애물 뒤 exit 구간의 절대 길이 상한 [m]. 기본 0(비활성): exit를 자르면 경로가 일찍
+    # 레이스라인으로 복귀하는데, 몇 m 뒤에 다음 장애물이 있으면 detector가 그걸 드러내는
+    # 순간 잘린 exit가 그 inflated box를 관통해 커밋이 무효화되고, 그 거리에선 fresh 재계획도
+    # 불가능합니다 (2026-08-12 회귀: 장애물 간격 3.6 m에서 재현). 긴 exit는 연쇄 장애물을
+    # offset 유지로 넘겨주는 역할을 하며, 합류 지연은 completion 시 글로벌 handoff 루프로
+    # 해결합니다. 단일 장애물만 확실한 환경에서만 5.0 등으로 켤 것.
+    maximum_exit_length_m: 0.0
+    # 세 entry fraction과 아래 세 exit scale의 모든 조합을 생성합니다. 첫 valid 후보를
+    # 반환하지 않고 hard constraint 통과 후보를 normalized safety slack으로 순위화합니다.
+    entry_transition_fractions: [0.50, 0.75, 1.00]
+    # 기존 이름을 호환성 때문에 유지하지만 이 값은 이제 exit에만 사용합니다.
     transition_distance_scales: [0.2740569240066383, 0.6991537701867223, 3.5816012944405027]
-    # 위 transition distance에 곱하는 배율입니다. 1보다 작으면 바깥쪽 회피 전환을 짧게,
-    # 1보다 크면 길게 만듭니다. 현재 0.1은 선택된 진입/복귀 길이의 10%를 사용합니다.
-    outside_line_transition_scale: 0.1
+    # 바깥쪽 회피의 exit에만 곱합니다. entry와 exit 의미를 다시 결합하지 않습니다.
+    # 0.1(구 CMA 산출값)은 outside 라인 exit 길이를 ×0.1로 줄여 long-scale 프로브 하나를
+    # 제외한 모든 outside exit이 곡률 검증(3.2 rad/m)을 통과할 수 없는 죽은 값이었습니다.
+    # v2 파라미터 공간 하한 0.35에 맞춰 baseline을 0.5로 올렸습니다 (validate_baseline 계약).
+    outside_line_transition_scale: 0.5
     # d=0 합류점 뒤 글로벌 점을 덧붙여 controller와 state machine이 handoff를 완료할 시간을 줍니다.
     # 실제 tail은 max(post_merge_lookahead_m, 계획 시 ego_speed * post_merge_min_time_sec)입니다.
     post_merge_lookahead_m: 5.0
@@ -68,8 +119,10 @@ local_planner_node:
     # 않게 하는 경로 형상 제한입니다. 장애물 안전 마진에 더하는 값은 아닙니다.
     minimum_target_offset_m: 0.15
     maximum_target_offset_m: 1.50
-    # 좌우 후보 점수 차가 이 값 이하면 트랙 폭 여유(headroom)가 큰 쪽을 고릅니다.
-    # reference 폭은 측정 jitter가 없어 정중앙 동점에서도 측면이 프레임마다 뒤집히지 않습니다.
+    # obstacle-clearance 최소 target과 track-bound 최대 target 사이의 균등 표본 수입니다.
+    target_d_candidate_count: 5
+    # 이전 단일 후보 score 방식과의 설정 호환용입니다. 새 max-min safety-slack 순위에는
+    # 가중치나 좌우 score epsilon을 적용하지 않습니다.
     side_tie_epsilon_m: 0.02
 
     # 이동된 글로벌 점의 기하학적 주행 가능성 검사입니다.
@@ -100,7 +153,8 @@ local_planner_node:
     merge_lateral_tolerance_m: 0.15
     # planning_period_ms=25이므로 15회는 0.375초입니다.
     merge_confirm_cycles: 15
-    # safe-stop 진입은 즉시 수행하고, 8회(0.2초) 연속 안전할 때만 해제합니다.
+    # safe-stop 진입은 즉시 수행합니다. 이 8회는 동일 obstacle의 selectable hard-valid avoidance
+    # 또는 정지 후 explicit corridor-clear 관측의 보조 debounce이며, empty array는 집계하지 않습니다.
     safe_stop_release_cycles: 8
     planning_period_ms: 25
     # 기하 합류 후 전체 global loop를 회전해 발행합니다. state_machine은 ot_line의
@@ -139,3 +193,21 @@ local_planner_node:
     ot_waypoints_topic: "/avoid_waypoints"
     local_path_topic: "/local_planning/path"
     frame_id: "map"
+
+    # CMA timing audit companion events. Disabled in normal runtime and does not alter planning.
+    timing_diagnostics_enable: false
+    timing_diagnostics_topic: "/cma_timing/events"
+    # Deterministic record/replay audit companion stream. Disabled in production; it only reports
+    # already-made stabilization/commitment decisions.
+    replay_diagnostics_enable: false
+    replay_diagnostics_topic: "/cma_replay/planner_events"
+    # CMA 전용 exact-stamp obstacle/Frenet/state event mode.
+    lockstep_mode: false
+
+    # Production P3/M1 integration mode. TEST_ACTIVE(P3 주도 + P0 백업)가 기본 주행 모드입니다
+    # (2026-08-12). OFF bypasses the P3 evaluator/lifecycle entirely. SHADOW evaluates the same
+    # callback snapshot but only publishes the separate diagnostic stream. TEST_ACTIVE may publish
+    # an exact-hard-valid P3/M1 path or current-hard-valid committed suffix; the unchanged P0 path
+    # remains BACKUP_ONLY.
+    p3_mode: "TEST_ACTIVE"
+    p3_diagnostics_topic: "/local_planning/p3_shadow"

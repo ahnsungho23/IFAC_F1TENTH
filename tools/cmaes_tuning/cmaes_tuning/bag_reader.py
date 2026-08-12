@@ -23,7 +23,11 @@ class BagData:
         return self.records.get(name, [])
 
 
-def read_bag(uri: str | Path, topics: Iterable[str] | None = None) -> BagData:
+def read_bag(
+    uri: str | Path,
+    topics: Iterable[str] | None = None,
+    optional_topics: Iterable[str] = (),
+) -> BagData:
     try:
         import rosbag2_py
         from rclpy.serialization import deserialize_message
@@ -45,7 +49,8 @@ def read_bag(uri: str | Path, topics: Iterable[str] | None = None) -> BagData:
     topic_types = {
         metadata.name: metadata.type for metadata in reader.get_all_topics_and_types()
     }
-    unknown = set() if selected is None else selected - set(topic_types)
+    optional = set(optional_topics)
+    unknown = set() if selected is None else selected - set(topic_types) - optional
     if unknown:
         raise ValueError(f"required bag topics are absent: {sorted(unknown)}")
     message_classes = {

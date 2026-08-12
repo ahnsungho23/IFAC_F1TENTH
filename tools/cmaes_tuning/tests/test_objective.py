@@ -13,7 +13,10 @@ CONFIG = yaml.safe_load(
 )
 
 
-def episode(*, collision=False, off_track=False, planner_failure=False, worst=False):
+def episode(
+    *, collision=False, off_track=False, invalid_suffix=False, safe_stop=False,
+    p0_fallback=False, planner_failure=False, worst=False,
+):
     value = 1.0 if worst else 0.0
     metrics = {
         "completed": not (collision or off_track or planner_failure),
@@ -30,6 +33,9 @@ def episode(*, collision=False, off_track=False, planner_failure=False, worst=Fa
         "failure": {
             "collision": collision,
             "off_track": off_track,
+            "invalid_suffix": invalid_suffix,
+            "safe_stop": safe_stop,
+            "p0_fallback": p0_fallback,
             "planner_failure": planner_failure,
         },
         "metrics": metrics,
@@ -55,6 +61,12 @@ class ObjectiveTest(unittest.TestCase):
         invalid["valid"] = False
         with self.assertRaises(ValueError):
             candidate_fitness([invalid], CONFIG)
+
+    def test_every_p3_fail_closed_signal_is_a_hard_penalty(self):
+        for name in ("invalid_suffix", "safe_stop", "p0_fallback"):
+            with self.subTest(name=name):
+                result = candidate_fitness([episode(**{name: True})], CONFIG)
+                self.assertEqual(result["failure_count"], 1)
 
 
 if __name__ == "__main__":

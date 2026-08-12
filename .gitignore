@@ -12,3 +12,6 @@ __pycache__/
 
 # Matplotlib font cache
 .matplotlib/
+
+# Persistent but machine-local CMA experiment artifacts (bags, maps, logs)
+runs/cmaes_tuning/

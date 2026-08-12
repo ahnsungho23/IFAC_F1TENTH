@@ -1,0 +1,32 @@
+{
+  "scan_beams": 1080,
+  "scan_fov_rad": 4.7,
+  "angle_min_rad": -2.3499999046325684,
+  "angle_increment_rad": 0.004351851996034384,
+  "core": [
+    {
+      "source_stamp_ns": 11250000000,
+      "yaw_rad": -2.8035062170907326,
+      "lidar_origin_x_m": -17.835803624895362,
+      "lidar_origin_y_m": 5.396855496129498,
+      "beam_index": 829,
+      "range_m": 6.192256450653076
+    },
+    {
+      "source_stamp_ns": 11270000000,
+      "yaw_rad": -2.7846255814227105,
+      "lidar_origin_x_m": -17.85577949770964,
+      "lidar_origin_y_m": 5.381691241032332,
+      "beam_index": 824,
+      "range_m": 4.415170192718506
+    },
+    {
+      "source_stamp_ns": 11270000000,
+      "yaw_rad": -2.7846255814227105,
+      "lidar_origin_x_m": -17.85577949770964,
+      "lidar_origin_y_m": 5.381691241032332,
+      "beam_index": 826,
+      "range_m": 4.411739826202393
+    }
+  ]
+}

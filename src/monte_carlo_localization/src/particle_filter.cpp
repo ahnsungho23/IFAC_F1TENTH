@@ -314,20 +314,46 @@ void ParticleFilter::get_omap()
 {
     RCLCPP_INFO(this->get_logger(), "Requesting map from map server...");
 
-    while (!map_client_->wait_for_service(std::chrono::seconds(1)))
+    nav_msgs::msg::OccupancyGrid received_map;
+    bool map_valid = false;
+    while (rclcpp::ok() && !map_valid)
     {
-        if (!rclcpp::ok())
+        while (!map_client_->wait_for_service(std::chrono::seconds(1)))
+        {
+            if (!rclcpp::ok())
+                return;
+            RCLCPP_INFO(this->get_logger(), "Get map service not available, waiting...");
+        }
+
+        auto request = std::make_shared<nav_msgs::srv::GetMap::Request>();
+        auto future = map_client_->async_send_request(request);
+
+        if (rclcpp::spin_until_future_complete(this->get_node_base_interface(), future) !=
+            rclcpp::FutureReturnCode::SUCCESS)
+        {
+            RCLCPP_ERROR(this->get_logger(), "Failed to get map from map server");
             return;
-        RCLCPP_INFO(this->get_logger(), "Get map service not available, waiting...");
+        }
+
+        received_map = future.get()->map;
+        // A lifecycle map_server that has not reached ACTIVE yet answers GetMap with a
+        // default-constructed empty map (resolution 0, no cells). Initializing from it poisons
+        // every downstream computation and aborts later on an Eigen assertion, so treat an
+        // empty answer as "server not ready yet" and ask again.
+        map_valid = received_map.info.resolution > 0.0F &&
+            received_map.info.width > 0U && received_map.info.height > 0U &&
+            received_map.data.size() ==
+            static_cast<std::size_t>(received_map.info.width) * received_map.info.height;
+        if (!map_valid)
+        {
+            RCLCPP_WARN(this->get_logger(),
+                "Map server answered with an empty map (lifecycle not ACTIVE yet?); retrying...");
+            rclcpp::sleep_for(std::chrono::seconds(1));
+        }
     }
-
-    auto request = std::make_shared<nav_msgs::srv::GetMap::Request>();
-    auto future = map_client_->async_send_request(request);
-
-    if (rclcpp::spin_until_future_complete(this->get_node_base_interface(), future) ==
-        rclcpp::FutureReturnCode::SUCCESS)
+    if (map_valid)
     {
-        map_msg_ = std::make_shared<nav_msgs::msg::OccupancyGrid>(future.get()->map);
+        map_msg_ = std::make_shared<nav_msgs::msg::OccupancyGrid>(received_map);
         map_resolution_ = map_msg_->info.resolution;
         map_origin_ = Eigen::Vector3d(map_msg_->info.origin.position.x, map_msg_->info.origin.position.y,
                                       utils::geometry::quaternion_to_yaw(map_msg_->info.origin.orientation));
@@ -361,10 +387,6 @@ void ParticleFilter::get_omap()
 
         // Generate sensor model lookup table
         precompute_sensor_model();
-    }
-    else
-    {
-        RCLCPP_ERROR(this->get_logger(), "Failed to get map from map server");
     }
 }
 

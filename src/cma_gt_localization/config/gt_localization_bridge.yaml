@@ -1,0 +1,14 @@
+gt_localization_bridge:
+  ros__parameters:
+    input_topic: /ego_racecar/odom
+    output_topic: /pf/pose/odom
+    expected_input_frame: map
+    expected_input_child_frame: ego_racecar/base_link
+    output_frame: map
+    output_child_frame: ego_racecar/base_link
+    reject_frame_mismatch: true
+    # Match particle_filter_cpp /pf/pose/odom: only twist.linear.x is populated.
+    twist_mode: mcl_compatible
+    qos_depth: 10
+    use_sim_time: false
+

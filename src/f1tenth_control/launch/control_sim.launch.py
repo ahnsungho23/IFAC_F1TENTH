@@ -4,6 +4,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from launch import LaunchDescription
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 import _control_common as common
@@ -77,6 +78,11 @@ def generate_launch_description():
         executable='drive_source_selector',
         name='drive_source_selector',
         output='screen',
+        parameters=[{
+            'timing_diagnostics_enable': ParameterValue(
+                LaunchConfiguration('timing_diagnostics_enable'), value_type=bool),
+            'timing_diagnostics_topic': LaunchConfiguration('timing_diagnostics_topic'),
+        }],
     )
 
     return LaunchDescription([

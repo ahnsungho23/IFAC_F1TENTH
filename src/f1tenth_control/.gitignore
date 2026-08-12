@@ -31,9 +31,9 @@ __pycache__/
 *~
 *.swp
 
-# User documentation (exclude from git)
-docs/
-
+# Keep local user notes ignored while tracking the package's node contract.
+docs/*
+!docs/cma_timing_diagnostics.md
 
 # IntelliSense용 생성물 (2026_IFAC 빌드에서 경로 재작성, .vscode 태스크로 갱신)
 compile_commands.json

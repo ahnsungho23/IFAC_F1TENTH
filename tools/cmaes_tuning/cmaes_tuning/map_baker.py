@@ -7,6 +7,7 @@ import math
 from pathlib import Path
 from typing import Iterable
 
+import numpy as np
 from PIL import Image, ImageDraw
 import yaml
 
@@ -109,12 +110,14 @@ class MapModel:
         output_directory: str | Path,
         stem: str,
         obstacles: Iterable[ObstacleSpec],
-    ) -> dict[str, str]:
+    ) -> dict[str, object]:
         destination = Path(output_directory)
         destination.mkdir(parents=True, exist_ok=True)
         image_path = destination / f"{stem}.png"
         yaml_path = destination / f"{stem}.yaml"
-        self.bake(obstacles).save(image_path)
+        obstacle_list = list(obstacles)
+        baked_image = self.bake(obstacle_list)
+        baked_image.save(image_path)
         metadata = dict(self.metadata)
         metadata["image"] = image_path.name
         with yaml_path.open("w", encoding="utf-8") as stream:
@@ -122,12 +125,46 @@ class MapModel:
         combined = hashlib.sha256()
         combined.update(bytes.fromhex(sha256_file(yaml_path)))
         combined.update(bytes.fromhex(sha256_file(image_path)))
+        changed = np.asarray(baked_image) != np.asarray(self.image)
+        simulator_rows, simulator_columns = np.nonzero(np.flipud(changed))
+        if simulator_rows.size:
+            raster_geometry: dict[str, object] = {
+                "changed_cell_count": int(simulator_rows.size),
+                "column_index_min": int(np.min(simulator_columns)),
+                "column_index_max": int(np.max(simulator_columns)),
+                "row_index_min_after_vertical_flip": int(np.min(simulator_rows)),
+                "row_index_max_after_vertical_flip": int(np.max(simulator_rows)),
+                "world_half_open_bounds_m": {
+                    "x_min": self.origin_x
+                    + int(np.min(simulator_columns)) * self.resolution,
+                    "x_max": self.origin_x
+                    + (int(np.max(simulator_columns)) + 1) * self.resolution,
+                    "y_min": self.origin_y
+                    + int(np.min(simulator_rows)) * self.resolution,
+                    "y_max": self.origin_y
+                    + (int(np.max(simulator_rows)) + 1) * self.resolution,
+                },
+                "pixel_convention": (
+                    "PIL polygon raster; simulator vertical flip; floor lookup into "
+                    "half-open resolution-sized cells"
+                ),
+            }
+        else:
+            raster_geometry = {
+                "changed_cell_count": 0,
+                "world_half_open_bounds_m": None,
+                "pixel_convention": (
+                    "PIL polygon raster; simulator vertical flip; floor lookup into "
+                    "half-open resolution-sized cells"
+                ),
+            }
         return {
             "yaml": str(yaml_path.resolve()),
             "image": str(image_path.resolve()),
             "yaml_sha256": sha256_file(yaml_path),
             "image_sha256": sha256_file(image_path),
             "combined_sha256": combined.hexdigest(),
+            "raster_geometry": raster_geometry,
         }
 
     def clean_hash(self) -> str:

@@ -33,6 +33,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
@@ -42,6 +43,7 @@
 #include <nav_msgs/msg/occupancy_grid.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <sensor_msgs/msg/laser_scan.hpp>
+#include <std_msgs/msg/string.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 
 #include <tf2_ros/buffer.h>
@@ -110,6 +112,7 @@ class ObstacleDetectorNode : public rclcpp::Node
     void globalWpntsCallback(const f110_msgs::msg::WpntArray::SharedPtr msg);
     void mapCallback(const nav_msgs::msg::OccupancyGrid::SharedPtr msg);
     void egoOdomCallback(const nav_msgs::msg::Odometry::SharedPtr msg);
+    void applyEgoOdometry(const nav_msgs::msg::Odometry & msg);
 
     // ---- pipeline helpers ----
     bool lookupScanToMap(const std_msgs::msg::Header &scan_header, double &tx, double &ty,
@@ -134,6 +137,12 @@ class ObstacleDetectorNode : public rclcpp::Node
     void updateDiagnostics(const ScanProcessingStats &scan_stats,
                            const TrackerUpdateStats *tracker_stats,
                            double measurement_yaw_rate, bool yaw_rate_fresh);
+    void publishReplayDiagnostics(
+        const std_msgs::msg::Header &scan_header,
+        const std::vector<Detection> &detections,
+        const std::vector<MergedObstacle> &static_objects,
+        const std::vector<MergedObstacle> &confirmed_static_objects,
+        double measurement_yaw_rate, bool yaw_rate_fresh);
     void logMotionDebug();
 
     void declareParameters();
@@ -186,8 +195,15 @@ class ObstacleDetectorNode : public rclcpp::Node
     bool publish_markers_;
     bool diagnostics_enable_;
     double diagnostics_period_sec_;
+    // Withhold prediction-only static tracks. The tracker may retain them for ID continuity, but
+    // they are not authoritative current obstacle geometry for local planning.
+    bool static_publish_requires_visible_{true};
     bool motion_debug_enable_;
     double motion_debug_period_sec_;
+    bool replay_diagnostics_enable_;
+    std::string replay_diagnostics_topic_;
+    bool lockstep_mode_{false};
+    double lockstep_scan_offset_x_m_{0.275};
 
     TrackerParams tracker_params_;
 
@@ -204,8 +220,21 @@ class ObstacleDetectorNode : public rclcpp::Node
     nav_msgs::msg::OccupancyGrid::SharedPtr map_msg_;
     double ego_s_{-1.0};   // ego arc-length; < 0 disables the ahead-preference until first proj
     double ego_s_stamp_{-1.0};  // odometry stamp of the last ego_s_ update (freshness check)
+    global_planning::ClcsContinuityState ego_continuity_;
     double odom_yaw_rate_{0.0};
     double odom_motion_stamp_{-1.0};
+    // Ego longitudinal-acceleration transient tracking (odometry twist finite difference,
+    // exponentially smoothed). While |accel| exceeds the suppress threshold, dynamic motion
+    // votes in the tracker are withheld for dynamic_vote_suppress_hold_sec after the spike.
+    double dynamic_vote_ego_accel_suppress_mps2_{2.0};
+    double dynamic_vote_suppress_hold_sec_{0.5};
+    double ego_accel_smoothing_sec_{0.15};
+    double ego_last_speed_{std::numeric_limits<double>::quiet_NaN()};
+    double ego_last_speed_stamp_{-1.0};
+    double ego_accel_smoothed_{0.0};
+    double ego_motion_transient_until_{-1.0};
+    nav_msgs::msg::Odometry::SharedPtr lockstep_odom_msg_;
+    sensor_msgs::msg::LaserScan::SharedPtr lockstep_pending_scan_;
     ScanProcessingStats diagnostics_scan_totals_;
     TrackerUpdateStats diagnostics_tracker_event_totals_;
     std::chrono::steady_clock::time_point diagnostics_window_start_;
@@ -223,6 +252,7 @@ class ObstacleDetectorNode : public rclcpp::Node
     rclcpp::Publisher<f110_msgs::msg::ObstacleArray>::SharedPtr opp_obs_pub_;     // Layer 3
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr static_markers_pub_;
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr opp_markers_pub_;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr replay_diagnostics_pub_;
 
     std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
     std::shared_ptr<tf2_ros::TransformListener> tf_listener_;

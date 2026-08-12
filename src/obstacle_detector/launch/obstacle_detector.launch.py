@@ -46,6 +46,24 @@ def generate_launch_description():
         default_value='',
         description='Optional obstacle-free map YAML for the Layer-1 filter',
     )
+    replay_diagnostics_enable_arg = DeclareLaunchArgument(
+        'replay_diagnostics_enable',
+        default_value='false',
+        description='Publish tuning-only per-scan record/replay diagnostics',
+    )
+    replay_diagnostics_topic_arg = DeclareLaunchArgument(
+        'replay_diagnostics_topic',
+        default_value='/cma_replay/detector_events',
+        description='Record/replay detector companion-event topic',
+    )
+    lockstep_mode_arg = DeclareLaunchArgument(
+        'lockstep_mode', default_value='false',
+        description='CMA-only exact-stamp odom/scan event mode',
+    )
+    lockstep_scan_offset_arg = DeclareLaunchArgument(
+        'lockstep_scan_offset_x_m', default_value='0.275',
+        description='CMA lockstep LiDAR x offset from base_link [m]',
+    )
     rviz_arg = DeclareLaunchArgument(
         'rviz',
         default_value='false',
@@ -66,6 +84,12 @@ def generate_launch_description():
             'config_file': LaunchConfiguration('config_file'),
             'use_sim_time': LaunchConfiguration('use_sim_time'),
             'detector_map_yaml': LaunchConfiguration('detector_map_yaml'),
+            'replay_diagnostics_enable': LaunchConfiguration(
+                'replay_diagnostics_enable'),
+            'replay_diagnostics_topic': LaunchConfiguration(
+                'replay_diagnostics_topic'),
+            'lockstep_mode': LaunchConfiguration('lockstep_mode'),
+            'lockstep_scan_offset_x_m': LaunchConfiguration('lockstep_scan_offset_x_m'),
         }.items(),
     )
 
@@ -84,6 +108,10 @@ def generate_launch_description():
         config_arg,
         use_sim_time_arg,
         detector_map_arg,
+        replay_diagnostics_enable_arg,
+        replay_diagnostics_topic_arg,
+        lockstep_mode_arg,
+        lockstep_scan_offset_arg,
         rviz_arg,
         rviz_config_arg,
         detector,

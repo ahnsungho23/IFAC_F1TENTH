@@ -89,6 +89,11 @@ struct TrackerParams
     // track lifetime
     int ttl_dynamic{40};
     int ttl_static{25};
+    // A confirmed STATIC track is a map-fixed object: after losing sight (occlusion, FOV,
+    // brake-pitch dropouts) keep it alive and publishable for this long, measured on scan
+    // stamps, instead of letting the frame TTL retire it in ~0.1 s. 0 disables the hold and
+    // restores pure frame-TTL retirement.
+    double static_lost_hold_sec{5.0};
     int min_hits_confirm{3};       // required measurement votes inside confirmation_window
     int confirmation_window{5};    // existence confirmation only; independent of motion
     // Map-frame statistical motion classification.
@@ -107,6 +112,15 @@ struct TrackerParams
     double covariance_regularization_epsilon{1.0e-6};
     double minimum_velocity_covariance{1.0e-5};
     double static_score_forgetting_factor{0.95};
+    // Progressive LiDAR revelation grows a stationary obstacle's measured AABB, which moves its
+    // centroid and drives the map-frame Kalman velocity away from zero even though nothing moved.
+    // Corroborate every Dynamic vote with translation the AABB edges actually prove: a box has
+    // provably translated only where both of its edges on an axis moved the same way, so growth or
+    // shrink alone proves nothing. Without that corroboration the vote is Uncertain, never Dynamic.
+    bool translation_corroboration_enable{true};
+    double translation_window_sec{0.20};
+    int translation_history_max_samples{64};
+    double dynamic_min_translation_m{0.10};
     double dt_max{0.5};           // [s] clamp for prediction step
     // Per-scan AABB extents flap (square box vs real shape). Smooth their magnitude
     // fast-grow/slow-shrink: expand immediately, relax over ~1/alpha matched frames.
@@ -136,6 +150,11 @@ VelocityEvidenceResult evaluateVelocityEvidence(
 const char *trackStatusName(TrackStatus status);
 const char *motionStatusName(MotionStatus status);
 
+// Signed translation one axis of an AABB provably underwent. Both edges must move the same way;
+// when only one edge moves, the box grew or shrank in place and no translation is proven.
+double anchoredAxisTranslation(
+    double previous_min, double previous_max, double current_min, double current_max);
+
 struct PhysicalIdentityAnchor
 {
     bool valid{false};
@@ -148,6 +167,16 @@ struct PhysicalIdentityAnchor
     double x_max_map{0.0};
     double y_min_map{0.0};
     double y_max_map{0.0};
+};
+
+// One measured map-frame AABB retained inside the translation-corroboration window.
+struct MeasuredAabbSample
+{
+    double stamp{0.0};
+    double x_min{0.0};
+    double x_max{0.0};
+    double y_min{0.0};
+    double y_max{0.0};
 };
 
 struct Track
@@ -176,6 +205,12 @@ struct Track
     double map_position_rms{std::numeric_limits<double>::quiet_NaN()};
     double velocity_statistic{std::numeric_limits<double>::quiet_NaN()};
     bool velocity_covariance_valid{false};
+    // Measured map-frame AABBs inside translation_window_sec, and the largest translation any pair
+    // of them proves. A stationary obstacle being revealed holds this near zero while its centroid
+    // travels several centimetres.
+    std::deque<MeasuredAabbSample> measured_aabb_history;
+    double provable_translation_m{std::numeric_limits<double>::quiet_NaN()};
+    bool dynamic_evidence_suppressed{false};
     double static_confidence{0.0};
     double time_since_last_measurement{0.0};
     // Raw Frenet centre and timestamp from the most recently associated detection. Unlike x,
@@ -237,6 +272,7 @@ struct TrackerUpdateStats
     std::size_t motion_dynamic{0};
     std::size_t invalid_velocity_covariance{0};
     std::size_t predicted_only{0};
+    std::size_t translation_suppressed_dynamic_votes{0};
 };
 
 class ObstacleTracker
@@ -251,8 +287,12 @@ class ObstacleTracker
     void clear();
 
     // Predict all tracks to `stamp`, associate detections, update, spawn/retire, classify.
+    // `ego_motion_transient` marks frames where ego acceleration is transient (hard braking or
+    // launch): localization jitter then mimics obstacle translation, so dynamic votes are
+    // withheld while it is set.
     void update(const std::vector<Detection> &detections, double stamp,
-                double ego_yaw_rate = 0.0, bool yaw_rate_fresh = true);
+                double ego_yaw_rate = 0.0, bool yaw_rate_fresh = true,
+                bool ego_motion_transient = false);
 
     const std::vector<Track> &tracks() const { return tracks_; }
     const TrackerUpdateStats &lastStats() const { return last_stats_; }
@@ -276,6 +316,8 @@ class ObstacleTracker
     bool mapKalmanUpdate(Track &t, const Detection &detection) const;
     double smoothExtent(double previous, double current) const;
     void updateTrackStatus(Track &t, bool measurement_received) const;
+    void updateTranslationEvidence(
+        Track &t, const Detection &detection, double stamp) const;
     void classify(Track &t, bool measurement_received) const;
     int countEvidence(
         const std::deque<MotionEvidence> &history,
@@ -303,6 +345,7 @@ class ObstacleTracker
     int next_physical_id_{0};
     double last_stamp_{-1.0};
     bool has_last_stamp_{false};
+    bool ego_motion_transient_{false};
     TrackerUpdateStats last_stats_;
 };
 

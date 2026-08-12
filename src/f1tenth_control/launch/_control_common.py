@@ -25,6 +25,22 @@ IMU_LINEAR_SCALE_SIM  = 1.0          # sim_imu_bridge_node는 0 고정
 def declare_common_args():
     """두 런치파일에서 동일하게 쓰는 인자 선언 목록."""
     return [
+        DeclareLaunchArgument(
+            'timing_diagnostics_enable', default_value='false',
+            description='Publish tuning-only monotonic control-chain timing events'
+        ),
+        DeclareLaunchArgument(
+            'timing_diagnostics_topic', default_value='/cma_timing/events',
+            description='Companion timing-event topic'
+        ),
+        DeclareLaunchArgument(
+            'lockstep_mode', default_value='false',
+            description='CMA-only exact-stamp odom/path event mode'
+        ),
+        DeclareLaunchArgument(
+            'lockstep_period_sec', default_value='0.01',
+            description='CMA lockstep logical controller period [s]'
+        ),
         # ⚠️ force_autonomous·speed_to_erpm_gain 인자는 teleop 제거(2026-07-29)와 함께 폐지됐다 —
         #    유일한 소비처가 joy_teleop_monitor였다. 시뮬은 drive_source_selector가 자율 명령을
         #    /drive로 직결하므로 기동 즉시 자율주행이다.
@@ -377,6 +393,12 @@ def build_control_map_node(*, odom_topic, max_speed, max_lateral_accel, base_max
             'speed_lookahead': LaunchConfiguration('speed_lookahead'),
             'speed_lookahead_for_steering': LaunchConfiguration('speed_lookahead_for_steering'),
             'local_fresh_timeout': LaunchConfiguration('local_fresh_timeout'),
+            'timing_diagnostics_enable': ParameterValue(
+                LaunchConfiguration('timing_diagnostics_enable'), value_type=bool),
+            'timing_diagnostics_topic': LaunchConfiguration('timing_diagnostics_topic'),
+            'lockstep_mode': ParameterValue(
+                LaunchConfiguration('lockstep_mode'), value_type=bool),
+            'lockstep_period_sec': LaunchConfiguration('lockstep_period_sec'),
         }]
     )
 

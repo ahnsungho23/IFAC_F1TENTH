@@ -81,6 +81,7 @@ add_executable(drive_source_selector control_code/drive_source_selector.cpp)
 target_link_libraries(drive_source_selector
   rclcpp::rclcpp
   ${ackermann_msgs_TARGETS}
+  ${std_msgs_TARGETS}
 )
 
 # ==============================================================================
@@ -109,6 +110,10 @@ install(TARGETS
 )
 
 install(DIRECTORY launch
+  DESTINATION share/${PROJECT_NAME}
+)
+
+install(DIRECTORY docs
   DESTINATION share/${PROJECT_NAME}
 )
 

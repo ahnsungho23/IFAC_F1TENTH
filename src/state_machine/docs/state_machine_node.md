@@ -53,6 +53,7 @@ GLOBAL 출력은 Frenet odometry의 `child_frame_id`를 최근접 글로벌 segm
 | 발행 | `/state` | `f110_msgs/msg/StateMachine` | Reliable + Transient Local, FSM 상태 |
 | 발행 | `/local_waypoints` | `f110_msgs/msg/WpntArray` | Reliable + Volatile, 제어 입력 경로 |
 | 발행 | `/local_waypoints/path` | `nav_msgs/msg/Path` | Reliable + Volatile, RViz 시각화 |
+| 발행(진단) | `/cma_timing/events` | `std_msgs/msg/String` | default-off, T2/T3/T4 monotonic event |
 
 상태 값은 `GLOBAL=0`, `AVOID=1`, `OVERTAKE=2`입니다.
 
@@ -73,9 +74,39 @@ GLOBAL 출력은 Frenet odometry의 `child_frame_id`를 최근접 글로벌 segm
 | `frenet_stale_timeout_sec` | `0.5` | 모든 local 출력의 Frenet freshness 제한 |
 | `invalid_local_path_policy` | `global_fallback` | local 전용 경로 무효 시 정책 |
 | `enter_global_*` | YAML 참고 | local 경로 tail에서 GLOBAL 복귀 조건 |
+| `timing_diagnostics_enable` | `false` | tuning-only T2/T3/T4 companion event 활성화 |
+| `timing_diagnostics_topic` | `/cma_timing/events` | 진단 event 토픽 |
+| `tuning_publish_rate_hz_override` | `-1.0` | 진단 활성 시에만 FSM 평가 주기 override; 음수이면 미사용 |
+| `lockstep_mode` | `false` | CMA 전용 동일 timestamp Frenet/path event 실행 |
 
 현재 `invalid_local_path_policy`는 `global_fallback`만 지원합니다. 파라미터는 기동 시 한 번
 읽으므로 값을 바꾼 뒤 노드를 재시작해야 합니다.
+
+### 4.1 CMA timing event
+
+진단 모드는 상태 판단 결과를 바꾸지 않는 companion instrumentation입니다.
+
+- T2: `/avoid_waypoints` callback 안에서 최근 N개 중 M개 non-empty 조건이 처음 충족된 순간
+- T3: timer callback에서 실제 committed state가 `GLOBAL`에서 `AVOID`로 바뀐 순간
+- T4: 전환 뒤 Frenet odometry callback이 첫 avoidance `/local_waypoints`를 실제 발행한 순간
+
+각 event에는 `steady_time_ns`, ROS timestamp, ego `s/d`, speed, obstacle ID, path timestamp를
+가능한 범위에서 포함합니다. `tuning_publish_rate_hz_override=100`은 원인 분해 실험에서만
+사용하며 production YAML의 `publish_rate_hz=10`은 변경하지 않습니다.
+
+```bash
+ros2 launch state_machine state_machine.launch.py \
+  timing_diagnostics_enable:=true \
+  tuning_publish_rate_hz_override:=100.0
+```
+
+### 4.2 CMA lockstep 실행
+
+`lockstep_mode=true`이면 10 Hz wall timer를 생성하지 않습니다. 대신 같은 logical timestamp의
+Frenet odom과 `/avoid_waypoints`가 모두 도착할 때마다 FSM을 정확히 한 번 평가하고, 이어서 같은
+timestamp의 `/state`와 `/local_waypoints`를 각각 한 번 발행합니다. M-of-N history 의미는 그대로
+유지됩니다. 이 모드는 CMA coordinator가 step barrier와 함께 사용하며 production 기본값은 계속
+`false`입니다.
 
 ## 5. 빌드와 실행
 
