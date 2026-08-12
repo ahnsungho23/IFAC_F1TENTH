@@ -34,6 +34,16 @@ def declare_common_args(sector_scale_enable_default='false'):
         #    /drive로 직결하므로 기동 즉시 자율주행이다.
         # ❌ 2026-08-06: yaw_rate_gain(요레이트 카운터스티어) 인자 제거 — 아래 "제거된 인자" 참고.
 
+        # ── CMA 락스텝 하니스 (tools/cmaes_tuning — 실주행은 기본 false로 완전 비활성) ──
+        DeclareLaunchArgument(
+            'lockstep_mode', default_value='false',
+            description='CMA 결정론 하니스 전용: wall timer 대신 stamp 일치 시 1사이클 실행'
+        ),
+        DeclareLaunchArgument(
+            'lockstep_period_sec', default_value='0.01',
+            description='락스텝 논리 제어 주기 [s] (dt로 사용)'
+        ),
+
         # ── 조향 스케일러 (가감속/속도 구간별 조향 게인 완화) ──
         DeclareLaunchArgument(
             'acceleration_scaler_for_steering', default_value='1.0',
@@ -398,6 +408,9 @@ def build_control_map_node(*, odom_topic, max_speed, max_lateral_accel, base_max
         parameters=[{
             'odom_topic': odom_topic,
             'wheelbase': 0.33,
+            'lockstep_mode': ParameterValue(
+                LaunchConfiguration('lockstep_mode'), value_type=bool),
+            'lockstep_period_sec': LaunchConfiguration('lockstep_period_sec'),
             'l1_offset': LaunchConfiguration('l1_offset'),
             'l1_speed_gain': LaunchConfiguration('l1_speed_gain'),
             't_clip_min': LaunchConfiguration('t_clip_min'),

@@ -35,6 +35,12 @@ namespace {
 //    vesc_driver가 조용히 자르고 컨트롤러는 "꺾었다"고 착각한다.
 constexpr double MAX_STEERING_ANGLE = 0.41;
 
+// CMA 락스텝 하니스 지원: 입력 stamp를 ns 정수로 — 가상 시간 전파·중복 사이클 게이트에 쓴다.
+std::int64_t stamp_ns(const builtin_interfaces::msg::Time& stamp) {
+    return static_cast<std::int64_t>(stamp.sec) * 1000000000LL +
+           static_cast<std::int64_t>(stamp.nanosec);
+}
+
 // 전 구간 최근접 웨이포인트 스캔. 반환 {최단거리, 인덱스}.
 std::pair<double, size_t> scan_closest(const std::vector<Waypoint>& wps, double x, double y) {
     double min_dist = std::numeric_limits<double>::max();
@@ -516,8 +522,15 @@ public:
         l1_marker_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(
             "/debug/l1_lookahead", 10);
 
-        control_timer_ = this->create_wall_timer(
-            std::chrono::milliseconds(20), std::bind(&ControlMapNode::control_loop, this));
+        // CMA 락스텝 모드: 하니스가 가상 시간으로 스텝시키므로 wall timer를 쓰지 않고,
+        // odom+경로 stamp가 일치하는 순간 try_run_lockstep_cycle()이 제어 루프를 1회 돌린다.
+        lockstep_mode_ = declare_parameter<bool>("lockstep_mode", false);
+        lockstep_period_sec_ = std::max(
+            1.0e-6, declare_parameter<double>("lockstep_period_sec", 0.01));
+        if (!lockstep_mode_) {
+            control_timer_ = this->create_wall_timer(
+                std::chrono::milliseconds(20), std::bind(&ControlMapNode::control_loop, this));
+        }
 
         last_time_ = this->now();
         RCLCPP_INFO(this->get_logger(), "RoboRacer L1 Guidance & Steer LUT 제어 노드가 시작되었습니다.");
@@ -549,12 +562,17 @@ private:
         current_yaw_ = yaw;
         current_speed_ = v;
         odom_seen_ = true;
+        if (lockstep_mode_) {
+            lockstep_odom_stamp_ns_ = stamp_ns(msg->header.stamp);
+            try_run_lockstep_cycle();
+        }
     }
 
     void imu_callback(const sensor_msgs::msg::Imu::ConstSharedPtr msg) {
         // use_imu=false는 "IMU를 신뢰하지 않는다"는 뜻이므로 파생값을 전부 쓰지 않는다.
         // acc_now_는 0 초기화 상태로 남아 acc_mean=0 → 스케일러 중립(1.0)으로 안전히 떨어진다.
-        if (!use_imu_) return;
+        // 락스텝: sim_imu_bridge는 wall-clock 비동기라 결정론을 깨므로 IMU 파생값을 쓰지 않는다.
+        if (!use_imu_ || lockstep_mode_) return;
 
         // 종가속 rolling buffer (조향 가감속 스케일러용).
         // ⚠️ VESC 가속도계는 m/s²가 아니라 g로 발행한다(imu_linear_scale로 환산).
@@ -722,6 +740,10 @@ private:
         if (msg->wpnts.empty()) {
             local_waypoints_.clear();   // 빈 로컬 → 다음 사이클에 글로벌로 폴백
             local_is_closed_ = false;
+            if (lockstep_mode_) {
+                lockstep_path_stamp_ns_ = stamp_ns(msg->header.stamp);
+                try_run_lockstep_cycle();
+            }
             return;
         }
         const size_t prev_size = local_waypoints_.size();
@@ -774,7 +796,29 @@ private:
                         local_is_closed_ ? "닫힌 루프(wrap 적용)" : "열린 구간", n);
             last_logged_local_closed_ = local_is_closed_;
         }
-        local_last_recv_time_ = this->now();
+        // 락스텝에선 신선도 판정도 가상 시간 기준이어야 하므로 수신 시각을 stamp로 잡는다.
+        local_last_recv_time_ = lockstep_mode_ ? rclcpp::Time(msg->header.stamp) : this->now();
+        if (lockstep_mode_) {
+            lockstep_path_stamp_ns_ = stamp_ns(msg->header.stamp);
+            try_run_lockstep_cycle();
+        }
+    }
+
+    // 락스텝이면 하니스가 준 가상 시간, 아니면 노드 클럭.
+    rclcpp::Time event_now() const {
+        return lockstep_mode_ ? lockstep_event_time_ : this->now();
+    }
+
+    // 같은 가상 tick의 odom과 경로가 모두 도착했을 때 정확히 1회 제어 루프를 돌린다.
+    void try_run_lockstep_cycle() {
+        if (!lockstep_mode_ || lockstep_path_stamp_ns_ <= 0 ||
+            lockstep_path_stamp_ns_ != lockstep_odom_stamp_ns_ ||
+            lockstep_path_stamp_ns_ <= lockstep_last_processed_stamp_ns_) {
+            return;
+        }
+        lockstep_last_processed_stamp_ns_ = lockstep_path_stamp_ns_;
+        lockstep_event_time_ = rclcpp::Time(lockstep_path_stamp_ns_, RCL_ROS_TIME);
+        control_loop();
     }
 
     // 경로를 모를 때의 안전 정지. 발행을 멈추지 않고 명시적 0을 보내는 이유는, 침묵하면
@@ -814,7 +858,7 @@ private:
 
     void publish_drive(double steering_angle, double speed, double accel) {
         auto msg = ackermann_msgs::msg::AckermannDriveStamped();
-        msg.header.stamp = this->now();
+        msg.header.stamp = event_now();
         msg.header.frame_id = "base_link";
         msg.drive.steering_angle = steering_angle;
         msg.drive.speed = speed;
@@ -823,8 +867,8 @@ private:
     }
 
     void control_loop() {
-        rclcpp::Time current_time = this->now();
-        double dt = (current_time - last_time_).seconds();
+        rclcpp::Time current_time = event_now();
+        double dt = lockstep_mode_ ? lockstep_period_sec_ : (current_time - last_time_).seconds();
         // ⚠️ dt는 **위아래 둘 다** 묶어야 한다. dt는 속도 램프 증분(base_max_*·dt), 런치 킥
         //    타이머, 발행 가속도(Δv/dt)에 전부 곱해지는데 wall_timer는 실시간 보장이 없다.
         //    젯슨에서 로깅/wifi/MCL 부하로 한 사이클이 0.2s 밀리면 램프가 한 스텝에
@@ -1033,7 +1077,7 @@ private:
                                     [](size_t, double) { return true; });
 
         const double L1_x = wps[idx_a].x, L1_y = wps[idx_a].y;
-        publish_l1_marker(L1_x, L1_y);   // 표시 전용
+        if (!lockstep_mode_) publish_l1_marker(L1_x, L1_y);   // 표시 전용
 
         // ── L1 목표점 점프 검출 (🔵 2026-08-07 신설, **진단 전용 — 주행 개입 없음**) ──
         // 배경: 08-04에 인덱스 점프 가드가 통째로 제거됐고(CLAUDE.md "제거된 안전 레이어"),
@@ -1734,6 +1778,14 @@ private:
     rclcpp::Publisher<ackermann_msgs::msg::AckermannDriveStamped>::SharedPtr drive_pub_;
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr l1_marker_pub_;
     rclcpp::TimerBase::SharedPtr control_timer_;
+
+    // ── CMA 락스텝 하니스 상태 (lockstep_mode=false면 전부 비활성) ──
+    bool lockstep_mode_ = false;
+    double lockstep_period_sec_ = 0.01;
+    std::int64_t lockstep_odom_stamp_ns_ = 0;
+    std::int64_t lockstep_path_stamp_ns_ = 0;
+    std::int64_t lockstep_last_processed_stamp_ns_ = 0;
+    rclcpp::Time lockstep_event_time_{0, 0, RCL_ROS_TIME};
 };
 
 int main(int argc, char* argv[]) {
