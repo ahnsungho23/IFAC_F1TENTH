@@ -41,11 +41,20 @@
   `wall_safety_margin_m`, exactly once. Never add the tracking tube, obstacle margin, simulator TTC
   sweep, scan-noise guard, or another boundary/commitment/fallback margin.
 - P3 lifecycle is continuation-first: an active recorded maneuver is continued (frozen path,
-  revalidated every callback via guard containment + raw fallback + soft-violation confirm
-  cycles) BEFORE any fresh M1 selection, and fresh selection runs only with no active maneuver
-  or in the same callback in which continuation invalidated. Do not restore fresh-first
-  ordering: it re-shapes the published path every callback while the obstacle envelope is
-  still being resolved. On P3 completion, hand back through `activateGlobalHandoff` (the same
+  revalidated every callback via guard containment + raw fallback) BEFORE any fresh M1
+  selection, and fresh selection runs only with no active maneuver or in the same callback in
+  which continuation invalidated. Do not restore fresh-first ordering: it re-shapes the
+  published path every callback while the obstacle envelope is still being resolved.
+- Committed-path retention band (`commitment_retention_reserve_fraction`, default 0.5): when
+  re-validating an ALREADY COMMITTED path (P3 continuation raw fallback, P0 commitment hard
+  check), the tracking-error reserve portion of the obstacle clearance is scaled by this
+  fraction; the physical base clearance is never reduced and fresh planning always validates
+  with the full reserve. A broken uncertainty guard or a full-margin violation inside the
+  retention band holds the frozen geometry indefinitely (the old N-cycle soft-confirmation
+  expiry is removed — it re-planned a nearly identical path on every progressive reveal, the
+  dominant visible churn); invalidation/replacement requires an actual retention-margin
+  violation, a non-obstacle failure, or completion. Do not reinstate the expiry and do not let
+  fresh candidates validate with a scaled reserve. On P3 completion, hand back through `activateGlobalHandoff` (the same
   closed global loop P0 uses) — never a frozen post-obstacle tail, which falls behind the ego
   and starves the FSM merge confirmation. The completion branch must re-register the completed
   maneuver's obstacle ids into `completed_obstacle_ids_` across the `clearCommitment()` wipe

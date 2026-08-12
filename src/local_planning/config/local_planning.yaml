@@ -83,6 +83,12 @@ local_planner_node:
     # (기존 safe-stop 에스컬레이션으로 복귀). 2026-08-12 21:11 run의 헤어핀 랩당
     # 완전정지 5회가 이 경로의 도입 이유입니다.
     margin_pass_speed_cap_mps: 2.0
+    # 커밋 경로 유지(retention) 밴드: 이미 커밋된 경로의 재검증에서만 추적오차 예약을 이
+    # 비율로 줄여 사용합니다(물리 클리어런스 0.158 m는 절대 축소 안 함, 신규 계획은 항상
+    # 전체 예약). 장애물 envelope가 점진 노출로 자라거나 흔들려도 released 밴드 안이면
+    # 커밋 경로를 고정하고, 밴드를 실제로 침범할 때만 재계획합니다. 1.0이면 비활성.
+    # 2026-08-12 22:34 요청("경로가 계속 흔들리네, 조건 걸어 고정") 반영.
+    commitment_retention_reserve_fraction: 0.5
     wall_safety_margin_m: 0.04
     fallback_track_half_width_m: 1.50
 

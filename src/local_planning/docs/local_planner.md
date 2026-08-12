@@ -188,6 +188,22 @@ COMPLETION_HANDOFF ~14초 지속, merge 확인 0회). 이제 P3 완료 시 **P0�
 루프의 tail이 활성화 순간부터 ego 위치에 있으므로 FSM 확인이 수 초 안에 성립하고, 기존
 P0 해제 로직(STATE_GLOBAL 확인 → 커밋 해제 → 빈 경로 발행)이 그대로 마무리합니다.
 
+### 커밋 경로 retention 밴드 (`commitment_retention_reserve_fraction`) — 조건부 고정
+
+"장애물이 (계획 당시의) 마진보다 안쪽으로 들어오지 않는 한 경로를 고정한다"는 요구
+(2026-08-12 22:34, 종방향 연쇄 장애물에서 경로 흔들림)의 구현입니다. **이미 커밋된 경로**를
+재검증할 때만 장애물 클리어런스의 추적오차 예약 부분을 이 비율(기본 0.5)로 줄여 검사합니다.
+물리 클리어런스(0.158 m)는 절대 줄지 않고, 신규 계획·fresh 후보는 항상 전체 예약으로
+검증합니다. 효과는 히스테리시스 밴드입니다:
+
+- envelope가 점진 노출로 자라거나 흔들려도 **released 밴드(예약의 절반) 안이면 커밋 경로
+  유지** — P3 continuation과 P0 commitment 모두.
+- uncertainty guard 위반만으로는 더 이상 재계획하지 않습니다. 이전에는 guard 위반이
+  N사이클(≈0.1~0.3 s) 지속되면 거의 동일한 기하를 다시 만드는 만료 규칙이 있었고, 이것이
+  점진 노출 구간에서 보이는 경로 churn의 주범이었습니다 (만료 제거, 카운터는 진단용 유지).
+- 원본 envelope + 물리 클리어런스 + 유지 예약이 **실제로 침범될 때만** 즉시 무효화→재계획.
+- 1.0이면 밴드가 꺼지고 전체 예약 기준으로 복귀합니다.
+
 **완료 장애물 id 등록(필수 유지)**: P3 완료 분기는 `clearCommitment()`가
 `completed_obstacle_ids_`까지 지우기 때문에, 완료한 maneuver의 장애물 id를 wipe 전에 보관해
 wipe 후 다시 등록합니다(P0 완료 흐름의 `resetForChainedManeuver`와 동일한 의미론). 검출기의
@@ -609,6 +625,8 @@ commitment는 지우지 않으므로 odometry가 회복되면 다시 검증한 �
 - 장애물 clearance: `vehicle_half_width_m + safety_margin_m + LUT(limited_v, |kappa|)`
 - margin-only 감속 통과: `margin_pass_speed_cap_mps` (0=비활성; 물리 판정은
   `vehicle_half_width_m + safety_margin_m`만 사용)
+- 커밋 경로 retention 밴드: `commitment_retention_reserve_fraction` (기본 0.5, 1.0=비활성;
+  커밋 경로 재검증에서만 추적오차 예약을 이 비율로 축소)
 - 트랙 경계 reserve: `wall_safety_margin_m`
 - 트랙 폭 fallback: `fallback_track_half_width_m`
 - spline 제어점: `pre_apex_distances_m`, `post_apex_distances_m`

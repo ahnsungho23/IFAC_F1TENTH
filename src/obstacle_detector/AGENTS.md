@@ -158,6 +158,11 @@ published Frenet bounds instead of reprojecting the Cartesian metadata.
   until downstream uncertainty guards turn a 10 cm sliver into a multi-metre wall (observed in
   the lockstep regression as a 14.1-20.8 m latched danger span from a 17.33-17.43 m obstacle).
   Do not "fix" the freeze back to continuous prediction.
+- **Duplicate-instance guard**: the node monitors `count_publishers(static_obs_topic)` every
+  scan (independent of the diagnostics switch) and logs a throttled ERROR when more than one
+  publisher exists — `local_planning.launch.py` embeds a detector by default, so a standalone
+  launch next to it interleaves two trackers' IDs and stamps on one topic and destabilizes the
+  local planner. Keep this guard; fix the launch configuration, not the log.
 - **Ego-acceleration transient vote hold**: while the smoothed ego longitudinal acceleration
   exceeds `motion_classification.dynamic_vote_ego_accel_suppress_mps2`, dynamic motion votes are
   withheld (evidence downgraded to `Uncertain`), because braking/launch localization jitter

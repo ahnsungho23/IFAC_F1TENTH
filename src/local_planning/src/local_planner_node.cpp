@@ -346,6 +346,8 @@ void LocalPlannerNode::initializeParameters()
     declare_parameter<double>("avoidance_minimum_speed_mps", 2.0);
   planner_parameters_.margin_pass_speed_cap_mps =
     declare_parameter<double>("margin_pass_speed_cap_mps", 2.0);
+  planner_parameters_.commitment_retention_reserve_fraction =
+    declare_parameter<double>("commitment_retention_reserve_fraction", 0.5);
   planner_parameters_.wall_safety_margin_m =
     declare_parameter<double>("wall_safety_margin_m", 0.04);
   planner_parameters_.fallback_track_half_width_m =
@@ -512,6 +514,9 @@ void LocalPlannerNode::initializeParameters()
     planner_parameters_.avoidance_minimum_speed_mps < 0.0 ||
     !std::isfinite(planner_parameters_.margin_pass_speed_cap_mps) ||
     planner_parameters_.margin_pass_speed_cap_mps < 0.0 ||
+    !std::isfinite(planner_parameters_.commitment_retention_reserve_fraction) ||
+    planner_parameters_.commitment_retention_reserve_fraction < 0.0 ||
+    planner_parameters_.commitment_retention_reserve_fraction > 1.0 ||
     !std::isfinite(planner_parameters_.wall_safety_margin_m) ||
     planner_parameters_.wall_safety_margin_m < 0.0 ||
     !std::isfinite(planner_parameters_.maximum_exit_length_m) ||
@@ -2702,11 +2707,18 @@ void LocalPlannerNode::runP0PlanningCycle(const P3CallbackSnapshot * snapshot)
     }
 
     if (commitment_failure.kind == PathValidationFailureKind::kObstacleCollision) {
+      // Retention band (2026-08-12): the hard check validates the committed geometry against
+      // the raw envelopes with only the retained reserve fraction (physical clearance intact).
+      // While it passes, the commitment is held frozen indefinitely — a guard/margin-level
+      // violation alone no longer replaces the path, which re-shaped an almost identical
+      // geometry on every progressive envelope reveal. Replacement requires an actual
+      // retention-margin violation or a non-obstacle failure.
       const auto hard_collision_obstacles = buildCurrentManeuverInput(ego, false);
       PathValidationFailure hard_failure;
       const bool hard_collision_free = planner_.validatePath(
         ego, committed_result_.path, hard_collision_obstacles,
-        nullptr, &hard_failure, collision_horizon);
+        nullptr, &hard_failure, collision_horizon,
+        planner_.commitmentRetentionReserveFraction());
       const bool hard_collision =
         !hard_collision_free &&
         hard_failure.kind == PathValidationFailureKind::kObstacleCollision;
@@ -2715,23 +2727,22 @@ void LocalPlannerNode::runP0PlanningCycle(const P3CallbackSnapshot * snapshot)
         logObstacleCollision("Hard commitment collision; replanning immediately", hard_failure);
       } else {
         ++commitment_soft_violation_count_;
-        if (commitment_soft_violation_count_ == 1 ||
-          commitment_soft_violation_count_ >= commitment_soft_violation_confirm_cycles_)
-        {
+        if (commitment_soft_violation_count_ == 1) {
           logObstacleCollision(
-            commitment_soft_violation_count_ >=
-            commitment_soft_violation_confirm_cycles_ ?
-            "Soft commitment collision confirmed; replanning" :
-            "Soft commitment collision pending",
+            "Soft commitment collision pending; holding the frozen geometry inside the "
+            "retention margin",
             commitment_failure, commitment_soft_violation_count_);
         }
-        if (commitment_soft_violation_count_ <
+        if (commitment_soft_violation_count_ >=
           commitment_soft_violation_confirm_cycles_)
         {
-          publishResult(committed_result_);
-          return;
+          RCLCPP_INFO_THROTTLE(
+            get_logger(), *get_clock(), 2000,
+            "Committed path held by the retention margin; keeping the frozen geometry.");
+          resetCommitmentViolationConfirmation();
         }
-        resetCommitmentViolationConfirmation();
+        publishResult(committed_result_);
+        return;
       }
     } else {
       resetCommitmentViolationConfirmation();

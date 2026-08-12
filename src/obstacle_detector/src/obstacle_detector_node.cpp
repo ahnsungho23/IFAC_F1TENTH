@@ -1160,6 +1160,23 @@ void ObstacleDetectorNode::updateDiagnostics(const ScanProcessingStats &scan_sta
                                              double measurement_yaw_rate,
                                              bool yaw_rate_fresh)
 {
+    // Guard against a second detector instance (e.g. the standalone launch running next to the
+    // copy embedded in local_planning.launch.py). Two publishers interleave independent track
+    // IDs, envelopes, and non-monotonic stamps on the same topic, which invalidates the local
+    // planner's committed paths every few callbacks (2026-08-12 22:34 run: 2079 source-stamp
+    // regressions in 35 s). This check runs regardless of the diagnostics switch.
+    const std::size_t static_obs_publishers = this->count_publishers(static_obs_topic_);
+    if (static_obs_publishers > 1U)
+    {
+        RCLCPP_ERROR_THROTTLE(
+            this->get_logger(), *this->get_clock(), 5000,
+            "%zu publishers detected on %s — another obstacle_detector instance is running "
+            "(local_planning.launch.py already starts one unless "
+            "start_obstacle_detector:=false). Stop one instance: duplicate publishers "
+            "destabilize the local planner.",
+            static_obs_publishers, static_obs_topic_.c_str());
+    }
+
     if (!diagnostics_enable_)
     {
         return;

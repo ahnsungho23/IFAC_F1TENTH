@@ -69,6 +69,12 @@ struct RacelineSplineParameters
   // never reaches d = 0) is physically passable on the line, so avoidance failure degrades to a
   // capped-speed lane hold instead of a safe stop or a zero-speed hold.
   double margin_pass_speed_cap_mps{2.0};
+  // Committed-path retention band: while re-validating an ALREADY COMMITTED path (P3
+  // continuation, P0 commitment hold), the tracking-error reserve portion of the obstacle
+  // clearance is scaled by this fraction, so envelope growth/jitter inside the released band
+  // freezes the path instead of reshaping it every callback. The physical base clearance is
+  // never reduced, and fresh planning always uses the full reserve. 1.0 disables the band.
+  double commitment_retention_reserve_fraction{0.5};
 
   std::vector<double> pre_apex_distances_m{6.0, 4.0, 2.0};
   std::vector<double> post_apex_distances_m{1.0, 2.0, 3.0};
@@ -116,7 +122,8 @@ struct RacelineSplineParameters
   double trackingErrorReserve(double speed_mps, double curvature_radpm) const;
   double avoidanceTrackingErrorReserve(double speed_mps, double curvature_radpm) const;
   double obstacleBaseClearance() const;
-  double obstacleSafetyClearance(double speed_mps, double curvature_radpm) const;
+  double obstacleSafetyClearance(
+    double speed_mps, double curvature_radpm, double reserve_scale = 1.0) const;
   double trackBoundaryReserve(double speed_mps, double curvature_radpm) const;
 };
 
@@ -305,10 +312,14 @@ public:
 
   // Revalidate a committed P3 suffix against the current immutable planning snapshot using the
   // same production hard validator and configured minimum-path contract as fresh P3 candidates.
+  // `obstacle_reserve_scale` scales only the tracking-error reserve portion of the obstacle
+  // clearance (the physical base clearance is never reduced); values < 1 form the committed-path
+  // retention band. Fresh planning must always validate with the default full reserve.
   P3ShadowPathEvaluation evaluateP3PathCurrent(
     const EgoFrenetState & ego,
     const f110_msgs::msg::WpntArray & path,
-    const std::vector<f110_msgs::msg::Obstacle> & obstacles) const;
+    const std::vector<f110_msgs::msg::Obstacle> & obstacles,
+    double obstacle_reserve_scale = 1.0) const;
 
   bool validatePath(
     const EgoFrenetState & ego,
@@ -316,7 +327,13 @@ public:
     const std::vector<f110_msgs::msg::Obstacle> & obstacles,
     std::string * error = nullptr,
     PathValidationFailure * failure = nullptr,
-    const std::optional<double> & maximum_collision_forward_m = std::nullopt) const;
+    const std::optional<double> & maximum_collision_forward_m = std::nullopt,
+    double obstacle_reserve_scale = 1.0) const;
+
+  double commitmentRetentionReserveFraction() const
+  {
+    return parameters_.commitment_retention_reserve_fraction;
+  }
 
   void toCartesian(double s, double d, double & x, double & y, double & yaw) const;
 
@@ -399,7 +416,8 @@ private:
     std::size_t start_index = 0U,
     std::size_t minimum_points = 0U,
     PathValidationFailure * failure = nullptr,
-    const std::optional<double> & maximum_collision_forward_m = std::nullopt) const;
+    const std::optional<double> & maximum_collision_forward_m = std::nullopt,
+    double obstacle_reserve_scale = 1.0) const;
   P3ShadowPlanningContext buildP3ShadowPlanningContext(
     const EgoFrenetState & ego,
     const std::vector<f110_msgs::msg::Obstacle> & obstacles) const;
@@ -410,7 +428,8 @@ private:
   P3ShadowPathEvaluation validateP3ShadowPath(
     const EgoFrenetState & ego,
     const f110_msgs::msg::WpntArray & path,
-    const std::vector<f110_msgs::msg::Obstacle> & obstacles) const;
+    const std::vector<f110_msgs::msg::Obstacle> & obstacles,
+    double obstacle_reserve_scale = 1.0) const;
 
   RacelineSplineParameters parameters_;
   f110_msgs::msg::WpntArray reference_;

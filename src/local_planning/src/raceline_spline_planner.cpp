@@ -378,9 +378,11 @@ double RacelineSplineParameters::obstacleBaseClearance() const
 }
 
 double RacelineSplineParameters::obstacleSafetyClearance(
-  double speed_mps, double curvature_radpm) const
+  double speed_mps, double curvature_radpm, double reserve_scale) const
 {
-  return obstacleBaseClearance() + avoidanceTrackingErrorReserve(speed_mps, curvature_radpm);
+  const double scale = std::clamp(reserve_scale, 0.0, 1.0);
+  return obstacleBaseClearance() +
+         scale * avoidanceTrackingErrorReserve(speed_mps, curvature_radpm);
 }
 
 double RacelineSplineParameters::trackBoundaryReserve(
@@ -905,14 +907,17 @@ void RacelineSplinePlanner::finalizeP3ShadowPath(
 P3ShadowPathEvaluation RacelineSplinePlanner::validateP3ShadowPath(
   const EgoFrenetState & ego,
   const f110_msgs::msg::WpntArray & path,
-  const std::vector<f110_msgs::msg::Obstacle> & obstacles) const
+  const std::vector<f110_msgs::msg::Obstacle> & obstacles,
+  double obstacle_reserve_scale) const
 {
   P3ShadowPathEvaluation result;
   Candidate candidate;
   candidate.path = path;
   const auto visible = expandVisibleObstacles(ego, obstacles);
   measureCandidate(ego, visible, candidate);
-  result.hard_valid = validateCandidate(ego, candidate.path, visible, candidate.reason);
+  result.hard_valid = validateCandidate(
+    ego, candidate.path, visible, candidate.reason, 0U, 0U, nullptr, std::nullopt,
+    obstacle_reserve_scale);
   result.minimum_normalized_safety_slack = candidate.minimum_normalized_safety_slack;
   result.minimum_track_margin_m = candidate.rectangular_footprint_wall_clearance_m;
   result.minimum_obstacle_margin_m = candidate.obstacle_clearance_m;
@@ -927,14 +932,15 @@ P3ShadowPathEvaluation RacelineSplinePlanner::validateP3ShadowPath(
 P3ShadowPathEvaluation RacelineSplinePlanner::evaluateP3PathCurrent(
   const EgoFrenetState & ego,
   const f110_msgs::msg::WpntArray & path,
-  const std::vector<f110_msgs::msg::Obstacle> & obstacles) const
+  const std::vector<f110_msgs::msg::Obstacle> & obstacles,
+  double obstacle_reserve_scale) const
 {
   if (path.wpnts.size() < static_cast<std::size_t>(parameters_.minimum_path_points)) {
     P3ShadowPathEvaluation result;
     result.rejection_reason = "spline segment has too few global race-line samples";
     return result;
   }
-  return validateP3ShadowPath(ego, path, obstacles);
+  return validateP3ShadowPath(ego, path, obstacles, obstacle_reserve_scale);
 }
 
 bool RacelineSplinePlanner::targetFitsTrackBounds(
@@ -1770,7 +1776,8 @@ bool RacelineSplinePlanner::validateCandidate(
   std::size_t start_index,
   std::size_t minimum_points,
   PathValidationFailure * failure,
-  const std::optional<double> & maximum_collision_forward_m) const
+  const std::optional<double> & maximum_collision_forward_m,
+  double obstacle_reserve_scale) const
 {
   if (failure != nullptr) {
     *failure = PathValidationFailure();
@@ -1864,7 +1871,7 @@ bool RacelineSplinePlanner::validateCandidate(
     }
     for (const auto & obstacle : visible) {
       const double obstacle_clearance = parameters_.obstacleSafetyClearance(
-        waypoint.vx_mps, waypoint.kappa_radpm);
+        waypoint.vx_mps, waypoint.kappa_radpm, obstacle_reserve_scale);
       const double obstacle_test_d_right = obstacle.raw_d_right - obstacle_clearance;
       const double obstacle_test_d_left = obstacle.raw_d_left + obstacle_clearance;
       if ((!maximum_collision_forward_m.has_value() ||
@@ -1919,7 +1926,8 @@ bool RacelineSplinePlanner::validatePath(
   const std::vector<f110_msgs::msg::Obstacle> & obstacles,
   std::string * error,
   PathValidationFailure * failure,
-  const std::optional<double> & maximum_collision_forward_m) const
+  const std::optional<double> & maximum_collision_forward_m,
+  double obstacle_reserve_scale) const
 {
   if (failure != nullptr) {
     *failure = PathValidationFailure();
@@ -1976,7 +1984,7 @@ bool RacelineSplinePlanner::validatePath(
   std::string reason;
   if (!validateCandidate(
       ego, path, visible, reason, start_index, 1U, failure,
-      maximum_collision_forward_m))
+      maximum_collision_forward_m, obstacle_reserve_scale))
   {
     if (error != nullptr) {
       *error = reason;

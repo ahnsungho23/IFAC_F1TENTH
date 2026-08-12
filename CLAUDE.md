@@ -111,9 +111,16 @@ source install/setup.zsh
 ros2 launch global_planning global_planning.launch.py
 ```
 
-### 터미널 4 — 장애물 검출기
+### 터미널 4 — 장애물 검출기 (⚠️ 기본 생략)
+
+**터미널 5의 `local_planning.launch.py`가 기본값(`start_obstacle_detector:=true`)으로
+검출기를 함께 실행하므로, 이 터미널을 따로 띄우면 검출기가 2중 실행됩니다.** 두 인스턴스가
+`/static_obs`에 서로 다른 트랙 ID·stamp를 교차 발행해 로컬 플래너의 커밋 경로가 계속
+무효화됩니다 (중복 감지 시 검출기가 ERROR 로그를 출력함). 검출기를 단독으로 띄우고 싶으면
+터미널 5에서 `start_obstacle_detector:=false`를 함께 넘기십시오.
 
 ```bash
+# 단독 실행이 꼭 필요할 때만 (터미널 5에 start_obstacle_detector:=false 필요):
 cd ~/2026_IFAC
 source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh

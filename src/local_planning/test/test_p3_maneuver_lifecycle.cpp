@@ -466,8 +466,12 @@ TEST(P3ManeuverLifecycle, SameIdEnvelopeInsideFrozenGuardKeepsImmutableSuffix)
   EXPECT_EQ(decision.state, P3ManeuverLifecycleState::kCommitted);
 }
 
-TEST(P3ManeuverLifecycle, GuardOnlyCollisionUsesExistingSoftConfirmationContract)
+TEST(P3ManeuverLifecycle, GuardOnlyCollisionHoldsFrozenPathWithoutExpiry)
 {
+  // Retention contract (2026-08-12): a broken uncertainty guard with a raw-hard-valid suffix is
+  // NOT a margin violation, so the frozen path is held indefinitely — the previous N-cycle
+  // confirmation expiry re-planned a nearly identical geometry on every progressive envelope
+  // reveal. The counter keeps accumulating for diagnostics only.
   auto planner = plannerWithReference();
   auto snapshot = initialSnapshot();
   P3ManeuverLifecycle lifecycle;
@@ -477,7 +481,7 @@ TEST(P3ManeuverLifecycle, GuardOnlyCollisionUsesExistingSoftConfirmationContract
   snapshot.ego.s = 0.1;
   snapshot.obstacles = {intrudingObstacle()};
   snapshot.raw_obstacles = {sideObstacle()};
-  for (int count = 1; count <= 2; ++count) {
+  for (int count = 1; count <= 6; ++count) {  // twice the old 3-cycle confirmation window
     snapshot.source_stamp_ns = 100 + count;
     const auto decision = lifecycle.continueCurrent(snapshot, planner, 3);
     ASSERT_TRUE(decision.has_output);
@@ -488,15 +492,8 @@ TEST(P3ManeuverLifecycle, GuardOnlyCollisionUsesExistingSoftConfirmationContract
     EXPECT_EQ(
       decision.reason,
       "GUARD_SOFT_OBSTACLE_VIOLATION_PENDING_RAW_HARD_VALID");
+    EXPECT_FALSE(decision.invalidated);
   }
-
-  snapshot.source_stamp_ns = 103;
-  const auto confirmed = lifecycle.continueCurrent(snapshot, planner, 3);
-  EXPECT_TRUE(confirmed.guard_raw_revalidated);
-  EXPECT_EQ(confirmed.guard_soft_violation_count, 3);
-  EXPECT_TRUE(confirmed.invalidated);
-  EXPECT_FALSE(confirmed.has_output);
-  EXPECT_EQ(confirmed.reason, "GUARD_SOFT_OBSTACLE_VIOLATION_CONFIRMED");
 }
 
 TEST(P3ManeuverLifecycle, RawSameIdCollisionInvalidatesImmediately)

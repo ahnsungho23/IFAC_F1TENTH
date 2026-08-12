@@ -1337,6 +1337,35 @@ TEST(RacelineSplinePlanner, MarginOnlyClusterDegradesToSlowPassInsteadOfSafeStop
   EXPECT_FALSE(physically_blocking.margin_pass);
 }
 
+TEST(RacelineSplinePlanner, RetentionReserveScaleHoldsCommittedPathThroughEnvelopeGrowth)
+{
+  // Full clearance = 0.15 (base) + 0.30 (reserve) = 0.45; retention 0.5 keeps 0.15 + 0.15.
+  // The obstacle's grown left edge (0.42) violates the full margin against a path at d = 0.8
+  // (0.42 + 0.45 > 0.8) but stays inside the retention band (0.42 + 0.30 < 0.8).
+  RacelineSplineParameters parameters = testParameters();
+  parameters.tracking_error_reserve_m = 0.30;
+  RacelineSplinePlanner planner(parameters);
+  const auto reference = makeStraightReference();
+  ASSERT_TRUE(planner.setReference(reference));
+  const EgoFrenetState ego{0.0, 0.8, 2.0};
+  const auto path = makeStraightCandidate(reference, 0.8, 0.0, 60U);
+
+  const auto grown = makeObstacle(7, 2.0, -0.2, 0.42);
+  PathValidationFailure failure;
+  EXPECT_FALSE(planner.validatePath(ego, path, {grown}, nullptr, &failure));
+  EXPECT_EQ(failure.kind, PathValidationFailureKind::kObstacleCollision);
+  EXPECT_TRUE(planner.validatePath(ego, path, {grown}, nullptr, nullptr, std::nullopt, 0.5));
+
+  // Growth past the retention band must still invalidate the committed path.
+  const auto beyond_retention = makeObstacle(8, 2.0, -0.2, 0.55);
+  EXPECT_FALSE(
+    planner.validatePath(ego, path, {beyond_retention}, nullptr, nullptr, std::nullopt, 0.5));
+
+  // The same contract through the P3 suffix validator.
+  EXPECT_FALSE(planner.evaluateP3PathCurrent(ego, path, {grown}).hard_valid);
+  EXPECT_TRUE(planner.evaluateP3PathCurrent(ego, path, {grown}, 0.5).hard_valid);
+}
+
 TEST(RacelineSplinePlanner, BuildLastPathBrakeStopsAlongGivenGeometry)
 {
   RacelineSplinePlanner planner(testParameters());

@@ -407,6 +407,12 @@ source install/setup.zsh
 
 ## 7. 실행
 
+> **⚠️ 중복 실행 금지**: `local_planning.launch.py`는 기본값(`start_obstacle_detector:=true`)으로
+> 이 검출기를 함께 실행합니다. 그 상태에서 이 노드를 따로 또 띄우면 `/static_obs`에 두
+> 인스턴스가 서로 다른 트랙 ID·stamp를 교차 발행해 로컬 플래너의 커밋 경로가 계속
+> 무효화됩니다 (2026-08-12 22:34 run: 35초 동안 stamp regression 2,079회). 노드가
+> `/static_obs` 발행자 수를 감시해 2개 이상이면 5초마다 ERROR를 출력합니다.
+
 실차:
 
 ```bash
