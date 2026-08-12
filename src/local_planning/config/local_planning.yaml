@@ -89,6 +89,13 @@ local_planner_node:
     # 커밋 경로를 고정하고, 밴드를 실제로 침범할 때만 재계획합니다. 1.0이면 비활성.
     # 2026-08-12 22:34 요청("경로가 계속 흔들리네, 조건 걸어 고정") 반영.
     commitment_retention_reserve_fraction: 0.5
+    # 위치추정(MCL) 횡오차 예비량 [m]: trackingErrorReserve()에 상수항으로 합산되어
+    # 엔벨로프 확장·하드 검증·gap 속도 역산 전부에 동일하게 반영됩니다. retention 밴드
+    # 스케일도 같이 적용(커밋 경로는 절반만 요구). 값 근거: 2026-08-13 00:45 시뮬 실측
+    # (tools/mcl_gt_error_probe.py, 181.6s/3145샘플) — GT 대비 횡 |오차| 속도구간별 P95
+    # 최악 6.3cm. 10cm 초과는 전부 1~3샘플(≤0.07s) MCL 보정 스파이크(최대 29.6cm)라
+    # 정적 마진이 아닌 retention 밴드가 흡수합니다. 실차 전 재측정 필요(시뮬 기준값).
+    localization_reserve_m: 0.06
     wall_safety_margin_m: 0.04
     fallback_track_half_width_m: 1.50
 

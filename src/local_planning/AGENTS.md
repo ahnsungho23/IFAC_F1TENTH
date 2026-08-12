@@ -54,7 +54,18 @@
   expiry is removed — it re-planned a nearly identical path on every progressive reveal, the
   dominant visible churn); invalidation/replacement requires an actual retention-margin
   violation, a non-obstacle failure, or completion. Do not reinstate the expiry and do not let
-  fresh candidates validate with a scaled reserve. On P3 completion, hand back through `activateGlobalHandoff` (the same
+  fresh candidates validate with a scaled reserve.
+- Localization reserve (`localization_reserve_m`, default 0.06): a constant floor added INSIDE
+  `RacelineSplineParameters::trackingErrorReserve()` — the single choke point — so envelope
+  expansion, hard validation, and the gap-limited speed inversion all see the same total. Do
+  not add it separately at call sites (double counting) and do not remove it from the
+  inversion path (the planner would pick speeds whose clearance the validator then rejects).
+  Sized from sustained sim GT-vs-MCL error (per-speed-bin P95, 2026-08-13 probe); transient
+  single-cycle MCL correction spikes are absorbed by the retention band, NOT this margin —
+  do not resize it to the spike maximum (closes corridors). Keep it OUT of the CMA parameter
+  whitelist: under GT localization the optimizer would drive it to zero. Re-measure on the
+  real car (tools/mcl_gt_error_probe.py needs GT, so use MCL covariance/particle spread
+  logging there) before real-car obstacle runs. On P3 completion, hand back through `activateGlobalHandoff` (the same
   closed global loop P0 uses) — never a frozen post-obstacle tail, which falls behind the ego
   and starves the FSM merge confirmation. The completion branch must re-register the completed
   maneuver's obstacle ids into `completed_obstacle_ids_` across the `clearCommitment()` wipe

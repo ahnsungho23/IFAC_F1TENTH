@@ -333,8 +333,13 @@ double RacelineSplineParameters::gapLimitedAvoidanceSpeed(
 double RacelineSplineParameters::trackingErrorReserve(
   double speed_mps, double curvature_radpm) const
 {
+  // localization_reserve_m is a constant floor added here (the single choke point) so the
+  // gap-limited speed inversion, envelope expansion, and hard validation all account for the
+  // same localization uncertainty. Constant offset keeps the speed-monotonicity the inversion
+  // in gapLimitedAvoidanceSpeed relies on.
+  const double localization = std::max(0.0, localization_reserve_m);
   if (!hasTrackingErrorLut() || !trackingErrorLutValid()) {
-    return tracking_error_reserve_m;
+    return tracking_error_reserve_m + localization;
   }
   const auto speed = interpolationFor(
     tracking_error_lut_speed_bins_mps, std::abs(speed_mps));
@@ -350,7 +355,7 @@ double RacelineSplineParameters::trackingErrorReserve(
   const double upper =
     value_at(speed.upper, curvature.lower) + curvature.ratio *
     (value_at(speed.upper, curvature.upper) - value_at(speed.upper, curvature.lower));
-  return lower + speed.ratio * (upper - lower);
+  return localization + lower + speed.ratio * (upper - lower);
 }
 
 double RacelineSplineParameters::avoidanceTrackingErrorReserve(

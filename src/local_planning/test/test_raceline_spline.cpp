@@ -1366,6 +1366,28 @@ TEST(RacelineSplinePlanner, RetentionReserveScaleHoldsCommittedPathThroughEnvelo
   EXPECT_TRUE(planner.evaluateP3PathCurrent(ego, path, {grown}, 0.5).hard_valid);
 }
 
+TEST(RacelineSplinePlanner, LocalizationReserveAddsConstantFloorAndScalesWithRetention)
+{
+  RacelineSplineParameters parameters = testParameters();
+  parameters.tracking_error_reserve_m = 0.30;
+  const double base = parameters.obstacleBaseClearance();
+  const double without = parameters.obstacleSafetyClearance(2.0, 0.0);
+  EXPECT_NEAR(without, base + 0.30, 1e-9);
+
+  parameters.localization_reserve_m = 0.06;
+  // Full reserve: the localization floor adds verbatim.
+  EXPECT_NEAR(parameters.obstacleSafetyClearance(2.0, 0.0), base + 0.36, 1e-9);
+  // Retention scale halves the WHOLE reserve including the localization floor.
+  EXPECT_NEAR(parameters.obstacleSafetyClearance(2.0, 0.0, 0.5), base + 0.18, 1e-9);
+  // The base clearance itself is never touched.
+  EXPECT_NEAR(parameters.obstacleSafetyClearance(2.0, 0.0, 0.0), base, 1e-9);
+  // The gap-limited speed inversion sees the same floor: a gap that admits exactly the
+  // tracking reserve no longer fits once the localization floor is added, so the requested
+  // speed must drop to the avoidance floor (the constant reserve cannot be shed by slowing).
+  const double at_floor = parameters.gapLimitedAvoidanceSpeed(4.0, 0.0, 0.30);
+  EXPECT_NEAR(at_floor, parameters.avoidance_minimum_speed_mps, 1e-9);
+}
+
 TEST(RacelineSplinePlanner, BuildLastPathBrakeStopsAlongGivenGeometry)
 {
   RacelineSplinePlanner planner(testParameters());

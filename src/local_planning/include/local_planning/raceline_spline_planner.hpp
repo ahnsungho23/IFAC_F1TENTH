@@ -75,6 +75,12 @@ struct RacelineSplineParameters
   // freezes the path instead of reshaping it every callback. The physical base clearance is
   // never reduced, and fresh planning always uses the full reserve. 1.0 disables the band.
   double commitment_retention_reserve_fraction{0.5};
+  // Localization (MCL vs ground-truth) lateral error reserve, added as a constant floor inside
+  // trackingErrorReserve() so every consumer (envelope expansion, hard validation, gap-limited
+  // speed inversion) sees the same total. Participates in the retention scaling above like the
+  // rest of the reserve. Sized from sustained error (per-speed-bin P95), NOT transient MCL
+  // correction spikes — those are single-cycle events the retention band absorbs. 0 disables.
+  double localization_reserve_m{0.0};
 
   std::vector<double> pre_apex_distances_m{6.0, 4.0, 2.0};
   std::vector<double> post_apex_distances_m{1.0, 2.0, 3.0};

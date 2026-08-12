@@ -348,6 +348,8 @@ void LocalPlannerNode::initializeParameters()
     declare_parameter<double>("margin_pass_speed_cap_mps", 2.0);
   planner_parameters_.commitment_retention_reserve_fraction =
     declare_parameter<double>("commitment_retention_reserve_fraction", 0.5);
+  planner_parameters_.localization_reserve_m =
+    declare_parameter<double>("localization_reserve_m", 0.06);
   planner_parameters_.wall_safety_margin_m =
     declare_parameter<double>("wall_safety_margin_m", 0.04);
   planner_parameters_.fallback_track_half_width_m =
@@ -517,6 +519,8 @@ void LocalPlannerNode::initializeParameters()
     !std::isfinite(planner_parameters_.commitment_retention_reserve_fraction) ||
     planner_parameters_.commitment_retention_reserve_fraction < 0.0 ||
     planner_parameters_.commitment_retention_reserve_fraction > 1.0 ||
+    !std::isfinite(planner_parameters_.localization_reserve_m) ||
+    planner_parameters_.localization_reserve_m < 0.0 ||
     !std::isfinite(planner_parameters_.wall_safety_margin_m) ||
     planner_parameters_.wall_safety_margin_m < 0.0 ||
     !std::isfinite(planner_parameters_.maximum_exit_length_m) ||

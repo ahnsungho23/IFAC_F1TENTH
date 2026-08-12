@@ -622,7 +622,15 @@ commitment는 지우지 않으므로 odometry가 회복되면 다시 검증한 �
 - 회피속도 제한표: `avoidance_velocity_limit_speed_bins_mps`,
   `avoidance_velocity_limit_lateral_accel_mps2`
 - LUT fallback: `tracking_error_reserve_m` (세 LUT 배열이 모두 비었을 때만 사용)
-- 장애물 clearance: `vehicle_half_width_m + safety_margin_m + LUT(limited_v, |kappa|)`
+- 위치추정 예비량: `localization_reserve_m` (기본 0.06 m, 0=비활성) —
+  `trackingErrorReserve()`에 상수항으로 합산되어 엔벨로프 확장·하드 검증·gap 속도
+  역산에 동일 반영, retention 스케일도 함께 적용. 값 근거: 2026-08-13 시뮬 실측
+  (`tools/mcl_gt_error_probe.py`, 181.6s) GT-vs-MCL 횡오차 속도구간별 P95 최악 6.3 cm.
+  10 cm 초과는 전부 ≤0.07 s 단일사이클 MCL 보정 스파이크(최대 29.6 cm)로, 이는 정적
+  마진이 아니라 retention 밴드가 흡수하는 몫이다(스파이크 최대치로 잡으면 통로 폐색).
+  실차 이행 시 재측정 필요(측정 절차는 위 실차 LUT 절차와 동일한 프로브 사용).
+- 장애물 clearance: `vehicle_half_width_m + safety_margin_m + LUT(limited_v, |kappa|)
+  + localization_reserve_m`
 - margin-only 감속 통과: `margin_pass_speed_cap_mps` (0=비활성; 물리 판정은
   `vehicle_half_width_m + safety_margin_m`만 사용)
 - 커밋 경로 retention 밴드: `commitment_retention_reserve_fraction` (기본 0.5, 1.0=비활성;
