@@ -321,7 +321,10 @@ def run_episode_cached(
             return lockstep, episode, True, key
 
     completed = None
-    for attempt in range(2):
+    # 4 attempts: the first-tick discovery race (a late inter-node subscription match drops the
+    # volatile tick-1 messages and the chain stalls) killed two 16x16 runs at 2 attempts —
+    # ~7% single-attempt flake makes back-to-back failures likely across 500+ episodes.
+    for attempt in range(4):
         if attempt > 0 and episode_root.exists():
             shutil.rmtree(episode_root)
         environment = dict(os.environ)

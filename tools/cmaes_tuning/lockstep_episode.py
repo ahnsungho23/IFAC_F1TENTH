@@ -484,7 +484,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 f"pf={node.pf_odom_pub.get_subscription_count()} "
                 f"scan={node.scan_pub.get_subscription_count()}")
         # Discovery settling is wall-clock infrastructure only; no physics step has begun yet.
-        time.sleep(0.25)
+        # 1.0 s (was 0.25): the readiness gate above only proves the COORDINATOR's publishers are
+        # matched — inter-node subscriptions (detector→planner, planner→state machine) can still
+        # be mid-discovery, and a volatile tick-1 message dropped there stalls the chain forever.
+        time.sleep(1.0)
 
         vehicle = {name: float(value) for name, value in sim_config["vehicle"].items()}
         baked_stem = str(Path(manifest["baked_map_yaml"]).with_suffix(""))
