@@ -57,7 +57,6 @@ def generate_launch_description():
         imu_angular_scale=common.IMU_ANGULAR_SCALE_SIM,
         # 시뮬 브릿지는 linear_acceleration을 채우지 않아(0) 보정 불필요.
         imu_linear_scale=common.IMU_LINEAR_SCALE_SIM,
-        imu_angular_scale=common.IMU_ANGULAR_SCALE_SIM,
     )
 
     # 시뮬 전용: odom 요레이트 → /imu/data 중계 (gym_bridge는 IMU를 발행하지 않음)
