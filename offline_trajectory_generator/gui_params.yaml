@@ -1,4 +1,4 @@
-map_yaml: /home/haejun/slam_toolbox/map/map.yaml
+map_yaml: /home/haejun/2026_IFAC/src/monte_carlo_localization/maps/map.yaml
 output_dir: ~/2026_IFAC/offline_trajectory_generator/output/map
 velocity_limits_csv: offline_trajectory_generator/config/velocity_limits.csv
 optimizer: mincurv
@@ -13,13 +13,13 @@ unknown_as_free: false
 waypoint_step: 0.25
 optimizer_step: 0.45999999999999996
 raceline_smooth_sigma: 1.0
-safety_width: 0.3
-boundary_margin: 0.3
-max_width_distance: 2.0
+safety_width: 0.4
+boundary_margin: 0.4
+max_width_distance: 2.1
 max_speed: 8.0
 min_speed: 3.4000000000000004
 max_curvature: 0.7000000000000001
-smooth_sigma: 0.2
+smooth_sigma: 4.1000000000000005
 median_kernel: 5
 morph_kernel: 5
 morph_open_iterations: 4
@@ -39,6 +39,6 @@ laptime_lr: 0.045
 laptime_smooth_weight: 0.2
 ai_epochs: 3
 straight_kappa_threshold: 0.2
-straight_min_length: 1.5000000000000002
-straight_clearance_margin: 0.03
+straight_min_length: 1.9000000000000001
+straight_clearance_margin: 0.04
 straight_blend_length: 0.5

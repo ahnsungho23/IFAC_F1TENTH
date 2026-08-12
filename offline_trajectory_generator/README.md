@@ -251,7 +251,9 @@ offline_trajectory_generator/output/<map_yaml_file_name>/
 - `--no-straighten-straights`: 직선 후보 구간을 직선으로 보정하는 후처리를 끈다.
 - `--straight-kappa-threshold`: 이 값보다 작은 절대 곡률을 직선 후보로 본다. 기본값은 `0.2` rad/m이다.
 - `--straight-min-length`: 직선 후보로 인정할 최소 구간 길이이다.
-- `--straight-clearance-margin`: 직선 보정 검증에 추가로 요구하는 벽 여유 거리이다.
+- `--straight-clearance-margin`: 직선 보정 검증에 추가로 요구하는 벽 여유 거리이다. 검증에 요구되는
+  총 여유는 `safety-width/2 + straight-clearance-margin`이며, `--boundary-margin`은 최적화 코리도에만
+  쓰이고 이 검증에는 포함되지 않는다(margin을 키워도 직선 보정이 꺼지지 않도록).
 - `--straight-blend-length`: 직선 보정 구간 양끝에서 원래 경로와 직선을 부드럽게 섞는 길이이다.
 
 ### 속도 제한 CSV 형식
