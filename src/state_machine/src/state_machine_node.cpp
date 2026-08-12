@@ -6,10 +6,8 @@
 #include <cmath>
 #include <cstddef>
 #include <functional>
-#include <iomanip>
 #include <limits>
 #include <memory>
-#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -20,18 +18,6 @@ namespace state_machine
 {
 namespace
 {
-
-std::int64_t steady_now_ns()
-{
-  return std::chrono::duration_cast<std::chrono::nanoseconds>(
-    std::chrono::steady_clock::now().time_since_epoch()).count();
-}
-
-std::int64_t stamp_ns(const builtin_interfaces::msg::Time & stamp)
-{
-  return static_cast<std::int64_t>(stamp.sec) * 1000000000LL +
-         static_cast<std::int64_t>(stamp.nanosec);
-}
 
 double circular_s_distance(double a, double b, double track_length)
 {
@@ -65,7 +51,7 @@ StateMachineNode::StateMachineNode()
   declare_parameter<std::string>("default_state", "global");
   declare_parameter<std::string>("invalid_local_path_policy", "global_fallback");
 
-  declare_parameter<double>("publish_rate_hz", 10.0);
+  declare_parameter<double>("publish_rate_hz", 100.0);
   declare_parameter<int>("waypoint_num", 50);
   declare_parameter<double>("overtake_hold_duration_sec", 2.0);
   declare_parameter<double>("global_publisher_warn_timeout_sec", 5.0);
@@ -80,10 +66,6 @@ StateMachineNode::StateMachineNode()
   declare_parameter<double>("enter_global_threshold", 0.2);
   declare_parameter<double>("enter_global_tail_ratio", 0.1);
   declare_parameter<double>("enter_global_s_gap_tol_m", 0.5);
-  declare_parameter<bool>("timing_diagnostics_enable", false);
-  declare_parameter<std::string>("timing_diagnostics_topic", "/cma_timing/events");
-  declare_parameter<double>("tuning_publish_rate_hz_override", -1.0);
-  declare_parameter<bool>("lockstep_mode", false);
 
   state_topic_ = get_parameter("state_topic").as_string();
   local_waypoints_topic_ = get_parameter("local_waypoints_topic").as_string();
@@ -102,7 +84,7 @@ StateMachineNode::StateMachineNode()
     local_path_confirmation_window_size_);
 
   const int64_t waypoint_num = get_parameter("waypoint_num").as_int();
-  double publish_rate_hz = get_parameter("publish_rate_hz").as_double();
+  const double publish_rate_hz = get_parameter("publish_rate_hz").as_double();
   overtake_hold_duration_sec_ = get_parameter("overtake_hold_duration_sec").as_double();
   global_publisher_warn_timeout_sec_ =
     get_parameter("global_publisher_warn_timeout_sec").as_double();
@@ -111,14 +93,6 @@ StateMachineNode::StateMachineNode()
   enter_global_threshold_ = get_parameter("enter_global_threshold").as_double();
   enter_global_tail_ratio_ = get_parameter("enter_global_tail_ratio").as_double();
   enter_global_s_gap_tol_m_ = get_parameter("enter_global_s_gap_tol_m").as_double();
-  timing_diagnostics_enable_ = get_parameter("timing_diagnostics_enable").as_bool();
-  timing_diagnostics_topic_ = get_parameter("timing_diagnostics_topic").as_string();
-  tuning_publish_rate_hz_override_ =
-    get_parameter("tuning_publish_rate_hz_override").as_double();
-  lockstep_mode_ = get_parameter("lockstep_mode").as_bool();
-  if (timing_diagnostics_enable_ && tuning_publish_rate_hz_override_ > 0.0) {
-    publish_rate_hz = tuning_publish_rate_hz_override_;
-  }
 
   if (waypoint_num <= 0 || waypoint_num > std::numeric_limits<int>::max()) {
     throw std::invalid_argument("waypoint_num must be in the range [1, INT_MAX]");
@@ -126,12 +100,6 @@ StateMachineNode::StateMachineNode()
   waypoint_num_ = static_cast<int>(waypoint_num);
   if (!std::isfinite(publish_rate_hz) || publish_rate_hz <= 0.0) {
     throw std::invalid_argument("publish_rate_hz must be finite and positive");
-  }
-  if (!std::isfinite(tuning_publish_rate_hz_override_) ||
-    (tuning_publish_rate_hz_override_ != -1.0 && tuning_publish_rate_hz_override_ <= 0.0))
-  {
-    throw std::invalid_argument(
-            "tuning_publish_rate_hz_override must be -1 or finite and positive");
   }
   if (!std::isfinite(overtake_hold_duration_sec_) || overtake_hold_duration_sec_ < 0.0) {
     throw std::invalid_argument("overtake_hold_duration_sec must be finite and non-negative");
@@ -166,10 +134,6 @@ StateMachineNode::StateMachineNode()
   local_waypoints_pub_ =
     create_publisher<f110_msgs::msg::WpntArray>(local_waypoints_topic_, volatile_qos);
   local_path_pub_ = create_publisher<nav_msgs::msg::Path>(local_path_topic_, volatile_qos);
-  if (timing_diagnostics_enable_) {
-    timing_diagnostics_pub_ = create_publisher<std_msgs::msg::String>(
-      timing_diagnostics_topic_, rclcpp::QoS(100).reliable());
-  }
 
   frenet_sub_ = create_subscription<nav_msgs::msg::Odometry>(
     get_parameter("frenet_odom_topic").as_string(),
@@ -190,9 +154,7 @@ StateMachineNode::StateMachineNode()
 
   const auto period = std::chrono::duration_cast<std::chrono::nanoseconds>(
     std::chrono::duration<double>(1.0 / publish_rate_hz));
-  if (!lockstep_mode_) {
-    timer_ = create_wall_timer(period, std::bind(&StateMachineNode::publish_state_cycle, this));
-  }
+  timer_ = create_wall_timer(period, std::bind(&StateMachineNode::publish_state_cycle, this));
 
   const auto parsed_default = parse_state(default_state_name_);
   if (!parsed_default.has_value()) {
@@ -211,12 +173,6 @@ StateMachineNode::StateMachineNode()
     local_waypoints_topic_.c_str(),
     waypoint_num_,
     default_state_name_.c_str());
-  if (timing_diagnostics_enable_) {
-    RCLCPP_INFO(
-      get_logger(),
-      "Tuning-only timing diagnostics enabled: topic='%s', effective publish rate=%.1f Hz.",
-      timing_diagnostics_topic_.c_str(), publish_rate_hz);
-  }
   if (!allow_avoid_transition_ && !allow_overtake_transition_) {
     RCLCPP_WARN(
       get_logger(),
@@ -272,7 +228,7 @@ std::optional<int> StateMachineNode::parse_waypoint_index(const std::string & va
 
 bool StateMachineNode::is_fresh(const rclcpp::Time & stamp, double timeout_sec) const
 {
-  return (event_now() - stamp).seconds() <= timeout_sec;
+  return (now() - stamp).seconds() <= timeout_sec;
 }
 
 bool StateMachineNode::local_path_confirmed(
@@ -356,13 +312,8 @@ void StateMachineNode::on_frenet_odom(const nav_msgs::msg::Odometry::SharedPtr m
   }
   has_frenet_ = true;
   frenet_odom_msg_ = msg;
-  last_frenet_time_ = lockstep_mode_ ? rclcpp::Time(msg->header.stamp) : now();
-  if (lockstep_mode_) {
-    lockstep_frenet_stamp_ns_ = stamp_ns(msg->header.stamp);
-    try_run_lockstep_cycle();
-  } else {
-    publish_selected_waypoints(committed_state_);
-  }
+  last_frenet_time_ = now();
+  publish_selected_waypoints(committed_state_);
 }
 
 void StateMachineNode::on_global_waypoints(const f110_msgs::msg::WpntArray::SharedPtr msg)
@@ -392,28 +343,6 @@ void StateMachineNode::on_avoid_wpnts(const f110_msgs::msg::OTWpntArray::SharedP
 
   has_avoid_wpnts_ = non_empty;
   avoid_wpnts_msg_ = msg;
-  if (lockstep_mode_ && msg != nullptr) {
-    lockstep_avoid_stamp_ns_ = stamp_ns(msg->header.stamp);
-  }
-  if (timing_diagnostics_enable_ && !timing_t2_published_ &&
-    committed_state_ == f110_msgs::msg::StateMachine::STATE_GLOBAL && can_enter_avoid())
-  {
-    timing_t2_steady_ns_ = steady_now_ns();
-    timing_t2_path_stamp_ns_ = msg == nullptr ? 0 : stamp_ns(msg->header.stamp);
-    std::ostringstream fields;
-    fields << std::setprecision(17)
-           << "\"trigger_path_stamp_ns\":" << timing_t2_path_stamp_ns_
-           << ",\"confirmation_hits\":"
-           << std::count(avoid_path_history_.begin(), avoid_path_history_.end(), true)
-           << ",\"confirmation_window_size\":" << avoid_path_history_.size();
-    if (frenet_odom_msg_ != nullptr) {
-      fields << ",\"ego_s\":" << frenet_odom_msg_->pose.pose.position.x
-             << ",\"ego_d\":" << frenet_odom_msg_->pose.pose.position.y
-             << ",\"speed_mps\":" << frenet_odom_msg_->twist.twist.linear.x;
-    }
-    publish_timing_event("T2_STATE_CONFIRMATION", timing_t2_steady_ns_, fields.str());
-    timing_t2_published_ = true;
-  }
   if (!non_empty) {
     RCLCPP_WARN_THROTTLE(
       get_logger(),
@@ -421,33 +350,11 @@ void StateMachineNode::on_avoid_wpnts(const f110_msgs::msg::OTWpntArray::SharedP
       2000,
       "Received empty avoid waypoints; STATE_AVOID will use the configured fallback.");
   }
-  if (lockstep_mode_) {
-    try_run_lockstep_cycle();
-  }
-}
-
-rclcpp::Time StateMachineNode::event_now() const
-{
-  return lockstep_mode_ ? lockstep_event_time_ : now();
-}
-
-void StateMachineNode::try_run_lockstep_cycle()
-{
-  if (!lockstep_mode_ || lockstep_avoid_stamp_ns_ <= 0 ||
-    lockstep_avoid_stamp_ns_ != lockstep_frenet_stamp_ns_ ||
-    lockstep_avoid_stamp_ns_ <= lockstep_last_processed_stamp_ns_)
-  {
-    return;
-  }
-  lockstep_last_processed_stamp_ns_ = lockstep_avoid_stamp_ns_;
-  lockstep_event_time_ = rclcpp::Time(lockstep_avoid_stamp_ns_, RCL_ROS_TIME);
-  publish_state_cycle();
-  publish_selected_waypoints(committed_state_);
 }
 
 void StateMachineNode::on_overtake_wpnts(const f110_msgs::msg::OTWpntArray::SharedPtr msg)
 {
-  const rclcpp::Time current_time = event_now();
+  const rclcpp::Time current_time = now();
   const bool non_empty = msg != nullptr && !msg->wpnts.empty();
 
   overtake_path_history_.push_back(non_empty);
@@ -517,7 +424,7 @@ bool StateMachineNode::enter_to_global(
     return false;
   }
 
-  const rclcpp::Time current_time = event_now();
+  const rclcpp::Time current_time = now();
   if (!enter_global_ok_since_.has_value()) {
     enter_global_ok_since_ = current_time;
   }
@@ -545,10 +452,6 @@ uint8_t StateMachineNode::resolve_requested_state()
   switch (committed_state_) {
     case f110_msgs::msg::StateMachine::STATE_GLOBAL:
       if (can_enter_avoid()) {
-        if (timing_diagnostics_enable_ && !timing_t3_published_) {
-          timing_t3_steady_ns_ = steady_now_ns();
-          timing_t3_pending_ = true;
-        }
         committed_state_ = f110_msgs::msg::StateMachine::STATE_AVOID;
         enter_global_ok_since_.reset();
         RCLCPP_INFO(get_logger(), "STATE_GLOBAL -> STATE_AVOID (avoid path confirmed M-of-N).");
@@ -613,7 +516,7 @@ void StateMachineNode::publish_state_cycle()
       avoid_ready ? "true" : "false",
       overtake_ready ? "true" : "false");
   }
-  if (!lockstep_mode_ && global_ready &&
+  if (global_ready &&
     (now() - last_global_receive_time_).seconds() > global_publisher_warn_timeout_sec_)
   {
     RCLCPP_WARN_THROTTLE(
@@ -625,27 +528,10 @@ void StateMachineNode::publish_state_cycle()
 
   const uint8_t state = resolve_requested_state();
   f110_msgs::msg::StateMachine message;
-  message.header.stamp = event_now();
+  message.header.stamp = now();
   message.header.frame_id = frame_id_;
   message.state = state;
   state_pub_->publish(message);
-
-  if (timing_t3_pending_) {
-    std::ostringstream fields;
-    fields << "\"state_from\":0,\"state_to\":1"
-           << ",\"confirmation_steady_time_ns\":" << timing_t2_steady_ns_
-           << ",\"trigger_path_stamp_ns\":" << timing_t2_path_stamp_ns_
-           << ",\"state_message_stamp_ns\":" << stamp_ns(message.header.stamp);
-    if (frenet_odom_msg_ != nullptr) {
-      fields << std::setprecision(17)
-             << ",\"ego_s\":" << frenet_odom_msg_->pose.pose.position.x
-             << ",\"ego_d\":" << frenet_odom_msg_->pose.pose.position.y
-             << ",\"speed_mps\":" << frenet_odom_msg_->twist.twist.linear.x;
-    }
-    publish_timing_event("T3_STATE_TRANSITION", timing_t3_steady_ns_, fields.str());
-    timing_t3_pending_ = false;
-    timing_t3_published_ = true;
-  }
 
   if (!last_published_state_.has_value() || last_published_state_.value() != state) {
     RCLCPP_INFO(get_logger(), "Published state changed to %u.", state);
@@ -672,54 +558,14 @@ void StateMachineNode::publish_selected_waypoints(uint8_t state)
     return;
   }
 
-  const rclcpp::Time stamp = event_now();
+  const rclcpp::Time stamp = now();
   const auto waypoints = select_waypoints(state, stamp);
   if (!waypoints.has_value()) {
     return;
   }
 
-  const std::int64_t publish_steady_ns = steady_now_ns();
   local_waypoints_pub_->publish(waypoints.value());
-  if (timing_diagnostics_enable_ && !timing_t4_published_ &&
-    state == f110_msgs::msg::StateMachine::STATE_AVOID)
-  {
-    std::ostringstream fields;
-    fields << "\"path_stamp_ns\":" << stamp_ns(waypoints->header.stamp)
-           << ",\"source_path_stamp_ns\":"
-           << (avoid_wpnts_msg_ == nullptr ? 0 : stamp_ns(avoid_wpnts_msg_->header.stamp))
-           << ",\"transition_steady_time_ns\":" << timing_t3_steady_ns_
-           << ",\"waypoint_count\":" << waypoints->wpnts.size();
-    if (frenet_odom_msg_ != nullptr) {
-      fields << std::setprecision(17)
-             << ",\"ego_s\":" << frenet_odom_msg_->pose.pose.position.x
-             << ",\"ego_d\":" << frenet_odom_msg_->pose.pose.position.y
-             << ",\"speed_mps\":" << frenet_odom_msg_->twist.twist.linear.x;
-    }
-    publish_timing_event("T4_LOCAL_WAYPOINTS", publish_steady_ns, fields.str());
-    timing_t4_published_ = true;
-  }
   local_path_pub_->publish(build_path(waypoints.value()));
-}
-
-void StateMachineNode::publish_timing_event(
-  const std::string & event, std::int64_t steady_time_ns, const std::string & fields)
-{
-  if (!timing_diagnostics_enable_ || timing_diagnostics_pub_ == nullptr) {
-    return;
-  }
-  std_msgs::msg::String message;
-  std::ostringstream json;
-  json << "{\"schema\":\"cma_timing_event/1\","
-       << "\"event\":\"" << event << "\","
-       << "\"node\":\"state_machine_node\","
-       << "\"steady_time_ns\":" << steady_time_ns << ','
-       << "\"ros_time_ns\":" << event_now().nanoseconds();
-  if (!fields.empty()) {
-    json << ',' << fields;
-  }
-  json << '}';
-  message.data = json.str();
-  timing_diagnostics_pub_->publish(message);
 }
 
 std::optional<f110_msgs::msg::WpntArray> StateMachineNode::select_waypoints(

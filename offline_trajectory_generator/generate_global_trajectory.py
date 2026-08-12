@@ -1118,9 +1118,11 @@ def straighten_straight_segments(
         return points_xy
 
     distance_map_px = cv2.distanceTransform((free_mask > 0).astype(np.uint8), cv2.DIST_L2, 5)
-    required_clearance = (
-        args.safety_width * 0.5 + args.boundary_margin + args.straight_clearance_margin
-    )
+    # Chord validation only needs the car to physically fit (half width plus the
+    # straightening margin). boundary_margin is an optimizer-corridor shaping
+    # knob; including it here silently disabled straightening on narrow tracks
+    # as soon as the margin grew.
+    required_clearance = args.safety_width * 0.5 + args.straight_clearance_margin
     straightened = points_xy.copy()
     changed = False
 
@@ -1145,6 +1147,10 @@ def straighten_straight_segments(
             flip_y,
             required_clearance,
         ):
+            print(
+                f"[WARN] straight run of {length:.2f} m not straightened: chord "
+                f"clearance is below {required_clearance:.2f} m somewhere along it."
+            )
             continue
 
         fractions = np.divide(distances, length, out=np.zeros_like(distances), where=length > 1e-9)

@@ -146,7 +146,7 @@ offline_trajectory_generator/output/<map_yaml_file_name>/
 - `--no-straighten-straights`: Turns off the post-processing that corrects straight candidate sections into straight lines.
 - `--straight-kappa-threshold`: Absolute curvature smaller than this value is regarded as a straight candidate. The default is `0.2` rad/m.
 - `--straight-min-length`: The minimum section length to be recognized as a straight candidate.
-- `--straight-clearance-margin`: The additional wall clearance distance required for straight correction validation.
+- `--straight-clearance-margin`: The additional wall clearance distance required for straight correction validation. The total required clearance is `safety-width/2 + straight-clearance-margin`; `--boundary-margin` only shapes the optimizer corridor and is deliberately excluded here, so raising the margin never disables straightening.
 - `--straight-blend-length`: The length over which the original path and the straight line are smoothly blended at both ends of the straight correction section.
 
 The trinary gray unknown region of the ROS map is excluded from the drivable area by default. Turn on the GUI's `Unknown as free` only when you want to use even the gray unknown as free-space.

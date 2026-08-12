@@ -17,14 +17,6 @@
    - `/global_waypoints` 토픽 수신 시 첫 번째 웨이포인트(Start Line Pose)를 차량 출발 위치로 자동 인식하여 파티클 분포를 시작 포즈로 초기화하고 빠른 수렴(Fast Convergence) 모드를 활성화합니다.
    - 이로 인해 RViz 기동 후 수동으로 2D Pose Estimate를 클릭하지 않아도 라이다 스캔 위치가 맵/글로벌 패스 시작점에 자동으로 맞춰집니다.
 
-2-1. **맵 수신 유효성 검사 (2026-08-12 추가)**:
-   - lifecycle `map_server`가 아직 ACTIVE가 되기 전에 GetMap 요청을 받으면 빈 맵(해상도 0)을
-     응답합니다. 기존 코드는 이 빈 맵으로 그대로 초기화를 진행해 `Invalid map resolution:
-     0.000000` 후 Eigen assertion으로 프로세스가 죽었습니다 (launch 직후 map_server 활성화와의
-     경쟁 조건 — 부하가 높을수록 자주 발생).
-   - 이제 응답 맵의 해상도·크기·데이터 길이를 검사해 무효이면 1초 후 재요청합니다. map_server가
-     늦게 활성화되어도 노드가 죽지 않고 기다립니다.
-
 3. **Pose Fusion EKF (출력단 융합, 2026-07-29 추가)**:
    - 휠 odom 포즈 델타(laser 프레임 변환 포함)로 매 주기(30 Hz) 포즈를 예측하고, MCL 기대
      포즈를 측정으로 보정합니다. 측정 노이즈 R은 파티클 가중 공분산에 **차체 종방향만
@@ -121,7 +113,5 @@ colcon build --packages-select particle_filter_cpp
   ```
 - **시뮬레이션 모드**:
   ```bash
-  ros2 launch particle_filter_cpp mcl_launch.py mod:=sim map_name:=map use_rviz:=true use_sim_time:=false
+  ros2 launch particle_filter_cpp mcl_launch.py mod:=sim map_name:=map use_rviz:=true
   ```
-  `f1tenth_gym_ros` bridge는 `/clock`을 발행하지 않으므로 일반 시뮬레이션은 wall clock을
-  사용한다. `/clock`을 제공하는 별도 시뮬레이터에서만 `use_sim_time:=true`로 바꾼다.

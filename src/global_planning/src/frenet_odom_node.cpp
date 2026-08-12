@@ -93,12 +93,14 @@ public:
     frenet_pub_ = create_publisher<nav_msgs::msg::Odometry>(
       frenet_odom_topic_, rclcpp::QoS(rclcpp::KeepLast(20)).reliable());
 
-    if (enable_path_smoothing_ || enable_curvature_reduction_ || reference_resample_step_ > 0.0) {
-      RCLCPP_WARN(
+    if (continuity_enabled_) {
+      RCLCPP_INFO(
         get_logger(),
-        "CommonRoad-CLCS C++ core does not expose the Python preprocessing pipeline used by "
-        "commonroad_clcs.clcs. Only finite filtering, duplicate removal, and closed-loop "
-        "closing are applied in this node.");
+        "Monotonic s-window tracking enabled: forward=%.2f m back=%.2f m "
+        "seed=%.2f m gate=%.2f m reacquire_after=%d misses",
+        config_.forward_window, config_.backward_tolerance,
+        config_.initial_seed_window, config_.tracked_max_projection_distance,
+        config_.reacquire_after_misses);
     }
 
     RCLCPP_INFO(
@@ -126,12 +128,9 @@ private:
     declare_parameter<bool>("publish_frenet_velocity", true);
     declare_parameter<bool>("compatibility_mode", false);
     declare_parameter<bool>("use_path_preprocessing", true);
-    declare_parameter<bool>("enable_path_smoothing", false);
-    declare_parameter<bool>("enable_curvature_reduction", false);
 
     declare_parameter<double>("path_change_tolerance", 1.0e-4);
     declare_parameter<double>("duplicate_point_tolerance", 1.0e-3);
-    declare_parameter<double>("reference_resample_step", 0.0);
     declare_parameter<double>("tangent_epsilon", 0.05);
     declare_parameter<double>("max_projection_distance", 20.0);
     declare_parameter<double>("projection_domain_limit", 20.0);
@@ -140,6 +139,14 @@ private:
     declare_parameter<double>("min_path_length", 0.5);
     declare_parameter<double>("large_gap_factor", 5.0);
     declare_parameter<int>("projection_domain_method", 1);
+
+    // Monotonic s-window tracking (closed-loop wrap).
+    declare_parameter<bool>("continuity_enabled", true);
+    declare_parameter<double>("forward_window", 1.0);
+    declare_parameter<double>("backward_tolerance", 1.0);
+    declare_parameter<double>("initial_seed_window", 0.0);
+    declare_parameter<double>("tracked_max_projection_distance", 1.5);
+    declare_parameter<int>("reacquire_after_misses", 15);
   }
 
   void loadParameters()
@@ -158,13 +165,10 @@ private:
     config_.publish_frenet_velocity = get_parameter("publish_frenet_velocity").as_bool();
     compatibility_mode_ = get_parameter("compatibility_mode").as_bool();
     use_path_preprocessing_ = get_parameter("use_path_preprocessing").as_bool();
-    enable_path_smoothing_ = get_parameter("enable_path_smoothing").as_bool();
-    enable_curvature_reduction_ = get_parameter("enable_curvature_reduction").as_bool();
 
     config_.path_change_tolerance = get_parameter("path_change_tolerance").as_double();
     config_.duplicate_point_tolerance =
       get_parameter("duplicate_point_tolerance").as_double();
-    reference_resample_step_ = get_parameter("reference_resample_step").as_double();
     config_.tangent_epsilon = get_parameter("tangent_epsilon").as_double();
     config_.max_projection_distance = get_parameter("max_projection_distance").as_double();
     config_.projection_domain_limit = get_parameter("projection_domain_limit").as_double();
@@ -174,6 +178,37 @@ private:
     config_.large_gap_factor = get_parameter("large_gap_factor").as_double();
     config_.projection_domain_method = get_parameter("projection_domain_method").as_int();
     config_.velocity_frame = parseVelocityFrame(get_parameter("velocity_frame").as_string());
+
+    continuity_enabled_ = get_parameter("continuity_enabled").as_bool();
+    config_.forward_window = get_parameter("forward_window").as_double();
+    config_.backward_tolerance = get_parameter("backward_tolerance").as_double();
+    config_.initial_seed_window = get_parameter("initial_seed_window").as_double();
+    config_.tracked_max_projection_distance =
+      get_parameter("tracked_max_projection_distance").as_double();
+    config_.reacquire_after_misses =
+      static_cast<int>(get_parameter("reacquire_after_misses").as_int());
+
+    if (!std::isfinite(config_.forward_window) || config_.forward_window <= 0.0) {
+      RCLCPP_WARN(
+        get_logger(),
+        "forward_window must be > 0 (got %.3f); resetting to 1.0 m.",
+        config_.forward_window);
+      config_.forward_window = 1.0;
+    }
+    if (!std::isfinite(config_.backward_tolerance) || config_.backward_tolerance < 0.0) {
+      RCLCPP_WARN(
+        get_logger(),
+        "backward_tolerance must be >= 0 (got %.3f); resetting to 1.0 m.",
+        config_.backward_tolerance);
+      config_.backward_tolerance = 1.0;
+    }
+    if (config_.reacquire_after_misses < 0) {
+      RCLCPP_WARN(
+        get_logger(),
+        "reacquire_after_misses must be >= 0 (got %d); resetting to 15.",
+        config_.reacquire_after_misses);
+      config_.reacquire_after_misses = 15;
+    }
 
     if (!use_path_preprocessing_) {
       RCLCPP_WARN(
@@ -204,6 +239,7 @@ private:
     }
 
     const std::uint64_t next_version = path_version_ + 1;
+
     ClcsFrenetConverter::Ptr new_converter;
     try {
       new_converter = ClcsFrenetConverter::create(raw_waypoints, config_, next_version);
@@ -221,6 +257,8 @@ private:
       converter_ = new_converter;
       last_raw_waypoints_ = raw_waypoints;
       path_version_ = stats.path_version;
+      // Progress (s_prev) belongs to the old path; re-acquire on the new one.
+      continuity_state_ = ClcsContinuityState{};
     }
 
     RCLCPP_INFO(
@@ -273,7 +311,16 @@ private:
     input.linear_y = odom->twist.twist.linear.y;
     input.yaw_rate = odom->twist.twist.angular.z;
 
-    const auto conversion = converter->convert(input);
+    const auto conversion = continuity_enabled_
+      ? converter->convertTracked(input, continuity_state_)
+      : converter->convert(input);
+    if (conversion.reacquired) {
+      RCLCPP_WARN(
+        get_logger(),
+        "Monotonic s-window re-acquired via global search after %d consecutive "
+        "misses (s=%.2f).",
+        config_.reacquire_after_misses, conversion.s);
+    }
     if (!conversion.valid) {
       handleProjectionFailure(*odom, conversion);
       return;
@@ -350,10 +397,8 @@ private:
   bool publish_heading_error_{true};
   bool compatibility_mode_{false};
   bool use_path_preprocessing_{true};
-  bool enable_path_smoothing_{false};
-  bool enable_curvature_reduction_{false};
+  bool continuity_enabled_{true};
   bool has_last_valid_odom_{false};
-  double reference_resample_step_{0.0};
   std::uint64_t path_version_{0};
 
   std::string odom_topic_;
@@ -367,6 +412,7 @@ private:
   std::mutex converter_mutex_;
   ClcsFrenetConverter::ConstPtr converter_;
   std::vector<ReferenceWaypoint> last_raw_waypoints_;
+  ClcsContinuityState continuity_state_;
   nav_msgs::msg::Odometry last_valid_odom_;
 
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
