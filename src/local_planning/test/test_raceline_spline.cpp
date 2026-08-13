@@ -1512,5 +1512,38 @@ TEST(RacelineSplinePlanner, BuildLastPathBrakeStopsAlongGivenGeometry)
   EXPECT_TRUE(planner.buildLastPathBrake(ego, empty_path).wpnts.empty());
 }
 
+TEST(RacelineSplinePlanner, StandstillCloseBehindObstacleStillPlansEscape)
+{
+  // 2026-08-13 실차 재현 (run_0813_221339 s≈29.8): 코너 뒤 늦은 발견으로 장애물
+  // ~1.5 m 앞에 정지. 갭은 기하학적으로 충분한데(비대칭 코리도 1.97 m, 반대쪽 여유
+  // ~1.4 m) 정지 상태 재계획이 회피를 내지 못하면 safe-stop 홀드에서 영원히 못
+  // 나온다. 진입 길이는 자차→클러스터 실거리에 비례하므로 짧은 거리에서도 후보가
+  // 성립해야 한다.
+  auto reference = makeStraightReference(300, 0.1, 1.40, 0.57);
+  RacelineSplineParameters parameters;
+  parameters.maximum_curvature_radpm = 3.2;
+  parameters.maximum_curvature_rate_radpm2 = 60.0;
+  // 실차 yaml과 같은 예약 구조: 기어가기 속도에서 LUT 바닥 0.20 + 위치추정 0.06.
+  parameters.tracking_error_reserve_m = 0.20;
+  parameters.localization_reserve_m = 0.06;
+  RacelineSplinePlanner planner(parameters);
+  ASSERT_TRUE(planner.setReference(reference));
+
+  // 자차: 정지, 라인 살짝 오른쪽(-0.10). 장애물: 우벽 쪽 박스(폭 0.4), 전방
+  // 클러스터 시작 ≈ 1.5 m (s_start 2.05 − 종방향 패딩 0.35 − 자차 s 0.2).
+  const EgoFrenetState ego{0.2, -0.10, 0.0};
+  const auto obstacle = makeObstacle(29, 2.45, -0.45, -0.05);
+
+  const auto result = planner.plan(ego, {obstacle});
+  EXPECT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
+  ASSERT_FALSE(result.path.wpnts.empty());
+  // 탈출은 여유가 있는 왼쪽으로 나가야 한다.
+  double max_d = -10.0;
+  for (const auto & waypoint : result.path.wpnts) {
+    max_d = std::max(max_d, static_cast<double>(waypoint.d_m));
+  }
+  EXPECT_GT(max_d, 0.10);
+}
+
 }  // namespace
 }  // namespace local_planning
