@@ -14,19 +14,20 @@
 # ⚠️ set -u 금지: ROS setup.bash가 미정의 변수(AMENT_TRACE_SETUP_FILES 등)를 참조해 죽는다.
 PREFIX=${1:?usage: lut_lap_runner.sh <prefix> [domain] [jetson_ip] [waypoints_csv] [outdir]}
 DOMAIN=${2:-70}
-JET=${3:-10.1.1.1}
+JET=${3:-"10.1.1.1;10.1.1.10"}   # 피어 후보 전부 (세미콜론 목록)
 WS=$HOME/2026_IFAC
 WP=${4:-$WS/offline_trajectory_generator/output/map/global_waypoints.csv}
 OUT=${5:-$HOME/lut_traces}
 
 export ROS_DOMAIN_ID=$DOMAIN
-export ROS_STATIC_PEERS=$JET
+export ROS_STATIC_PEERS="$JET"
 source /opt/ros/jazzy/setup.bash
 source "$WS/install/setup.bash"
 ros2 daemon stop >/dev/null 2>&1 || true
 
 test -f "$WP" || { echo "🔴 waypoints_csv 없음: $WP"; exit 1; }
 
+echo "현재 네트워크: $(iwgetid -r 2>/dev/null || echo ?) / IP: $(ip -4 addr show wlo1 2>/dev/null | grep -oP 'inet \K[0-9.]+' | head -1)"
 echo "[1/3] /pf/pose/odom 수신 확인 (domain=$DOMAIN, static_peer=$JET, 최대 15초)..."
 if ! timeout 15 ros2 topic echo /pf/pose/odom --once >/dev/null 2>&1; then
   echo "🔴 /pf/pose/odom 미수신 — 주행을 시작하지 마세요."
