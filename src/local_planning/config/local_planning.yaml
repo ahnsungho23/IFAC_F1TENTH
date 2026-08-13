@@ -141,6 +141,14 @@ local_planner_node:
     # 실제 tail은 max(post_merge_lookahead_m, 계획 시 ego_speed * post_merge_min_time_sec)입니다.
     post_merge_lookahead_m: 5.0
     post_merge_min_time_sec: 1.0
+    # 완료 핸드오프의 계획된 복귀 램프(2026-08-13): ego의 현재 d에서 0까지 smoothstep으로
+    # 내려가는 구간을 글로벌 핸드오프 앞머리에 접붙입니다(실차의 느린 자연 복귀 0.055 m/m
+    # 대책). 길이 = max(min_length, |v| * time). 🔴 현재 0 = 비활성: 시뮬 회귀에서 벽
+    # 협착부 최소 여유를 0.117→0.082 m로 깎았고, 벽 클램프는 웨이포인트 경계의 낙관
+    # (실측 0.16~0.23 m) 때문에 물리지 않았습니다. 제어팀 섹터별 벽 여유 실측으로 경계를
+    # 보정한 뒤 3.0 / 1.5로 활성화 검토 (docs/local_planner.md 참고).
+    merge_ramp_min_length_m: 0.0
+    merge_ramp_time_sec: 0.0
     # 장애물이 매우 작거나 Race Line 한쪽에 치우쳐도 목표 d의 절댓값이 이 값보다 작아지지
     # 않게 하는 경로 형상 제한입니다. 장애물 안전 마진에 더하는 값은 아닙니다.
     minimum_target_offset_m: 0.15
