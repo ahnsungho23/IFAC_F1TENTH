@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 실차(젯슨) 접속용 FastDDS 기본 프로필.
+     car_env.sh / lut_lap_runner.sh 가 FASTRTPS_DEFAULT_PROFILES_FILE 로 지정한다.
+
+     왜 필요한가 (2026-08-13 실차 사고의 최종 원인):
+     ROS_STATIC_PEERS 의 포트 없는 IP는 FastDDS 기본 maxInitialPeersRange=4
+     (TransportInterface.h: s_maximumInitialPeersRange) 때문에 원격 "참가자
+     인덱스 0~3"의 유니캐스트 포트에만 SPDP 디스커버리를 보낸다. 젯슨 풀스택은
+     프로세스(=DDS 참가자 1개씩)가 8개+ 라서 늦게 뜬 MCL 등 인덱스 4 이상은
+     유니캐스트로는 영영 발견되지 않고, 핫스팟 AP 멀티캐스트는 불안정해
+     프로세스마다 복불복이 났다 — 오래 떠 있던 RViz만 붙고 새로 뜬 referee·
+     ros2 daemon·topic echo 는 굶는 비대칭의 정체.
+
+     이 프로필은 참가자 인덱스 0~31까지 유니캐스트 SPDP를 보내 젯슨의 모든
+     프로세스를 멀티캐스트 없이 결정론적으로 발견한다. -->
+<dds xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+    <profiles>
+        <transport_descriptors>
+            <transport_descriptor>
+                <transport_id>car_udp_wide</transport_id>
+                <type>UDPv4</type>
+                <maxInitialPeersRange>32</maxInitialPeersRange>
+            </transport_descriptor>
+        </transport_descriptors>
+        <participant profile_name="car_client" is_default_profile="true">
+            <rtps>
+                <useBuiltinTransports>false</useBuiltinTransports>
+                <userTransports>
+                    <transport_id>car_udp_wide</transport_id>
+                </userTransports>
+                <builtin>
+                    <initialPeersList>
+                        <!-- HY_MIRU(젯슨 핫스팟)에서의 젯슨 = 10.1.1.1,
+                             MIRU_5G(연구실 공유기)에서의 젯슨 = 10.1.1.10 후보 -->
+                        <locator>
+                            <udpv4>
+                                <address>10.1.1.1</address>
+                            </udpv4>
+                        </locator>
+                        <locator>
+                            <udpv4>
+                                <address>10.1.1.10</address>
+                            </udpv4>
+                        </locator>
+                    </initialPeersList>
+                </builtin>
+            </rtps>
+        </participant>
+    </profiles>
+</dds>
