@@ -118,7 +118,7 @@ ros2 topic echo /opp_obs/markers --no-arr
 | 증상 | 확인 항목 |
 |---|---|
 | 아무 출력도 없음 | `/global_waypoints`, scan→map TF, `/scan` publisher 확인 |
-| 벽이 장애물로 나옴 | `/map`, `use_map_filter`, `map_occupied_thresh`, `map_point_reject_ratio` 확인 |
+| 벽이 장애물로 나옴 | `/map`, `use_map_filter`, `wall_assoc_distance_m`(넓히면 벽 근처 더 제거) 확인 |
 | 장애물이 전부 사라짐 | live map에 장애물이 baked-in 되었는지 확인하고 `detector_map_yaml`에 clean map 지정 |
 | 상대차가 계속 static/unknown으로 남음 | `motion_classification.dynamic_chi2_threshold`, `dynamic_vote_window/required`, debug 로그의 `Tv`, `votes(S/D)`, `invalid_Pv` 확인 |
 | 원거리 중심 변화에 track이 끌림 | adaptive covariance 파라미터와 `assoc_use_mahalanobis` 확인 |

@@ -1,11 +1,12 @@
 // lap_referee: closed-loop rollout judge/recorder for f1tenth_gym_ros.
 //
-// The f1tenth gym bridge does not republish the simulator collision/lap state
-// to ROS, so this node reconstructs episode outcomes from ROS-observable
-// signals only:
+// The f1tenth gym bridge publishes its latched collision state. This node uses
+// that state as the primary collision signal and keeps scan/stuck checks as
+// fallbacks for older bridges or non-gym sources:
 //   * /ego_racecar/scan  -> minimum LiDAR range (wall proximity / impact)
 //   * /ego_racecar/odom  -> pose + body speed (progress, stuck detection)
 //   * /drive             -> commanded speed (stuck-vs-intent disambiguation)
+//   * /ego_racecar/collision -> simulator collision latch
 //
 // One process == one rollout. The node loads the reference raceline CSV to
 // measure forward progress along the track, sets t0 at first motion, then
@@ -19,6 +20,7 @@
 #include <nav_msgs/msg/odometry.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/laser_scan.hpp>
+#include <std_msgs/msg/bool.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -99,6 +101,9 @@ public:
     drive_sub_ = create_subscription<ackermann_msgs::msg::AckermannDriveStamped>(
       drive_topic_, 10,
       [this](const ackermann_msgs::msg::AckermannDriveStamped::SharedPtr msg) {onDrive(msg);});
+    collision_sub_ = create_subscription<std_msgs::msg::Bool>(
+      collision_topic_, 10,
+      [this](const std_msgs::msg::Bool::SharedPtr msg) {onCollision(msg);});
 
     const double period = 1.0 / std::max(record_rate_hz_, 1.0);
     timer_ = create_wall_timer(
@@ -121,6 +126,7 @@ private:
     // f1tenth gym bridge publishes the ego scan un-namespaced on /scan.
     declare_parameter<std::string>("scan_topic", "/scan");
     declare_parameter<std::string>("drive_topic", "/drive");
+    declare_parameter<std::string>("collision_topic", "/ego_racecar/collision");
     declare_parameter<std::string>("output_dir", "/tmp/lap_referee");
     declare_parameter<std::string>("output_prefix", "rollout");
 
@@ -145,6 +151,7 @@ private:
     odom_topic_ = get_parameter("odom_topic").as_string();
     scan_topic_ = get_parameter("scan_topic").as_string();
     drive_topic_ = get_parameter("drive_topic").as_string();
+    collision_topic_ = get_parameter("collision_topic").as_string();
     output_dir_ = get_parameter("output_dir").as_string();
     output_prefix_ = get_parameter("output_prefix").as_string();
 
@@ -256,6 +263,8 @@ private:
     const double vy = msg->twist.twist.linear.y;
     speed_ = std::hypot(vx, vy);
     has_odom_ = true;
+    last_odom_wall_ = now();
+    ++odom_count_;
   }
 
   void onScan(const sensor_msgs::msg::LaserScan::SharedPtr msg)
@@ -276,15 +285,40 @@ private:
     cmd_steer_ = msg->drive.steering_angle;
   }
 
+  void onCollision(const std_msgs::msg::Bool::SharedPtr msg)
+  {
+    collision_state_ = msg->data;
+    has_collision_state_ = true;
+  }
+
   void step()
   {
-    if (phase_ == Phase::Done || !has_odom_) {
+    if (phase_ == Phase::Done) {
+      return;
+    }
+    // 5초 심박: 원격(wifi) 진단용. odom이 아예/도중에 끊기는 것과 진행거리 정체를
+    // 현장에서 즉시 가려낸다 (2026-08-13: 랩 판정이 조용히 안 되는 사고 2회).
+    if ((now() - last_heartbeat_wall_).seconds() >= 5.0) {
+      last_heartbeat_wall_ = now();
+      if (!has_odom_) {
+        RCLCPP_WARN(get_logger(), "HB: odom 수신 0건 — 위치추정 토픽이 안 들어오고 있음");
+      } else {
+        RCLCPP_INFO(
+          get_logger(),
+          "HB: phase=%s progress=%.1f/%.1fm idx=%zu lat=%.2f v=%.2f odom(n=%lu, age=%.1fs)",
+          phase_ == Phase::Running ? "RUN" : "WAIT", progress_m_,
+          track_length_ * lap_fraction_, last_index_, last_lat_err_, speed_,
+          static_cast<unsigned long>(odom_count_), (now() - last_odom_wall_).seconds());
+      }
+    }
+    if (!has_odom_) {
       return;
     }
     const double t = (now() - start_wall_).seconds();
 
     const std::size_t near = nearestIndex(pose_x_, pose_y_);
     const double lat = signedLateralError(near, pose_x_, pose_y_);
+    last_lat_err_ = lat;
 
     if (phase_ == Phase::WaitingForStart) {
       if (t > no_start_timeout_sec_) {
@@ -325,7 +359,12 @@ private:
 
     // --- termination checks (after startup grace) ---
     if (run_t > startup_grace_sec_) {
-      if (has_scan_ && min_scan_ < collision_scan_threshold_) {
+      if (has_collision_state_) {
+        if (collision_state_) {
+          terminate("collision", true, run_t, near, lat);
+          return;
+        }
+      } else if (has_scan_ && min_scan_ < collision_scan_threshold_) {
         terminate("collision", true, run_t, near, lat);
         return;
       }
@@ -444,9 +483,10 @@ private:
       }
     }
 
-    const double mean_speed = speed_count_ > 0 ? speed_sum_ / static_cast<double>(speed_count_) : 0.0;
-    const double clearance = (min_clearance_ == std::numeric_limits<double>::max())
-      ? -1.0 : min_clearance_;
+    const double mean_speed = speed_count_ >
+      0 ? speed_sum_ / static_cast<double>(speed_count_) : 0.0;
+    const double clearance = (min_clearance_ == std::numeric_limits<double>::max()) ?
+      -1.0 : min_clearance_;
 
     std::ostringstream json;
     json.setf(std::ios::fixed);
@@ -494,7 +534,7 @@ private:
   };
 
   // parameters
-  std::string waypoints_csv_, odom_topic_, scan_topic_, drive_topic_;
+  std::string waypoints_csv_, odom_topic_, scan_topic_, drive_topic_, collision_topic_;
   std::string output_dir_, output_prefix_;
   double record_rate_hz_{50.0};
   double start_speed_threshold_{0.4};
@@ -516,7 +556,12 @@ private:
 
   // live state
   Phase phase_{Phase::WaitingForStart};
-  bool has_odom_{false}, has_scan_{false};
+  bool has_odom_{false}, has_scan_{false}, has_collision_state_{false};
+  rclcpp::Time last_odom_wall_{0, 0, RCL_ROS_TIME};
+  rclcpp::Time last_heartbeat_wall_{0, 0, RCL_ROS_TIME};
+  std::uint64_t odom_count_{0};
+  double last_lat_err_{0.0};
+  bool collision_state_{false};
   double pose_x_{0.0}, pose_y_{0.0}, pose_yaw_{0.0}, speed_{0.0};
   double min_scan_{0.0}, cmd_speed_{0.0}, cmd_steer_{0.0};
   std::size_t last_index_{0}, start_index_{0};
@@ -535,6 +580,7 @@ private:
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
   rclcpp::Subscription<ackermann_msgs::msg::AckermannDriveStamped>::SharedPtr drive_sub_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr collision_sub_;
   rclcpp::Publisher<ackermann_msgs::msg::AckermannDriveStamped>::SharedPtr stop_pub_;
   rclcpp::TimerBase::SharedPtr timer_;
 };

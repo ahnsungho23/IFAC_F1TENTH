@@ -60,7 +60,10 @@ detection으로 복원해 하나의 Kalman track이 생성되도록 하는 segme
 7. waypoint의 `d_left/d_right` 안에 있는 클러스터만 남긴다. 이때 중심이 아니라 팽창된
    envelope의 좌·우 가장자리(`d_left`, `d_right`)를 복도와 비교한다. 벽에 붙은 부채꼴 산란은
    중심은 복도 안이지만 AABB 가장자리는 이미 벽을 파고들기 때문이다.
-8. 클러스터 점 중 `/map` occupied cell 위의 비율이 `map_point_reject_ratio` 이상이면 제거한다.
+8. (클러스터링 전 단계에서) 맵의 선형 벽 성분으로부터 `wall_assoc_distance_m` 이내의 빔은
+   구조물로 제거된다 — 2026-08-13에 셀 점유 투표(`map_point_reject_ratio`)를
+   WallDistanceFilter(연결성분+PCA 벽 추출+거리변환)로 대체. 실차의 맵-스캔 불일치에서
+   점유 투표는 맵 셀 위의 실제 장애물을 지우고 맵 벽에서 벗어난 벽 반사를 통과시켰다.
 
 Layer 1은 벽과 알려진 지도 구조물을 제거하는 필터이며 별도 토픽으로 발행하지 않는다.
 
@@ -381,7 +384,7 @@ record/replay 원인 분석용 출력일 뿐 planner 입력이 아니다. 일반
 | 파편 병합 | `cluster_merge_enable`, `cluster_merge_distance`, `cluster_merge_min_fragment_points` | tracking 전 작은 LiDAR 파편 병합 |
 | 크기 | `min_cluster_points`, `max_obs_size` | 병합 후 최소 beam 수와 최대 객체 크기 |
 | 경계 | `boundaries_inflation`, `fallback_track_halfwidth` | 트랙 내부 통과 조건 |
-| 지도 | `use_map_filter`, `map_occupied_thresh`, `map_inflation_cells`, `map_point_reject_ratio` | 점유지도 필터 |
+| 지도 | `use_map_filter`, `map_occupied_thresh`, `wall_assoc_distance_m`, `wall_linear_ratio`, `wall_min_length_m` | 구조적 벽 필터 (WallDistanceFilter) |
 | 측정 불확실성 | `meas_range_var_scale`, `meas_sparse_var_scale`, `meas_yaw_rate_var_scale`, `meas_reference_points`, `meas_variance_scale_max`, `meas_motion_timeout` | Detection별 adaptive Kalman `R` |
 | 추적 | `meas_var_s/d`, `process_var_vs/vd`, `assoc_gate`, `aggro_multi`, `assoc_use_mahalanobis`, `assoc_mahalanobis_gate` | Kalman 1차 association |
 | 물리 객체 ID 연속성 | `physical_id_reassociation_enable`, `physical_id_reassociation_gap_s/d/map`, `physical_id_memory_sec` | 안정 실측 anchor와 Frenet/map AABB 기반 track 폐기 뒤 ID 재식별 |

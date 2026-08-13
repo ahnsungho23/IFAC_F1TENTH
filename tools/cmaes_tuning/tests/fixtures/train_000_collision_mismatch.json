@@ -1,0 +1,38 @@
+{
+  "schema": "cmaes_collision_reproducer/1",
+  "description": "Minimal frame pair from baseline/train_000: f110_gym zeros yaw on the collision frame.",
+  "map": {
+    "origin": [-6.0, -1.0, 0.0],
+    "resolution": 0.025,
+    "width_pixels": 160,
+    "height_pixels": 80
+  },
+  "vehicle": {
+    "length": 0.56,
+    "width": 0.287
+  },
+  "obstacle": {
+    "shape": "rect",
+    "x": -4.921329746442279,
+    "y": 0.07485438199436964,
+    "s": 19.16433609333592,
+    "d": 0.19065618990512082,
+    "yaw": 0.0,
+    "width": 0.5,
+    "height": 0.5
+  },
+  "pre_collision_frame": {
+    "timestamp_ns": 1,
+    "x": -5.501304420406102,
+    "y": -0.09378225830040143,
+    "yaw": -0.15484772156275844,
+    "speed": 2.9999936265248217
+  },
+  "published_collision_frame": {
+    "timestamp_ns": 2,
+    "x": -5.471659006717418,
+    "y": -0.09838066741042234,
+    "yaw": 0.0,
+    "speed": 0.0
+  }
+}

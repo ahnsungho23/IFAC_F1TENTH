@@ -1020,11 +1020,11 @@ bool RacelineSplinePlanner::targetFitsTrackBounds(
 }
 
 f110_msgs::msg::WpntArray RacelineSplinePlanner::buildGlobalHandoffPath(
-  double ego_s, double state_tail_ratio, double speed_cap_mps) const
+  const EgoFrenetState & ego, double state_tail_ratio, double speed_cap_mps) const
 {
   f110_msgs::msg::WpntArray path;
   path.header = reference_.header;
-  if (!ready() || !std::isfinite(ego_s) || !(state_tail_ratio > 0.0) ||
+  if (!ready() || !std::isfinite(ego.s) || !(state_tail_ratio > 0.0) ||
     state_tail_ratio > 1.0 || !(speed_cap_mps > 0.0))
   {
     return path;
@@ -1036,11 +1036,21 @@ f110_msgs::msg::WpntArray RacelineSplinePlanner::buildGlobalHandoffPath(
     static_cast<std::size_t>(
       std::ceil(state_tail_ratio * static_cast<double>(total))));
   const std::size_t tail_begin = total - std::min(tail_count, total);
-  const std::size_t ego_index = nearestReferenceIndex(ego_s);
+  const std::size_t ego_index = nearestReferenceIndex(ego.s);
+
+  // 계획된 복귀 램프: ego의 현재 d에서 0까지 smoothstep으로 내려간다. 램프 없이 d=0
+  // 라인만 주면 복귀가 컨트롤러 자연 수렴(실측 0.055 m/m)에 맡겨져, 연속 장애물에서
+  // 다음 기동이 남은 오프셋 위에서 시작되고 FSM은 |d| 게이트에 오래 붙잡힌다.
+  const double ramp_d0 = (std::isfinite(ego.d) ? ego.d : 0.0);
+  const double ramp_length = std::max(
+    std::max(0.0, parameters_.merge_ramp_min_length_m),
+    std::abs(ego.speed) * std::max(0.0, parameters_.merge_ramp_time_sec));
+  const bool apply_ramp = std::abs(ramp_d0) > 0.03 && ramp_length > 1.0e-6;
 
   // controller에 충분한 전방 경로를 주기 위해 전체 global loop를 회전시켜 현재 ego를
   // 마지막 tail_ratio 구간의 첫 점에 놓는다. state_machine은 명시적인 handoff 표식을
-  // 우선 사용하며, tail 배치는 기존 합류 판정과의 호환성을 유지한다.
+  // 우선 사용하며, tail 배치는 기존 합류 판정과의 호환성을 유지한다(합류 확정은
+  // 램프와 무관하게 물리적 |ego_d| 게이트가 계속 담당한다).
   const std::size_t first_index = (ego_index + total - tail_begin) % total;
   path.wpnts.reserve(total);
   for (std::size_t k = 0; k < total; ++k) {
@@ -1049,6 +1059,47 @@ f110_msgs::msg::WpntArray RacelineSplinePlanner::buildGlobalHandoffPath(
     waypoint.d_m = 0.0;
     waypoint.vx_mps = std::min(std::max(0.0, waypoint.vx_mps), speed_cap_mps);
     path.wpnts.push_back(waypoint);
+  }
+
+  // 회전 배열에서 ego는 위치 tail_begin에 놓인다(전방 순서: tail_begin → total-1).
+  // 그 구간에 전방 호 길이 기준으로 램프를 적용한다. 기본 tail 길이(≈수 m)가
+  // ramp_length보다 짧으면 램프가 잘리지만, 잘린 끝에서도 d는 단조 감소라 안전 방향이다.
+  if (apply_ramp) {
+    // 벽 협착부 클램프: 고정 길이 램프가 좁아지는 구간에서 오프셋을 유지한 채 지나가면
+    // 벽 여유가 깎인다(.regression_check10: FINALS 최소 벽 여유 0.117→0.082 m — s≈23
+    // 왼쪽 협착부). 각 지점의 트랙 여유로 |d|를 제한하고, 클램프로 내려간 뒤 다시
+    // 벌어지는 구간에서도 단조 감소를 유지해 차가 도로 바깥쪽으로 되돌지 않게 한다.
+    const double wall_keepout =
+      std::max(0.0, parameters_.vehicle_half_width_m) +
+      std::max(0.0, parameters_.wall_safety_margin_m);
+    double forward_m = 0.0;
+    double previous_magnitude = std::abs(ramp_d0);
+    const double sign = (ramp_d0 >= 0.0 ? 1.0 : -1.0);
+    for (std::size_t k = tail_begin; k < total; ++k) {
+      const auto & global = reference_.wpnts[(first_index + k) % total];
+      if (k > tail_begin) {
+        const auto & previous = reference_.wpnts[(first_index + k - 1U) % total];
+        forward_m += std::hypot(
+          global.x_m - previous.x_m, global.y_m - previous.y_m);
+      }
+      if (forward_m >= ramp_length) {
+        break;
+      }
+      const double t = std::clamp(forward_m / ramp_length, 0.0, 1.0);
+      // smoothstep의 여집합 (1-t)^2(1+2t): d(0)=d0, d(L)=0, 양 끝 기울기 0.
+      const double profile = std::abs(ramp_d0) * (1.0 - t) * (1.0 - t) * (1.0 + 2.0 * t);
+      const double side_room = (sign > 0.0 ? global.d_left : global.d_right);
+      const double allowed =
+        std::isfinite(side_room) ? std::max(0.0, side_room - wall_keepout) :
+        previous_magnitude;
+      const double magnitude = std::min({profile, allowed, previous_magnitude});
+      previous_magnitude = magnitude;
+      const double d = sign * magnitude;
+      auto & waypoint = path.wpnts[k];
+      waypoint.d_m = d;
+      waypoint.x_m = global.x_m - d * std::sin(global.psi_rad);
+      waypoint.y_m = global.y_m + d * std::cos(global.psi_rad);
+    }
   }
   return path;
 }

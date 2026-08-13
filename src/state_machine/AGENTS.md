@@ -38,6 +38,14 @@ State machine package rules. These instructions apply to `src/state_machine`.
 - `enter_to_global()` assumes the **segment publishing convention**: local paths (`/avoid_waypoints`, `/overtake_waypoints`) are ego→merge segments in global-raceline frenet coordinates (`s_m`/`d_m`), tail converging to d→0. As of 2026-07-13 `local_planning` still publishes a full-loop copy — until it is converted, the avoid-side merge judgment is inaccurate.
 - `/state` is timer-driven at `publish_rate_hz`; `/local_waypoints` and
   `/local_waypoints/path` are emitted only by fresh Frenet odometry callbacks.
+- The only exception is default-off `lockstep_mode` for CMA evaluation. It disables the wall timer,
+  evaluates the FSM once for an identical-stamp Frenet/avoid-path pair, and then emits one selected
+  local path with that logical timestamp. Production continues to use the 10 Hz timer.
+- Tuning-only timing diagnostics are default-off companion messages. T2 is captured in the
+  `/avoid_waypoints` callback at the first exact M-of-N satisfaction, T3 at the committed
+  GLOBAL-to-AVOID change, and T4 at the first subsequent avoidance `/local_waypoints` publication.
+  `tuning_publish_rate_hz_override` may change the FSM timer only while diagnostics are enabled;
+  the production `publish_rate_hz=10` default must remain unchanged.
 - Global waypoints are static validated data with no use-blocking TTL. Avoidance waypoints latch
   until an empty message arrives. Overtake waypoints use the configured receive-event hold period
   and are invalidated only by an empty message received after that period.
@@ -48,12 +56,15 @@ State machine package rules. These instructions apply to `src/state_machine`.
 ## Parameters, Launch, Docs
 
 - All topic names, frame names, publish rates, stale/diagnostic timeouts, hold durations, waypoint
-  counts, and default states must be parameters with YAML defaults.
+  counts, and default states must be parameters with YAML defaults. Keep timing diagnostics
+  disabled in the operational YAML.
+- Keep `lockstep_mode=false` in the operational YAML and expose it only through the launch argument.
 - Keep `launch/state_machine.launch.py` loading `config/state_machine.yaml`.
-- `state_machine.launch.py` also includes `global_planning`'s `lap_counter.launch.py`
-  (lap_counter_node runs with the state machine, not with `global_planning.launch.py`;
-  its parameters stay in `global_planning/config/global_planning.yaml`). `package.xml`
-  carries the matching `<exec_depend>global_planning</exec_depend>`.
+- Never let a zero-tail-speed (or <3-waypoint) local path satisfy the AVOID/OVERTAKE ->
+  GLOBAL merge check in `enter_to_global`. Safe-stop hold paths end at ego with vx 0, so
+  without that guard the merge conditions pass "because the car is parked", the FSM flaps
+  AVOID<->GLOBAL, and the brief GLOBAL ticks forward an obstacle-piercing global line +
+  speed command that creeps the car into the obstacle (2026-08-13 real-car incident).
 - Keep Korean operational documentation in `docs/state_machine_node.md` current, including both
   state and selected-waypoint interfaces.
 - Update this `AGENTS.md` (and `README.md` if run/launch changes) when changing node behavior, topics, parameters, or launch usage.

@@ -49,6 +49,7 @@ add_executable(obstacle_detector_node
   src/obstacle_detector_node.cpp
   src/frenet_projector.cpp
   src/obstacle_tracker.cpp
+  src/wall_distance_filter.cpp
 )
 target_include_directories(obstacle_detector_node PRIVATE
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -107,6 +108,15 @@ if(BUILD_TESTING)
     geometry_msgs
     visualization_msgs
   )
+
+  ament_add_gtest(test_wall_distance_filter
+    test/test_wall_distance_filter.cpp
+    src/wall_distance_filter.cpp
+  )
+  target_include_directories(test_wall_distance_filter PRIVATE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  )
+  ament_target_dependencies(test_wall_distance_filter nav_msgs)
 
   ament_lint_auto_find_test_dependencies()
 endif()

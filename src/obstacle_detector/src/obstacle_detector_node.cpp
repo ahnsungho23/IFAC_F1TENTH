@@ -179,8 +179,9 @@ void ObstacleDetectorNode::declareParameters()
     this->declare_parameter<double>("fallback_track_halfwidth", 1.5);
     this->declare_parameter<bool>("use_map_filter", true);
     this->declare_parameter<int>("map_occupied_thresh", 50);
-    this->declare_parameter<int>("map_inflation_cells", 1);
-    this->declare_parameter<double>("map_point_reject_ratio", 0.6);
+    this->declare_parameter<double>("wall_assoc_distance_m", 0.2);
+    this->declare_parameter<double>("wall_linear_ratio", 4.0);
+    this->declare_parameter<double>("wall_min_length_m", 1.0);
 
     // per-layer 2nd-stage merge (object-level output)
     this->declare_parameter<bool>("layer_merge_enable", true);
@@ -308,8 +309,10 @@ void ObstacleDetectorNode::loadParameters()
     fallback_track_halfwidth_ = this->get_parameter("fallback_track_halfwidth").as_double();
     use_map_filter_ = this->get_parameter("use_map_filter").as_bool();
     map_occupied_thresh_ = this->get_parameter("map_occupied_thresh").as_int();
-    map_inflation_cells_ = this->get_parameter("map_inflation_cells").as_int();
-    map_point_reject_ratio_ = this->get_parameter("map_point_reject_ratio").as_double();
+    wall_assoc_distance_m_ =
+        std::max(0.0, this->get_parameter("wall_assoc_distance_m").as_double());
+    wall_linear_ratio_ = this->get_parameter("wall_linear_ratio").as_double();
+    wall_min_length_m_ = this->get_parameter("wall_min_length_m").as_double();
 
     layer_merge_enable_ = this->get_parameter("layer_merge_enable").as_bool();
     layer_merge_gap_s_ = this->get_parameter("layer_merge_gap_s").as_double();
@@ -513,7 +516,14 @@ void ObstacleDetectorNode::globalWpntsCallback(const f110_msgs::msg::WpntArray::
 
 void ObstacleDetectorNode::mapCallback(const nav_msgs::msg::OccupancyGrid::SharedPtr msg)
 {
-    map_msg_ = msg;
+    // 구조적 Layer-1 필터: 맵에서 선형 벽 성분을 1회 추출해 거리변환을 사전 계산한다.
+    // 실차에서 스캔과 SLAM 맵이 어긋나므로(충돌 후 환경 변화·위치추정 오프셋) 셀 단위
+    // 점유 투표 대신 빔 단위 벽 연관으로 판정한다.
+    WallDistanceFilter::Params wall_params;
+    wall_params.occupied_thresh = map_occupied_thresh_;
+    wall_params.linear_ratio = wall_linear_ratio_;
+    wall_params.min_length_m = wall_min_length_m_;
+    wall_filter_.buildFromMap(*msg, wall_params);
     RCLCPP_INFO_ONCE(this->get_logger(), "Occupancy map received (%u x %u @ %.3f m).",
                      msg->info.width, msg->info.height, msg->info.resolution);
 }
@@ -692,6 +702,16 @@ ObstacleDetectorNode::clusterScan(const sensor_msgs::msg::LaserScan &scan, doubl
         pt.y = ty + syaw * lx + cyaw * ly;
         pt.range = r;
 
+        // LAYER 1 [structure]: 맵에서 추출한 선형 벽 성분으로부터 wall_assoc_distance_m_ 이내의
+        // 포인트는 구조물이므로 클러스터링 전에 버린다. 무효 빔과 마찬가지로 아래 인덱스 갭
+        // 검사에 의해 클러스터 연속성도 끊는다.
+        if (use_map_filter_ && wall_filter_.active() &&
+            wall_filter_.isWallPoint(pt.x, pt.y, wall_assoc_distance_m_))
+        {
+            ++stats.map_rejected;
+            continue;
+        }
+
         bool same_cluster = false;
         if (have_prev && static_cast<int>(i) == prev_index + 1)
         {
@@ -836,43 +856,6 @@ ObstacleDetectorNode::mergeClusters(std::vector<std::vector<ScanPoint>> clusters
     return clusters;
 }
 
-// ------------------------------------------------------------------------------------------------
-// Occupancy-grid lookup for the Layer-1 map filter
-// ------------------------------------------------------------------------------------------------
-bool ObstacleDetectorNode::occupiedInMap(double x, double y) const
-{
-    if (!map_msg_)
-    {
-        return false;
-    }
-    const auto &info = map_msg_->info;
-    if (info.resolution <= 0.0)
-    {
-        return false;
-    }
-    const int gx = static_cast<int>(std::floor((x - info.origin.position.x) / info.resolution));
-    const int gy = static_cast<int>(std::floor((y - info.origin.position.y) / info.resolution));
-    const int w = static_cast<int>(info.width);
-    const int h = static_cast<int>(info.height);
-    for (int dy = -map_inflation_cells_; dy <= map_inflation_cells_; ++dy)
-    {
-        for (int dx = -map_inflation_cells_; dx <= map_inflation_cells_; ++dx)
-        {
-            const int cx = gx + dx;
-            const int cy = gy + dy;
-            if (cx < 0 || cy < 0 || cx >= w || cy >= h)
-            {
-                continue;
-            }
-            const int8_t v = map_msg_->data[static_cast<std::size_t>(cy) * w + cx];
-            if (v >= map_occupied_thresh_)
-            {
-                return true;
-            }
-        }
-    }
-    return false;
-}
 
 // ------------------------------------------------------------------------------------------------
 // Per-layer 2nd-stage clustering: tracks of ONE layer -> object-level obstacles
@@ -1382,31 +1365,9 @@ void ObstacleDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
             continue;
         }
 
-        // map-based filter: drop clusters that sit on known static structure (the map itself)
-        if (use_map_filter_ && map_msg_)
-        {
-            int occ = 0;
-            bool reject_as_map = 0.0 >= map_point_reject_ratio_;
-            for (const auto &p : cluster)
-            {
-                if (occupiedInMap(p.x, p.y))
-                {
-                    ++occ;
-                    const double ratio =
-                        static_cast<double>(occ) / static_cast<double>(cluster.size());
-                    if (ratio >= map_point_reject_ratio_)
-                    {
-                        reject_as_map = true;
-                        break;
-                    }
-                }
-            }
-            if (reject_as_map)
-            {
-                ++stats.map_rejected;
-                continue;
-            }
-        }
+        // (맵 필터는 clusterScan의 빔 단위 WallDistanceFilter가 담당 — 2026-08-13에 클러스터
+        //  점유 투표를 대체. 실차의 맵-스캔 불일치에서 점유 투표는 맵 셀 위의 실제 장애물을
+        //  지우고, 맵 벽에서 살짝 벗어난 벽 반사는 통과시키는 양방향 오류가 있었다.)
 
         Detection det;
         det.s = bounds->s_center;

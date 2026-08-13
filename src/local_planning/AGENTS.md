@@ -161,6 +161,13 @@
   publish a full global loop with `ot_line=raceline_global_handoff`. Continue that non-empty
   handoff path until `/state` has entered `STATE_AVOID` for the commitment and subsequently
   confirms `STATE_GLOBAL`.
+- Merge ramp (ego d → 0 smoothstep grafted onto the global handoff loop, 2026-08-13) is
+  implemented but DEFAULT-OFF (`merge_ramp_min_length_m`/`merge_ramp_time_sec` = 0). A bare d=0
+  loop delegates the return to the controller's natural convergence (real car: 0.055 m/m), but
+  enabling the ramp with the current waypoint d_left/d_right shaved the sim wall pinch minimum
+  from 0.117 to 0.082 m — the wall clamp cannot bind because those bounds are optimistic by a
+  measured 0.16-0.23 m. Enable ONLY after the boundary data is calibrated (control team's
+  per-sector lidar wall-clearance table), and re-run the lockstep baseline before adopting.
 - Stabilize every non-active blocking cluster from the current ego state concurrently while the
   active maneuver runs; do not use the old `merge_s` as the next-cluster observation origin.
   Once the active Guard rear plus `chain_release_distance_m` is behind ego, allow a feasible next

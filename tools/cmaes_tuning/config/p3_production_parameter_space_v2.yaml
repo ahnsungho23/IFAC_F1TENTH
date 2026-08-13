@@ -1,0 +1,76 @@
+schema: cmaes_parameter_space/1
+# 2026-08-13 re-freeze: baselines updated to the ADOPTED CMA v3 best (main gen0 cand 3,
+# production yaml commit 84f2a39) so validate_baseline passes again. Bounds unchanged.
+# v2: identical to p3_production_parameter_space.yaml except outside_line_transition_scale.
+# The v1 lower bound 0.05 (and the v1 CMA-selected baseline 0.1) put the whole outside-line
+# exit family into a geometrically dead zone: exit length = post_apex_far x transition_scale x
+# outside multiplier, and the M1 span selection saturates at transition_long, so with
+# multiplier 0.1 the longest possible outside exit is ~1.8 m and every shorter probe needs
+# curvature far beyond maximum_curvature_radpm=3.2. 64 v1 evaluations produced zero feasible
+# candidates. The v2 lower bound keeps the shortest saturated outside exit above ~3.7 m even
+# at the post_apex_far lower bound, and the baseline moves to 0.5 (production YAML updated to
+# match; validate_baseline enforces the handshake).
+parameters:
+  - name: pre_apex_far_m
+    baseline: 9.95922728836409
+    lower: 6.0
+    upper: 11.5
+    unit: m
+    transform: linear
+    target_ros_parameter: pre_apex_distances_m
+    decode: thirds_descending
+    description: P3 entry-distance family far anchor.
+
+  - name: post_apex_far_m
+    baseline: 5.139113490614181
+    lower: 3.0
+    upper: 7.0
+    unit: m
+    transform: linear
+    target_ros_parameter: post_apex_distances_m
+    decode: thirds_ascending
+    description: P3 exit-distance family far anchor.
+
+  - name: transition_short
+    baseline: 0.41221812745907305
+    lower: 0.08
+    upper: 0.55
+    unit: ratio
+    transform: linear
+    target_ros_parameter: transition_distance_scales
+    decode: vector_index_0
+    fixed_vector: [0.41221812745907305, 0.6991537701867223, 3.440689927482147]
+    description: Minimum P3 exit transition scale; the insensitive middle value stays frozen.
+
+  - name: transition_long
+    baseline: 3.440689927482147
+    lower: 1.80
+    upper: 4.50
+    unit: ratio
+    transform: linear
+    target_ros_parameter: transition_distance_scales
+    decode: vector_index_2
+    fixed_vector: [0.41221812745907305, 0.6991537701867223, 3.440689927482147]
+    description: Maximum P3 exit transition scale; the insensitive middle value stays frozen.
+
+  - name: outside_line_transition_scale
+    baseline: 0.5783221023225422
+    lower: 0.35
+    upper: 1.20
+    unit: ratio
+    transform: linear
+    target_ros_parameter: outside_line_transition_scale
+    description: >-
+      P3 exit-length multiplier on the geometrically outside line. Lower bound raised from
+      0.05 so the saturated outside exit stays curvature-feasible (see header comment).
+
+  - name: entry_fraction_short
+    baseline: 0.5390209027615948
+    lower: 0.45
+    upper: 0.55
+    unit: ratio
+    transform: linear
+    target_ros_parameter: entry_transition_fractions
+    decode: vector_index_0
+    fixed_vector: [0.5390209027615948, 0.75, 1.00]
+    description: Minimum P3 entry fraction; middle and long entries stay frozen after zero sensitivity.

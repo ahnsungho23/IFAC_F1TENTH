@@ -11,6 +11,7 @@
 #include "nav_msgs/msg/odometry.hpp"
 #include "nav_msgs/msg/path.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "std_msgs/msg/string.hpp"
 
 namespace state_machine
 {
@@ -57,6 +58,8 @@ private:
   uint8_t resolve_requested_state();
   void publish_state_cycle();
   void publish_selected_waypoints(uint8_t state);
+  void try_run_lockstep_cycle();
+  rclcpp::Time event_now() const;
   std::optional<f110_msgs::msg::WpntArray> select_waypoints(
     uint8_t state,
     const rclcpp::Time & stamp);
@@ -66,6 +69,8 @@ private:
     const f110_msgs::msg::OTWpntArray & source,
     const rclcpp::Time & stamp) const;
   nav_msgs::msg::Path build_path(const f110_msgs::msg::WpntArray & waypoints) const;
+  void publish_timing_event(
+    const std::string & event, std::int64_t steady_time_ns, const std::string & fields);
 
   std::string state_topic_;
   std::string local_waypoints_topic_;
@@ -87,6 +92,21 @@ private:
   double enter_global_threshold_{0.2};
   double enter_global_tail_ratio_{0.1};
   double enter_global_s_gap_tol_m_{0.5};
+  bool timing_diagnostics_enable_{false};
+  std::string timing_diagnostics_topic_{"/cma_timing/events"};
+  double tuning_publish_rate_hz_override_{-1.0};
+  bool lockstep_mode_{false};
+  std::int64_t lockstep_frenet_stamp_ns_{0};
+  std::int64_t lockstep_avoid_stamp_ns_{0};
+  std::int64_t lockstep_last_processed_stamp_ns_{0};
+  rclcpp::Time lockstep_event_time_{0, 0, RCL_ROS_TIME};
+  bool timing_t2_published_{false};
+  bool timing_t3_published_{false};
+  bool timing_t4_published_{false};
+  bool timing_t3_pending_{false};
+  std::int64_t timing_t2_steady_ns_{0};
+  std::int64_t timing_t2_path_stamp_ns_{0};
+  std::int64_t timing_t3_steady_ns_{0};
 
   std::optional<rclcpp::Time> enter_global_ok_since_;
   uint8_t enter_global_eval_state_{f110_msgs::msg::StateMachine::STATE_GLOBAL};
@@ -112,6 +132,7 @@ private:
   rclcpp::Publisher<f110_msgs::msg::StateMachine>::SharedPtr state_pub_;
   rclcpp::Publisher<f110_msgs::msg::WpntArray>::SharedPtr local_waypoints_pub_;
   rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr local_path_pub_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr timing_diagnostics_pub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr frenet_sub_;
   rclcpp::Subscription<f110_msgs::msg::WpntArray>::SharedPtr global_sub_;
   rclcpp::Subscription<f110_msgs::msg::OTWpntArray>::SharedPtr avoid_sub_;

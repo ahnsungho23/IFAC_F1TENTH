@@ -126,7 +126,10 @@ published Frenet bounds instead of reprojecting the Cartesian metadata.
 
 ## Layer semantics
 
-- Layer 1 is the `/map` and corridor filter. It is never published.
+- Layer 1 is the `/map` and corridor filter. It is never published. Since 2026-08-13 the
+  map part is the structural `WallDistanceFilter` (per-beam distance to PCA-linear wall
+  components, built once per map) — do NOT reintroduce per-cell occupancy voting; it
+  fails both ways under real-car map-scan divergence.
 - Layer 2 is every existence-confirmed `Unknown` or `Static` non-map object, published with
   `is_static=true`. `Unknown` is the safety-preserving provisional state.
 - `/confirmed_static_obs` is a same-scan, `Static`-only view of Layer 2. It uses the same

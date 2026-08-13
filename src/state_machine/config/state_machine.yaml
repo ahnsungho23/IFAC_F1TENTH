@@ -14,6 +14,12 @@ state_machine_node:
 
     # /state의 FSM 평가/heartbeat 주기입니다. local waypoint는 Frenet odom 이벤트로 발행합니다.
     publish_rate_hz: 10.0
+    # CMA timing audit only. Normal runtime keeps the 10 Hz production rate above.
+    timing_diagnostics_enable: false
+    timing_diagnostics_topic: "/cma_timing/events"
+    tuning_publish_rate_hz_override: -1.0
+    # CMA 전용: 동일 stamp의 Frenet odom + avoid path가 모였을 때만 FSM을 1회 실행합니다.
+    lockstep_mode: false
     waypoint_num: 50
 
     # false면 해당 GLOBAL -> local 상태 진입만 차단합니다. 복귀 판정은 항상 동작합니다.

@@ -1,0 +1,228 @@
+schema: cmaes_tuning_config/1
+
+paths:
+  baseline_planner_yaml: src/local_planning/config/local_planning.yaml
+  parameter_space_yaml: tools/cmaes_tuning/config/parameter_space.yaml
+  clean_map_yaml: src/monte_carlo_localization/maps/ifac_track.yaml
+  waypoint_json: offline_trajectory_generator/output/ifac_track/global_waypoints.json
+  waypoint_csv: offline_trajectory_generator/output/ifac_track/global_waypoints.csv
+  lap_referee_params: src/lap_referee/config/lap_referee.yaml
+  simulator_workspace: /home/sungho/f1sim_C
+  simulator_config: /home/sungho/f1sim_C/f1tenth_gym_ros/config/sim.yaml
+  simulator_bridge_source: /home/sungho/f1sim_C/f1tenth_gym_ros/f1tenth_gym_ros/gym_bridge.py
+  simulator_collision_source: /home/sungho/f1sim_C/gym/f110_gym/cpp_backend.cpp
+  state_machine_source: src/state_machine/src/state_machine_node.cpp
+  control_map_source: src/f1tenth_control/control_code/control_map_node.cpp
+  drive_selector_source: src/f1tenth_control/control_code/drive_source_selector.cpp
+  output_root: runs/cmaes_tuning
+
+experiment:
+  map_name: ifac_track
+  # mcl: normal end-to-end localization; ground_truth: CMA/simulation-only ego pose bridge.
+  # The selected value is frozen into every experiment manifest.
+  localization_mode: mcl
+  experiment_seed: 260809
+  fixed_training_scenario_ids: [train_000, train_001, train_002]
+  fixed_training_seeds: [260901, 260902, 260903]
+  generator_version: cmaes_static_single_v1
+
+# Explicit simulator controls for repeatable tuning experiments. These values
+# are passed to f1tenth_gym_ros and frozen into the experiment manifest. The
+# legacy publication mode remains the simulator's normal-runtime default.
+simulator_runtime:
+  simulator_seed: 12345
+  scan_noise_std_m: 0.01
+  scan_publication_mode: legacy_republish
+  publish_scan_identity: true
+
+# Passive companion instrumentation for the T0-T9 audit. Normal tuning and
+# production launches keep this disabled. The rate override is honored only
+# while diagnostics are enabled; -1 would preserve the state-machine YAML value.
+timing_audit:
+  enabled: false
+  topic: /cma_timing/events
+  state_machine_publish_rate_hz: 10.0
+
+# CMA-only event-driven execution. Production launches ignore this section and
+# keep every node's lockstep_mode parameter false.
+lockstep:
+  enabled: false
+  timestep_sec: 0.01
+  simulator_seed: 12345
+  scan_noise_std_m: 0.01
+  post_obstacle_distance_m: 3.0
+  smoke_scenario_ids: [training_001, training_009]
+  smoke_repetitions: 10
+  exact_hash_fields:
+    - physics_state_sequence_hash
+    - scan_hash_sequence_hash
+    - static_geometry_sequence_hash
+    - avoid_waypoints_hash_sequence_hash
+    - controller_command_sequence_hash
+    - trajectory_hash
+  numeric_tolerance:
+    committed_target_d_abs_m: 1.0e-12
+    fitness_abs: 1.0e-12
+
+scenario:
+  categories: [straight, corner_entry, corner_mid]
+  lateral_bands: [left, center, right]
+  obstacle_shape: rect
+  obstacle_width_m: 0.50
+  obstacle_height_m: 0.50
+  obstacle_yaw_rad: 0.0
+  spawn_distance_before_obstacle_m: 8.0
+  minimum_spawn_obstacle_distance_m: 6.0
+  maximum_candidate_clearance_m: 0.37
+  map_validation_sample_step_m: 0.0125
+
+ros:
+  ros_setup: /opt/ros/jazzy/setup.bash
+  workspace_setup: install/setup.bash
+  simulator_setup: /home/sungho/f1sim_C/install/local_setup.bash
+  domain_id_start: 121
+  # Avoid Fast DDS SHM zombie accumulation across hundreds of short-lived
+  # clean-process episodes. All experiment participants inherit this value.
+  fastdds_builtin_transports: UDPv4
+  use_sim_time: false
+  required_topics_before_control:
+    - /ego_racecar/odom
+    - /scan
+    - /ego_racecar/scan_identity
+    - /ego_racecar/collision
+    - /global_waypoints
+    - /pf/pose/odom
+    - /car_state/frenet/odom
+    - /state
+    - /static_obs
+    - /avoid_waypoints
+  recorded_topics:
+    - /ego_racecar/odom
+    - /scan
+    # Tuning-only identity for proving whether consecutive ROS scans came from
+    # the same backend env.step(). This topic is diagnostic-only.
+    - /ego_racecar/scan_identity
+    - /pf/pose/odom
+    - /car_state/frenet/odom
+    - /drive
+    - /drive_autonomous
+    - /ego_racecar/collision
+    - /avoid_waypoints
+    - /local_waypoints
+    - /global_waypoints
+    - /state
+    - /static_obs
+    # Offline-only timing audit of the detector's final static classification.
+    # The local planner continues to consume /static_obs; this topic is never fed back.
+    - /confirmed_static_obs
+    # Required for offline verification that simulator map->base_link TF agrees
+    # with the selected localization pose and has no duplicate edge samples.
+    - /tf
+    - /cma_timing/events
+
+controller:
+  # One fixed intermediate operating condition for repeatability and the next CMA stage.
+  # Speed remains outside the CMA parameter vector.
+  max_speed_mps: 4.0
+  min_speed_mps: 1.0
+  max_lateral_accel_mps2: 10.0
+  base_max_accel_mps2: 9.0
+  base_max_decel_mps2: 8.0
+  launch_boost_enable: true
+  deadzone_floor_speed_mps: 0.0
+
+runner:
+  ready_timeout_sec: 35.0
+  readiness_initial_delay_sec: 4.0
+  episode_timeout_sec: 65.0
+  process_sigint_timeout_sec: 3.0
+  process_sigterm_timeout_sec: 2.0
+  recorder_flush_timeout_sec: 8.0
+  topic_probe_timeout_sec: 10.0
+  initial_pose_publish_timeout_sec: 10.0
+  max_infrastructure_retries: 1
+  poll_period_sec: 0.20
+  localization_settle_sec: 2.0
+
+evaluation:
+  vehicle_length_m: 0.56
+  vehicle_width_m: 0.287
+  footprint_sample_step_m: 0.0125
+  start_speed_threshold_mps: 0.4
+  lap_fraction: 0.97
+  planner_stale_timeout_sec: 0.75
+  safe_stop_failure_duration_sec: 1.0
+  obstacle_clearance_target_m: 0.10
+  wall_clearance_target_m: 0.04
+  steering_tv_rate_max_radps: 20.0
+  steering_rate_deadband_radps: 0.10
+  curvature_rate_rms_max_radpm2: 20.0
+  localization_start_max_position_error_m: 0.50
+  localization_start_max_yaw_error_rad: 0.35
+  simulator_collision:
+    # Must match f110_gym/cpp_backend.cpp. The source file hash is stored in
+    # every scenario and experiment manifest so these constants cannot drift silently.
+    occupied_gray_threshold: 128
+    ttc_threshold_sec: 0.005
+    scan_noise_std_m: 0.01
+    # Legacy bags did not record /scan. Their deterministic fallback expands the
+    # TTC-swept raster footprint by this symmetric scan-noise envelope. New bags
+    # record /scan and reapply the exact noisy TTC equation instead.
+    scan_noise_guard_sigma: 0.75
+    yaw_reset_tolerance_rad: 1.0e-6
+    minimum_pre_reset_speed_mps: 0.4
+    maximum_reset_step_m: 0.15
+    require_topic_agreement: true
+
+dataset:
+  generator_version: cmaes_static_stratified_v2
+  seed: 261000
+  training_count: 25
+  validation_count: 40
+  categories:
+    - straight
+    - corner_entry
+    - corner_mid
+    - corner_exit
+    - narrow_or_difficult
+  lateral_bands: [left, center, right]
+  minimum_same_band_longitudinal_separation_m: 0.20
+
+repeatability:
+  repetitions: 5
+  scenario_count: 5
+  # Optional exact training IDs for a focused pilot; empty uses one configured
+  # lateral band from each category.
+  representative_scenario_ids: []
+  candidate_names: [baseline, smoke_best]
+  # Optional existing experiment whose exact scenario manifests/baked maps are
+  # reused. Empty generates a fresh deterministic dataset under this experiment.
+  scenario_dataset_source_experiment: ""
+  # Optional MCL repeatability experiment used only for a report-side comparison.
+  previous_mcl_experiment: ""
+  max_total_infrastructure_attempts_per_episode: 5
+  smoke_best_candidate_yaml: /tmp/cmaes_tuning/smoke_phase1_v3/best_so_far.yaml
+  representative_lateral_bands:
+    straight: left
+    corner_entry: center
+    corner_mid: right
+    corner_exit: left
+    narrow_or_difficult: right
+
+objective:
+  beta_cvar: 0.5
+  cvar_alpha: 0.90
+  epsilon: 1.0e-9
+  weights:
+    time: 1.0
+    progress: 1.0
+    obstacle_clearance: 2.0
+    wall_clearance: 2.0
+    steering_tv_rate: 0.5
+    curvature_rate_rms: 0.5
+
+cma:
+  seed: 260809
+  sigma0: 0.18
+  population_size: 4
+  generations: 2

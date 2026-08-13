@@ -99,6 +99,14 @@ struct RacelineSplineParameters
   double maximum_exit_length_m{0.0};
   double post_merge_lookahead_m{2.0};
   double post_merge_min_time_sec{1.0};
+  // 완료 핸드오프 복귀 램프: 길이 = max(min_length, |v| * time). 너무 짧으면 램프의
+  // 추가 곡률(최대 6|d0|/L^2)이 커지므로 min_length가 하한을 지킨다.
+  // 🔴 기본 0 = 비활성 (2026-08-13). 시뮬 회귀에서 램프가 벽 협착부(s≈23) 최소 벽 여유를
+  // 0.117→0.082 m로 깎았고, 벽 클램프는 웨이포인트 d_left/d_right가 실제 벽보다 낙관적이라
+  // (제어팀 실측 0.16~0.23 m) 물리지 않았다. 제어팀 섹터별 벽 여유 실측 테이블로 경계를
+  // 보정한 뒤에만 활성화할 것 — 낙관 경계로 켜면 협착부 벽 여유를 그대로 깎는다.
+  double merge_ramp_min_length_m{0.0};
+  double merge_ramp_time_sec{0.0};
   double minimum_target_offset_m{0.20};
   double maximum_target_offset_m{1.50};
   int target_d_candidate_count{5};
@@ -283,8 +291,13 @@ public:
   bool obstaclesPhysicallyBlockRaceline(
     const EgoFrenetState & ego,
     const std::vector<f110_msgs::msg::Obstacle> & obstacles) const;
+  // 완료 핸드오프용 글로벌 루프. ego의 현재 횡오프셋 d에서 d=0까지 smoothstep 램프로
+  // 내려가는 계획된 복귀 구간을 앞머리에 접붙인다 — 램프 없이 d=0 라인을 그대로 주면
+  // 복귀가 컨트롤러의 자연 수렴에 맡겨져 실측 0.055 m/m로 느리고(2026-08-12), 연속
+  // 장애물에서 오프셋이 누적된다. FSM 합류 판정(|ego_d| <= threshold 지속)은 램프와
+  // 무관하게 물리적 합류를 계속 게이트한다.
   f110_msgs::msg::WpntArray buildGlobalHandoffPath(
-    double ego_s, double state_tail_ratio, double speed_cap_mps) const;
+    const EgoFrenetState & ego, double state_tail_ratio, double speed_cap_mps) const;
   f110_msgs::msg::WpntArray buildEmergencyStopPath(const EgoFrenetState & ego) const;
   // Truncate `path` from the waypoint nearest ahead of ego and apply a braking profile that
   // stops within the configured safe-stop deceleration, without any obstacle search. Used as

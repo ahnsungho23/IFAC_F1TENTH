@@ -374,6 +374,10 @@ void LocalPlannerNode::initializeParameters()
     declare_parameter<double>("post_merge_lookahead_m", 2.0);
   planner_parameters_.post_merge_min_time_sec =
     declare_parameter<double>("post_merge_min_time_sec", 1.0);
+  planner_parameters_.merge_ramp_min_length_m =
+    declare_parameter<double>("merge_ramp_min_length_m", 0.0);
+  planner_parameters_.merge_ramp_time_sec =
+    declare_parameter<double>("merge_ramp_time_sec", 0.0);
   planner_parameters_.minimum_target_offset_m =
     declare_parameter<double>("minimum_target_offset_m", 0.20);
   planner_parameters_.maximum_target_offset_m =
@@ -526,6 +530,10 @@ void LocalPlannerNode::initializeParameters()
     !std::isfinite(planner_parameters_.maximum_exit_length_m) ||
     planner_parameters_.post_merge_lookahead_m < 0.0 ||
     planner_parameters_.post_merge_min_time_sec < 0.0 ||
+    !std::isfinite(planner_parameters_.merge_ramp_min_length_m) ||
+    planner_parameters_.merge_ramp_min_length_m < 0.0 ||
+    !std::isfinite(planner_parameters_.merge_ramp_time_sec) ||
+    planner_parameters_.merge_ramp_time_sec < 0.0 ||
     !(state_handoff_tail_ratio_ > 0.0) || state_handoff_tail_ratio_ > 1.0 ||
     !(state_handoff_speed_cap_mps_ > 0.0) ||
     initial_observation_count_ <= 0 ||
@@ -1450,7 +1458,7 @@ bool LocalPlannerNode::activateGlobalHandoff(
     return false;
   }
   auto handoff_path = planner_.buildGlobalHandoffPath(
-    ego.s, state_handoff_tail_ratio_, state_handoff_speed_cap_mps_);
+    ego, state_handoff_tail_ratio_, state_handoff_speed_cap_mps_);
   if (handoff_path.wpnts.empty()) {
     return false;
   }

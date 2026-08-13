@@ -583,7 +583,11 @@ TEST(RacelineSplinePlanner, BuildsClosedGlobalHandoffWithEgoInStateTail)
 
   constexpr double kTailRatio = 0.10;
   const double ego_s = reference.wpnts[37].s_m;
-  const auto path = planner.buildGlobalHandoffPath(ego_s, kTailRatio, 2.5);
+  local_planning::EgoFrenetState handoff_ego;
+  handoff_ego.s = ego_s;
+  handoff_ego.d = 0.0;  // 라인 위에서의 핸드오프 — 램프 없이 순수 레이스라인이어야 한다
+  handoff_ego.speed = 2.5;
+  const auto path = planner.buildGlobalHandoffPath(handoff_ego, kTailRatio, 2.5);
   ASSERT_EQ(path.wpnts.size(), reference.wpnts.size());
 
   std::size_t closest_index = 0U;
@@ -614,6 +618,105 @@ TEST(RacelineSplinePlanner, BuildsClosedGlobalHandoffWithEgoInStateTail)
     path.wpnts.front().x_m - path.wpnts.back().x_m,
     path.wpnts.front().y_m - path.wpnts.back().y_m);
   EXPECT_LE(closing_gap, 2.0 * average_spacing);
+}
+
+TEST(RacelineSplinePlanner, RampedGlobalHandoffDecaysEgoOffsetToZero)
+{
+  const auto reference = makeCircularReference();
+  auto ramp_params = testParameters();
+  ramp_params.merge_ramp_min_length_m = 3.0;  // 기본 0 = 비활성이므로 명시 활성화
+  ramp_params.merge_ramp_time_sec = 1.5;
+  RacelineSplinePlanner planner(ramp_params);
+  ASSERT_TRUE(planner.setReference(reference));
+
+  constexpr double kTailRatio = 0.20;
+  local_planning::EgoFrenetState ego;
+  ego.s = reference.wpnts[37].s_m;
+  ego.d = 0.40;   // 완료 시점에 남아 있는 회피 오프셋
+  ego.speed = 2.0;  // ramp_length = max(3.0, 2.0*1.5) = 3.0 m
+  const auto path = planner.buildGlobalHandoffPath(ego, kTailRatio, 2.5);
+  ASSERT_EQ(path.wpnts.size(), reference.wpnts.size());
+
+  const std::size_t total = path.wpnts.size();
+  const std::size_t tail_count = static_cast<std::size_t>(
+    std::ceil(kTailRatio * static_cast<double>(total)));
+  const std::size_t tail_begin = total - tail_count;
+
+  // ego 위치(회전 배열의 tail 첫 점)에서 d는 ego.d로 시작한다.
+  EXPECT_NEAR(path.wpnts[tail_begin].d_m, ego.d, 1.0e-9);
+
+  // 램프는 단조 감소하고, 3 m 전방 이후에는 정확히 0(레이스라인)이다.
+  double forward_m = 0.0;
+  double previous_d = path.wpnts[tail_begin].d_m;
+  bool reached_zero = false;
+  for (std::size_t k = tail_begin + 1U; k < total; ++k) {
+    forward_m += std::hypot(
+      path.wpnts[k].x_m - path.wpnts[k - 1U].x_m,
+      path.wpnts[k].y_m - path.wpnts[k - 1U].y_m);
+    EXPECT_LE(path.wpnts[k].d_m, previous_d + 1.0e-9);
+    EXPECT_GE(path.wpnts[k].d_m, -1.0e-9);
+    previous_d = path.wpnts[k].d_m;
+    if (forward_m >= 3.1) {
+      EXPECT_NEAR(path.wpnts[k].d_m, 0.0, 1.0e-9);
+      reached_zero = true;
+    }
+  }
+  EXPECT_TRUE(reached_zero);
+
+  // 램프 구간의 좌표는 레이스라인 법선으로 d만큼 밀려 있어야 한다(경로-참조점 거리 = d).
+  const auto & ramp_start = path.wpnts[tail_begin];
+  const auto & reference_at_ego = reference.wpnts[37];  // ego_s = wpnts[37].s_m
+  const double offset_distance = std::hypot(
+    ramp_start.x_m - reference_at_ego.x_m, ramp_start.y_m - reference_at_ego.y_m);
+  EXPECT_NEAR(offset_distance, std::abs(ego.d), 1.0e-6);
+
+  // 램프 앞(한 바퀴 돌아오는 원거리 구간)은 순수 레이스라인이다.
+  for (std::size_t k = 0; k < tail_begin; ++k) {
+    EXPECT_DOUBLE_EQ(path.wpnts[k].d_m, 0.0);
+  }
+}
+
+TEST(RacelineSplinePlanner, RampedGlobalHandoffClampsInsideWallPinch)
+{
+  auto reference = makeCircularReference();
+  // ego(인덱스 37) 전방 5~12점 구간을 왼쪽 벽 협착부로 만든다.
+  for (std::size_t i = 42; i <= 49; ++i) {
+    reference.wpnts[i].d_left = 0.20;
+  }
+  auto params = testParameters();
+  params.merge_ramp_min_length_m = 3.0;  // 기본 0 = 비활성이므로 명시 활성화
+  params.merge_ramp_time_sec = 1.5;
+  RacelineSplinePlanner planner(params);
+  ASSERT_TRUE(planner.setReference(reference));
+
+  constexpr double kTailRatio = 0.20;
+  local_planning::EgoFrenetState ego;
+  ego.s = reference.wpnts[37].s_m;
+  ego.d = 0.40;  // 왼쪽 오프셋 → 왼쪽 협착부가 클램프를 강제한다
+  ego.speed = 2.0;
+  const auto path = planner.buildGlobalHandoffPath(ego, kTailRatio, 2.5);
+  ASSERT_FALSE(path.wpnts.empty());
+
+  const std::size_t total = path.wpnts.size();
+  const std::size_t tail_count = static_cast<std::size_t>(
+    std::ceil(kTailRatio * static_cast<double>(total)));
+  const std::size_t tail_begin = total - tail_count;
+  const double keepout = params.vehicle_half_width_m + params.wall_safety_margin_m;
+  const double allowed_in_pinch = std::max(0.0, 0.20 - keepout);
+
+  double previous_d = path.wpnts[tail_begin].d_m;
+  for (std::size_t k = tail_begin; k < total; ++k) {
+    const std::size_t reference_index =
+      static_cast<std::size_t>((37 + (k - tail_begin)) % total);
+    if (reference_index >= 42 && reference_index <= 49) {
+      // 협착부에서는 프로파일이 아직 크더라도 벽 여유 한도 안으로 눌린다.
+      EXPECT_LE(path.wpnts[k].d_m, allowed_in_pinch + 1.0e-9)
+        << "k=" << k << " ref=" << reference_index;
+    }
+    // 클램프 후 다시 넓어져도 되돌아 나가지 않는다(단조 비증가).
+    EXPECT_LE(path.wpnts[k].d_m, previous_d + 1.0e-9);
+    previous_d = path.wpnts[k].d_m;
+  }
 }
 
 TEST(RacelineSplinePlanner, UsesRightSideWhenLeftTrackSpaceIsInsufficient)
@@ -1407,6 +1510,39 @@ TEST(RacelineSplinePlanner, BuildLastPathBrakeStopsAlongGivenGeometry)
 
   f110_msgs::msg::WpntArray empty_path;
   EXPECT_TRUE(planner.buildLastPathBrake(ego, empty_path).wpnts.empty());
+}
+
+TEST(RacelineSplinePlanner, StandstillCloseBehindObstacleStillPlansEscape)
+{
+  // 2026-08-13 실차 재현 (run_0813_221339 s≈29.8): 코너 뒤 늦은 발견으로 장애물
+  // ~1.5 m 앞에 정지. 갭은 기하학적으로 충분한데(비대칭 코리도 1.97 m, 반대쪽 여유
+  // ~1.4 m) 정지 상태 재계획이 회피를 내지 못하면 safe-stop 홀드에서 영원히 못
+  // 나온다. 진입 길이는 자차→클러스터 실거리에 비례하므로 짧은 거리에서도 후보가
+  // 성립해야 한다.
+  auto reference = makeStraightReference(300, 0.1, 1.40, 0.57);
+  RacelineSplineParameters parameters;
+  parameters.maximum_curvature_radpm = 3.2;
+  parameters.maximum_curvature_rate_radpm2 = 60.0;
+  // 실차 yaml과 같은 예약 구조: 기어가기 속도에서 LUT 바닥 0.20 + 위치추정 0.06.
+  parameters.tracking_error_reserve_m = 0.20;
+  parameters.localization_reserve_m = 0.06;
+  RacelineSplinePlanner planner(parameters);
+  ASSERT_TRUE(planner.setReference(reference));
+
+  // 자차: 정지, 라인 살짝 오른쪽(-0.10). 장애물: 우벽 쪽 박스(폭 0.4), 전방
+  // 클러스터 시작 ≈ 1.5 m (s_start 2.05 − 종방향 패딩 0.35 − 자차 s 0.2).
+  const EgoFrenetState ego{0.2, -0.10, 0.0};
+  const auto obstacle = makeObstacle(29, 2.45, -0.45, -0.05);
+
+  const auto result = planner.plan(ego, {obstacle});
+  EXPECT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
+  ASSERT_FALSE(result.path.wpnts.empty());
+  // 탈출은 여유가 있는 왼쪽으로 나가야 한다.
+  double max_d = -10.0;
+  for (const auto & waypoint : result.path.wpnts) {
+    max_d = std::max(max_d, static_cast<double>(waypoint.d_m));
+  }
+  EXPECT_GT(max_d, 0.10);
 }
 
 }  // namespace
