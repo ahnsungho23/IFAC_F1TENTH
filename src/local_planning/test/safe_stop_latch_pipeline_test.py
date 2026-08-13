@@ -183,14 +183,14 @@ class SafeStopLatchProbe(Node):
                 f'{elapsed:.3f}s, {self.safe_outputs_after_clear} stop outputs')
             return
         if not self.saw_local_safe_stop:
-            self.failure = 'state_machine_node did not select the safe-stop path'
+            self.failure = 'wpnt_publisher did not forward the safe-stop path'
             return
         self.stage = 'released'
         self.passed = True
 
 
 def main():
-    """Run the probe against local_planner and the integrated state_machine."""
+    """Run the probe against local_planner, state_machine, and wpnt_publisher."""
     rclpy.init()
     node = SafeStopLatchProbe()
     deadline = time.monotonic() + 12.0

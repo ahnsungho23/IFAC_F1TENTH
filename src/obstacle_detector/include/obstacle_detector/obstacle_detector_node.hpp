@@ -9,15 +9,13 @@
 //                       -> /map occupancy filter.
 //                       Points that ARE the map (walls / known static structure) are removed here;
 //                       the map layer is a filter, it is not published.
-//   (tracking)        : the surviving clusters are tracked with a constant-velocity Kalman filter
-//                       [s, vs, d, vd], which gives each cluster its Frenet flow velocity. The flow
-//                       is classified against the "map-flow" reference (mean flow of the slow
-//                       clusters) — see obstacle_tracker.hpp.
-//   LAYER 2 [static]  : clusters that flow WITH the map (|flow - ref| small) -> STATIC obstacles.
-//                       Published as an f110_msgs/ObstacleArray on `static_obs_topic` (/static_obs).
-//   LAYER 3 [dynamic] : the one cluster that clearly flows slower than the map (the same-direction
-//                       opponent) -> the DYNAMIC opponent. Published as an f110_msgs/ObstacleArray
-//                       with a single element on `opp_obs_topic` (/opp_obs).
+//   (tracking)        : Frenet KF [s,vs,d,vd] preserves association/output geometry. A parallel
+//                       map KF [x,vx,y,vy] provides velocity covariance significance and measured
+//                       map-position persistence for motion classification.
+//   LAYER 2 [static]  : existence-confirmed UNKNOWN or STATIC objects. Published as an
+//                       f110_msgs/ObstacleArray on `static_obs_topic` (/static_obs).
+//   LAYER 3 [dynamic] : the nearest-ahead existence-confirmed DYNAMIC opponent. Published as an
+//                       f110_msgs/ObstacleArray with a single element on `opp_obs_topic` (/opp_obs).
 //   (layer merge)     : before publishing, tracks inside the SAME layer whose Frenet boxes are
 //                       within layer_merge_gap_s/_d of each other are merged into ONE object-level
 //                       obstacle (occlusion/corner fragments of one physical object otherwise show
@@ -35,6 +33,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
@@ -44,6 +43,7 @@
 #include <nav_msgs/msg/occupancy_grid.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <sensor_msgs/msg/laser_scan.hpp>
+#include <std_msgs/msg/string.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 
 #include <tf2_ros/buffer.h>
@@ -112,6 +112,7 @@ class ObstacleDetectorNode : public rclcpp::Node
     void globalWpntsCallback(const f110_msgs::msg::WpntArray::SharedPtr msg);
     void mapCallback(const nav_msgs::msg::OccupancyGrid::SharedPtr msg);
     void egoOdomCallback(const nav_msgs::msg::Odometry::SharedPtr msg);
+    void applyEgoOdometry(const nav_msgs::msg::Odometry & msg);
 
     // ---- pipeline helpers ----
     bool lookupScanToMap(const std_msgs::msg::Header &scan_header, double &tx, double &ty,
@@ -136,6 +137,13 @@ class ObstacleDetectorNode : public rclcpp::Node
     void updateDiagnostics(const ScanProcessingStats &scan_stats,
                            const TrackerUpdateStats *tracker_stats,
                            double measurement_yaw_rate, bool yaw_rate_fresh);
+    void publishReplayDiagnostics(
+        const std_msgs::msg::Header &scan_header,
+        const std::vector<Detection> &detections,
+        const std::vector<MergedObstacle> &static_objects,
+        const std::vector<MergedObstacle> &confirmed_static_objects,
+        double measurement_yaw_rate, bool yaw_rate_fresh);
+    void logMotionDebug();
 
     void declareParameters();
     void loadParameters();
@@ -187,6 +195,15 @@ class ObstacleDetectorNode : public rclcpp::Node
     bool publish_markers_;
     bool diagnostics_enable_;
     double diagnostics_period_sec_;
+    // Withhold prediction-only static tracks. The tracker may retain them for ID continuity, but
+    // they are not authoritative current obstacle geometry for local planning.
+    bool static_publish_requires_visible_{true};
+    bool motion_debug_enable_;
+    double motion_debug_period_sec_;
+    bool replay_diagnostics_enable_;
+    std::string replay_diagnostics_topic_;
+    bool lockstep_mode_{false};
+    double lockstep_scan_offset_x_m_{0.275};
 
     TrackerParams tracker_params_;
 
@@ -195,13 +212,29 @@ class ObstacleDetectorNode : public rclcpp::Node
     // lookup, s-wrap, and map interpolation for visualization of the final Frenet envelopes.
     global_planning::ClcsFrenetConverter::Ptr converter_;
     std::uint64_t clcs_version_{0};
+    // Geometry that produced the active CLCS. The global planner republishes the same latched
+    // route periodically; identical messages must not reset tracks or physical-ID memory.
+    std::vector<FrenetProjector::Waypoint> active_reference_waypoints_;
     FrenetProjector frenet_;
     ObstacleTracker tracker_;
     nav_msgs::msg::OccupancyGrid::SharedPtr map_msg_;
     double ego_s_{-1.0};   // ego arc-length; < 0 disables the ahead-preference until first proj
     double ego_s_stamp_{-1.0};  // odometry stamp of the last ego_s_ update (freshness check)
+    global_planning::ClcsContinuityState ego_continuity_;
     double odom_yaw_rate_{0.0};
     double odom_motion_stamp_{-1.0};
+    // Ego longitudinal-acceleration transient tracking (odometry twist finite difference,
+    // exponentially smoothed). While |accel| exceeds the suppress threshold, dynamic motion
+    // votes in the tracker are withheld for dynamic_vote_suppress_hold_sec after the spike.
+    double dynamic_vote_ego_accel_suppress_mps2_{2.0};
+    double dynamic_vote_suppress_hold_sec_{0.5};
+    double ego_accel_smoothing_sec_{0.15};
+    double ego_last_speed_{std::numeric_limits<double>::quiet_NaN()};
+    double ego_last_speed_stamp_{-1.0};
+    double ego_accel_smoothed_{0.0};
+    double ego_motion_transient_until_{-1.0};
+    nav_msgs::msg::Odometry::SharedPtr lockstep_odom_msg_;
+    sensor_msgs::msg::LaserScan::SharedPtr lockstep_pending_scan_;
     ScanProcessingStats diagnostics_scan_totals_;
     TrackerUpdateStats diagnostics_tracker_event_totals_;
     std::chrono::steady_clock::time_point diagnostics_window_start_;
@@ -219,6 +252,7 @@ class ObstacleDetectorNode : public rclcpp::Node
     rclcpp::Publisher<f110_msgs::msg::ObstacleArray>::SharedPtr opp_obs_pub_;     // Layer 3
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr static_markers_pub_;
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr opp_markers_pub_;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr replay_diagnostics_pub_;
 
     std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
     std::shared_ptr<tf2_ros::TransformListener> tf_listener_;

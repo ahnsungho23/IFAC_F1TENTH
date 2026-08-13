@@ -5,6 +5,12 @@
 경계(`s_start/s_end/d_right/d_left`)로 받습니다. local planner는 장애물 좌표를 다시 변환하지
 않고 그 경계를 그대로 사용해 트랙 위상을 보존한 회피선을 만듭니다.
 결과는 Cartesian `x_m/y_m`이 채워진 `/avoid_waypoints`로 발행합니다.
+글로벌 waypoint의 `d_left/d_right`는 차량 중심 가용 한계로 사용하며,
+`wall_safety_margin_m`만 좌우 경계에서 차감합니다. 추종오차·차량 반폭·장애물 물리 안전마진은
+이 중심 한계에 다시 포함하지 않습니다. 장애물 목표는 속도별 횡가속 표로 제한한 회피속도와
+곡률의 tracking-error LUT 최댓값으로 만들고, 완성된 경로도 waypoint별 제한 속도로 다시
+검사합니다. 회피 waypoint 속도는 재계산 곡률에서 `v²|κ| <= a_lat,max(v)`를 만족하도록 낮춥니다.
+같은 ID의 실측 Frenet AABB 합집합은 고정하지만 `d_var` 기반 횡방향 팽창은 적용하지 않습니다.
 
 장애물이 나타나면 자유공간에서 새 경로를 검색하지 않습니다. 현재 글로벌 waypoint 구간을 그대로
 선택하고 Frenet `d(s)`만 장애물 반대쪽으로 이동합니다. 진입과 복귀는 위치·기울기·2차 미분이
@@ -14,8 +20,8 @@
 선택된 경로는 최신 Frenet 장애물 경계에도 안전한 동안 geometry를 그대로 유지하며, 안전정지는 즉시 latch하고
 연속 안전 판정 뒤에만 해제해 perception 흔들림이 경로 모드 진동으로 전달되지 않게 합니다.
 첫 장애물 군집은 준비 감속 동안 같은 ID를 실제 `/static_obs` 메시지에서 3회 모으고 최소
-관측 시간도 기다립니다. 그 Frenet 경계 합집합을 `3*sqrt(s_var/d_var)`와 고정 크기 마진만큼
-확장해 commitment Guard로 고정합니다.
+관측 시간도 기다립니다. 그 Frenet 경계 합집합은 종방향에만 `3*sqrt(s_var)`와 고정 크기
+마진을 적용하고, 횡방향은 실측 `d_right/d_left` 합집합 그대로 commitment Guard로 고정합니다.
 후속 같은-ID uncertainty envelope가 Guard 안에 있으면 출력 geometry를 그대로 유지합니다.
 Guard 밖의 변화가 전체 여유만 침범하면 3 planning cycle을 확인한 뒤 재계획하고, detector 원본
 경계에 차량 폭을 적용한 hard 영역과 겹치면 즉시 재계획하거나 safe-stop합니다.

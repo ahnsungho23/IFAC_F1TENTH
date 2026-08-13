@@ -67,22 +67,22 @@ f110_msgs::msg::Obstacle buildUncertaintyGuard(
   const ObstacleGuardParameters & parameters)
 {
   auto guard = obstacle;
-  const double longitudinal_margin =
-    parameters.minimum_longitudinal_margin_m +
+  const double longitudinal_inflation =
+    parameters.minimum_longitudinal_inflation_m +
     parameters.uncertainty_sigma_scale * positionSigma(obstacle.s_var);
-  const double lateral_margin = std::min(
-    parameters.minimum_lateral_margin_m +
+  const double lateral_inflation = std::min(
+    parameters.minimum_lateral_inflation_m +
     parameters.uncertainty_sigma_scale * positionSigma(obstacle.d_var),
-    parameters.maximum_lateral_margin_m);
+    parameters.maximum_lateral_inflation_m);
 
-  const double half_span = 0.5 * shortestSpan(obstacle, track_length) + longitudinal_margin;
+  const double half_span = 0.5 * shortestSpan(obstacle, track_length) + longitudinal_inflation;
   guard.s_start = wrapS(obstacle.s_center - half_span, track_length);
   guard.s_end = wrapS(obstacle.s_center + half_span, track_length);
 
   const double raw_right = std::min(obstacle.d_right, obstacle.d_left);
   const double raw_left = std::max(obstacle.d_right, obstacle.d_left);
-  guard.d_right = raw_right - lateral_margin;
-  guard.d_left = raw_left + lateral_margin;
+  guard.d_right = raw_right - lateral_inflation;
+  guard.d_left = raw_left + lateral_inflation;
   guard.size = std::hypot(2.0 * half_span, guard.d_left - guard.d_right);
   return guard;
 }

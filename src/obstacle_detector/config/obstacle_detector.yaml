@@ -76,6 +76,13 @@ obstacle_detector:
     publish_markers: true                      # publish both Frenet-boundary MarkerArray mirrors
     diagnostics_enable: true                   # emit passive perception diagnostics
     diagnostics_period_sec: 1.0                # wall-clock accumulation window (s, minimum 0.1)
+    # Deterministic record/replay audit companion stream. It only exposes the already-computed
+    # per-scan detections/tracker state and is disabled in production.
+    replay_diagnostics_enable: false
+    replay_diagnostics_topic: "/cma_replay/detector_events"
+    # CMA 전용 exact-stamp odom/scan pairing. Production은 반드시 false를 유지합니다.
+    lockstep_mode: false
+    lockstep_scan_offset_x_m: 0.275
 
     # === TRACKING (constant-velocity Kalman, Frenet state [s, vs, d, vd]) ===
     meas_var_s: 0.002
@@ -86,9 +93,28 @@ obstacle_detector:
     aggro_multi: 2.0                           # gate multiplier once a track is dynamic
     assoc_use_mahalanobis: true                # second gate after the physical Frenet hard gate
     assoc_mahalanobis_gate: 9.21               # chi-square threshold, 2 DoF, approximately 99%
+    # obstacle.id는 Kalman track 수명이나 UNKNOWN/STATIC/DYNAMIC 상태가 아니라 물리 객체를
+    # 나타냅니다. 1차 association이 실패해도 같은 Frenet AABB cluster면 motion 상태와 무관하게
+    # 기존 object ID에 연결합니다. STATIC으로 안정화된 첫 실측 map AABB를 identity anchor로
+    # 고정하고, Kalman track이 폐기돼도 한 랩보다 긴 30초 동안 기억해 Frenet 또는 map AABB가
+    # 같은 재검출과 토픽 간 이동에 재사용합니다. CLCS 재생성 시 기억은 초기화됩니다.
+    physical_id_reassociation_enable: true
+    physical_id_reassociation_gap_s: 0.4       # longitudinal AABB edge gap [m]
+    physical_id_reassociation_gap_d: 0.3       # lateral AABB edge gap [m]
+    physical_id_reassociation_gap_map: 0.4     # Euclidean map-frame AABB edge gap [m]
+    physical_id_memory_sec: 30.0               # dormant confirmed-object ID memory [s]
     ttl_dynamic: 40                            # frames to keep a lost dynamic track
     ttl_static: 25                             # keep a lost static track for ~0.1 s at 250 Hz
-    min_hits_confirm: 3                        # measurements before a track is reported
+    # CONFIRMED STATIC track은 맵 고정 물체라서 시야 상실(차폐·FOV 이탈·제동 노즈다이브)이
+    # 소멸의 증거가 아닙니다. 스캔 stamp 기준으로 이 시간 동안 트랙과 발행 자격(envelope
+    # 안정 streak 포함)을 유지합니다. 0이면 기존 frame-TTL 즉시 retire로 복귀.
+    # 2026-08-12 21:11 run: 0.1 s retire→근거리 respawn이 헤어핀 zero-hold 완전정지 5회와
+    # 직선 경로 churn(91 s 동안 fresh 재선택 80회)의 공통 원인이었음.
+    static_lost_hold_sec: 5.0
+    # Track 존재 신뢰도와 motion 분류는 독립입니다. 최근 5 scan 중 association된 measurement가
+    # 3회 이상이어야 CONFIRMED가 되며, RAW/TENTATIVE track은 어떤 장애물 토픽에도 싣지 않습니다.
+    min_hits_confirm: 3
+    confirmation_window: 5
     # 스캔마다 달라지는 AABB extent(정사각형 박스 vs 실제 형태 괴리)를 magnitude 기준으로
     # 완화합니다. 확장은 즉시, 축소는 ~1/alpha 프레임에 걸쳐 서서히. 1.0이면 기존 덮어쓰기.
     extent_shrink_alpha: 0.25
@@ -97,22 +123,66 @@ obstacle_detector:
     # 안정적인 실제 장애물은 min_hits_confirm과 같은 시점에 통과해 추가 지연이 없습니다.
     envelope_stability_tolerance_m: 0.10
     envelope_stability_frames: 2
+    # false: static_lost_hold_sec 동안 시야를 잃은 CONFIRMED STATIC track도 마지막 실측
+    # 지오메트리(맵 고정이므로 여전히 유효)로 /static_obs, /confirmed_static_obs에 계속
+    # 발행합니다. true였을 때는 차폐 1프레임에도 장애물이 토픽에서 사라져 플래너가
+    # blocking↔clear를 반복(zero-hold 정지, 커밋 무효화)했습니다.
+    static_publish_requires_visible: false
 
-    # === LAYER 2 / LAYER 3 CLASSIFICATION (flow vs the map-flow reference) ===
-    # The walls/stationary obstacles stream past the ego at the "map-flow" velocity (measured as
-    # the mean flow of the slow tracks). A track that flows WITH the map -> Layer 2 (static); a
-    # track that clearly flows slower (the same-direction opponent) -> Layer 3 (dynamic).
-    classifier_mode: "velocity"                # "velocity" | "std" | "both"
-    dyn_vel_enter: 0.5                         # flow deviation from the map-flow ref -> dynamic (m/s)
-    dyn_vel_exit: 0.25                         # flow deviation -> back to static (m/s, hysteresis)
-    static_confirm_frames: 3                   # extra consecutive low-speed observations after provisional
-    dynamic_confirm_frames: 25                 # consecutive reliable moving observations -> dynamic
-    dyn_velocity_mahalanobis_gate: 9.21        # velocity confidence, chi-square 2 DoF, ~99%
-    dyn_max_abs_yaw_rate: 1.5                  # do not accumulate moving evidence above this (rad/s)
-    static_ref_gate: 0.3                       # tracks slower than this define the map-flow velocity
-                                               #   (walls + stationary obstacles); opponent excluded (m/s)
-    std_window: 30                             # history window for the std classifier
-    min_nb_meas: 5                             # measurements before the std classifier votes
-    min_std: 0.16                              # below on both axes -> static vote (m)
-    max_std: 0.20                              # above on either axis -> dynamic (m)
+    # === MAP-FRAME MOTION CLASSIFICATION ===
+    # 기존 Frenet KF/association은 유지하고, 각 track에 분류 전용 map-frame CV KF
+    # [x,vx,y,vy]를 병렬로 둡니다. Tv=vᵀ Pv⁻¹v는 inverse 대신 Eigen LDLT solve로 계산합니다.
+    # CONFIRMED+UNKNOWN은 안전을 위해 provisional 객체로 /static_obs에 남지만,
+    # /confirmed_static_obs에는 STATIC만 들어갑니다.
+    motion_classification:
+      dynamic_chi2_threshold: 9.21             # Tv가 이 값보다 크면 dynamic evidence
+      static_chi2_threshold: 5.99              # Tv가 이 값보다 작으면 static evidence
+
+      dynamic_vote_window: 5                   # 최근 유효 measurement evidence window
+      dynamic_vote_required: 3                 # 5개 중 dynamic 3개면 DYNAMIC
+      static_vote_window: 15
+      static_vote_required: 10                 # 위치 지속성도 동시에 만족해야 STATIC
+
+      position_history_size: 15                # prediction이 아닌 map filtered positions
+      static_min_observations: 10
+      static_max_position_rms: 0.10            # map 위치 RMS [m]
+
+      # 한 번 DYNAMIC이 된 track은 잠깐 멈춰도 곧바로 STATIC으로 돌아가지 않습니다.
+      dynamic_to_static_min_observations: 20
+      dynamic_to_static_vote_required: 15
+      dynamic_to_static_max_position_rms: 0.08
+
+      covariance_regularization_epsilon: 1.0e-6
+      minimum_velocity_covariance: 1.0e-5
+      static_score_forgetting_factor: 0.95
+
+      # 코너 뒤에 가려진 정적 장애물은 접근하면서 조금씩 드러나고, 그동안 측정 AABB가
+      # 자라며 중심이 수 cm 이동합니다. map KF는 이를 속도로 읽어 Tv가 커지고 track이
+      # DYNAMIC으로 오분류되면 /static_obs에서 사라져 planner가 장애물을 놓칩니다.
+      # 상자가 "실제로 이동했다"고 증명되는 양은 한 축의 두 edge가 같은 방향으로 함께
+      # 움직인 크기뿐입니다(한쪽만 움직이면 이동이 아니라 성장/축소). 이 증명이
+      # dynamic_min_translation_m에 못 미치면 chi2가 커도 dynamic vote를 주지 않고
+      # Uncertain으로 남깁니다. Track은 UNKNOWN을 유지해 /static_obs에 계속 실립니다.
+      # 이 게이트는 DYNAMIC 진입만 어렵게 하며, 실제 상대 차량은 window 동안 충분히
+      # 병진하므로 그대로 통과합니다.
+      translation_corroboration_enable: true
+      translation_window_sec: 0.20        # 증명 구간 [s]. LiDAR 250 Hz 기준 약 50 scan
+      translation_history_max_samples: 64 # window 내 보관 AABB 최대 개수 (메모리 상한)
+      dynamic_min_translation_m: 0.10     # window 내 증명된 병진이 이 값 미만이면 vote 보류
+
+      # 급제동·런치킥 순간에는 위치추정 자체가 흔들려 모든 track이 map frame에서 병진한
+      # 것처럼 보입니다(2026-08-12 21:11 run: 정지/재출발 시각마다 STATIC track이 DYNAMIC
+      # blip으로 /static_obs에서 사라짐). ego odom twist의 평활 가속도가 임계값을 넘으면
+      # 그 스파이크 이후 hold 시간 동안 dynamic vote만 보류합니다. static vote와 나머지
+      # 갱신은 그대로 진행되므로 실제 상대 차량의 DYNAMIC 진입이 hold만큼만 늦어집니다.
+      # 0.0이면 비활성.
+      dynamic_vote_ego_accel_suppress_mps2: 2.0
+      dynamic_vote_suppress_hold_sec: 0.5
+      ego_accel_smoothing_sec: 0.15       # 가속도 지수 평활 시정수 [s]
+
+      # 모든 confirmed track의 status, map velocity, Tv, vote, RMS, confidence, 마지막
+      # measurement 경과시간을 한 로그로 throttle해 출력합니다.
+      debug_enable: false
+      debug_period_sec: 1.0
+
     dt_max: 0.5                                # clamp for the Kalman prediction step (s)

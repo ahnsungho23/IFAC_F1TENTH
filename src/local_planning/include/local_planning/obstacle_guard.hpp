@@ -23,15 +23,16 @@ namespace local_planning
 struct ObstacleGuardParameters
 {
   double uncertainty_sigma_scale{3.0};
-  double minimum_longitudinal_margin_m{0.05};
-  double minimum_lateral_margin_m{0.03};
-  // Fresh detections can carry a large centre variance; cap the lateral inflation so a
-  // raceline-centred obstacle does not demand an impossible d-offset on both sides at once.
-  double maximum_lateral_margin_m{0.15};
+  double minimum_longitudinal_inflation_m{0.05};
+  // Keep detector-owned lateral AABB bounds unchanged by default. Non-zero values are retained
+  // only for explicit experiments; normal planning adds no covariance-based lateral extent.
+  double minimum_lateral_inflation_m{0.0};
+  double maximum_lateral_inflation_m{0.0};
 };
 
-// Expand a projected Frenet AABB by a fixed extent-noise floor plus k standard deviations of the
-// Kalman centre-position estimate. Cartesian fields remain the raw measured AABB for diagnostics.
+// Expand a projected Frenet AABB by configured fixed floors plus k standard deviations of the
+// Kalman centre-position estimate. The operational lateral limits are zero, so d_right/d_left stay
+// detector-owned while longitudinal uncertainty can still protect approach and stop timing.
 f110_msgs::msg::Obstacle buildUncertaintyGuard(
   const f110_msgs::msg::Obstacle & obstacle,
   double track_length,

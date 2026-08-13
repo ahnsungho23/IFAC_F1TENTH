@@ -31,12 +31,48 @@
 #include <nav_msgs/msg/path.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/header.hpp>
+#include <std_msgs/msg/string.hpp>
 
 #include "local_planning/obstacle_guard.hpp"
+#include "local_planning/p3_maneuver_lifecycle.hpp"
 #include "local_planning/raceline_spline_planner.hpp"
+#include "local_planning/safe_stop_lifecycle.hpp"
 
 namespace local_planning
 {
+
+enum class P3RuntimeMode
+{
+  kOff,
+  kShadow,
+  kTestActive,
+};
+
+const char * p3RuntimeModeName(P3RuntimeMode mode);
+
+struct P3CallbackSnapshot
+{
+  bool ready{false};
+  bool has_odometry{false};
+  std::string not_ready_reason;
+  nav_msgs::msg::Odometry odometry;
+  rclcpp::Time odometry_receipt_time{0, 0, RCL_ROS_TIME};
+  P3ManeuverSnapshot maneuver;
+  std::int64_t frenet_source_stamp_ns{0};
+};
+
+struct P3CompletionHandoffRecord
+{
+  f110_msgs::msg::WpntArray frozen_tail;
+  std::vector<int> obstacle_ids;
+  bool go_left{false};
+  std::uint64_t source_epoch{0U};
+  std::uint64_t global_reference_generation{0U};
+  std::string original_candidate_identity{"NONE"};
+  std::string original_path_digest{"NONE"};
+  std::string tail_path_digest{"NONE"};
+  bool avoid_state_observed{false};
+};
 
 class LocalPlannerNode : public rclcpp::Node
 {
@@ -51,6 +87,36 @@ private:
   void onFrenetOdometry(const nav_msgs::msg::Odometry::SharedPtr message);
   void onState(const f110_msgs::msg::StateMachine::SharedPtr message);
   void onPlanningTimer();
+  void runP0PlanningCycle(const P3CallbackSnapshot * snapshot = nullptr);
+  void tryRunLockstepCycle();
+  rclcpp::Time eventNow() const;
+
+  P3CallbackSnapshot captureP3CallbackSnapshot();
+  bool prepareP3InitialSelectionSnapshot(P3CallbackSnapshot & snapshot);
+  void resetP3SelectionEnvelope();
+  P3ShadowResult evaluateP3Snapshot(
+    const P3CallbackSnapshot & snapshot,
+    const std::string & p0_context) const;
+  P3ManeuverLifecycleDecision advanceP3Lifecycle(
+    const P3CallbackSnapshot & snapshot,
+    const P3ShadowResult & evaluation);
+  RacelineSplineResult makeP3ActiveResult(
+    const P3ManeuverLifecycleDecision & decision) const;
+  bool armP3CompletionHandoff(
+    const P3CallbackSnapshot & snapshot,
+    const P3ManeuverLifecycleDecision & decision);
+  void clearP3CompletionHandoff();
+  bool p3CompletionHandoffHasDistinctBlockingCluster(
+    const P3ShadowResult & evaluation) const;
+  RacelineSplineResult makeP3CompletionHandoffResult() const;
+  void publishP3CycleDiagnostic(
+    const P3CallbackSnapshot & snapshot,
+    const P3ShadowResult & evaluation,
+    const P3ManeuverLifecycleDecision & lifecycle,
+    const std::string & path_owner,
+    bool p0_backup_only,
+    bool same_callback_replan_attempted = false,
+    bool same_callback_replan_succeeded = false);
 
   bool sameReference(const f110_msgs::msg::WpntArray & message) const;
   void clearCommitment();
@@ -87,11 +153,23 @@ private:
     const std::string & phase);
   void resetForChainedManeuver();
   bool commitmentSideLocked(const EgoFrenetState & ego) const;
-  bool activateGlobalHandoff(const EgoFrenetState & ego);
+  bool activateGlobalHandoff(
+    const EgoFrenetState & ego,
+    SafeStopReleaseReason safe_stop_release_reason = SafeStopReleaseReason::kNone);
+  void clearSafeStopLatch();
   void latchSafeStop(
     RacelineSplineResult result,
     const EgoFrenetState & ego,
     const std::vector<f110_msgs::msg::Obstacle> & planning_obstacles);
+  SafeStopCycleDecision evaluateSafeStopLifecycle(
+    const EgoFrenetState & ego,
+    const RacelineSplineResult & replanned_result,
+    const std::vector<f110_msgs::msg::Obstacle> & planning_obstacles);
+  bool resultTargetsLatchedObstacle(const RacelineSplineResult & result) const;
+  bool explicitForwardCorridorClear(const EgoFrenetState & ego) const;
+  void publishSafeStopLifecycleAudit(
+    const SafeStopCycleInput & input,
+    const SafeStopCycleDecision & decision);
   void handleSafeStopLatch(const EgoFrenetState & ego);
   bool commitmentComplete(const EgoFrenetState & ego);
   void resetCommitmentViolationConfirmation();
@@ -101,6 +179,10 @@ private:
     int confirmation_count = 0) const;
   void publishResult(const RacelineSplineResult & result);
   void publishEmpty(const std::string & reason);
+  void publishTimingEvent(const std::string & event, const std::string & fields);
+  void publishReplayEvent(const std::string & event, const std::string & fields);
+  void publishCandidateAudit(
+    const RacelineSplineResult & result, const std::string & decision);
   nav_msgs::msg::Path makePath(
     const std::vector<f110_msgs::msg::Wpnt> & waypoints,
     const std_msgs::msg::Header & header) const;
@@ -113,23 +195,37 @@ private:
   rclcpp::Subscription<f110_msgs::msg::StateMachine>::SharedPtr state_sub_;
   rclcpp::Publisher<f110_msgs::msg::OTWpntArray>::SharedPtr avoid_waypoints_pub_;
   rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr local_path_pub_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr timing_diagnostics_pub_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr replay_diagnostics_pub_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr p3_diagnostics_pub_;
   rclcpp::TimerBase::SharedPtr planning_timer_;
 
   RacelineSplineParameters planner_parameters_;
   ObstacleGuardParameters guard_parameters_;
   RacelineSplinePlanner planner_;
+  P3ManeuverLifecycle p3_maneuver_lifecycle_;
+  std::optional<P3CompletionHandoffRecord> p3_completion_handoff_;
   f110_msgs::msg::WpntArray global_waypoints_;
   std::vector<f110_msgs::msg::Obstacle> static_obstacles_;
   nav_msgs::msg::Odometry latest_odometry_;
   mutable std::mutex odometry_mutex_;
+  mutable std::mutex lockstep_mutex_;
   rclcpp::Time last_odometry_time_{0, 0, RCL_ROS_TIME};
   rclcpp::Time last_obstacles_time_{0, 0, RCL_ROS_TIME};
   rclcpp::Time last_side_switch_time_{0, 0, RCL_ROS_TIME};
   rclcpp::Time initial_stabilization_start_{0, 0, RCL_ROS_TIME};
   rclcpp::Time next_stabilization_start_{0, 0, RCL_ROS_TIME};
   std::uint64_t obstacles_message_sequence_{0};
+  std::int64_t latest_obstacle_source_stamp_ns_{0};
+  std::int64_t last_p3_frenet_source_stamp_ns_{0};
   std::uint64_t initial_last_counted_sequence_{0};
+  std::uint64_t p3_selection_last_sequence_{0};
   std::uint64_t next_last_counted_sequence_{0};
+  std::int64_t lockstep_obstacle_stamp_ns_{0};
+  std::int64_t lockstep_odometry_stamp_ns_{0};
+  std::int64_t lockstep_state_stamp_ns_{0};
+  std::int64_t lockstep_last_processed_stamp_ns_{0};
+  rclcpp::Time lockstep_event_time_{0, 0, RCL_ROS_TIME};
 
   bool has_global_waypoints_{false};
   bool has_obstacles_message_{false};
@@ -137,9 +233,13 @@ private:
   bool has_odometry_{false};
   bool has_commitment_{false};
   RacelineSplineResult committed_result_;
-  bool safe_stop_latched_{false};
+  SafeStopLifecycle safe_stop_lifecycle_;
   RacelineSplineResult safe_stop_result_;
-  int safe_stop_release_count_{0};
+  // Most recent published guidance geometry (kAvoidance: spline, P3 maneuver, handoff loop,
+  // margin slow pass). Survives commitment resets so the safe-stop latch can brake along the
+  // last vetted line instead of publishing an in-place zero-speed hold when no collision-free
+  // stop prefix exists.
+  f110_msgs::msg::WpntArray last_valid_guidance_path_;
   int commitment_soft_violation_count_{0};
   double commitment_start_s_{0.0};
   int merge_complete_count_{0};
@@ -153,12 +253,16 @@ private:
   bool initial_stabilization_active_{false};
   bool initial_prepare_published_{false};
   bool initial_has_counted_sequence_{false};
+  bool p3_selection_has_sequence_{false};
+  rclcpp::Time p3_selection_start_{0, 0, RCL_ROS_TIME};
   bool next_stabilization_active_{false};
   bool next_has_counted_sequence_{false};
   uint8_t current_state_{f110_msgs::msg::StateMachine::STATE_GLOBAL};
   std::optional<bool> last_published_side_;
   std::map<int, f110_msgs::msg::Obstacle> initial_cluster_union_;
   std::map<int, int> initial_observation_counts_;
+  std::map<int, f110_msgs::msg::Obstacle> p3_selection_envelope_union_;
+  std::map<int, int> p3_selection_observation_counts_;
   std::map<int, f110_msgs::msg::Obstacle> next_cluster_union_;
   std::map<int, int> next_observation_counts_;
   std::map<int, f110_msgs::msg::Obstacle> committed_obstacle_guards_;
@@ -177,8 +281,7 @@ private:
   double initial_observation_min_duration_sec_{0.15};
   double initial_observation_max_wait_sec_{0.35};
   int commitment_soft_violation_confirm_cycles_{3};
-  double hard_collision_margin_m_{0.03};
-  double chain_release_margin_m_{0.20};
+  double chain_release_distance_m_{0.20};
   double commitment_lock_lateral_threshold_m_{0.10};
   double commitment_lock_longitudinal_m_{0.50};
 
@@ -189,6 +292,22 @@ private:
   std::string ot_waypoints_topic_{"/avoid_waypoints"};
   std::string local_path_topic_{"/local_planning/path"};
   std::string frame_id_{"map"};
+  std::string timing_diagnostics_topic_{"/cma_timing/events"};
+  std::string replay_diagnostics_topic_{"/cma_replay/planner_events"};
+  bool timing_diagnostics_enable_{false};
+  bool replay_diagnostics_enable_{false};
+  bool lockstep_mode_{false};
+  bool timing_t0_published_{false};
+  bool timing_t1_published_{false};
+
+  P3RuntimeMode p3_mode_{P3RuntimeMode::kOff};
+  std::string p3_diagnostics_topic_{"/local_planning/p3_shadow"};
+  std::uint64_t p3_source_epoch_{1U};
+  std::uint64_t global_reference_generation_{0U};
+  std::uint64_t p3_callback_sequence_{0U};
+  std::string current_path_owner_{"P0"};
+  std::string last_selected_path_family_{"NONE"};
+  std::string last_selected_path_digest_{"NONE"};
 };
 
 }  // namespace local_planning

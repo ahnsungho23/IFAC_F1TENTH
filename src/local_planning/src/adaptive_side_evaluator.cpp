@@ -298,7 +298,7 @@ double speedAt(
     reference.wpnts.begin(), reference.wpnts.end(),
     [&](const auto & first, const auto & second) {
       return circularDistance(s, first.s_m, track_length) <
-      circularDistance(s, second.s_m, track_length);
+             circularDistance(s, second.s_m, track_length);
     });
   return best == reference.wpnts.end() ? 0.0 : std::max(0.0, best->vx_mps);
 }

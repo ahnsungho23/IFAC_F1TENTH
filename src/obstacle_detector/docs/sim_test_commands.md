@@ -58,17 +58,22 @@ python3 src/obstacle_detector/test/synthetic_opponent_test.py
 3. 정지 장애물이 `/opp_obs`로 새지 않는다.
 4. 상대차가 먼저 `/static_obs`에 provisional로 나타난 뒤 같은 ID로 `/opp_obs`에 이동하고,
    dynamic 확정 후에는 `/static_obs`로 돌아오지 않는다.
-5. 각각 5포인트 미만인 3+2 beam 파편이 tracking 전에 하나의 detection으로 복원된다.
-6. 두 track으로 관측된 정적 객체가 layer merge를 거쳐 `/static_obs`의 한 객체로 병합된다.
-7. Hard gate 안의 1프레임 0.45 m outlier가 Mahalanobis gate에서 거부되어 확정 track이 뛰지 않는다.
-8. 원거리 5포인트 detection의 위치 공분산이 근거리 조밀 detection보다 크게 유지된다.
-9. 모든 visible 객체가 유효한 Cartesian AABB, 중심, 반지름을 발행한다.
-10. Layer merge 객체의 Cartesian AABB가 구성 track AABB의 합집합을 포함한다.
-11. Predicted-only 객체는 Frenet 상태를 유지하면서 `has_cartesian=false`로 stale AABB를 차단한다.
-12. 모든 객체의 `s_start/s_end/d_right/d_left`가 유한하고 `d_right <= d_left`이며, visible
+5. 정지 장애물은 scan face가 변해도 하나의 ID를 유지하고 `/confirmed_static_obs`에서도
+   `/static_obs`와 같은 ID를 사용한다.
+6. Production과 같이 동일한 `/global_waypoints`를 2초마다 재발행해도 CLCS와 물리 객체 ID가
+   초기화되지 않는다.
+7. 각각 5포인트 미만인 3+2 beam 파편이 tracking 전에 하나의 detection으로 복원된다.
+8. 두 track으로 관측된 정적 객체가 layer merge를 거쳐 `/static_obs`의 한 객체로 병합된다.
+9. Hard gate 안의 1프레임 0.45 m outlier가 Mahalanobis gate에서 거부된 뒤 공간적으로 같은
+   cluster에 재연결되며, 확정 track의 공개 envelope는 뛰지 않는다.
+10. 원거리 5포인트 detection의 위치 공분산이 근거리 조밀 detection보다 크게 유지된다.
+11. 모든 visible 객체가 유효한 Cartesian AABB, 중심, 반지름을 발행한다.
+12. Layer merge 객체의 Cartesian AABB가 구성 track AABB의 합집합을 포함한다.
+13. Invisible track이 과거 Cartesian AABB를 `has_cartesian=true`로 잘못 발행하지 않는다.
+14. 모든 객체의 `s_start/s_end/d_right/d_left`가 유한하고 `d_right <= d_left`이며, visible
     객체의 경계는 같은 Cartesian AABB 전체를 투영한 결과다. 폐루프 wrap의
     `s_start > s_end`는 허용한다.
-13. `/static_obs/markers`와 `/opp_obs/markers`에 최종 Frenet 경계 기반 `LINE_STRIP`이 나타난다.
+15. `/static_obs/markers`와 `/opp_obs/markers`에 최종 Frenet 경계 기반 `LINE_STRIP`이 나타난다.
 
 테스트가 끝난 뒤 터미널 A의 detector를 `Ctrl+C`로 종료한다.
 
@@ -115,7 +120,7 @@ ros2 topic echo /opp_obs/markers --no-arr
 | 아무 출력도 없음 | `/global_waypoints`, scan→map TF, `/scan` publisher 확인 |
 | 벽이 장애물로 나옴 | `/map`, `use_map_filter`, `map_occupied_thresh`, `map_point_reject_ratio` 확인 |
 | 장애물이 전부 사라짐 | live map에 장애물이 baked-in 되었는지 확인하고 `detector_map_yaml`에 clean map 지정 |
-| 상대차가 계속 static으로 남음 | `dyn_vel_enter/exit`, `dynamic_confirm_frames`, `dyn_velocity_mahalanobis_gate`, `dyn_max_abs_yaw_rate`, `static_ref_gate`와 `motion_gated` 진단 확인 |
+| 상대차가 계속 static/unknown으로 남음 | `motion_classification.dynamic_chi2_threshold`, `dynamic_vote_window/required`, debug 로그의 `Tv`, `votes(S/D)`, `invalid_Pv` 확인 |
 | 원거리 중심 변화에 track이 끌림 | adaptive covariance 파라미터와 `assoc_use_mahalanobis` 확인 |
 | 정상 detection이 자주 새 track이 됨 | timestamp, `assoc_mahalanobis_gate`, `meas_var_s/d`, process noise 확인 |
 | 작은 파편이 통째로 사라짐 | `cluster_merge_enable`, `cluster_merge_distance`, `cluster_merge_min_fragment_points` 확인 |
@@ -139,6 +144,15 @@ ros2 launch obstacle_detector obstacle_detector_node.launch.py 2>&1 | \
 `scans=processed/received`와 `drop(clcs/tf)`로 scan 전체 처리 실패를 먼저 확인하고, 이어서 beam,
 cluster, Layer 1 reject, association, classification 순서로 원인을 좁힌다. Association의
 `euclid_reject`와 `maha_reject`는 객체 수가 아니라 track-detection 후보 쌍 수다.
+
+Track별 map 속도, `Tv`, vote, 위치 RMS, confidence와 마지막 measurement 경과시간은 다음처럼
+motion debug를 켜서 확인한다.
+
+```bash
+ros2 run obstacle_detector obstacle_detector_node --ros-args \
+  --params-file "$(ros2 pkg prefix obstacle_detector)/share/obstacle_detector/config/obstacle_detector.yaml" \
+  -p motion_classification.debug_enable:=true
+```
 
 Detector 내부에는 scan noise filter와 deskew가 없으므로 해당 통계는 출력하지 않는다. 향후 전처리
 노드를 연결하면 noise/deskew 통계는 그 노드의 로그 또는 diagnostics에서 별도로 확인한다.

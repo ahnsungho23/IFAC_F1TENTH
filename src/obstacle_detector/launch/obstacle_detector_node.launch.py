@@ -22,6 +22,7 @@ from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
@@ -55,6 +56,24 @@ def generate_launch_description():
         default_value='',
         description='CLEAN map yaml for the Layer-1 filter (empty = subscribe the normal /map)',
     )
+    replay_diagnostics_enable_arg = DeclareLaunchArgument(
+        'replay_diagnostics_enable',
+        default_value='false',
+        description='Publish tuning-only per-scan record/replay diagnostics',
+    )
+    replay_diagnostics_topic_arg = DeclareLaunchArgument(
+        'replay_diagnostics_topic',
+        default_value='/cma_replay/detector_events',
+        description='Record/replay detector companion-event topic',
+    )
+    lockstep_mode_arg = DeclareLaunchArgument(
+        'lockstep_mode', default_value='false',
+        description='CMA-only exact-stamp odom/scan event mode',
+    )
+    lockstep_scan_offset_arg = DeclareLaunchArgument(
+        'lockstep_scan_offset_x_m', default_value='0.275',
+        description='CMA lockstep LiDAR x offset from base_link [m]',
+    )
 
     simulator = LaunchConfiguration('simulator')
     config_file = LaunchConfiguration('config_file')
@@ -67,7 +86,15 @@ def generate_launch_description():
          "'.lower() == 'true' else '/pf/pose/odom'"])
     common_params = {'use_sim_time': LaunchConfiguration('use_sim_time'),
                      'map_topic': map_topic,
-                     'ego_odom_topic': ego_odom_topic}
+                     'ego_odom_topic': ego_odom_topic,
+                     'replay_diagnostics_enable': ParameterValue(
+                         LaunchConfiguration('replay_diagnostics_enable'), value_type=bool),
+                     'replay_diagnostics_topic': LaunchConfiguration(
+                         'replay_diagnostics_topic'),
+                     'lockstep_mode': ParameterValue(
+                         LaunchConfiguration('lockstep_mode'), value_type=bool),
+                     'lockstep_scan_offset_x_m': ParameterValue(
+                         LaunchConfiguration('lockstep_scan_offset_x_m'), value_type=float)}
 
     detector_node = Node(
         package='obstacle_detector',
@@ -105,6 +132,10 @@ def generate_launch_description():
         config_arg,
         use_sim_time_arg,
         detector_map_arg,
+        replay_diagnostics_enable_arg,
+        replay_diagnostics_topic_arg,
+        lockstep_mode_arg,
+        lockstep_scan_offset_arg,
         detector_node,
         clean_map_server,
         clean_map_lifecycle,

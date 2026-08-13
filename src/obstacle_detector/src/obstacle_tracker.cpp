@@ -7,6 +7,8 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <numeric>
+#include <stdexcept>
 
 #include <rclcpp/rclcpp.hpp>
 
@@ -22,8 +24,166 @@ rclcpp::Clock &warnThrottleClock()
 }
 }  // namespace
 
+const char *trackStatusName(TrackStatus status)
+{
+    switch (status)
+    {
+        case TrackStatus::Raw:
+            return "RAW";
+        case TrackStatus::Tentative:
+            return "TENTATIVE";
+        case TrackStatus::Confirmed:
+            return "CONFIRMED";
+    }
+    return "INVALID";
+}
+
+const char *motionStatusName(MotionStatus status)
+{
+    switch (status)
+    {
+        case MotionStatus::Unknown:
+            return "UNKNOWN";
+        case MotionStatus::Static:
+            return "STATIC";
+        case MotionStatus::Dynamic:
+            return "DYNAMIC";
+    }
+    return "INVALID";
+}
+
+VelocityEvidenceResult evaluateVelocityEvidence(
+    const Eigen::Vector2d &velocity,
+    const Eigen::Matrix2d &velocity_covariance,
+    const TrackerParams &params)
+{
+    VelocityEvidenceResult result;
+    if (!velocity.allFinite() || !velocity_covariance.allFinite())
+    {
+        return result;
+    }
+
+    Eigen::Matrix2d regularized =
+        0.5 * (velocity_covariance + velocity_covariance.transpose());
+    Eigen::SelfAdjointEigenSolver<Eigen::Matrix2d> eigen_solver(regularized);
+    if (eigen_solver.info() != Eigen::Success || !eigen_solver.eigenvalues().allFinite())
+    {
+        return result;
+    }
+
+    const double epsilon = params.covariance_regularization_epsilon;
+    const double minimum_covariance = params.minimum_velocity_covariance;
+    const double minimum_eigenvalue = eigen_solver.eigenvalues().minCoeff();
+    // A small zero/singular covariance is a numerical condition and can be regularized. A clearly
+    // negative eigenvalue means the Kalman covariance is corrupt and must produce UNCERTAIN.
+    if (minimum_eigenvalue < -epsilon)
+    {
+        return result;
+    }
+    const double diagonal_addition =
+        std::max(epsilon, minimum_covariance - minimum_eigenvalue + epsilon);
+    regularized.diagonal().array() += diagonal_addition;
+
+    const Eigen::LDLT<Eigen::Matrix2d> solver(regularized);
+    if (solver.info() != Eigen::Success || !solver.isPositive())
+    {
+        return result;
+    }
+    const Eigen::Vector2d solved = solver.solve(velocity);
+    if (solver.info() != Eigen::Success || !solved.allFinite())
+    {
+        return result;
+    }
+
+    result.statistic = std::max(0.0, velocity.dot(solved));
+    if (!std::isfinite(result.statistic))
+    {
+        result.statistic = std::numeric_limits<double>::quiet_NaN();
+        return result;
+    }
+    result.covariance_valid = true;
+    if (result.statistic > params.dynamic_chi2_threshold)
+    {
+        result.evidence = MotionEvidence::DynamicEvidence;
+    }
+    else if (result.statistic < params.static_chi2_threshold)
+    {
+        result.evidence = MotionEvidence::StaticEvidence;
+    }
+    return result;
+}
+
+double anchoredAxisTranslation(
+    double previous_min, double previous_max, double current_min, double current_max)
+{
+    if (!std::isfinite(previous_min) || !std::isfinite(previous_max) ||
+        !std::isfinite(current_min) || !std::isfinite(current_max))
+    {
+        return 0.0;
+    }
+    const double delta_min = current_min - previous_min;
+    const double delta_max = current_max - previous_max;
+    // Only motion shared by both edges is proven translation. One edge moving alone means the box
+    // grew or shrank against a stationary opposite face, which is what progressive LiDAR
+    // revelation of a stationary obstacle looks like.
+    if (delta_min > 0.0 && delta_max > 0.0)
+    {
+        return std::min(delta_min, delta_max);
+    }
+    if (delta_min < 0.0 && delta_max < 0.0)
+    {
+        return std::max(delta_min, delta_max);
+    }
+    return 0.0;
+}
+
 void ObstacleTracker::configure(const TrackerParams &params, const FrenetProjector *frenet)
 {
+    const auto invalid = [](bool condition, const char *message) {
+        if (condition)
+        {
+            throw std::invalid_argument(message);
+        }
+    };
+    invalid(params.min_hits_confirm <= 0, "min_hits_confirm must be positive");
+    invalid(params.confirmation_window <= 0 ||
+            params.min_hits_confirm > params.confirmation_window,
+            "min_hits_confirm must not exceed confirmation_window");
+    invalid(!(params.static_chi2_threshold > 0.0) ||
+            !(params.dynamic_chi2_threshold > params.static_chi2_threshold),
+            "chi-square thresholds must satisfy 0 < static < dynamic");
+    invalid(params.dynamic_vote_window <= 0 || params.dynamic_vote_required <= 0 ||
+            params.dynamic_vote_required > params.dynamic_vote_window,
+            "dynamic vote requirement must fit its window");
+    invalid(params.static_vote_window <= 0 || params.static_vote_required <= 0 ||
+            params.static_vote_required > params.static_vote_window,
+            "static vote requirement must fit its window");
+    invalid(params.position_history_size <= 0 || params.static_min_observations <= 0 ||
+            params.static_min_observations > params.position_history_size,
+            "static observations must fit the position history");
+    invalid(!(params.static_max_position_rms > 0.0) ||
+            params.dynamic_to_static_min_observations <= 0 ||
+            params.dynamic_to_static_vote_required <= 0 ||
+            params.dynamic_to_static_vote_required > params.static_vote_window ||
+            !(params.dynamic_to_static_max_position_rms > 0.0),
+            "dynamic-to-static hysteresis parameters are invalid");
+    invalid(!(params.covariance_regularization_epsilon > 0.0) ||
+            !(params.minimum_velocity_covariance > 0.0),
+            "velocity covariance regularization values must be positive");
+    invalid(params.static_score_forgetting_factor < 0.0 ||
+            params.static_score_forgetting_factor > 1.0,
+            "static_score_forgetting_factor must be in [0, 1]");
+    invalid(params.translation_corroboration_enable &&
+            (!(params.translation_window_sec > 0.0) ||
+             params.translation_history_max_samples < 2 ||
+             !(params.dynamic_min_translation_m >= 0.0)),
+            "translation corroboration parameters are invalid");
+    invalid(params.physical_id_reassociation_gap_s < 0.0 ||
+            params.physical_id_reassociation_gap_d < 0.0 ||
+            params.physical_id_reassociation_gap_map < 0.0 ||
+            params.physical_id_memory_sec < 0.0,
+            "physical ID reassociation gaps and memory must be non-negative");
+
     p_ = params;
     frenet_ = frenet;
 }
@@ -33,6 +193,7 @@ void ObstacleTracker::clear()
     // Called when the CLCS reference is rebuilt: existing tracks live in the old s-domain and
     // must not be predicted or published against the new reference.
     tracks_.clear();
+    dormant_physical_identities_.clear();
     has_last_stamp_ = false;
 }
 
@@ -41,6 +202,95 @@ double ObstacleTracker::frenetDistSquared(double s1, double d1, double s2, doubl
     const double ds = frenet_ ? frenet_->wrapDelta(s1, s2) : (s1 - s2);
     const double dd = d1 - d2;
     return ds * ds + dd * dd;
+}
+
+bool ObstacleTracker::belongsToSamePhysicalCluster(
+    double track_s, double track_d, double track_s_half_extent,
+    double track_d_right_offset, double track_d_left_offset,
+    const Detection &detection) const
+{
+    const double ds = std::abs(
+        frenet_ ? frenet_->wrapDelta(track_s, detection.s) : track_s - detection.s);
+    const double gap_s = std::max(
+        0.0, ds - std::abs(track_s_half_extent) - std::abs(detection.s_half_extent));
+
+    const double track_right = std::min(
+        track_d + track_d_right_offset, track_d + track_d_left_offset);
+    const double track_left = std::max(
+        track_d + track_d_right_offset, track_d + track_d_left_offset);
+    const double detection_right = std::min(
+        detection.d + detection.d_right_offset,
+        detection.d + detection.d_left_offset);
+    const double detection_left = std::max(
+        detection.d + detection.d_right_offset,
+        detection.d + detection.d_left_offset);
+    const double gap_d = std::max(
+        {0.0, track_right - detection_left, detection_right - track_left});
+    return gap_s <= p_.physical_id_reassociation_gap_s &&
+           gap_d <= p_.physical_id_reassociation_gap_d;
+}
+
+bool ObstacleTracker::belongsToSameMapCluster(
+    const PhysicalIdentityAnchor &anchor, const Detection &detection) const
+{
+    const bool finite = anchor.valid &&
+        std::isfinite(anchor.x_min_map) && std::isfinite(anchor.x_max_map) &&
+        std::isfinite(anchor.y_min_map) && std::isfinite(anchor.y_max_map) &&
+        std::isfinite(detection.x_min) && std::isfinite(detection.x_max) &&
+        std::isfinite(detection.y_min) && std::isfinite(detection.y_max);
+    if (!finite || anchor.x_min_map > anchor.x_max_map ||
+        anchor.y_min_map > anchor.y_max_map || detection.x_min > detection.x_max ||
+        detection.y_min > detection.y_max)
+    {
+        return false;
+    }
+
+    const double gap_x = std::max(
+        {0.0, anchor.x_min_map - detection.x_max,
+         detection.x_min - anchor.x_max_map});
+    const double gap_y = std::max(
+        {0.0, anchor.y_min_map - detection.y_max,
+         detection.y_min - anchor.y_max_map});
+    return std::hypot(gap_x, gap_y) <= p_.physical_id_reassociation_gap_map;
+}
+
+double ObstacleTracker::mapCenterDistSquared(
+    const PhysicalIdentityAnchor &anchor, const Detection &detection) const
+{
+    const double anchor_x = 0.5 * (anchor.x_min_map + anchor.x_max_map);
+    const double anchor_y = 0.5 * (anchor.y_min_map + anchor.y_max_map);
+    const double detection_x = 0.5 * (detection.x_min + detection.x_max);
+    const double detection_y = 0.5 * (detection.y_min + detection.y_max);
+    const double dx = anchor_x - detection_x;
+    const double dy = anchor_y - detection_y;
+    return dx * dx + dy * dy;
+}
+
+void ObstacleTracker::captureStableIdentityAnchor(
+    Track &track, const Detection &detection) const
+{
+    if (track.stable_identity_anchor.valid ||
+        track.track_status != TrackStatus::Confirmed ||
+        track.motion_status != MotionStatus::Static)
+    {
+        return;
+    }
+
+    PhysicalIdentityAnchor anchor;
+    anchor.valid = true;
+    anchor.s = detection.s;
+    anchor.d = detection.d;
+    anchor.s_half_extent = detection.s_half_extent;
+    anchor.d_right_offset = detection.d_right_offset;
+    anchor.d_left_offset = detection.d_left_offset;
+    anchor.x_min_map = detection.x_min;
+    anchor.x_max_map = detection.x_max;
+    anchor.y_min_map = detection.y_min;
+    anchor.y_max_map = detection.y_max;
+    if (belongsToSameMapCluster(anchor, detection))
+    {
+        track.stable_identity_anchor = anchor;
+    }
 }
 
 void ObstacleTracker::predict(Track &t, double dt) const
@@ -71,6 +321,56 @@ void ObstacleTracker::predict(Track &t, double dt) const
     t.P = F * t.P * F.transpose() + Q;
 }
 
+void ObstacleTracker::predictMap(Track &t, double dt) const
+{
+    if (!t.map_filter_initialized)
+    {
+        return;
+    }
+    dt = std::clamp(dt, 0.0, p_.dt_max);
+    Eigen::Matrix4d F = Eigen::Matrix4d::Identity();
+    F(0, 1) = dt;
+    F(2, 3) = dt;
+
+    // Rotate the Frenet tangential/normal acceleration noise into map x/y. This map filter is used
+    // only for motion classification; Frenet remains authoritative for association and output.
+    double yaw = 0.0;
+    double unused_x = 0.0;
+    double unused_y = 0.0;
+    const bool has_yaw =
+        frenet_ && frenet_->toCartesian(t.s(), t.d(), unused_x, unused_y, yaw);
+    const double c = has_yaw ? std::cos(yaw) : 1.0;
+    const double s = has_yaw ? std::sin(yaw) : 0.0;
+    Eigen::Matrix2d rotation;
+    rotation << c, -s,
+                s, c;
+    Eigen::Matrix2d acceleration_covariance =
+        rotation *
+        (Eigen::Vector2d(p_.process_var_vs, p_.process_var_vd).asDiagonal()) *
+        rotation.transpose();
+
+    const double dt2 = dt * dt;
+    const double dt3 = dt2 * dt;
+    const double dt4 = dt2 * dt2;
+    Eigen::Matrix4d Q = Eigen::Matrix4d::Zero();
+    const int position_indices[2] = {0, 2};
+    const int velocity_indices[2] = {1, 3};
+    for (int row = 0; row < 2; ++row)
+    {
+        for (int column = 0; column < 2; ++column)
+        {
+            const double covariance = acceleration_covariance(row, column);
+            Q(position_indices[row], position_indices[column]) = 0.25 * dt4 * covariance;
+            Q(position_indices[row], velocity_indices[column]) = 0.5 * dt3 * covariance;
+            Q(velocity_indices[row], position_indices[column]) = 0.5 * dt3 * covariance;
+            Q(velocity_indices[row], velocity_indices[column]) = dt2 * covariance;
+        }
+    }
+
+    t.map_x = F * t.map_x;
+    t.map_P = F * t.map_P * F.transpose() + Q;
+}
+
 Eigen::Matrix2d ObstacleTracker::measurementCovariance(const Detection &detection) const
 {
     const double scale =
@@ -79,6 +379,25 @@ Eigen::Matrix2d ObstacleTracker::measurementCovariance(const Detection &detectio
     R(0, 0) = p_.meas_var_s * scale;
     R(1, 1) = p_.meas_var_d * scale;
     return R;
+}
+
+Eigen::Matrix2d ObstacleTracker::mapMeasurementCovariance(
+    const Track &track, const Detection &detection) const
+{
+    double yaw = 0.0;
+    double unused_x = 0.0;
+    double unused_y = 0.0;
+    const bool has_yaw =
+        frenet_ && frenet_->toCartesian(track.s(), track.d(), unused_x, unused_y, yaw);
+    const double c = has_yaw ? std::cos(yaw) : 1.0;
+    const double s = has_yaw ? std::sin(yaw) : 0.0;
+    Eigen::Matrix2d rotation;
+    rotation << c, -s,
+                s, c;
+    Eigen::Matrix2d covariance =
+        rotation * measurementCovariance(detection) * rotation.transpose();
+    covariance.diagonal().array() += p_.covariance_regularization_epsilon;
+    return covariance;
 }
 
 double ObstacleTracker::innovationDistanceSquared(
@@ -186,221 +505,335 @@ void ObstacleTracker::kalmanUpdate(Track &t, const Detection &detection) const
     }
 }
 
-double ObstacleTracker::velocityMahalanobisSquared(
-    const Track &t, double rel_vs, double rel_vd) const
+bool ObstacleTracker::mapKalmanUpdate(Track &t, const Detection &detection) const
 {
-    Eigen::Matrix2d velocity_covariance;
-    velocity_covariance << t.P(1, 1), t.P(1, 3),
-                           t.P(3, 1), t.P(3, 3);
-    const Eigen::LDLT<Eigen::Matrix2d> solver(velocity_covariance);
+    const double measurement_x = 0.5 * (detection.x_min + detection.x_max);
+    const double measurement_y = 0.5 * (detection.y_min + detection.y_max);
+    if (!std::isfinite(measurement_x) || !std::isfinite(measurement_y))
+    {
+        return false;
+    }
+
+    if (!t.map_filter_initialized)
+    {
+        t.map_x << measurement_x, 0.0, measurement_y, 0.0;
+        t.map_P = Eigen::Matrix4d::Zero();
+        t.map_P(0, 0) = 0.5;
+        t.map_P(1, 1) = 4.0;
+        t.map_P(2, 2) = 0.5;
+        t.map_P(3, 3) = 4.0;
+        t.map_filter_initialized = true;
+        return true;
+    }
+
+    Eigen::Matrix<double, 2, 4> H = Eigen::Matrix<double, 2, 4>::Zero();
+    H(0, 0) = 1.0;
+    H(1, 2) = 1.0;
+    const Eigen::Vector2d innovation(
+        measurement_x - t.map_x(0), measurement_y - t.map_x(2));
+    const Eigen::Matrix2d R = mapMeasurementCovariance(t, detection);
+    const Eigen::Matrix2d S = H * t.map_P * H.transpose() + R;
+    const Eigen::LDLT<Eigen::Matrix2d> solver(S);
     if (solver.info() != Eigen::Success || !solver.isPositive())
     {
-        RCLCPP_WARN_THROTTLE(rclcpp::get_logger("obstacle_tracker"), warnThrottleClock(), 2000,
-                             "Velocity covariance not positive definite; motion not confident");
-        return std::numeric_limits<double>::quiet_NaN();
+        RCLCPP_WARN_THROTTLE(
+            rclcpp::get_logger("obstacle_tracker"), warnThrottleClock(), 2000,
+            "Map Kalman update skipped: innovation covariance not positive definite");
+        return false;
     }
-
-    const Eigen::Vector2d relative_velocity(rel_vs, rel_vd);
-    const Eigen::Vector2d solved = solver.solve(relative_velocity);
+    const Eigen::Matrix<double, 2, 4> solved = solver.solve(H * t.map_P);
     if (solver.info() != Eigen::Success || !solved.allFinite())
     {
-        RCLCPP_WARN_THROTTLE(rclcpp::get_logger("obstacle_tracker"), warnThrottleClock(), 2000,
-                             "Velocity covariance solve failed; motion not confident");
+        RCLCPP_WARN_THROTTLE(
+            rclcpp::get_logger("obstacle_tracker"), warnThrottleClock(), 2000,
+            "Map Kalman update skipped: innovation covariance solve failed");
+        return false;
+    }
+
+    const Eigen::Matrix<double, 4, 2> K = solved.transpose();
+    t.map_x += K * innovation;
+    const Eigen::Matrix4d identity = Eigen::Matrix4d::Identity();
+    t.map_P =
+        (identity - K * H) * t.map_P * (identity - K * H).transpose() +
+        K * R * K.transpose();
+    t.map_P = 0.5 * (t.map_P + t.map_P.transpose());
+    return t.map_x.allFinite() && t.map_P.allFinite();
+}
+
+int ObstacleTracker::countEvidence(
+    const std::deque<MotionEvidence> &history,
+    MotionEvidence evidence,
+    int window) const
+{
+    const std::size_t count =
+        std::min(history.size(), static_cast<std::size_t>(std::max(0, window)));
+    int votes = 0;
+    for (std::size_t offset = 0; offset < count; ++offset)
+    {
+        if (history[history.size() - 1U - offset] == evidence)
+        {
+            ++votes;
+        }
+    }
+    return votes;
+}
+
+double ObstacleTracker::positionRms(
+    const std::deque<std::pair<double, double>> &history) const
+{
+    if (history.empty())
+    {
         return std::numeric_limits<double>::quiet_NaN();
     }
-    return std::max(0.0, relative_velocity.dot(solved));
+    double mean_x = 0.0;
+    double mean_y = 0.0;
+    for (const auto &position : history)
+    {
+        mean_x += position.first;
+        mean_y += position.second;
+    }
+    mean_x /= static_cast<double>(history.size());
+    mean_y /= static_cast<double>(history.size());
+
+    double squared_displacement_sum = 0.0;
+    for (const auto &position : history)
+    {
+        const double dx = position.first - mean_x;
+        const double dy = position.second - mean_y;
+        squared_displacement_sum += dx * dx + dy * dy;
+    }
+    return std::sqrt(squared_displacement_sum / static_cast<double>(history.size()));
 }
 
-void ObstacleTracker::classify(
-    Track &t, double ego_yaw_rate, bool yaw_rate_fresh) const
+void ObstacleTracker::updateTrackStatus(Track &t, bool measurement_received) const
 {
-    // Detection confirmation and motion classification deliberately use separate state machines.
-    // Hits 1..(min_hits_confirm-1) are completely hidden. The confirming observation publishes the
-    // track immediately as provisional static, then later observations collect motion evidence.
-    if (!t.classified)
+    t.confirmation_history.push_back(measurement_received);
+    while (static_cast<int>(t.confirmation_history.size()) > p_.confirmation_window)
     {
-        t.motion_class = MotionClass::Pending;
+        t.confirmation_history.pop_front();
+    }
+    if (t.track_status == TrackStatus::Confirmed)
+    {
+        return;
+    }
+    const int measurement_votes = static_cast<int>(
+        std::count(t.confirmation_history.begin(), t.confirmation_history.end(), true));
+    if (measurement_received && measurement_votes >= p_.min_hits_confirm)
+    {
+        t.track_status = TrackStatus::Confirmed;
+    }
+    else if (t.hits >= 2)
+    {
+        t.track_status = TrackStatus::Tentative;
+    }
+    else
+    {
+        t.track_status = TrackStatus::Raw;
+    }
+}
+
+void ObstacleTracker::updateStaticConfidence(
+    Track &t, MotionEvidence evidence, bool measurement_received) const
+{
+    const double forgetting = p_.static_score_forgetting_factor;
+    const double update_weight = 1.0 - forgetting;
+    double score = forgetting * t.static_confidence;
+    if (measurement_received)
+    {
+        score += 0.20 * update_weight;
+        if (evidence == MotionEvidence::StaticEvidence)
+        {
+            score += 0.55 * update_weight;
+        }
+        else if (evidence == MotionEvidence::DynamicEvidence)
+        {
+            score -= 0.80 * update_weight;
+        }
+        if (std::isfinite(t.map_position_rms))
+        {
+            score += (t.map_position_rms <= p_.static_max_position_rms ?
+                0.25 : -0.25) * update_weight;
+        }
+    }
+    // TODO(perception): subtract free-space contradiction evidence when a ray-traced
+    // visibility/free-space contract becomes available. Prediction-only frames only decay.
+    t.static_confidence = std::clamp(score, 0.0, 1.0);
+}
+
+void ObstacleTracker::updateTranslationEvidence(
+    Track &t, const Detection &detection, double stamp) const
+{
+    if (!p_.translation_corroboration_enable)
+    {
+        t.provable_translation_m = std::numeric_limits<double>::quiet_NaN();
+        return;
+    }
+
+    while (!t.measured_aabb_history.empty() &&
+           (stamp - t.measured_aabb_history.front().stamp > p_.translation_window_sec ||
+            t.measured_aabb_history.front().stamp > stamp))
+    {
+        t.measured_aabb_history.pop_front();
+    }
+    while (static_cast<int>(t.measured_aabb_history.size()) >=
+           p_.translation_history_max_samples)
+    {
+        t.measured_aabb_history.pop_front();
+    }
+
+    // Compare against every retained sample rather than only the oldest: the widest separation any
+    // pair proves is the strongest translation evidence inside the window, so a genuinely moving
+    // object is never hidden by where the window happens to start.
+    double widest = 0.0;
+    for (const MeasuredAabbSample &sample : t.measured_aabb_history)
+    {
+        const double translation_x = anchoredAxisTranslation(
+            sample.x_min, sample.x_max, detection.x_min, detection.x_max);
+        const double translation_y = anchoredAxisTranslation(
+            sample.y_min, sample.y_max, detection.y_min, detection.y_max);
+        widest = std::max(widest, std::hypot(translation_x, translation_y));
+    }
+    t.provable_translation_m = t.measured_aabb_history.empty() ?
+        std::numeric_limits<double>::quiet_NaN() : widest;
+
+    MeasuredAabbSample sample;
+    sample.stamp = stamp;
+    sample.x_min = detection.x_min;
+    sample.x_max = detection.x_max;
+    sample.y_min = detection.y_min;
+    sample.y_max = detection.y_max;
+    t.measured_aabb_history.push_back(sample);
+}
+
+void ObstacleTracker::classify(Track &t, bool measurement_received) const
+{
+    if (t.track_status != TrackStatus::Confirmed)
+    {
+        t.motion_status = MotionStatus::Unknown;
         t.is_static = true;
-        t.dyn_streak = 0;
-        t.static_streak = 0;
-        t.relative_speed = 0.0;
-        t.velocity_mahalanobis_sq = 0.0;
-        t.dynamic_motion_reliable = false;
-        if (t.is_visible && t.hits >= std::max(1, p_.min_hits_confirm))
-        {
-            t.classified = true;
-            t.motion_class = MotionClass::ProvisionalStatic;
-        }
+        updateStaticConfidence(t, MotionEvidence::Uncertain, measurement_received);
+        return;
+    }
+    if (!measurement_received || !t.map_filter_initialized)
+    {
+        updateStaticConfidence(t, MotionEvidence::Uncertain, false);
+        t.is_static = t.motion_status != MotionStatus::Dynamic;
         return;
     }
 
-    // Evidence must come from consecutive measurements, never from prediction-only frames.
-    if (!t.is_visible)
+    Eigen::Matrix2d velocity_covariance;
+    velocity_covariance << t.map_P(1, 1), t.map_P(1, 3),
+                           t.map_P(3, 1), t.map_P(3, 3);
+    const VelocityEvidenceResult evidence = evaluateVelocityEvidence(
+        Eigen::Vector2d(t.mapVx(), t.mapVy()), velocity_covariance, p_);
+    t.velocity_statistic = evidence.statistic;
+    t.velocity_covariance_valid = evidence.covariance_valid;
+
+    // A map-frame velocity large enough to look dynamic is only believed once the measured AABB
+    // proves the object actually translated. While a stationary obstacle is progressively revealed
+    // its centroid travels several centimetres with both edges never moving together, so the
+    // uncorroborated vote is downgraded to Uncertain and the track keeps its layer instead of
+    // vanishing from /static_obs.
+    MotionEvidence voted_evidence = evidence.evidence;
+    t.dynamic_evidence_suppressed = false;
+    if (p_.translation_corroboration_enable &&
+        voted_evidence == MotionEvidence::DynamicEvidence &&
+        std::isfinite(t.provable_translation_m) &&
+        t.provable_translation_m < p_.dynamic_min_translation_m)
     {
-        t.dyn_streak = 0;
-        t.static_streak = 0;
-        t.dynamic_motion_reliable = false;
-        t.is_static = t.motion_class != MotionClass::Dynamic;
-        return;
+        voted_evidence = MotionEvidence::Uncertain;
+        t.dynamic_evidence_suppressed = true;
     }
-
-    // ---- velocity evidence: flow RELATIVE to the map-flow reference, with hysteresis ----
-    const double rel_vs = t.vs() - static_ref_vs_;
-    const double rel_vd = t.vd() - static_ref_vd_;
-    const double rel_speed = std::hypot(rel_vs, rel_vd);
-    t.relative_speed = rel_speed;
-    t.velocity_mahalanobis_sq = velocityMahalanobisSquared(t, rel_vs, rel_vd);
-
-    const bool yaw_reliable =
-        yaw_rate_fresh && std::isfinite(ego_yaw_rate) &&
-        (p_.dyn_max_abs_yaw_rate <= 0.0 ||
-         std::abs(ego_yaw_rate) <= p_.dyn_max_abs_yaw_rate);
-    const bool velocity_confident =
-        p_.dyn_velocity_mahalanobis_gate <= 0.0 ||
-        (std::isfinite(t.velocity_mahalanobis_sq) &&
-         t.velocity_mahalanobis_sq >= p_.dyn_velocity_mahalanobis_gate);
-    const bool vel_dynamic =
-        rel_speed > p_.dyn_vel_enter && velocity_confident && yaw_reliable;
-    const bool vel_static = rel_speed < p_.dyn_vel_exit;
-    t.dynamic_motion_reliable = vel_dynamic;
-
-    // ---- positional-spread vote (ForzaETH style) ----
-    bool std_dynamic = false;
-    bool std_static = false;
-    const bool uses_std_classifier = p_.classifier_mode != ClassifierMode::Velocity;
-    if (uses_std_classifier && static_cast<int>(t.hist.size()) >= p_.min_nb_meas)
+    // Hard braking / launch transients shake the localization pose, and that jitter projects
+    // into every track as apparent map-frame translation. A dynamic vote cast in such a frame
+    // is not evidence about the obstacle, so it is withheld; static votes and all other
+    // bookkeeping continue unchanged, which only delays a real opponent's DYNAMIC entry by the
+    // transient's duration.
+    if (ego_motion_transient_ && voted_evidence == MotionEvidence::DynamicEvidence)
     {
-        double mean_s = 0.0;
-        double mean_d = 0.0;
-        for (const auto &h : t.hist)
+        voted_evidence = MotionEvidence::Uncertain;
+        t.dynamic_evidence_suppressed = true;
+    }
+    t.motion_evidence_history.push_back(voted_evidence);
+    const int history_limit = std::max(p_.dynamic_vote_window, p_.static_vote_window);
+    while (static_cast<int>(t.motion_evidence_history.size()) > history_limit)
+    {
+        t.motion_evidence_history.pop_front();
+    }
+    t.dynamic_vote_count = countEvidence(
+        t.motion_evidence_history, MotionEvidence::DynamicEvidence, p_.dynamic_vote_window);
+    t.static_vote_count = countEvidence(
+        t.motion_evidence_history, MotionEvidence::StaticEvidence, p_.static_vote_window);
+    ++t.motion_observations_since_transition;
+
+    if (t.dynamic_vote_count >= p_.dynamic_vote_required &&
+        t.motion_status != MotionStatus::Dynamic)
+    {
+        t.motion_status = MotionStatus::Dynamic;
+        t.motion_observations_since_transition = 0;
+    }
+    else if (t.motion_status == MotionStatus::Dynamic)
+    {
+        const bool conservative_static_reentry =
+            t.motion_observations_since_transition >=
+                p_.dynamic_to_static_min_observations &&
+            t.static_vote_count >= p_.dynamic_to_static_vote_required &&
+            static_cast<int>(t.map_position_history.size()) >=
+                p_.static_min_observations &&
+            std::isfinite(t.map_position_rms) &&
+            t.map_position_rms <= p_.dynamic_to_static_max_position_rms;
+        if (conservative_static_reentry)
         {
-            mean_s += h.first;
-            mean_d += h.second;
-        }
-        mean_s /= static_cast<double>(t.hist.size());
-        mean_d /= static_cast<double>(t.hist.size());
-        double var_s = 0.0;
-        double var_d = 0.0;
-        for (const auto &h : t.hist)
-        {
-            const double es = frenet_ ? frenet_->wrapDelta(h.first, mean_s) : (h.first - mean_s);
-            const double ed = h.second - mean_d;
-            var_s += es * es;
-            var_d += ed * ed;
-        }
-        var_s /= static_cast<double>(t.hist.size());
-        var_d /= static_cast<double>(t.hist.size());
-        const double std_s = std::sqrt(var_s);
-        const double std_d = std::sqrt(var_d);
-        if (std_s < p_.min_std && std_d < p_.min_std)
-        {
-            std_static = true;
-        }
-        else if (std_s > p_.max_std || std_d > p_.max_std)
-        {
-            std_dynamic = true;
-        }
-    }
-
-    bool dynamic_evidence = false;
-    bool static_evidence = false;
-    switch (p_.classifier_mode)
-    {
-        case ClassifierMode::Velocity:
-            dynamic_evidence = vel_dynamic;
-            static_evidence = vel_static;
-            break;
-        case ClassifierMode::Std:
-            dynamic_evidence = std_dynamic && yaw_reliable;
-            static_evidence = std_static;
-            break;
-        case ClassifierMode::Both:
-            dynamic_evidence = vel_dynamic && std_dynamic;
-            static_evidence = vel_static || std_static;
-            break;
-    }
-
-    if (dynamic_evidence)
-    {
-        ++t.dyn_streak;
-        t.static_streak = 0;
-    }
-    else if (static_evidence)
-    {
-        ++t.static_streak;
-        t.dyn_streak = 0;
-    }
-    else
-    {
-        // The hysteresis band, weak velocity confidence, and rapid/stale ego yaw all break a
-        // consecutive-evidence streak rather than silently accumulating ambiguous observations.
-        t.dyn_streak = 0;
-        t.static_streak = 0;
-    }
-
-    const int static_frames = std::max(1, p_.static_confirm_frames);
-    const int dynamic_frames = std::max(1, p_.dynamic_confirm_frames);
-    if (t.motion_class == MotionClass::Dynamic)
-    {
-        if (t.static_streak >= static_frames)
-        {
-            t.motion_class = MotionClass::ConfirmedStatic;
-            t.static_streak = 0;
+            t.motion_status = MotionStatus::Static;
+            t.motion_observations_since_transition = 0;
         }
     }
-    else if (t.dyn_streak >= dynamic_frames)
+    else if (t.motion_status == MotionStatus::Unknown)
     {
-        t.motion_class = MotionClass::Dynamic;
-        t.dyn_streak = 0;
-    }
-    else if (t.motion_class == MotionClass::ProvisionalStatic &&
-             t.static_streak >= static_frames)
-    {
-        t.motion_class = MotionClass::ConfirmedStatic;
-        t.static_streak = 0;
-    }
-
-    t.is_static = t.motion_class != MotionClass::Dynamic;
-}
-
-void ObstacleTracker::updateStaticReference()
-{
-    // The map-flow reference velocity is the mean Frenet velocity of the clearly-slow tracks. Walls
-    // are already removed by the Layer-1 map filter, so these are stationary obstacles (and any
-    // residual static structure) — the layer that flows WITH the map. Their shared apparent
-    // velocity is the reference the dynamic opponent is measured against. The gate keeps the
-    // fast-moving opponent out of the reference (it must not define its own baseline).
-    double sum_vs = 0.0;
-    double sum_vd = 0.0;
-    int n = 0;
-    const double static_ref_gate_sq = p_.static_ref_gate * p_.static_ref_gate;
-    for (const auto &t : tracks_)
-    {
-        const double speed_sq = t.vs() * t.vs() + t.vd() * t.vd();
-        if (p_.static_ref_gate > 0.0 && speed_sq < static_ref_gate_sq)
+        const bool static_entry =
+            t.static_vote_count >= p_.static_vote_required &&
+            static_cast<int>(t.map_position_history.size()) >=
+                p_.static_min_observations &&
+            std::isfinite(t.map_position_rms) &&
+            t.map_position_rms <= p_.static_max_position_rms;
+        if (static_entry)
         {
-            sum_vs += t.vs();
-            sum_vd += t.vd();
-            ++n;
+            t.motion_status = MotionStatus::Static;
+            t.motion_observations_since_transition = 0;
         }
     }
-    if (n > 0)
-    {
-        static_ref_vs_ = sum_vs / static_cast<double>(n);
-        static_ref_vd_ = sum_vd / static_cast<double>(n);
-    }
-    else
-    {
-        static_ref_vs_ = 0.0;
-        static_ref_vd_ = 0.0;
-    }
+
+    updateStaticConfidence(t, voted_evidence, true);
+    t.is_static = t.motion_status != MotionStatus::Dynamic;
 }
 
 void ObstacleTracker::update(
     const std::vector<Detection> &detections, double stamp,
-    double ego_yaw_rate, bool yaw_rate_fresh)
+    double ego_yaw_rate, bool yaw_rate_fresh, bool ego_motion_transient)
 {
+    // Retained in the public call signature for source compatibility. Map-frame classification no
+    // longer needs an ego-yaw gate because scan points have already been transformed into map.
+    (void)ego_yaw_rate;
+    (void)yaw_rate_fresh;
+    ego_motion_transient_ = ego_motion_transient;
     last_stats_ = TrackerUpdateStats{};
+
+    if (!p_.physical_id_reassociation_enable || p_.physical_id_memory_sec <= 0.0)
+    {
+        dormant_physical_identities_.clear();
+    }
+    else
+    {
+        dormant_physical_identities_.erase(
+            std::remove_if(
+                dormant_physical_identities_.begin(), dormant_physical_identities_.end(),
+                [stamp, this](const DormantPhysicalIdentity &identity) {
+                    return !std::isfinite(identity.last_seen_stamp) ||
+                           stamp < identity.last_seen_stamp ||
+                           stamp - identity.last_seen_stamp > p_.physical_id_memory_sec;
+                }),
+            dormant_physical_identities_.end());
+    }
 
     double dt = 0.0;
     if (has_last_stamp_)
@@ -417,7 +850,25 @@ void ObstacleTracker::update(
     // 1) predict all existing tracks to this stamp
     for (auto &t : tracks_)
     {
-        predict(t, dt);
+        // A held confirmed-static track is a map-fixed object with no measurements: propagating
+        // the constant-velocity models through the dropout only drifts its state (a noisy
+        // velocity estimate integrates over seconds) and inflates its covariance, which (a)
+        // breaks re-association on re-detection, spawning a duplicate zombie track, and (b)
+        // explodes the published s_var/d_var so downstream uncertainty guards turn a 10 cm
+        // sliver into a multi-metre wall (.regression_check2: latched danger span 14.1-20.8 m
+        // from a 17.33-17.43 m obstacle). Freeze the state exactly while unobserved; the first
+        // prediction-only frame (time_since == 0 here) still propagates normally, so visible
+        // tracks are untouched.
+        const bool freeze_lost_static =
+            p_.static_lost_hold_sec > 0.0 && t.is_static &&
+            t.track_status == TrackStatus::Confirmed &&
+            t.time_since_last_measurement > 0.0;
+        if (!freeze_lost_static)
+        {
+            predict(t, dt);
+            predictMap(t, dt);
+        }
+        t.time_since_last_measurement += dt;
         t.is_visible = false;
     }
 
@@ -477,6 +928,61 @@ void ObstacleTracker::update(
         ++last_stats_.matched;
     }
 
+    // Motion classification selects an output layer; it must never break physical identity.
+    // After statistically valid assignments take priority, reconnect every unmatched track whose
+    // Frenet envelope still belongs to the same physical cluster, including Dynamic tracks.
+    if (p_.physical_id_reassociation_enable)
+    {
+        std::vector<Pair> spatial_pairs;
+        for (std::size_t ti = 0; ti < nt; ++ti)
+        {
+            if (trk_assigned[ti] >= 0)
+            {
+                continue;
+            }
+            for (std::size_t di = 0; di < nd; ++di)
+            {
+                if (det_assigned[di] >= 0)
+                {
+                    continue;
+                }
+                const Track &track = tracks_[ti];
+                if (belongsToSamePhysicalCluster(
+                        track.s(), track.d(), track.s_half_extent,
+                        track.d_right_offset, track.d_left_offset, detections[di]))
+                {
+                    spatial_pairs.push_back(
+                        {ti, di, frenetDistSquared(
+                            track.s(), track.d(), detections[di].s, detections[di].d)});
+                }
+            }
+        }
+        std::sort(
+            spatial_pairs.begin(), spatial_pairs.end(),
+            [this](const Pair &a, const Pair &b) {
+                if (a.cost != b.cost)
+                {
+                    return a.cost < b.cost;
+                }
+                if (tracks_[a.ti].track_uid != tracks_[b.ti].track_uid)
+                {
+                    return tracks_[a.ti].track_uid < tracks_[b.ti].track_uid;
+                }
+                return a.di < b.di;
+            });
+        for (const Pair &pair : spatial_pairs)
+        {
+            if (trk_assigned[pair.ti] >= 0 || det_assigned[pair.di] >= 0)
+            {
+                continue;
+            }
+            trk_assigned[pair.ti] = static_cast<int>(pair.di);
+            det_assigned[pair.di] = static_cast<int>(pair.ti);
+            ++last_stats_.matched;
+            ++last_stats_.spatially_reassociated;
+        }
+    }
+
     // 3) update matched tracks
     for (std::size_t ti = 0; ti < nt; ++ti)
     {
@@ -503,29 +1009,68 @@ void ObstacleTracker::update(
             {
                 t.envelope_stable_streak = 0;
             }
+            // Runs before the retained AABB is overwritten below, so the window still holds the
+            // previously measured boxes this detection is compared against.
+            updateTranslationEvidence(t, det, stamp);
             kalmanUpdate(t, det);
+            const bool map_updated = mapKalmanUpdate(t, det);
             t.hits++;
             t.is_visible = true;
+            t.time_since_last_measurement = 0.0;
             t.s_half_extent = smoothExtent(t.s_half_extent, det.s_half_extent);
             t.d_right_offset = smoothExtent(t.d_right_offset, det.d_right_offset);
             t.d_left_offset = smoothExtent(t.d_left_offset, det.d_left_offset);
+            t.last_measured_s = det.s;
+            t.last_measured_d = det.d;
+            t.last_measurement_stamp = stamp;
             t.size = det.size;
             t.x_min_map = det.x_min;
             t.x_max_map = det.x_max;
             t.y_min_map = det.y_min;
             t.y_max_map = det.y_max;
-            if (p_.classifier_mode != ClassifierMode::Velocity)
+            if (map_updated)
             {
-                t.hist.emplace_back(t.x(0), t.x(2));
-                while (static_cast<int>(t.hist.size()) > p_.std_window)
+                t.map_position_history.emplace_back(t.mapX(), t.mapY());
+                while (static_cast<int>(t.map_position_history.size()) >
+                       p_.position_history_size)
                 {
-                    t.hist.pop_front();
+                    t.map_position_history.pop_front();
                 }
+                t.map_position_rms = positionRms(t.map_position_history);
+                ++t.total_measurement_updates;
             }
+            updateTrackStatus(t, true);
+            classify(t, map_updated);
+            if (t.track_status == TrackStatus::Confirmed)
+            {
+                t.physical_identity_eligible = true;
+            }
+            captureStableIdentityAnchor(t, det);
+            t.ttl = t.is_static ? p_.ttl_static : p_.ttl_dynamic;
         }
         else
         {
             t.ttl--;
+            // A confirmed STATIC track is a map-fixed object: its geometry cannot change while
+            // unobserved, so an occlusion/FOV dropout is not evidence of disappearance. Hold the
+            // track alive and keep its pre-dropout envelope-stability evidence intact for
+            // static_lost_hold_sec (scan-stamp time, rate independent). Everything else keeps the
+            // original frame-TTL retirement, and the stability streak still resets because a
+            // prediction-only frame breaks consecutive-scan evidence.
+            const bool hold_lost_static =
+                p_.static_lost_hold_sec > 0.0 && t.is_static &&
+                t.track_status == TrackStatus::Confirmed &&
+                t.time_since_last_measurement < p_.static_lost_hold_sec;
+            if (hold_lost_static)
+            {
+                t.ttl = std::max(t.ttl, 1);
+            }
+            else
+            {
+                t.envelope_stable_streak = 0;
+            }
+            updateTrackStatus(t, false);
+            classify(t, false);
         }
     }
 
@@ -537,7 +1082,98 @@ void ObstacleTracker::update(
             continue;
         }
         Track t;
-        t.id = next_id_++;
+        t.track_uid = next_track_uid_++;
+        const Track *active_identity = nullptr;
+        double reused_cost = std::numeric_limits<double>::infinity();
+        if (p_.physical_id_reassociation_enable)
+        {
+            // A scan split can leave a second detection after the existing physical track has
+            // already received its 1:1 measurement. Give the fragment the same public object ID
+            // while keeping a separate internal Kalman-track instance.
+            for (const Track &existing : tracks_)
+            {
+                if (!belongsToSamePhysicalCluster(
+                        existing.s(), existing.d(), existing.s_half_extent,
+                        existing.d_right_offset, existing.d_left_offset, detections[di]))
+                {
+                    continue;
+                }
+                const double cost = frenetDistSquared(
+                    existing.s(), existing.d(), detections[di].s, detections[di].d);
+                if (cost < reused_cost ||
+                    (cost == reused_cost && active_identity != nullptr &&
+                    existing.track_uid < active_identity->track_uid))
+                {
+                    active_identity = &existing;
+                    reused_cost = cost;
+                }
+            }
+        }
+
+        std::size_t dormant_identity = dormant_physical_identities_.size();
+        if (active_identity == nullptr && p_.physical_id_reassociation_enable)
+        {
+            for (std::size_t i = 0; i < dormant_physical_identities_.size(); ++i)
+            {
+                const auto &identity = dormant_physical_identities_[i];
+                const bool same_frenet = belongsToSamePhysicalCluster(
+                    identity.anchor.s, identity.anchor.d,
+                    identity.anchor.s_half_extent,
+                    identity.anchor.d_right_offset,
+                    identity.anchor.d_left_offset, detections[di]);
+                const bool same_map = belongsToSameMapCluster(identity.anchor, detections[di]);
+                if (!same_frenet && !same_map)
+                {
+                    continue;
+                }
+                double cost = std::numeric_limits<double>::infinity();
+                if (same_frenet)
+                {
+                    cost = frenetDistSquared(
+                        identity.anchor.s, identity.anchor.d,
+                        detections[di].s, detections[di].d);
+                }
+                if (same_map)
+                {
+                    cost = std::min(
+                        cost, mapCenterDistSquared(identity.anchor, detections[di]));
+                }
+                if (cost < reused_cost ||
+                    (cost == reused_cost && dormant_identity < dormant_physical_identities_.size() &&
+                    identity.id < dormant_physical_identities_[dormant_identity].id))
+                {
+                    dormant_identity = i;
+                    reused_cost = cost;
+                }
+            }
+        }
+
+        if (active_identity != nullptr)
+        {
+            t.id = active_identity->id;
+            t.physical_identity_eligible = active_identity->physical_identity_eligible;
+            t.stable_identity_anchor = active_identity->stable_identity_anchor;
+            ++last_stats_.physical_id_reused;
+        }
+        else if (dormant_identity < dormant_physical_identities_.size())
+        {
+            const DormantPhysicalIdentity reused_identity =
+                dormant_physical_identities_[dormant_identity];
+            t.id = reused_identity.id;
+            t.physical_identity_eligible = true;
+            if (reused_identity.stable_anchor)
+            {
+                t.stable_identity_anchor = reused_identity.anchor;
+            }
+            dormant_physical_identities_.erase(
+                dormant_physical_identities_.begin() +
+                static_cast<std::ptrdiff_t>(dormant_identity));
+            ++last_stats_.physical_id_reused;
+        }
+        else
+        {
+            t.id = next_physical_id_++;
+        }
         t.x << detections[di].s, 0.0, detections[di].d, 0.0;
         t.P = Eigen::Matrix4d::Identity();
         t.P(0, 0) = 0.5;
@@ -551,33 +1187,79 @@ void ObstacleTracker::update(
         t.s_half_extent = detections[di].s_half_extent;
         t.d_right_offset = detections[di].d_right_offset;
         t.d_left_offset = detections[di].d_left_offset;
+        t.last_measured_s = detections[di].s;
+        t.last_measured_d = detections[di].d;
+        t.last_measurement_stamp = stamp;
         t.size = detections[di].size;
         t.x_min_map = detections[di].x_min;
         t.x_max_map = detections[di].x_max;
         t.y_min_map = detections[di].y_min;
         t.y_max_map = detections[di].y_max;
-        if (p_.classifier_mode != ClassifierMode::Velocity)
+        const bool map_updated = mapKalmanUpdate(t, detections[di]);
+        if (map_updated)
         {
-            t.hist.emplace_back(t.x(0), t.x(2));
+            t.map_position_history.emplace_back(t.mapX(), t.mapY());
+            t.map_position_rms = positionRms(t.map_position_history);
+            t.total_measurement_updates = 1;
         }
+        updateTrackStatus(t, true);
+        classify(t, map_updated);
+        if (t.track_status == TrackStatus::Confirmed)
+        {
+            t.physical_identity_eligible = true;
+        }
+        captureStableIdentityAnchor(t, detections[di]);
         tracks_.push_back(std::move(t));
         ++last_stats_.spawned;
     }
 
-    // 4b) refresh the map-flow reference from slow tracks, then classify every track relative to it
-    //     (Layer 2 = flows with the map -> static; Layer 3 = clearly deviates -> dynamic opponent)
-    updateStaticReference();
-    for (auto &t : tracks_)
-    {
-        classify(t, ego_yaw_rate, yaw_rate_fresh);
-        if (t.is_visible)  // matched or freshly spawned this frame
-        {
-            t.ttl = t.is_static ? p_.ttl_static : p_.ttl_dynamic;
-        }
-    }
-
     // 5) retire dead tracks
     const std::size_t tracks_before_retirement = tracks_.size();
+    if (p_.physical_id_reassociation_enable && p_.physical_id_memory_sec > 0.0)
+    {
+        for (const Track &track : tracks_)
+        {
+            if (track.ttl > 0 || !track.physical_identity_eligible)
+            {
+                continue;
+            }
+            const bool same_physical_object_still_active = std::any_of(
+                tracks_.begin(), tracks_.end(),
+                [&track](const Track &other) {
+                    return &other != &track && other.ttl > 0 && other.id == track.id;
+                });
+            if (same_physical_object_still_active)
+            {
+                continue;
+            }
+            dormant_physical_identities_.erase(
+                std::remove_if(
+                    dormant_physical_identities_.begin(), dormant_physical_identities_.end(),
+                    [&track](const DormantPhysicalIdentity &identity) {
+                        return identity.id == track.id;
+                    }),
+                dormant_physical_identities_.end());
+            DormantPhysicalIdentity identity;
+            identity.id = track.id;
+            identity.anchor = track.stable_identity_anchor;
+            identity.stable_anchor = identity.anchor.valid;
+            if (!identity.anchor.valid)
+            {
+                identity.anchor.valid = true;
+                identity.anchor.s = track.last_measured_s;
+                identity.anchor.d = track.last_measured_d;
+                identity.anchor.s_half_extent = track.s_half_extent;
+                identity.anchor.d_right_offset = track.d_right_offset;
+                identity.anchor.d_left_offset = track.d_left_offset;
+                identity.anchor.x_min_map = track.x_min_map;
+                identity.anchor.x_max_map = track.x_max_map;
+                identity.anchor.y_min_map = track.y_min_map;
+                identity.anchor.y_max_map = track.y_max_map;
+            }
+            identity.last_seen_stamp = track.last_measurement_stamp;
+            dormant_physical_identities_.push_back(identity);
+        }
+    }
     tracks_.erase(std::remove_if(tracks_.begin(), tracks_.end(),
                                  [](const Track &t) { return t.ttl <= 0; }),
                   tracks_.end());
@@ -592,26 +1274,38 @@ void ObstacleTracker::update(
         {
             ++last_stats_.visible_tracks;
         }
-        if (t.hits < p_.min_hits_confirm)
+        if (!t.is_visible)
         {
-            ++last_stats_.hit_confirmation_pending;
+            ++last_stats_.predicted_only;
         }
-        else if (t.motion_class == MotionClass::ProvisionalStatic)
+        if (t.track_status == TrackStatus::Raw)
         {
-            ++last_stats_.provisional_static;
+            ++last_stats_.raw_tracks;
         }
-        else if (t.motion_class == MotionClass::ConfirmedStatic)
+        else if (t.track_status == TrackStatus::Tentative)
         {
-            ++last_stats_.confirmed_static;
+            ++last_stats_.tentative_tracks;
         }
-        else if (t.motion_class == MotionClass::Dynamic)
+        else if (t.motion_status == MotionStatus::Unknown)
         {
-            ++last_stats_.confirmed_dynamic;
+            ++last_stats_.motion_unknown;
         }
-        if (t.is_visible && t.relative_speed > p_.dyn_vel_enter &&
-            !t.dynamic_motion_reliable)
+        else if (t.motion_status == MotionStatus::Static)
         {
-            ++last_stats_.dynamic_motion_gated;
+            ++last_stats_.motion_static;
+        }
+        else if (t.motion_status == MotionStatus::Dynamic)
+        {
+            ++last_stats_.motion_dynamic;
+        }
+        if (t.track_status == TrackStatus::Confirmed && t.is_visible &&
+            !t.velocity_covariance_valid)
+        {
+            ++last_stats_.invalid_velocity_covariance;
+        }
+        if (t.dynamic_evidence_suppressed)
+        {
+            ++last_stats_.translation_suppressed_dynamic_votes;
         }
     }
 }
