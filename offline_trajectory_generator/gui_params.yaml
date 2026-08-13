@@ -1,6 +1,5 @@
-map_yaml: /home/haejun/2026_IFAC/src/monte_carlo_localization/maps/map.yaml
+map_yaml: /home/sungho/slam_toolbox/map.yaml
 output_dir: ~/2026_IFAC/offline_trajectory_generator/output/map
-velocity_limits_csv: offline_trajectory_generator/config/velocity_limits.csv
 optimizer: mincurv
 width_mode: hybrid
 show_centerline: true
@@ -18,6 +17,9 @@ boundary_margin: 0.4
 max_width_distance: 2.1
 max_speed: 8.0
 min_speed: 3.4000000000000004
+max_lateral_accel: 4.0
+max_accel: 3.0000000000000004
+max_decel: 5.0
 max_curvature: 0.7000000000000001
 smooth_sigma: 4.1000000000000005
 median_kernel: 5
