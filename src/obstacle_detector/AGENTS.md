@@ -126,7 +126,10 @@ published Frenet bounds instead of reprojecting the Cartesian metadata.
 
 ## Layer semantics
 
-- Layer 1 is the `/map` and corridor filter. It is never published.
+- Layer 1 is the `/map` and corridor filter. It is never published. Since 2026-08-13 the
+  map part is the structural `WallDistanceFilter` (per-beam distance to PCA-linear wall
+  components, built once per map) — do NOT reintroduce per-cell occupancy voting; it
+  fails both ways under real-car map-scan divergence.
 - Layer 2 is every existence-confirmed `Unknown` or `Static` non-map object, published with
   `is_static=true`. `Unknown` is the safety-preserving provisional state.
 - `/confirmed_static_obs` is a same-scan, `Static`-only view of Layer 2. It uses the same
@@ -158,6 +161,11 @@ published Frenet bounds instead of reprojecting the Cartesian metadata.
   until downstream uncertainty guards turn a 10 cm sliver into a multi-metre wall (observed in
   the lockstep regression as a 14.1-20.8 m latched danger span from a 17.33-17.43 m obstacle).
   Do not "fix" the freeze back to continuous prediction.
+- **Duplicate-instance guard**: the node monitors `count_publishers(static_obs_topic)` every
+  scan (independent of the diagnostics switch) and logs a throttled ERROR when more than one
+  publisher exists — `local_planning.launch.py` embeds a detector by default, so a standalone
+  launch next to it interleaves two trackers' IDs and stamps on one topic and destabilizes the
+  local planner. Keep this guard; fix the launch configuration, not the log.
 - **Ego-acceleration transient vote hold**: while the smoothed ego longitudinal acceleration
   exceeds `motion_classification.dynamic_vote_ego_accel_suppress_mps2`, dynamic motion votes are
   withheld (evidence downgraded to `Uncertain`), because braking/launch localization jitter

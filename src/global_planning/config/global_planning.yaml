@@ -34,7 +34,6 @@ frenet_odom_node:
     projection_failure_policy: "drop_message"
     path_change_tolerance: 0.0001
     duplicate_point_tolerance: 0.001
-    reference_resample_step: 0.0
     tangent_epsilon: 0.05
     publish_heading_error: true
     publish_frenet_velocity: true
@@ -42,23 +41,27 @@ frenet_odom_node:
     velocity_frame: "body"
     covariance_mode: "zero"
     use_path_preprocessing: true
-    enable_path_smoothing: false
-    enable_curvature_reduction: false
-    max_projection_distance: 20.0
-    projection_domain_limit: 20.0
+    # --- Monotonic s-window tracking (closed-loop wrap) ---
+    # After the first fix only [s_prev - backward_tolerance, s_prev +
+    # forward_window] (mod track length) is searched, so branches that are
+    # near in space but far in arc length (hairpin opposite leg: 1.41 m away,
+    # ~half a lap in s) can never capture the projection. A window miss fails
+    # closed (projection_failure_policy applies); after reacquire_after_misses
+    # consecutive misses ONE loud global re-search re-acquires progress
+    # (teleport / RViz 2D Pose Estimate). 0 = strict fail-closed.
+    continuity_enabled: true
+    forward_window: 1.0             # [m] W ahead of s_prev
+    backward_tolerance: 0.5         # [m] epsilon behind s_prev
+    initial_seed_window: 0.0        # [m] first fix: 0 = full search; >0 = [0, this]
+    # Euclidean gate for tracked fixes only. Must exceed the largest
+    # legitimate |d| (avoidance excursions ~1.1 m) and stay below the
+    # smallest branch gap (hairpin legs 1.41 m).
+    tracked_max_projection_distance: 1.5
+    reacquire_after_misses: 5      # ~0.17 s at 30 Hz odom
+    max_projection_distance: 2.5
+    projection_domain_limit: 2.7
     projection_domain_epsilon: 0.1
     projection_domain_eps2: 0.0
     projection_domain_method: 1
     min_path_length: 0.5
     large_gap_factor: 5.0
-
-lap_counter_node:
-  ros__parameters:
-    frenet_odom_topic: "/car_state/frenet/odom"
-    lap_count_topic: "/lap_count"
-    # Count one lap only when the previous sample is in the finish region and
-    # the current sample has wrapped into the start region.
-    finish_s_min: 10.0
-    start_s_max: 0.5
-    min_lap_time_sec: 3.0
-    initial_lap_count: 0

@@ -514,29 +514,53 @@ P3ManeuverLifecycleDecision P3ManeuverLifecycle::continueCurrent(
     if (!raw_validation.hard_valid) {
       (void)planner.validatePath(
         snapshot.ego, suffix, raw_obstacles, nullptr, &raw_failure);
+      // Committed-path retention band (2026-08-12, user-requested freeze): when the full-reserve
+      // raw validation fails only through obstacle clearance, re-validate with the retention
+      // fraction of the tracking reserve (physical base clearance always intact). Progressive
+      // reveal and envelope jitter inside the released band then freeze the committed geometry
+      // instead of re-shaping it on every callback; invalidation requires an actual
+      // retention-margin violation.
+      const double retention_fraction = planner.commitmentRetentionReserveFraction();
+      bool retention_holds = false;
+      P3ShadowPathEvaluation retention_validation;
+      if (raw_failure.kind == PathValidationFailureKind::kObstacleCollision &&
+        retention_fraction >= 0.0 && retention_fraction < 1.0)
+      {
+        retention_validation = planner.evaluateP3PathCurrent(
+          snapshot.ego, suffix, raw_obstacles, retention_fraction);
+        retention_holds = retention_validation.hard_valid;
+      }
+      if (!retention_holds) {
+        decision.validation = std::move(raw_validation);
+        decision.suffix_hard_valid = false;
+        const std::string raw_detail = decision.validation.rejection_reason.empty() ?
+          "UNSPECIFIED" : decision.validation.rejection_reason;
+        return invalidate(
+          raw_failure.kind == PathValidationFailureKind::kObstacleCollision ?
+          "CURRENT_RAW_OBSTACLE_COLLISION:" + raw_detail :
+          "CURRENT_EXACT_HARD_INVALID_RAW:" + raw_detail,
+          decision);
+      }
+      ++record.guard_soft_violation_count;
+      decision.guard_soft_violation_count = record.guard_soft_violation_count;
+      decision.raw_validation_rejection =
+        "RETENTION_HOLD:" + decision.raw_validation_rejection;
+      decision.validation = std::move(retention_validation);
+      decision.suffix_hard_valid = true;
+      decision.guard_soft_violation_pending = true;
+    } else {
+      // The immutable suffix remains hard-valid against the raw detector geometry with the FULL
+      // reserve. Hold the frozen path with no cycle expiry: a broken uncertainty guard alone is
+      // not a margin violation, and the previous N-cycle expiry re-planned an almost identical
+      // geometry on every progressive reveal — the dominant visible path churn. The counter is
+      // kept for diagnostics only.
+      (void)soft_violation_confirm_cycles;
+      ++record.guard_soft_violation_count;
+      decision.guard_soft_violation_count = record.guard_soft_violation_count;
       decision.validation = std::move(raw_validation);
-      decision.suffix_hard_valid = false;
-      const std::string raw_detail = decision.validation.rejection_reason.empty() ?
-        "UNSPECIFIED" : decision.validation.rejection_reason;
-      return invalidate(
-        raw_failure.kind == PathValidationFailureKind::kObstacleCollision ?
-        "CURRENT_RAW_OBSTACLE_COLLISION:" + raw_detail :
-        "CURRENT_EXACT_HARD_INVALID_RAW:" + raw_detail,
-        decision);
+      decision.suffix_hard_valid = true;
+      decision.guard_soft_violation_pending = true;
     }
-
-    // The immutable suffix is physically hard-valid against the raw detector geometry. Preserve
-    // it for the same existing confirmation count used by production P0; do not introduce a new
-    // wait, TTL, hysteresis, or parameter. A fresh valid P3 candidate is already preferred by the
-    // node before continuation, so confirmation expiry cleanly returns authority to P0 backup.
-    ++record.guard_soft_violation_count;
-    decision.guard_soft_violation_count = record.guard_soft_violation_count;
-    decision.validation = std::move(raw_validation);
-    decision.suffix_hard_valid = true;
-    if (record.guard_soft_violation_count >= soft_violation_confirm_cycles) {
-      return invalidate("GUARD_SOFT_OBSTACLE_VIOLATION_CONFIRMED", decision);
-    }
-    decision.guard_soft_violation_pending = true;
   } else {
     record.guard_soft_violation_count = 0;
   }

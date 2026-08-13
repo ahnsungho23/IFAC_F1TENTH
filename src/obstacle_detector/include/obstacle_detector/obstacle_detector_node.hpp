@@ -4,11 +4,15 @@
 // A single scan-driven perception node that separates LiDAR returns into three layers and
 // publishes the two obstacle layers in the Frenet frame:
 //
-//   LAYER 1 [map]     : /scan -> map-frame points (TF2) -> adaptive-breakpoint clustering ->
-//                       pre-tracking fragment merge -> box fit -> viewing + track-boundary gates
-//                       -> /map occupancy filter.
+//   LAYER 1 [map]     : /scan -> map-frame points (TF2) -> structural wall filter (per-beam:
+//                       points near LINEAR wall components extracted from /map are dropped
+//                       before clustering) -> adaptive-breakpoint clustering -> pre-tracking
+//                       fragment merge -> box fit -> viewing + track-boundary gates.
 //                       Points that ARE the map (walls / known static structure) are removed here;
-//                       the map layer is a filter, it is not published.
+//                       the map layer is a filter, it is not published. (2026-08-13: the per-cell
+//                       occupancy vote was replaced by WallDistanceFilter — the SLAM map and the
+//                       scan diverge on the real car, which both erased real obstacles on mapped
+//                       cells and kept wall returns slightly off the mapped wall.)
 //   (tracking)        : Frenet KF [s,vs,d,vd] preserves association/output geometry. A parallel
 //                       map KF [x,vx,y,vy] provides velocity covariance significance and measured
 //                       map-position persistence for motion classification.
@@ -56,6 +60,7 @@
 
 #include "obstacle_detector/frenet_projector.hpp"
 #include "obstacle_detector/obstacle_tracker.hpp"
+#include "obstacle_detector/wall_distance_filter.hpp"
 
 namespace obstacle_detector
 {
@@ -125,7 +130,6 @@ class ObstacleDetectorNode : public rclcpp::Node
     // and the merged AABB must remain no larger than max_obs_size.
     std::vector<std::vector<ScanPoint>> mergeClusters(
         std::vector<std::vector<ScanPoint>> clusters, ScanProcessingStats &stats) const;
-    bool occupiedInMap(double x, double y) const;
     // 2nd-stage clustering inside one layer: union tracks whose boxes are within the merge gaps
     // (wrap-aware in s) and emit one envelope obstacle per component. With layer_merge_enable
     // false every track stays a singleton (identical to per-track publishing).
@@ -185,8 +189,10 @@ class ObstacleDetectorNode : public rclcpp::Node
     double fallback_track_halfwidth_;
     bool use_map_filter_;
     int map_occupied_thresh_;
-    int map_inflation_cells_;
-    double map_point_reject_ratio_;
+    // 구조적 벽 필터(WallDistanceFilter) 파라미터 — 팀 edge_test 계열 포팅 (2026-08-13)
+    double wall_assoc_distance_m_;
+    double wall_linear_ratio_;
+    double wall_min_length_m_;
     // per-layer 2nd-stage merge
     bool layer_merge_enable_;
     double layer_merge_gap_s_;
@@ -217,7 +223,8 @@ class ObstacleDetectorNode : public rclcpp::Node
     std::vector<FrenetProjector::Waypoint> active_reference_waypoints_;
     FrenetProjector frenet_;
     ObstacleTracker tracker_;
-    nav_msgs::msg::OccupancyGrid::SharedPtr map_msg_;
+    // 맵에서 선형 벽 성분을 추출해 빔 단위 Layer-1 판정을 O(1)로 제공 (맵 수신 시 1회 빌드)
+    WallDistanceFilter wall_filter_;
     double ego_s_{-1.0};   // ego arc-length; < 0 disables the ahead-preference until first proj
     double ego_s_stamp_{-1.0};  // odometry stamp of the last ego_s_ update (freshness check)
     global_planning::ClcsContinuityState ego_continuity_;

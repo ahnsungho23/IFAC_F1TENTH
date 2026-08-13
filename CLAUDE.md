@@ -72,12 +72,13 @@ Before finishing any ROS 2 node change, verify:
 
 ## Simulation Run Order (실행 순서)
 
-기본 주행은 터미널 8개를 아래 순서대로 띄웁니다. 순서가 중요합니다.
+기본 주행은 터미널 7개를 아래 순서대로 띄웁니다. 순서가 중요합니다.
+(구 터미널 4=검출기 단독·구 터미널 7=wpnt_publisher는 폐지 — 아래 각 절 참고)
 
 ### 터미널 1 — 시뮬레이터 (gym bridge)
 
 ```bash
-cd ~/sim_ws
+cd ~/f1sim_C
 source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
 ros2 launch f1tenth_gym_ros gym_bridge_launch.py
@@ -104,16 +105,29 @@ ros2 launch particle_filter_cpp mcl_launch.py mod:=sim map_name:=ifac_track use_
 
 `global_waypoints.json`을 읽어 `/global_waypoints`를 발행하고, `/car_state/frenet/odom`을 계산합니다.
 
+⚠️ **`map_name:=ifac_track`을 반드시 넘길 것** — 2026-08-12 팀 merge 이후 기본
+map_name이 `map`(다른 트랙)이라, 인자 없이 띄우면 다른 트랙의 라인이 발행되어
+frenet 투영이 전부 실패합니다 (`CLCS projection failed` 반복). 또한 launch는
+`global_waypoints.json`을 **cwd 상대경로**로 읽으므로 `cd ~/2026_IFAC` 상태에서
+실행해야 합니다.
+
 ```bash
 cd ~/2026_IFAC
 source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
-ros2 launch global_planning global_planning.launch.py
+ros2 launch global_planning global_planning.launch.py map_name:=ifac_track
 ```
 
-### 터미널 4 — 장애물 검출기
+### 터미널 4 — 장애물 검출기 (⚠️ 기본 생략)
+
+**터미널 5의 `local_planning.launch.py`가 기본값(`start_obstacle_detector:=true`)으로
+검출기를 함께 실행하므로, 이 터미널을 따로 띄우면 검출기가 2중 실행됩니다.** 두 인스턴스가
+`/static_obs`에 서로 다른 트랙 ID·stamp를 교차 발행해 로컬 플래너의 커밋 경로가 계속
+무효화됩니다 (중복 감지 시 검출기가 ERROR 로그를 출력함). 검출기를 단독으로 띄우고 싶으면
+터미널 5에서 `start_obstacle_detector:=false`를 함께 넘기십시오.
 
 ```bash
+# 단독 실행이 꼭 필요할 때만 (터미널 5에 start_obstacle_detector:=false 필요):
 cd ~/2026_IFAC
 source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
@@ -142,26 +156,23 @@ source install/setup.zsh
 ros2 launch state_machine state_machine.launch.py
 ```
 
-### 터미널 7 — 웨이포인트 퍼블리셔
+### ~~터미널 7 — 웨이포인트 퍼블리셔~~ (폐지)
 
-회피 웨이포인트를 받아 `/local_waypoints`로 중계합니다.
+**wpnt_publisher는 state_machine에 통합되어 소스가 삭제된 유령 패키지입니다**
+(`/local_waypoints`는 터미널 6의 state_machine_node가 직접 발행 — 2026-08-13
+터미널 7 없이 8랩 완주로 검증). `install/`에 남은 옛 빌드 잔재로만 실행 가능했으며,
+클린 빌드 후에는 어차피 실행되지 않습니다. **띄우지 마십시오.**
 
-```bash
-cd ~/2026_IFAC
-source /opt/ros/jazzy/setup.zsh
-source install/setup.zsh
-ros2 launch wpnt_publisher wpnt_publisher.launch.py
-```
+### 터미널 7 — 제어 (구 터미널 8)
 
-### 터미널 8 — 제어
-
-L1 Guidance + Steering LUT 기반 조향/속도 제어. `force_autonomous:=true`면 조이스틱 없이 즉시 자율주행합니다.
+L1 Guidance + Steering LUT 기반 조향/속도 제어. 기동 즉시 자율주행합니다
+(구 `force_autonomous` 인자는 2026-07-29 폐지 — 넘겨도 무시됨).
 
 ```bash
 cd ~/2026_IFAC
 source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
-ros2 launch f1tenth_control control_sim.launch.py force_autonomous:=true
+ros2 launch f1tenth_control control_sim.launch.py
 ```
 
 ---

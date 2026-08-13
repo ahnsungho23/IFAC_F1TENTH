@@ -166,6 +166,21 @@ fallback입니다.
    이어야 하한 2.0으로 규정 간격(자유 폭 0.5 m)을 지날 수 있습니다. 실측이 이보다 크면
    하한을 낮추거나(저속 행 재측정 필요) 회피 불가로 받아들여야 합니다.
 
+🔴 **2026-08-13 실차 실측 완료 — 위 5번 조건 불통과가 실측 결론입니다.** 실차 6랩
+(slow20×2·slow25×2·race×2, 3,926 샘플, 라이브 /global_waypoints 기준선)으로 표를 전면
+교체했습니다. 실차 추종오차는 시뮬의 1.5~2배: 2.0 m/s 직선 예약 0.265 m,
+v→0 바닥도 0.200 m — p95 방식으로 계산해도 결론 동일하게 **최소간격
+(자유폭 0.5 m) 통로는 어떤 속도로도 통과하지 않습니다**(margin-pass/safe-stop 사다리가
+처리). 최소간격 통과가 필요해지면 제어 추종 정확도 개선이 선행돼야 합니다.
+⚠️ **예산 분할 명확화(제어팀 협의, 2026-08-13)**: 0.10882는 `trackingErrorReserve()`
+총예산이고, 코드가 `LUT + localization_reserve_m(0.06)`을 합산해 이 예산과 비교하므로
+**분할은 위치추정 0.06 + 제어(LUT) 0.049**다. 현 제어 실측(2.0 m/s 직선, MCL 기준
+p95 0.178/max 0.199)은 제어 몫의 약 4배 — 통과하려면 제어 오차를 1/4로 줄이거나
+실차 MCL 실측(선행 필요) 후 분할을 재협상해야 한다. 참고:
+실트랙 최대 |κ|=0.694라 κ≥0.9 열은 존재하지 않는 영역(단조 확장값, n=0 정상)이고,
+v[3,4.5) k[0.2,0.5)의 max 0.446에는 MCL 보정 스파이크 의심 표본이 포함돼 있습니다
+(p95는 0.224 — 고속 회피가 과하게 느려지면 p95 재생성을 검토).
+
 ### P3 기본화와 continuation-first 재계획 정책 (2026-08-12)
 
 - `p3_mode` 기본값이 **TEST_ACTIVE**(P3 주도 + P0 백업)로 바뀌었습니다 (launch·노드·YAML 모두).
@@ -187,6 +202,37 @@ COMPLETION_HANDOFF ~14초 지속, merge 확인 0회). 이제 P3 완료 시 **P0�
 `activateGlobalHandoff` 폐루프**(현재 ego에서 시작하는 글로벌 라인 루프)로 전환합니다:
 루프의 tail이 활성화 순간부터 ego 위치에 있으므로 FSM 확인이 수 초 안에 성립하고, 기존
 P0 해제 로직(STATE_GLOBAL 확인 → 커밋 해제 → 빈 경로 발행)이 그대로 마무리합니다.
+
+**복귀 램프 (2026-08-13 추가, `merge_ramp_min_length_m`/`merge_ramp_time_sec`)**: 위 폐루프가
+d=0 라인을 그대로 발행하면 "라인까지 돌아가는 방법"이 계획에 없어서, 복귀 속도가 컨트롤러의
+자연 수렴에 맡겨진다(2026-08-12 실측 0.055 m/m — 연속 장애물에서 다음 기동이 남은 오프셋 위에서
+시작되며 누적). 이제 `buildGlobalHandoffPath`가 ego의 현재 d에서 0까지
+smoothstep(여집합 (1-t)²(1+2t), 양 끝 기울기 0)으로 내려가는 램프를 핸드오프 앞머리
+`max(min_length 3.0, |v|·1.5 s)` 구간에 접붙인다. FSM 합류 확정은 램프와 무관하게 물리적
+`|ego_d| ≤ enter_global_threshold` 지속 조건이 계속 게이트하므로, 램프는 합류를 앞당길 뿐
+조기 확정을 만들지 않는다. 램프의 추가 곡률 상한은 6|d0|/L² (d0=0.5, L=3에서 0.33 rad/m).
+
+⚠️ **현재 기본 비활성(0/0)이다.** 시뮬 회귀(.regression_check10/11)에서 램프가 FINALS 벽
+협착부 최소 여유를 0.117→0.082 m로 깎았고, 벽 클램프는 웨이포인트 d_left/d_right의 낙관
+(제어팀 실측 0.16~0.23 m) 때문에 물리지 않았다. 합류 자체는 크게 좋아진다(FINALS 회피 완료
+13.5→6.7 s). 제어팀 섹터별 라이다 벽 여유 테이블로 경계를 보정한 뒤 활성화하고, 활성화 시
+반드시 락스텝 베이스라인을 다시 돌려 벽 여유를 확인할 것.
+
+### 커밋 경로 retention 밴드 (`commitment_retention_reserve_fraction`) — 조건부 고정
+
+"장애물이 (계획 당시의) 마진보다 안쪽으로 들어오지 않는 한 경로를 고정한다"는 요구
+(2026-08-12 22:34, 종방향 연쇄 장애물에서 경로 흔들림)의 구현입니다. **이미 커밋된 경로**를
+재검증할 때만 장애물 클리어런스의 추적오차 예약 부분을 이 비율(기본 0.5)로 줄여 검사합니다.
+물리 클리어런스(0.158 m)는 절대 줄지 않고, 신규 계획·fresh 후보는 항상 전체 예약으로
+검증합니다. 효과는 히스테리시스 밴드입니다:
+
+- envelope가 점진 노출로 자라거나 흔들려도 **released 밴드(예약의 절반) 안이면 커밋 경로
+  유지** — P3 continuation과 P0 commitment 모두.
+- uncertainty guard 위반만으로는 더 이상 재계획하지 않습니다. 이전에는 guard 위반이
+  N사이클(≈0.1~0.3 s) 지속되면 거의 동일한 기하를 다시 만드는 만료 규칙이 있었고, 이것이
+  점진 노출 구간에서 보이는 경로 churn의 주범이었습니다 (만료 제거, 카운터는 진단용 유지).
+- 원본 envelope + 물리 클리어런스 + 유지 예약이 **실제로 침범될 때만** 즉시 무효화→재계획.
+- 1.0이면 밴드가 꺼지고 전체 예약 기준으로 복귀합니다.
 
 **완료 장애물 id 등록(필수 유지)**: P3 완료 분기는 `clearCommitment()`가
 `completed_obstacle_ids_`까지 지우기 때문에, 완료한 maneuver의 장애물 id를 wipe 전에 보관해
@@ -606,9 +652,19 @@ commitment는 지우지 않으므로 odometry가 회복되면 다시 검증한 �
 - 회피속도 제한표: `avoidance_velocity_limit_speed_bins_mps`,
   `avoidance_velocity_limit_lateral_accel_mps2`
 - LUT fallback: `tracking_error_reserve_m` (세 LUT 배열이 모두 비었을 때만 사용)
-- 장애물 clearance: `vehicle_half_width_m + safety_margin_m + LUT(limited_v, |kappa|)`
+- 위치추정 예비량: `localization_reserve_m` (기본 0.06 m, 0=비활성) —
+  `trackingErrorReserve()`에 상수항으로 합산되어 엔벨로프 확장·하드 검증·gap 속도
+  역산에 동일 반영, retention 스케일도 함께 적용. 값 근거: 2026-08-13 시뮬 실측
+  (`tools/mcl_gt_error_probe.py`, 181.6s) GT-vs-MCL 횡오차 속도구간별 P95 최악 6.3 cm.
+  10 cm 초과는 전부 ≤0.07 s 단일사이클 MCL 보정 스파이크(최대 29.6 cm)로, 이는 정적
+  마진이 아니라 retention 밴드가 흡수하는 몫이다(스파이크 최대치로 잡으면 통로 폐색).
+  실차 이행 시 재측정 필요(측정 절차는 위 실차 LUT 절차와 동일한 프로브 사용).
+- 장애물 clearance: `vehicle_half_width_m + safety_margin_m + LUT(limited_v, |kappa|)
+  + localization_reserve_m`
 - margin-only 감속 통과: `margin_pass_speed_cap_mps` (0=비활성; 물리 판정은
   `vehicle_half_width_m + safety_margin_m`만 사용)
+- 커밋 경로 retention 밴드: `commitment_retention_reserve_fraction` (기본 0.5, 1.0=비활성;
+  커밋 경로 재검증에서만 추적오차 예약을 이 비율로 축소)
 - 트랙 경계 reserve: `wall_safety_margin_m`
 - 트랙 폭 fallback: `fallback_track_half_width_m`
 - spline 제어점: `pre_apex_distances_m`, `post_apex_distances_m`

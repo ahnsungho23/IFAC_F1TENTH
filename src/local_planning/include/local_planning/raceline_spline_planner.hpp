@@ -69,6 +69,18 @@ struct RacelineSplineParameters
   // never reaches d = 0) is physically passable on the line, so avoidance failure degrades to a
   // capped-speed lane hold instead of a safe stop or a zero-speed hold.
   double margin_pass_speed_cap_mps{2.0};
+  // Committed-path retention band: while re-validating an ALREADY COMMITTED path (P3
+  // continuation, P0 commitment hold), the tracking-error reserve portion of the obstacle
+  // clearance is scaled by this fraction, so envelope growth/jitter inside the released band
+  // freezes the path instead of reshaping it every callback. The physical base clearance is
+  // never reduced, and fresh planning always uses the full reserve. 1.0 disables the band.
+  double commitment_retention_reserve_fraction{0.5};
+  // Localization (MCL vs ground-truth) lateral error reserve, added as a constant floor inside
+  // trackingErrorReserve() so every consumer (envelope expansion, hard validation, gap-limited
+  // speed inversion) sees the same total. Participates in the retention scaling above like the
+  // rest of the reserve. Sized from sustained error (per-speed-bin P95), NOT transient MCL
+  // correction spikes — those are single-cycle events the retention band absorbs. 0 disables.
+  double localization_reserve_m{0.0};
 
   std::vector<double> pre_apex_distances_m{6.0, 4.0, 2.0};
   std::vector<double> post_apex_distances_m{1.0, 2.0, 3.0};
@@ -87,6 +99,14 @@ struct RacelineSplineParameters
   double maximum_exit_length_m{0.0};
   double post_merge_lookahead_m{2.0};
   double post_merge_min_time_sec{1.0};
+  // 완료 핸드오프 복귀 램프: 길이 = max(min_length, |v| * time). 너무 짧으면 램프의
+  // 추가 곡률(최대 6|d0|/L^2)이 커지므로 min_length가 하한을 지킨다.
+  // 🔴 기본 0 = 비활성 (2026-08-13). 시뮬 회귀에서 램프가 벽 협착부(s≈23) 최소 벽 여유를
+  // 0.117→0.082 m로 깎았고, 벽 클램프는 웨이포인트 d_left/d_right가 실제 벽보다 낙관적이라
+  // (제어팀 실측 0.16~0.23 m) 물리지 않았다. 제어팀 섹터별 벽 여유 실측 테이블로 경계를
+  // 보정한 뒤에만 활성화할 것 — 낙관 경계로 켜면 협착부 벽 여유를 그대로 깎는다.
+  double merge_ramp_min_length_m{0.0};
+  double merge_ramp_time_sec{0.0};
   double minimum_target_offset_m{0.20};
   double maximum_target_offset_m{1.50};
   int target_d_candidate_count{5};
@@ -116,7 +136,8 @@ struct RacelineSplineParameters
   double trackingErrorReserve(double speed_mps, double curvature_radpm) const;
   double avoidanceTrackingErrorReserve(double speed_mps, double curvature_radpm) const;
   double obstacleBaseClearance() const;
-  double obstacleSafetyClearance(double speed_mps, double curvature_radpm) const;
+  double obstacleSafetyClearance(
+    double speed_mps, double curvature_radpm, double reserve_scale = 1.0) const;
   double trackBoundaryReserve(double speed_mps, double curvature_radpm) const;
 };
 
@@ -270,8 +291,13 @@ public:
   bool obstaclesPhysicallyBlockRaceline(
     const EgoFrenetState & ego,
     const std::vector<f110_msgs::msg::Obstacle> & obstacles) const;
+  // 완료 핸드오프용 글로벌 루프. ego의 현재 횡오프셋 d에서 d=0까지 smoothstep 램프로
+  // 내려가는 계획된 복귀 구간을 앞머리에 접붙인다 — 램프 없이 d=0 라인을 그대로 주면
+  // 복귀가 컨트롤러의 자연 수렴에 맡겨져 실측 0.055 m/m로 느리고(2026-08-12), 연속
+  // 장애물에서 오프셋이 누적된다. FSM 합류 판정(|ego_d| <= threshold 지속)은 램프와
+  // 무관하게 물리적 합류를 계속 게이트한다.
   f110_msgs::msg::WpntArray buildGlobalHandoffPath(
-    double ego_s, double state_tail_ratio, double speed_cap_mps) const;
+    const EgoFrenetState & ego, double state_tail_ratio, double speed_cap_mps) const;
   f110_msgs::msg::WpntArray buildEmergencyStopPath(const EgoFrenetState & ego) const;
   // Truncate `path` from the waypoint nearest ahead of ego and apply a braking profile that
   // stops within the configured safe-stop deceleration, without any obstacle search. Used as
@@ -305,10 +331,14 @@ public:
 
   // Revalidate a committed P3 suffix against the current immutable planning snapshot using the
   // same production hard validator and configured minimum-path contract as fresh P3 candidates.
+  // `obstacle_reserve_scale` scales only the tracking-error reserve portion of the obstacle
+  // clearance (the physical base clearance is never reduced); values < 1 form the committed-path
+  // retention band. Fresh planning must always validate with the default full reserve.
   P3ShadowPathEvaluation evaluateP3PathCurrent(
     const EgoFrenetState & ego,
     const f110_msgs::msg::WpntArray & path,
-    const std::vector<f110_msgs::msg::Obstacle> & obstacles) const;
+    const std::vector<f110_msgs::msg::Obstacle> & obstacles,
+    double obstacle_reserve_scale = 1.0) const;
 
   bool validatePath(
     const EgoFrenetState & ego,
@@ -316,7 +346,13 @@ public:
     const std::vector<f110_msgs::msg::Obstacle> & obstacles,
     std::string * error = nullptr,
     PathValidationFailure * failure = nullptr,
-    const std::optional<double> & maximum_collision_forward_m = std::nullopt) const;
+    const std::optional<double> & maximum_collision_forward_m = std::nullopt,
+    double obstacle_reserve_scale = 1.0) const;
+
+  double commitmentRetentionReserveFraction() const
+  {
+    return parameters_.commitment_retention_reserve_fraction;
+  }
 
   void toCartesian(double s, double d, double & x, double & y, double & yaw) const;
 
@@ -399,7 +435,8 @@ private:
     std::size_t start_index = 0U,
     std::size_t minimum_points = 0U,
     PathValidationFailure * failure = nullptr,
-    const std::optional<double> & maximum_collision_forward_m = std::nullopt) const;
+    const std::optional<double> & maximum_collision_forward_m = std::nullopt,
+    double obstacle_reserve_scale = 1.0) const;
   P3ShadowPlanningContext buildP3ShadowPlanningContext(
     const EgoFrenetState & ego,
     const std::vector<f110_msgs::msg::Obstacle> & obstacles) const;
@@ -410,7 +447,8 @@ private:
   P3ShadowPathEvaluation validateP3ShadowPath(
     const EgoFrenetState & ego,
     const f110_msgs::msg::WpntArray & path,
-    const std::vector<f110_msgs::msg::Obstacle> & obstacles) const;
+    const std::vector<f110_msgs::msg::Obstacle> & obstacles,
+    double obstacle_reserve_scale = 1.0) const;
 
   RacelineSplineParameters parameters_;
   f110_msgs::msg::WpntArray reference_;

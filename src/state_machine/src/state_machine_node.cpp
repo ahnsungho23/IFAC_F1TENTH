@@ -65,7 +65,7 @@ StateMachineNode::StateMachineNode()
   declare_parameter<std::string>("default_state", "global");
   declare_parameter<std::string>("invalid_local_path_policy", "global_fallback");
 
-  declare_parameter<double>("publish_rate_hz", 10.0);
+  declare_parameter<double>("publish_rate_hz", 100.0);
   declare_parameter<int>("waypoint_num", 50);
   declare_parameter<double>("overtake_hold_duration_sec", 2.0);
   declare_parameter<double>("global_publisher_warn_timeout_sec", 5.0);

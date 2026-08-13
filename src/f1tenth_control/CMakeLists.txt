@@ -40,10 +40,10 @@ find_package(ament_index_cpp REQUIRED)
 # ==============================================================================
 add_executable(control_map_node
   control_code/control_map_node.cpp
-  control_code/gap_follower.cpp
 )
-# ⚠️ StabilityController는 2026-07-29 롤 인지 ESC 제거와 함께 **헤더 전용**(.hpp)이 됐다 —
-#    imu_stability_controller.cpp는 삭제됐으므로 여기 다시 추가하지 말 것.
+# ⚠️ 2026-08-06: gap_follower.cpp / imu_stability_controller.hpp를 저장소에서 삭제했다.
+#    전자는 08-04에 호출부가 사라진 뒤 컴파일만 되던 죽은 코드였고, 후자는 요레이트
+#    카운터스티어(기본 0.00 = 비활성)와 함께 제거됐다. 되살릴 근거가 생기면 git 이력에서 꺼낼 것.
 target_include_directories(control_map_node PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
@@ -81,7 +81,6 @@ add_executable(drive_source_selector control_code/drive_source_selector.cpp)
 target_link_libraries(drive_source_selector
   rclcpp::rclcpp
   ${ackermann_msgs_TARGETS}
-  ${std_msgs_TARGETS}
 )
 
 # ==============================================================================
@@ -113,14 +112,26 @@ install(DIRECTORY launch
   DESTINATION share/${PROJECT_NAME}
 )
 
-install(DIRECTORY docs
-  DESTINATION share/${PROJECT_NAME}
-)
-
 # Steering Lookup Table(LUT) CSV — 패키지 share에 설치해 이식성 있는 ament 경로로 로드
 # (control_map_node가 get_package_share_directory("f1tenth_control")+"/cfg/..."로 조회)
 install(FILES control_code/LUT_calibrated.csv
   DESTINATION share/${PROJECT_NAME}/cfg
+)
+
+# 섹터 스케일 테이블 — scripts/sector_pub.py가 읽어 /sector_scales로 발행한다.
+# ⚠️ --symlink-install로 빌드하면 install 쪽이 src를 가리키는 심볼릭 링크가 되어
+#    **재빌드 없이 값 수정이 즉시 반영**된다(런치 파일과 같은 성질).
+install(FILES config/sectors.yaml
+  DESTINATION share/${PROJECT_NAME}/config
+)
+
+# 섹터 스케일 발행기 실행 파일 설치 (런치 노드로 구동 가능하도록)
+# 🔴 위치가 tools/가 아니라 scripts/인 이유: jetsonup이 `--exclude=/src/f1tenth_control/tools/`로
+#    tools/를 **젯슨에 보내지 않는다**(랩탑 전용 분석 도구 5.8 MB를 빼려는 것). 실차 런치가
+#    이 파일을 노드로 띄우게 된 순간부터 이건 분석 도구가 아니라 **런타임 노드**라,
+#    tools/에 두면 젯슨 빌드가 install 단계에서 "No such file or directory"로 실패한다.
+install(PROGRAMS scripts/sector_pub.py
+  DESTINATION lib/${PROJECT_NAME}
 )
 
 ament_package()

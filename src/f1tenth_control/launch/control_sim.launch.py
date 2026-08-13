@@ -78,11 +78,6 @@ def generate_launch_description():
         executable='drive_source_selector',
         name='drive_source_selector',
         output='screen',
-        parameters=[{
-            'timing_diagnostics_enable': ParameterValue(
-                LaunchConfiguration('timing_diagnostics_enable'), value_type=bool),
-            'timing_diagnostics_topic': LaunchConfiguration('timing_diagnostics_topic'),
-        }],
     )
 
     return LaunchDescription([

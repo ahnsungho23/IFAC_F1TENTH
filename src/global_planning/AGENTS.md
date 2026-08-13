@@ -27,6 +27,37 @@ The package name, C++ namespace (`namespace global_planning`), include prefix
 - For closed-loop tracks, close the reference path before building CLCS and wrap published `s` by CLCS path length.
 - Skip zero-length or invalid segments and avoid publishing if fewer than two waypoints are available.
 - The previous polyline-based implementation was removed; consult git history (commit `301a06e` and earlier) if the legacy `frenet_odom_node_legacy_polyline.cpp` reference is ever needed.
+- `frenet_odom_node` publishes via `ClcsFrenetConverter::convertTracked()`
+  (monotonic s-window): after the first fix only
+  `[s_prev - backward_tolerance, s_prev + forward_window]` (mod track length for
+  closed loops) is searched, which is what prevents hairpin opposite-leg flips
+  (branch-proximity non-uniqueness). A window miss FAILS CLOSED — never add a
+  silent global fallback; only after `reacquire_after_misses` consecutive misses
+  does one loud global re-search run (`result.reacquired`, WARN in the node).
+  Reset `ClcsContinuityState` whenever the converter is rebuilt.
+- Keep `convert()` stateless: `obstacle_detector` projects arbitrary points with
+  it, and tracking would corrupt those projections.
+- The per-segment projection used by the windowed search is reimplemented in
+  `clcs_frenet_converter.cpp` on public `geometry::Segment` getters because the
+  vendored 3-arg `Segment::convertToCurvilinearCoords` overload is private; do
+  not patch the vendored library.
+
+## Removed: Reference Path Adapter (2026-08-09)
+
+- The IV'24 Alg.1 port (`reference_path_adapter.{hpp,cpp}`, curvature-singularity
+  smoothing/reduction, 8 parameters incl. `enable_path_smoothing` /
+  `enable_curvature_reduction` / `reference_resample_step`) was removed entirely.
+  On the verified waypoint snapshot it was a no-op (`already_satisfied`,
+  rho 0.92 < 1), and running it inside `frenet_odom_node` alone would desync the
+  ego Frenet frame from `obstacle_detector`, which builds its own CLCS from the
+  RAW `/global_waypoints`.
+- To reintroduce adaptation, apply it once at the publisher
+  (`global_trajectory_publisher_node`) so every consumer receives the same
+  adapted waypoints, and recompute `d_left`/`d_right` for moved points — see
+  commit `09073ff` and `docs/proposal_remove_reference_path_adapter.md`.
+  Note the port deviated from the paper (closed-loop anchors, waypoint bounds),
+  so the paper's formal guarantees do not transfer as-is. Code is recoverable
+  from git history (`c060ad8`).
 
 ## Global Trajectory Publisher Node
 
@@ -35,19 +66,6 @@ The package name, C++ namespace (`namespace global_planning`), include prefix
   (speed-colored racing line) and `/trackbounds/markers` (left/right bounds from `d_left`/`d_right`
   and `psi_rad`) from the waypoints themselves in `generateMarkers()`.
 - Generated markers only fill arrays the JSON left empty; keep marker frame and line widths in YAML.
-
-## Lap Counter Node
-
-- Read Frenet `s` only from `/car_state/frenet/odom` (`nav_msgs/msg/Odometry`,
-  `pose.pose.position.x`).
-- Count a lap only on a configured finish-region to start-region wrap. Keep the
-  finish/start thresholds and minimum lap interval in `config/global_planning.yaml`.
-- Publish the current count as `std_msgs/msg/Int32` on `/lap_count` with
-  reliable, transient-local QoS. Do not overload unrelated `Odometry` fields.
-- Keep the wrap detector independent from ROS in
-  `include/global_planning/frenet_lap_counter.hpp` and cover boundary behavior
-  in `test/test_frenet_lap_counter.cpp`.
-- Document operator setup and threshold tuning in `docs/lap_counter_node.md`.
 
 ## Documentation
 

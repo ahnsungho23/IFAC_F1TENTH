@@ -41,11 +41,31 @@
   `wall_safety_margin_m`, exactly once. Never add the tracking tube, obstacle margin, simulator TTC
   sweep, scan-noise guard, or another boundary/commitment/fallback margin.
 - P3 lifecycle is continuation-first: an active recorded maneuver is continued (frozen path,
-  revalidated every callback via guard containment + raw fallback + soft-violation confirm
-  cycles) BEFORE any fresh M1 selection, and fresh selection runs only with no active maneuver
-  or in the same callback in which continuation invalidated. Do not restore fresh-first
-  ordering: it re-shapes the published path every callback while the obstacle envelope is
-  still being resolved. On P3 completion, hand back through `activateGlobalHandoff` (the same
+  revalidated every callback via guard containment + raw fallback) BEFORE any fresh M1
+  selection, and fresh selection runs only with no active maneuver or in the same callback in
+  which continuation invalidated. Do not restore fresh-first ordering: it re-shapes the
+  published path every callback while the obstacle envelope is still being resolved.
+- Committed-path retention band (`commitment_retention_reserve_fraction`, default 0.5): when
+  re-validating an ALREADY COMMITTED path (P3 continuation raw fallback, P0 commitment hard
+  check), the tracking-error reserve portion of the obstacle clearance is scaled by this
+  fraction; the physical base clearance is never reduced and fresh planning always validates
+  with the full reserve. A broken uncertainty guard or a full-margin violation inside the
+  retention band holds the frozen geometry indefinitely (the old N-cycle soft-confirmation
+  expiry is removed — it re-planned a nearly identical path on every progressive reveal, the
+  dominant visible churn); invalidation/replacement requires an actual retention-margin
+  violation, a non-obstacle failure, or completion. Do not reinstate the expiry and do not let
+  fresh candidates validate with a scaled reserve.
+- Localization reserve (`localization_reserve_m`, default 0.06): a constant floor added INSIDE
+  `RacelineSplineParameters::trackingErrorReserve()` — the single choke point — so envelope
+  expansion, hard validation, and the gap-limited speed inversion all see the same total. Do
+  not add it separately at call sites (double counting) and do not remove it from the
+  inversion path (the planner would pick speeds whose clearance the validator then rejects).
+  Sized from sustained sim GT-vs-MCL error (per-speed-bin P95, 2026-08-13 probe); transient
+  single-cycle MCL correction spikes are absorbed by the retention band, NOT this margin —
+  do not resize it to the spike maximum (closes corridors). Keep it OUT of the CMA parameter
+  whitelist: under GT localization the optimizer would drive it to zero. Re-measure on the
+  real car (tools/mcl_gt_error_probe.py needs GT, so use MCL covariance/particle spread
+  logging there) before real-car obstacle runs. On P3 completion, hand back through `activateGlobalHandoff` (the same
   closed global loop P0 uses) — never a frozen post-obstacle tail, which falls behind the ego
   and starves the FSM merge confirmation. The completion branch must re-register the completed
   maneuver's obstacle ids into `completed_obstacle_ids_` across the `clearCommitment()` wipe
@@ -141,6 +161,13 @@
   publish a full global loop with `ot_line=raceline_global_handoff`. Continue that non-empty
   handoff path until `/state` has entered `STATE_AVOID` for the commitment and subsequently
   confirms `STATE_GLOBAL`.
+- Merge ramp (ego d → 0 smoothstep grafted onto the global handoff loop, 2026-08-13) is
+  implemented but DEFAULT-OFF (`merge_ramp_min_length_m`/`merge_ramp_time_sec` = 0). A bare d=0
+  loop delegates the return to the controller's natural convergence (real car: 0.055 m/m), but
+  enabling the ramp with the current waypoint d_left/d_right shaved the sim wall pinch minimum
+  from 0.117 to 0.082 m — the wall clamp cannot bind because those bounds are optimistic by a
+  measured 0.16-0.23 m. Enable ONLY after the boundary data is calibrated (control team's
+  per-sector lidar wall-clearance table), and re-run the lockstep baseline before adopting.
 - Stabilize every non-active blocking cluster from the current ego state concurrently while the
   active maneuver runs; do not use the old `merge_s` as the next-cluster observation origin.
   Once the active Guard rear plus `chain_release_distance_m` is behind ego, allow a feasible next
