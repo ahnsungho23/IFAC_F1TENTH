@@ -135,7 +135,7 @@ ros2 launch obstacle_detector obstacle_detector.launch.py \
 - 파편 병합: `cluster_merge_enable`, `cluster_merge_distance`,
   `cluster_merge_min_fragment_points`
 - Layer 1 필터: `max_viewing_distance`, `boundaries_inflation`, `use_map_filter`,
-  `map_point_reject_ratio`
+  `wall_assoc_distance_m`, `wall_linear_ratio`, `wall_min_length_m`
 - 측정 공분산: `meas_range_var_scale`, `meas_sparse_var_scale`,
   `meas_yaw_rate_var_scale`, `meas_reference_points`
 - 추적: `meas_var_s/d`, `process_var_vs/vd`, `assoc_gate`,

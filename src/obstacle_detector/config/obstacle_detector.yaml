@@ -60,10 +60,15 @@ obstacle_detector:
     view_behind_distance: 1.0                  # small allowance behind ego (m)
     boundaries_inflation: 0.1                  # shrink drivable corridor inward (m) to kill walls
     fallback_track_halfwidth: 1.5              # used when waypoint d_left/d_right are unset (m)
-    use_map_filter: true                       # drop clusters on known static structure (/map)
+    use_map_filter: true                       # 맵 기반 Layer-1 구조물 제거 사용
     map_occupied_thresh: 50                    # occupancy value considered "occupied"
-    map_inflation_cells: 1                     # neighbourhood radius (cells) for the map check
-    map_point_reject_ratio: 0.6                # drop cluster if this fraction of points are on map
+    # 구조적 벽 필터 (2026-08-13 팀 edge_test 계열 포팅 — 셀 점유 투표 대체):
+    # 맵의 점유 셀을 연결 성분으로 묶고 PCA로 "선형(벽)" 성분만 추려 거리변환을 만든 뒤,
+    # 벽에서 wall_assoc_distance_m 이내의 빔을 클러스터링 전에 제거한다. 실차의 맵-스캔
+    # 불일치(위치추정 오프셋·충돌 후 환경 변화)에서 점유 투표의 양방향 오류를 없앤다.
+    wall_assoc_distance_m: 0.2                 # 벽 성분에서 이 거리(m) 이내 포인트는 구조물
+    wall_linear_ratio: 4.0                     # 벽 인정 PCA 고유값 비율 (lambda_max/lambda_min)
+    wall_min_length_m: 1.0                     # 벽 인정 최소 주축 길이 (m)
 
     # === LAYER MERGE (2nd-stage clustering inside each layer) ===
     layer_merge_enable: true                   # merge nearby same-layer tracks into one object
