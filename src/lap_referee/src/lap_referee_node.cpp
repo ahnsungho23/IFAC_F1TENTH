@@ -263,6 +263,8 @@ private:
     const double vy = msg->twist.twist.linear.y;
     speed_ = std::hypot(vx, vy);
     has_odom_ = true;
+    last_odom_wall_ = now();
+    ++odom_count_;
   }
 
   void onScan(const sensor_msgs::msg::LaserScan::SharedPtr msg)
@@ -291,13 +293,32 @@ private:
 
   void step()
   {
-    if (phase_ == Phase::Done || !has_odom_) {
+    if (phase_ == Phase::Done) {
+      return;
+    }
+    // 5초 심박: 원격(wifi) 진단용. odom이 아예/도중에 끊기는 것과 진행거리 정체를
+    // 현장에서 즉시 가려낸다 (2026-08-13: 랩 판정이 조용히 안 되는 사고 2회).
+    if ((now() - last_heartbeat_wall_).seconds() >= 5.0) {
+      last_heartbeat_wall_ = now();
+      if (!has_odom_) {
+        RCLCPP_WARN(get_logger(), "HB: odom 수신 0건 — 위치추정 토픽이 안 들어오고 있음");
+      } else {
+        RCLCPP_INFO(
+          get_logger(),
+          "HB: phase=%s progress=%.1f/%.1fm idx=%zu lat=%.2f v=%.2f odom(n=%lu, age=%.1fs)",
+          phase_ == Phase::Running ? "RUN" : "WAIT", progress_m_,
+          track_length_ * lap_fraction_, last_index_, last_lat_err_, speed_,
+          static_cast<unsigned long>(odom_count_), (now() - last_odom_wall_).seconds());
+      }
+    }
+    if (!has_odom_) {
       return;
     }
     const double t = (now() - start_wall_).seconds();
 
     const std::size_t near = nearestIndex(pose_x_, pose_y_);
     const double lat = signedLateralError(near, pose_x_, pose_y_);
+    last_lat_err_ = lat;
 
     if (phase_ == Phase::WaitingForStart) {
       if (t > no_start_timeout_sec_) {
@@ -536,6 +557,10 @@ private:
   // live state
   Phase phase_{Phase::WaitingForStart};
   bool has_odom_{false}, has_scan_{false}, has_collision_state_{false};
+  rclcpp::Time last_odom_wall_{0, 0, RCL_ROS_TIME};
+  rclcpp::Time last_heartbeat_wall_{0, 0, RCL_ROS_TIME};
+  std::uint64_t odom_count_{0};
+  double last_lat_err_{0.0};
   bool collision_state_{false};
   double pose_x_{0.0}, pose_y_{0.0}, pose_yaw_{0.0}, speed_{0.0};
   double min_scan_{0.0}, cmd_speed_{0.0}, cmd_steer_{0.0};

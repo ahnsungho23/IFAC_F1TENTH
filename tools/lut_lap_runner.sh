@@ -51,9 +51,14 @@ fi
 echo ""
 echo "[2/3] referee 시작 — 이제 자율주행(A)을 시작하세요."
 echo "      ⚠️ Ctrl+C 금지: 랩 완주 시 referee가 'lap_complete'를 찍고 스스로 종료·저장합니다."
+echo "      (5초마다 HB 로그가 떠야 정상 — progress가 안 올라가면 그 줄을 그대로 보고할 것)"
+# 병렬 odom 주기 기록 — referee가 굶는지(수신 두절) 외부에서 교차 검증
+ros2 topic hz /pf/pose/odom > "$OUT/${PREFIX}_odom_hz.log" 2>&1 &
+HZ_PID=$!
 ros2 launch lap_referee lap_referee.launch.py \
   waypoints_csv:="$WP" odom_topic:=/pf/pose/odom \
   output_dir:="$OUT" output_prefix:="$PREFIX"
+kill $HZ_PID 2>/dev/null; wait $HZ_PID 2>/dev/null
 
 echo ""
 echo "[3/3] 저장 확인:"
