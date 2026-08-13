@@ -11,7 +11,7 @@
 #   ...
 # 절차: 실행 → "odom 수신 확인" 뜨면 자율주행(A) 시작 → 완주하면 스스로 종료·저장 확인까지 출력.
 # 차를 세워두고 실행하면 8초 뒤 no_start로 자기종료 + 파일 생성 = 배선 스모크 테스트로도 사용.
-set -u
+# ⚠️ set -u 금지: ROS setup.bash가 미정의 변수(AMENT_TRACE_SETUP_FILES 등)를 참조해 죽는다.
 PREFIX=${1:?usage: lut_lap_runner.sh <prefix> [domain] [jetson_ip] [waypoints_csv] [outdir]}
 DOMAIN=${2:-70}
 JET=${3:-10.1.1.1}
@@ -22,8 +22,7 @@ OUT=${5:-$HOME/lut_traces}
 export ROS_DOMAIN_ID=$DOMAIN
 export ROS_STATIC_PEERS=$JET
 source /opt/ros/jazzy/setup.bash
-# set -u와 ROS setup 스크립트는 충돌하므로 소싱 동안만 해제
-set +u; source "$WS/install/setup.bash"; set -u
+source "$WS/install/setup.bash"
 ros2 daemon stop >/dev/null 2>&1 || true
 
 test -f "$WP" || { echo "🔴 waypoints_csv 없음: $WP"; exit 1; }
