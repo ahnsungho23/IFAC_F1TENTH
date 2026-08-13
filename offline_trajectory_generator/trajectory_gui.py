@@ -77,6 +77,9 @@ NUMERIC_SPECS = [
     NumericSpec("curvature_weight", "Curvature wt", 1.0, 0.0, 5.0, 0.05, group="Min-curvature"),
     NumericSpec("smooth_weight", "Smooth wt", 0.04, 0.0, 0.3, 0.005, group="Min-curvature"),
     NumericSpec("length_weight", "Length wt", 0.002, 0.0, 0.02, 0.0005, group="Min-curvature"),
+    # D-ratio offset optimizer (positive = toward d_right, negative = toward d_left)
+    NumericSpec("d_ratio", "D ratio", 0.0, -1.0, 1.0, 0.05, group="D-ratio"),
+    NumericSpec("d_ratio_alpha_smooth_sigma", "Alpha smooth", 0.0, 0.0, 10.0, 0.5, group="D-ratio"),
     # Straight-segment replacement
     NumericSpec("straight_kappa_threshold", "Straight kappa", 0.2, 0.0, 0.3, 0.005, group="Straightening"),
     NumericSpec("straight_min_length", "Straight min len", 1.5, 0.3, 8.0, 0.1, group="Straightening"),
@@ -173,8 +176,6 @@ def load_gui_params(path: Path) -> dict[str, Any]:
         for key in values:
             if key in loaded:
                 values[key] = loaded[key]
-    if values["optimizer"] not in ("centerline", "mincurv"):
-        values["optimizer"] = "mincurv"
     return normalize_gui_values(values)
 
 
@@ -238,6 +239,8 @@ def make_namespace(values: dict[str, Any]) -> argparse.Namespace:
         curvature_weight=float(values["curvature_weight"]),
         smooth_weight=float(values["smooth_weight"]),
         length_weight=float(values["length_weight"]),
+        d_ratio=float(values["d_ratio"]),
+        d_ratio_alpha_smooth_sigma=float(values["d_ratio_alpha_smooth_sigma"]),
         straight_kappa_threshold=float(values["straight_kappa_threshold"]),
         straight_min_length=float(values["straight_min_length"]),
         straight_clearance_margin=float(values["straight_clearance_margin"]),
@@ -550,7 +553,7 @@ class TrajectoryGui:
     TAB_GROUPS = (
         ("Track / speed", ("Sampling", "Track & safety", "Speed profile")),
         ("Map / centerline", ("Map cleanup", "Centerline")),
-        ("Optimizer", ("Min-curvature", "Straightening")),
+        ("Optimizer", ("Min-curvature", "D-ratio", "Straightening")),
     )
 
     def _build_controls(
@@ -604,8 +607,11 @@ class TrajectoryGui:
         )
         row += 1
 
-        self.variables["optimizer"] = tk.StringVar(value=str(initial_values.get("optimizer", "centerline")))
-        self._combo(row, "Optimizer", self.variables["optimizer"], ("centerline", "mincurv"))
+        optimizer_value = str(initial_values.get("optimizer", "centerline"))
+        if optimizer_value not in ("centerline", "mincurv", "d_ratio"):
+            optimizer_value = "mincurv"  # saved YAML may hold a removed optimizer
+        self.variables["optimizer"] = tk.StringVar(value=optimizer_value)
+        self._combo(row, "Optimizer", self.variables["optimizer"], ("centerline", "mincurv", "d_ratio"))
         row += 1
 
         self.variables["width_mode"] = tk.StringVar(value=str(initial_values.get("width_mode", "distance")))

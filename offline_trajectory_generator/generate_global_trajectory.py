@@ -146,15 +146,34 @@ def add_generator_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--spike-filter-iterations", type=int, default=8)
     parser.add_argument(
         "--optimizer",
-        choices=("mincurv", "centerline"),
+        choices=("mincurv", "centerline", "d_ratio"),
         default="centerline",
-        help="centerline: use the processed centerline without lateral optimization; "
-             "mincurv: scipy L-BFGS-B minimum-curvature optimization.",
+        help="centerline: keep the skeleton line; mincurv: scipy minimum-curvature; "
+             "d_ratio: fixed-ratio lateral offset from the centerline.",
     )
     parser.add_argument("--max-optimizer-iter", type=int, default=200)
     parser.add_argument("--curvature-weight", type=float, default=1.0)
     parser.add_argument("--smooth-weight", type=float, default=0.04)
     parser.add_argument("--length-weight", type=float, default=0.002)
+    parser.add_argument(
+        "--d-ratio",
+        type=float,
+        default=0.0,
+        help="Lateral critical-point ratio in [-1, 1] for --optimizer d_ratio. "
+             "Positive moves toward d_right, negative toward d_left. The ratio "
+             "scales the usable half-width max(d_side - clearance, 0) with "
+             "clearance = safety_width/2 + boundary_margin, so +/-1.0 stops "
+             "clearance short of the wall.",
+    )
+    parser.add_argument(
+        "--d-ratio-alpha-smooth-sigma",
+        type=float,
+        default=0.0,
+        help="Circular gaussian sigma [samples] smoothing the d_ratio lateral "
+             "offset before it is clipped back to the raw per-point corridor. "
+             "0 disables (default). With smoothing on, d_ratio becomes the "
+             "pre-smoothing target ratio, not the exact final ratio per point.",
+    )
     parser.add_argument(
         "--no-straighten-straights",
         dest="straighten_straights",
@@ -205,8 +224,6 @@ def default_output_dir(map_yaml: Path) -> Path:
 
 
 def validate_args(args: argparse.Namespace) -> None:
-    if args.optimizer not in ("centerline", "mincurv"):
-        raise RuntimeError(f"unsupported optimizer: {args.optimizer}")
     if args.waypoint_step <= 0.0 or args.optimizer_step <= 0.0:
         raise RuntimeError("waypoint-step and optimizer-step must be positive.")
     if args.safety_width <= 0.0:
@@ -224,6 +241,10 @@ def validate_args(args: argparse.Namespace) -> None:
         raise RuntimeError("straight length and clearance parameters must be non-negative.")
     if args.straight_blend_length < 0.0:
         raise RuntimeError("straight-blend-length must be non-negative.")
+    if not -1.0 <= args.d_ratio <= 1.0:
+        raise RuntimeError("d-ratio must be within [-1, 1].")
+    if args.d_ratio_alpha_smooth_sigma < 0.0:
+        raise RuntimeError("d-ratio-alpha-smooth-sigma must be non-negative.")
 
 
 def load_velocity_limits(path: Path, max_speed: float | None = None) -> np.ndarray:
@@ -812,9 +833,6 @@ def optimize_min_curvature(
     boundary_margin: float,
     args: argparse.Namespace,
 ) -> np.ndarray:
-    if args.optimizer == "centerline":
-        return center_xy
-
     _, psi, _ = headings_and_curvature(center_xy)
     normals = normals_from_heading(psi)
     clearance = safety_width * 0.5 + boundary_margin
@@ -928,13 +946,98 @@ def count_off_map_waypoints(
     if not bool(np.any(off)):
         return 0
     # Map dense hits back to waypoint count: one per waypoint whose span is hit.
-    s_dense, _ = cumulative_s(dense)
+    s_dense, total = cumulative_s(dense)
     s_wpts, _ = cumulative_s(points_xy)
-    # cumulative_s includes the duplicated closing endpoint, while `off` has one entry per
-    # original dense point. Drop that final endpoint before applying the boolean mask.
-    hit_s = s_dense[:-1][off]
+    hit_s = s_dense[:-1][off]  # cumulative_s returns n+1 entries (leading 0.0)
     spans = np.searchsorted(s_wpts, hit_s, side="right") - 1
     return int(len(np.unique(np.clip(spans, 0, len(points_xy) - 1))))
+
+
+def report_min_clearance(
+    points_xy: np.ndarray,
+    free_mask: np.ndarray,
+    info: MapInfo,
+    flip_y: bool,
+    args: argparse.Namespace,
+) -> tuple[float, int]:
+    """Dense wall-clearance audit of the final raceline.
+
+    The off-map count only proves the path stays on free pixels; this measures
+    the euclidean distance-transform clearance on a densified copy (~2 px), so
+    car-body wall clipping (clearance < safety_width/2) becomes visible too.
+    Violations are counted against the physical half-width only: boundary_margin
+    is a corridor-shaping knob and would flag healthy lines on narrow tracks.
+    """
+    dense = resample_closed(points_xy, max(info.resolution * 2.0, 1e-3))
+    dist = cv2.distanceTransform((free_mask > 0).astype(np.uint8), cv2.DIST_L2, 5)
+    pixels = np.round(world_to_pixel(dense, info, flip_y)).astype(int)
+    cols = np.clip(pixels[:, 0], 0, info.width - 1)
+    rows = np.clip(pixels[:, 1], 0, info.height - 1)
+    clearance = dist[rows, cols] * info.resolution
+    min_clearance = float(np.min(clearance)) if len(clearance) else 0.0
+    violations = int(np.sum(clearance < args.safety_width * 0.5))
+    return min_clearance, violations
+
+
+def offset_by_d_ratio(
+    center_xy: np.ndarray,
+    d_right: np.ndarray,
+    d_left: np.ndarray,
+    args: argparse.Namespace,
+) -> np.ndarray:
+    """Shift each centerline point laterally to the d_ratio critical point.
+
+    d_ratio > 0 moves toward d_right, < 0 toward d_left (user spec; this is the
+    OPPOSITE sign of the mincurv alpha / Frenet d convention — do not "fix" it).
+    The ratio scales the usable half-width (wall distance minus clearance), so
+    |d_ratio| = 1 stops clearance short of the wall. Points already closer to
+    the wall than clearance have zero usable width and are left in place.
+    Offsets toward the local center of curvature are additionally capped below
+    the curvature radius (fold guard): the offset curve derivative is
+    (1 - kappa*alpha)*t + alpha'*n, so kappa*alpha -> 1 folds the path into a
+    cusp/self-loop (observed at hairpins with large inside ratios).
+    """
+    _, psi, kappa = headings_and_curvature(center_xy)
+    normals = normals_from_heading(psi)  # left normals
+    clearance = args.safety_width * 0.5 + args.boundary_margin
+    usable_right = np.maximum(d_right - clearance, 0.0)
+    usable_left = np.maximum(d_left - clearance, 0.0)
+    # np.where keeps this per-point-array ready for future ratio scheduling.
+    ratio = np.asarray(args.d_ratio, dtype=np.float64)
+    alpha = -ratio * np.where(ratio >= 0.0, usable_right, usable_left)
+    sigma = args.d_ratio_alpha_smooth_sigma
+    if sigma > 0.0:
+        # Smooth the decision variable, never the width measurements: clipping
+        # back to the RAW corridor only shrinks |alpha| (toward the centerline),
+        # so smoothing errors always land on the safe side. Smoothing widths
+        # instead would inflate narrow sections and overshoot the wall.
+        alpha = gaussian_filter1d(alpha, sigma=sigma, mode="wrap")
+        alpha = np.clip(alpha, -usable_right, usable_left)
+    # Fold guard (last, only ever shrinks |alpha| so the corridor stays valid).
+    # kappa > 0 turns left and alpha > 0 moves left, so kappa*alpha > 0 means
+    # moving toward the curvature center; cap at 90% of the curvature radius.
+    # Raw per-vertex kappa is noisy — smooth it like the straightener does.
+    kappa_smooth = gaussian_filter1d(kappa, sigma=2.0, mode="wrap")
+    fold_cap = 0.9 / np.maximum(np.abs(kappa_smooth), 1e-9)
+    toward_center = kappa_smooth * alpha > 0.0
+    alpha = np.where(toward_center, np.clip(alpha, -fold_cap, fold_cap), alpha)
+    return center_xy + normals * alpha[:, None]
+
+
+def optimize_raceline(
+    center_xy: np.ndarray,
+    d_right: np.ndarray,
+    d_left: np.ndarray,
+    args: argparse.Namespace,
+) -> np.ndarray:
+    """Dispatch to the selected raceline optimizer (centerline/mincurv/d_ratio)."""
+    if args.optimizer == "centerline":
+        return center_xy
+    if args.optimizer == "d_ratio":
+        return offset_by_d_ratio(center_xy, d_right, d_left, args)
+    return optimize_min_curvature(
+        center_xy, d_right, d_left, args.safety_width, args.boundary_margin, args
+    )
 
 
 def _rightmost_lateral_speed(
@@ -1147,9 +1250,11 @@ def straighten_straight_segments(
         return points_xy
 
     distance_map_px = cv2.distanceTransform((free_mask > 0).astype(np.uint8), cv2.DIST_L2, 5)
-    required_clearance = (
-        args.safety_width * 0.5 + args.boundary_margin + args.straight_clearance_margin
-    )
+    # Chord validation only needs the car to physically fit (half width plus the
+    # straightening margin). boundary_margin is an optimizer-corridor shaping
+    # knob; including it here silently disabled straightening on narrow tracks
+    # as soon as the margin grew.
+    required_clearance = args.safety_width * 0.5 + args.straight_clearance_margin
     straightened = points_xy.copy()
     changed = False
 
@@ -1174,6 +1279,10 @@ def straighten_straight_segments(
             flip_y,
             required_clearance,
         ):
+            print(
+                f"[WARN] straight run of {length:.2f} m not straightened: chord "
+                f"clearance is below {required_clearance:.2f} m somewhere along it."
+            )
             continue
 
         fractions = np.divide(distances, length, out=np.zeros_like(distances), where=length > 1e-9)
@@ -1311,8 +1420,6 @@ def write_outputs(
         "centerline_waypoints": wpnt_array(center_traj),
         "global_traj_markers_iqp": {"markers": []},
         "global_traj_wpnts_iqp": wpnt_array(global_traj),
-        "global_traj_markers_sp": {"markers": []},
-        "global_traj_wpnts_sp": wpnt_array(global_traj),
         "trackbounds_markers": {"markers": []},
     }
     (output_dir / "global_waypoints.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -1328,7 +1435,6 @@ def write_outputs(
         "args": {
             key: str(value) if isinstance(value, Path) else value
             for key, value in vars(args).items()
-            if not callable(value)  # Keep runtime-only hooks out of metadata JSON.
         },
     }
     (output_dir / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
@@ -1386,14 +1492,7 @@ def generate_trajectory(args: argparse.Namespace) -> GenerationResult:
     center_right, center_left = track_widths(
         center_xy, free_mask, map_info, flip_y, args.max_width_distance, args.width_mode
     )
-    optimized_xy = optimize_min_curvature(
-        center_xy,
-        center_right,
-        center_left,
-        args.safety_width,
-        args.boundary_margin,
-        args,
-    )
+    optimized_xy = optimize_raceline(center_xy, center_right, center_left, args)
     optimized_xy = filter_and_resample_closed(optimized_xy, args.optimizer_step, args)
     global_xy = filter_and_resample_closed(optimized_xy, args.waypoint_step, args)
     raceline_sigma = float(getattr(args, "raceline_smooth_sigma", 0.0))
@@ -1419,6 +1518,22 @@ def generate_trajectory(args: argparse.Namespace) -> GenerationResult:
             "drivable free space — the extraction likely picked a noise region. "
             "Check debug_overlay.png; raise --min-track-width or the map-cleanup "
             "parameters (median/morph kernels)."
+        )
+
+    min_clearance, clearance_violations = report_min_clearance(
+        global_traj.points_xy, free_mask, map_info, flip_y, args
+    )
+    print(
+        f"[INFO] min wall clearance along final raceline: {min_clearance:.3f} m "
+        f"(half-width {args.safety_width * 0.5:.2f} m, corridor target "
+        f"{args.safety_width * 0.5 + args.boundary_margin:.2f} m)"
+    )
+    if clearance_violations:
+        print(
+            f"[WARN] {clearance_violations} dense samples of the final raceline are "
+            f"closer to a wall than the car half-width {args.safety_width * 0.5:.2f} m "
+            "— post-processing (smoothing/straightening) may have pushed the line "
+            "outward. Check debug_overlay.png near the tightest spots."
         )
 
     max_abs_kappa = float(np.max(np.abs(global_traj.kappa_radpm)))

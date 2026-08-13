@@ -90,7 +90,7 @@ offline_trajectory_generator/output/<map_yaml_file_name>/
   (= `tan(max_steer)/wheelbase`, ~`1.2` for F1TENTH). The speed model only slows down for sharp
   bends — it does not know the car *cannot steer through them at all* — so without this limit the
   optimizers cut corners with kinks (turn radius of a few cm) the car can never track. It enters
-  the mincurv objective as a penalty, and the final waypoints are validated against it
+  the mincurv loss as a penalty, and the final waypoints are validated against it
   with a warning on violation (GUI status-bar ⚠ plus a `max |κ|` metric). `0` disables.
 - `--raceline-smooth-sigma`: Gaussian smoothing (in samples, default `1.0`) applied to the
   raceline right after the final waypoint resample. The optimizers emit piecewise-linear lines
@@ -112,15 +112,25 @@ offline_trajectory_generator/output/<map_yaml_file_name>/
 - `--spike-filter-iterations`: The number of times to repeat the pin removal filter.
 - `--reverse`: Flips the driving direction of the generated waypoints to the opposite.
 - `--debug-image`: Saves a PNG with the centerline and global trajectory drawn over the map image.
-- `--optimizer centerline`: Uses the extracted, smoothed, and resampled centerline without lateral
-  optimization. The later raceline smoothing, straightening, and curvature-spike correction still
-  apply exactly as they do for mincurv. This is the default and works stably on SLAM maps.
+- `--optimizer centerline`: The default. Works stably on SLAM maps.
 - `--optimizer mincurv`: Attempts scipy-based minimum curvature correction. May require tuning depending on map quality.
+- `--optimizer d_ratio`: Shifts the centerline laterally by a fixed ratio. See
+  `docs/proposal_d_ratio_raceline.md` for the design and safety rationale.
+- `--d-ratio`: Shift ratio for the `d_ratio` optimizer (`-1.0`–`+1.0`, default `0.0`).
+  **Positive moves toward d_right (driving-direction right), negative toward d_left.** The
+  ratio scales the usable half-width `max(d_side − (safety-width/2 + boundary-margin), 0)`,
+  not the raw wall distance, so even `±1.0` stops clearance short of the wall. `0.0` equals
+  the centerline. Moves toward the inside of a tight corner are additionally capped at 90% of
+  the local curvature radius (fold guard against the path folding into a self-loop).
+- `--d-ratio-alpha-smooth-sigma`: Circular gaussian sigma (in samples, default `0.0` = off)
+  smoothing the lateral offsets, followed by a clip back to the raw usable corridor so the
+  line never overshoots toward a wall. With smoothing on, the final per-point ratio no longer
+  exactly matches the target ratio.
 - `--max-optimizer-iter`: The maximum number of iterations for the minimum-curvature optimization (L-BFGS-B). The default is `200`. With `optimizer-step` in a sensible range the optimizer normally converges within this limit. It only reaches the limit on hard maps or large variable counts, and even then the best raceline found so far is used directly, so no warning is printed. If the warning shows up often, raising `optimizer-step` is the proper fix.
 - `--no-straighten-straights`: Turns off the post-processing that corrects straight candidate sections into straight lines.
 - `--straight-kappa-threshold`: Absolute curvature smaller than this value is regarded as a straight candidate. The default is `0.2` rad/m.
 - `--straight-min-length`: The minimum section length to be recognized as a straight candidate.
-- `--straight-clearance-margin`: The additional wall clearance distance required for straight correction validation.
+- `--straight-clearance-margin`: The additional wall clearance distance required for straight correction validation. The total required clearance is `safety-width/2 + straight-clearance-margin`; `--boundary-margin` only shapes the optimizer corridor and is deliberately excluded here, so raising the margin never disables straightening.
 - `--straight-blend-length`: The length over which the original path and the straight line are smoothly blended at both ends of the straight correction section.
 
 ### Velocity-limit CSV format
@@ -180,13 +190,9 @@ The CSV's `x_m` and `y_m` are map frame coordinates with the `resolution` and `o
 
 ## 6. Dependencies
 
-The generator and adaptive parameter search use `numpy`, `opencv`, `PyYAML`, `scipy`, and `cma`.
+In the current environment, `numpy`, `opencv`, `PyYAML`, and `scipy` are used.
 
-```bash
-python3 -m pip install -r offline_trajectory_generator/requirements.txt
-```
-
-ROS 2 and `rclpy` are not required.
+ROS 2, `rclpy`, `quadprog`, and `skimage` are not required.
 
 The centerline extraction is robust against map noise: ① skeleton pixels in corridors narrower than
 `--min-track-width` are treated as noise and removed, ② among candidate loops the closed contour with

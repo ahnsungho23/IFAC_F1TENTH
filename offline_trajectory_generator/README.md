@@ -17,63 +17,6 @@
 
 `global_waypoints.json`은 기존 `f110_msgs/Wpnt` 필드명과 같은 구조를 사용한다.
 
-### Adaptive overlay 1,562장 생성
-
-로컬 플래너의 실제 C++ 좌우 판정으로 142개 장애물 위치와 11개 횡방향 위치를 평가하고, 막힌 쪽을
-검은색으로 벽까지 채운 map에서 현재 GUI mincurv 파라미터로 PNG를 생성하려면 먼저 평가기를 빌드한다.
-
-```bash
-source /opt/ros/jazzy/setup.zsh
-colcon build --packages-select local_planning
-source install/setup.zsh
-
-python3 offline_trajectory_generator/generate_adaptive_overlays.py \
-  --output-root ruleset_adaptive_globalpath/adaptive_overlays \
-  --workers 8 \
-  --strict-count 1562
-```
-
-출력은 `adaptive_overlays/run_YYYYMMDD_HHMMSS_mmm_KST/` 아래에 생성된다. 실행 중 결과는
-`_incomplete/`에 두고 1,562장과 보고서가 모두 완성된 뒤에만 최종 폴더로 원자적으로 이동한다.
-PNG 이름은 `idx_000_d_p02_outline.png`처럼 index, 부호가 포함된 `d`, 최종 분류를 기록한다.
-
-렌더링 없이 C++ 판정과 파라미터 조합만 빠르게 확인하려면 다음 명령을 사용한다.
-
-```bash
-python3 offline_trajectory_generator/generate_adaptive_overlays.py \
-  --evaluate-only \
-  --output-root ruleset_adaptive_globalpath/adaptive_overlays \
-  --planner-override transition_distance_scales=1.0,1.25,1.5 \
-  --planner-override outside_line_transition_scale=1.35 \
-  --planner-override commitment_clearance_reserve_m=0.05 \
-  --planner-override minimum_avoidance_clearance_m=0.18
-```
-
-판정 CSV, PNG manifest, 요약 JSON과 실행 당시 GUI/local planner 파라미터 snapshot이 함께 저장된다.
-상세 설계는 [adaptive overlay 생성 제안서](docs/adaptive_overlay_generation_proposal.md), C++ 판정
-규약은 [Adaptive Side Evaluator 문서](../src/local_planning/docs/adaptive_side_evaluator.md)를 참고한다.
-
-### CMA-ES로 safe-stop 0과 clearance 최대화
-
-현재 파라미터를 초기값으로 사용하면서 `safe_stop=0`을 최우선 제약으로 유지하고
-`minimum_avoidance_clearance_m`를 최대화하려면 다음 오프라인 탐색기를 실행한다.
-
-```bash
-python3 offline_trajectory_generator/optimize_adaptive_parameters.py \
-  --reference ruleset_adaptive_globalpath/map_smooth_4p1/global_waypoints.csv \
-  --output-root learning_adaptive_globalpath/cmaes \
-  --population-size 12 \
-  --max-generations 80 \
-  --stall-generations 15 \
-  --workers 8 \
-  --strict-count 1562
-```
-
-Python은 CMA-ES 후보와 순위만 관리하며, 각 후보의 좌·우·safe-stop 판정은 기존 C++ 평가기가
-수행한다. 차량 반폭과 hard collision margin을 합친 `0.151 m` 아래로 clearance를 낮출 수 없고,
-운영 YAML은 자동으로 변경하지 않는다. 전체 구조와 출력 파일은
-[Adaptive CMA-ES 제약 최적화 문서](docs/adaptive_parameter_cmaes.md)를 참고한다.
-
 ## 2. 실행 방법
 
 저장소 루트에서 실행한다.
@@ -124,11 +67,6 @@ python3 offline_trajectory_generator/generate_global_trajectory.py \
   --debug-image
 ```
 
-`map_creator`의 자동 재생성은 GUI/CLI와 같은 `generate_trajectory()`를 호출하는
-`regenerate_obstacle_map.py`를 사용한다. 1차 시도에서는 map_creator가 `--smooth-sigma 4.1`을,
-재시도에서는 `--safety-width 0.4 --smooth-sigma 2.5`를 전달한다. 이 인자들은 해당 실행에만
-적용되며 `gui_params.yaml`을 수정하지 않는다.
-
 출력 디렉터리를 생략하면 기본값은 다음과 같다.
 
 ```text
@@ -151,7 +89,7 @@ offline_trajectory_generator/output/<map_yaml_file_name>/
 - `--max-curvature`: 차량 조향 한계를 경로 최대 곡률[rad/m]로 지정한다(= `tan(최대조향각)/휠베이스`,
   F1TENTH 기준 약 `1.2`). 속도 모델은 급커브에서 감속만 할 뿐 "그 커브를 아예 돌 수 없다"는 사실을
   모르기 때문에, 이 한계가 없으면 옵티마이저가 차가 물리적으로 추종 불가능한 꺾임(회전반경 수 cm)으로
-  코너를 자른다. mincurv 목적함수에 페널티로 들어가고, 최종 waypoint도 검증해 초과 시
+  코너를 자른다. mincurv 손실에 페널티로 들어가고, 최종 waypoint도 검증해 초과 시
   경고를 출력한다(GUI 상태바 ⚠ + `max |κ|` 지표 표시). `0`이면 비활성.
 - `--raceline-smooth-sigma`: 최종 waypoint 재샘플 직후 raceline에 적용하는 가우시안 평활(샘플 단위,
   기본 `1.0`)이다. 옵티마이저는 `optimizer-step` 간격 꼭짓점을 가진 꺾은선을 내놓는데, 이를 더 촘촘한
@@ -171,14 +109,25 @@ offline_trajectory_generator/output/<map_yaml_file_name>/
 - `--spike-filter-iterations`: 핀 제거 필터를 반복하는 횟수이다.
 - `--reverse`: 생성된 waypoint 주행 방향을 반대로 뒤집는다.
 - `--debug-image`: map 이미지 위에 centerline과 global trajectory를 그린 PNG를 저장한다.
-- `--optimizer centerline`: 추출·평활·재샘플된 중심선을 횡방향 최적화 없이 사용한다. 이후 raceline
-  평활·직선화·곡률 스파이크 보정은 mincurv와 동일하게 적용된다. 기본값이며 SLAM map에서 안정적이다.
+- `--optimizer centerline`: 기본값이다. SLAM map에서 안정적으로 동작한다.
 - `--optimizer mincurv`: scipy 기반 최소 곡률 보정을 시도한다. map 품질에 따라 튜닝이 필요할 수 있다.
+- `--optimizer d_ratio`: centerline을 고정 비율만큼 횡방향으로 평행 이동한 라인을 만든다.
+  설계·안전 근거는 `docs/proposal_d_ratio_raceline.md` 참고.
+- `--d-ratio`: `d_ratio` 옵티마이저의 이동 비율이다(`-1.0`~`+1.0`, 기본 `0.0`). **양수는
+  d_right(진행방향 오른쪽), 음수는 d_left(왼쪽)** 방향이며, 비율은 원시 벽 거리가 아니라
+  가용 폭 `max(d_side − (safety-width/2 + boundary-margin), 0)`에 곱해진다. 따라서 `±1.0`도
+  벽에서 안전 여유만큼 떨어진 지점에 멈춘다. `0.0`은 centerline과 동일하다. 급코너 안쪽으로의
+  이동은 국소 회전반경의 90%에서 추가로 제한된다(경로가 루프로 접히는 것을 방지하는 fold guard).
+- `--d-ratio-alpha-smooth-sigma`: d_ratio 횡 이동량을 순환 가우시안으로 완화하는 폭(샘플 단위,
+  기본 `0.0`=끔)이다. 완화 후 원시 가용 폭 범위로 다시 잘라내므로(clip) 벽 쪽으로는 절대
+  넘치지 않는다. 켜면 각 점의 최종 비율이 목표 비율과 정확히 일치하지는 않게 된다.
 - `--max-optimizer-iter`: 최소 곡률 최적화(L-BFGS-B)의 최대 반복 횟수이다. 기본값은 `200`이다. `optimizer-step`을 적정 범위로 두면 보통 이 한도 안에서 정상 수렴한다. 변수가 많거나 map이 어려운 경우에만 한도에 도달하는데, 이때도 그때까지 찾은 최적 경로를 그대로 사용하므로 별도 경고를 출력하지 않는다. 경고가 자주 보인다면 `optimizer-step`을 키우는 것이 정석적인 해결책이다.
 - `--no-straighten-straights`: 직선 후보 구간을 직선으로 보정하는 후처리를 끈다.
 - `--straight-kappa-threshold`: 이 값보다 작은 절대 곡률을 직선 후보로 본다. 기본값은 `0.2` rad/m이다.
 - `--straight-min-length`: 직선 후보로 인정할 최소 구간 길이이다.
-- `--straight-clearance-margin`: 직선 보정 검증에 추가로 요구하는 벽 여유 거리이다.
+- `--straight-clearance-margin`: 직선 보정 검증에 추가로 요구하는 벽 여유 거리이다. 검증에 요구되는
+  총 여유는 `safety-width/2 + straight-clearance-margin`이며, `--boundary-margin`은 최적화 코리도에만
+  쓰이고 이 검증에는 포함되지 않는다(margin을 키워도 직선 보정이 꺼지지 않도록).
 - `--straight-blend-length`: 직선 보정 구간 양끝에서 원래 경로와 직선을 부드럽게 섞는 길이이다.
 
 ### 속도 제한 CSV 형식
@@ -240,11 +189,7 @@ CSV의 `x_m`, `y_m`은 선택한 ROS map YAML의 `resolution`과 `origin`이 적
 
 ## 6. 의존성
 
-생성기와 어댑티브 파라미터 탐색은 `numpy`, `opencv`, `PyYAML`, `scipy`, `cma`를 사용한다.
-
-```bash
-python3 -m pip install -r offline_trajectory_generator/requirements.txt
-```
+생성기는 `numpy`, `opencv`, `PyYAML`, `scipy`를 사용한다.
 
 centerline 추출은 노이즈에 강건하게 동작한다: ① `--min-track-width`보다 좁은 영역의 skeleton은
 노이즈로 보고 제거하고, ② 후보 루프 중 **둘러싼 면적이 가장 큰 폐곡선**(=실제 트랙 루프)을
@@ -256,7 +201,7 @@ centerline 추출은 노이즈에 강건하게 동작한다: ① `--min-track-wi
 크기 이하의 점 노이즈는 제외). 최종 경로는 웨이포인트 사이 구간까지 ~2픽셀 간격으로 조밀하게
 검사해 free-space를 벗어나면 경고를 출력한다(GUI 상태바에도 ⚠ 표시).
 
-GUI와 CLI 모두 ROS 2와 `rclpy`는 필요하지 않다.
+GUI는 ROS 2와 `rclpy`가 필요하지 않다.
 
 GUI는 Python 표준 라이브러리인 `tkinter`를 사용한다. Ubuntu에서 `tkinter`가 빠져 있으면 다음 패키지를 설치한다.
 

@@ -14,9 +14,11 @@ Rules:
 ## Layout
 
 - `generate_global_trajectory.py` — map -> centerline -> raceline -> speed profile pipeline (CLI).
-  The standard speed profile reads `config/velocity_limits.csv` with columns
-  `[speed_mps, max_accel_mps2, max_decel_mps2, max_lateral_accel_mps2]`; keep the CLI, GUI, and
-  saved YAML on the same table semantics. Only `centerline` and `mincurv` are supported.
+  Optimizers: `centerline` (keep the skeleton line), `mincurv` (scipy L-BFGS-B minimum
+  curvature), and `d_ratio` (fixed-ratio lateral offset; see
+  `docs/proposal_d_ratio_raceline.md`). The standard speed profile reads `config/velocity_limits.csv` with columns
+  `[speed_mps, max_accel_mps2, max_decel_mps2, max_lateral_accel_mps2]`; keep the CLI, GUI,
+  and saved YAML on the same table semantics.
   Extraction robustness invariants (keep when refactoring): centerline candidates are ranked by
   ENCLOSED contour area (not arc length — noise scribbles are long but enclose nothing); skeleton
   pixels in corridors narrower than `min_track_width` are dropped; the Zhang-Suen fallback keeps
@@ -24,25 +26,30 @@ Rules:
   (`cleanup_free_mask(occupied_mask=...)` stamps raw occupied pixels back after morphology so a
   big morph kernel cannot swallow a thin interior wall); `count_off_map_waypoints` checks densely
   (between-waypoint segments too) and must keep warning when the raceline leaves free space.
-  The `--max-curvature` penalty in the mincurv objective must stay MEAN-based; a stiff sum-based
-  term destabilizes L-BFGS-B numerical gradients. `--raceline-smooth-sigma` removes phantom
-  per-vertex curvature spikes after resampling. `limit_curvature_spikes` may only touch isolated
-  runs (<= 3 waypoints), and final curvature-limit validation must keep warning on violations.
+  Steering-limit (`--max-curvature`) invariants: the speed model alone never rejects an
+  undrivable kink (v_min floors it), so the kappa-excess penalty must stay in the mincurv
+  objective, and it must stay MEAN-based (a stiff sum-based term destabilizes L-BFGS-B's
+  numerical gradients — measured); `--raceline-smooth-sigma` (final-resample smoothing) removes
+  the phantom per-vertex curvature spikes of the piecewise-linear optimizer output;
+  `limit_curvature_spikes` may only touch ISOLATED runs (<= 3 wpts) — blending a sustained
+  corner just moves the kink to the run boundary and amplifies it (6 -> 17 rad/m measured);
+  the final validation warning (kappa_violations/max_abs_kappa) must keep firing when the
+  delivered raceline exceeds the limit.
+  `d_ratio` invariants: positive ratio moves toward `d_right` (the OPPOSITE sign of the
+  mincurv alpha / Frenet d convention — user spec, do not "fix"); the ratio scales the usable
+  half-width `max(d_side - clearance, 0)`, never the raw wall distance; optional smoothing
+  applies to the alpha array and MUST be followed by a clip back to the RAW per-point corridor
+  (smoothing the width arrays instead inflates narrow sections and overshoots the wall);
+  `offset_by_d_ratio` must stay per-point-array compatible (np.where, no scalar-only branches)
+  for future ratio scheduling on adaptive_global; the fold guard (cap |alpha| below the local
+  curvature radius when moving toward the curvature center) must stay LAST and must only ever
+  shrink |alpha| — without it a hairpin inside-offset folds into a self-loop (observed at
+  d_ratio=-0.5 on map.yaml; widening boundary_margin does NOT help, it is a curvature problem). `report_min_clearance` (dense
+  distance-transform audit of the final raceline) must keep running for every optimizer —
+  off-map counting alone cannot see car-half-width wall clipping.
 - `trajectory_gui.py` — tkinter GUI over the same args (`NUMERIC_SPECS` must cover new params).
-  It supports only `centerline` and `mincurv`. Keep `write_outputs` filtering runtime-only
-  callables from the metadata JSON.
-- `generate_adaptive_overlays.py` — batch orchestrator for the C++ local-planner side evaluator,
-  black obstacle-to-wall map editing, the standard mincurv generator, outline fallback, and
-  timestamp-labelled PNG/report output. Keep the default 142 waypoints x 11 lateral offsets equal
-  to exactly 1,562 scenarios. Do not reimplement left/right planning rules in Python.
-- `optimize_adaptive_parameters.py` — feasibility-first CMA-ES orchestration over the same C++
-  evaluator. `safe_stop` count must rank before every secondary objective; among equally feasible
-  candidates, maximize `minimum_avoidance_clearance_m`. Never let the optimizer lower its physical
-  floor below vehicle half-width plus `hard_collision_margin_m`, and do not overwrite the runtime
-  local-planner YAML automatically.
-- `config/adaptive_cmaes.yaml` — current CMA-ES initial point and bounded search space. Keep ordered
-  transition scales represented as a positive first value plus two positive gaps.
-- `test_adaptive_overlay_generator.py` — signed filename, scenario-count, CSV conversion, and
-  dense off-map regression tests for the adaptive batch pipeline.
-- `test_gui_params.py` — compatibility regression for removed optimizer values in persisted YAML.
-- `config/velocity_limits.csv` — speed-dependent net acceleration limits for the standard GUI/CLI.
+  `write_outputs` JSON-serializes `vars(args)` into metadata.json; never inject non-JSON-safe
+  values (callables etc.) into the args namespace — that broke the GUI Save button once.
+  The saved `gui_params.yaml` may hold values from removed features (e.g. an old optimizer
+  name); loading must sanitize such values instead of crashing.
+- `config/velocity_limits.csv` — speed-dependent net acceleration limits for the GUI/CLI.
