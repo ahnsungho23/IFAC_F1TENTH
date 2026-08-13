@@ -482,6 +482,15 @@ bool StateMachineNode::enter_to_global(
     enter_global_ok_since_.reset();
     return false;
   }
+  // 끝속도 0의 정지/홀드 경로는 "회피 완료"가 아니라 "회피 불능"이다 — 합류 판정 제외.
+  // 이게 없으면 장애물 앞 홀드(꼬리=자차, |d|<threshold)가 아래 세 조건을 정지해 있다는
+  // 이유만으로 전부 만족해 0.7초 주기 AVOID↔GLOBAL 요동이 생기고, GLOBAL 틱마다
+  // 장애물 관통 글로벌 라인+속도 명령이 잠깐 전달되어 차가 장애물 쪽으로 기어간다
+  // (2026-08-13 실차 run_0813_220641/231123: 홀드 중 /drive 0.35~2.0 펄스, 0.3 m 전진).
+  if (local_wpnts->wpnts.size() < 3U || local_wpnts->wpnts.back().vx_mps <= 0.0) {
+    enter_global_ok_since_.reset();
+    return false;
+  }
 
   const double track_length = track_length_from(*global_wpnts);
   if (!(track_length > 0.0)) {

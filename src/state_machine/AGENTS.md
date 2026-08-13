@@ -60,6 +60,11 @@ State machine package rules. These instructions apply to `src/state_machine`.
   disabled in the operational YAML.
 - Keep `lockstep_mode=false` in the operational YAML and expose it only through the launch argument.
 - Keep `launch/state_machine.launch.py` loading `config/state_machine.yaml`.
+- Never let a zero-tail-speed (or <3-waypoint) local path satisfy the AVOID/OVERTAKE ->
+  GLOBAL merge check in `enter_to_global`. Safe-stop hold paths end at ego with vx 0, so
+  without that guard the merge conditions pass "because the car is parked", the FSM flaps
+  AVOID<->GLOBAL, and the brief GLOBAL ticks forward an obstacle-piercing global line +
+  speed command that creeps the car into the obstacle (2026-08-13 real-car incident).
 - Keep Korean operational documentation in `docs/state_machine_node.md` current, including both
   state and selected-waypoint interfaces.
 - Update this `AGENTS.md` (and `README.md` if run/launch changes) when changing node behavior, topics, parameters, or launch usage.

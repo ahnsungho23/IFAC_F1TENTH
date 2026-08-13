@@ -25,7 +25,11 @@ Frenet 입력이 멈추면 마지막 index로 경로를 재발행하지 않습�
 - `GLOBAL`: 최근 N개 메시지 중 M개 이상이 non-empty이면 `AVOID` 또는 `OVERTAKE`로
   진입합니다. 둘 다 만족하면 `AVOID`가 우선입니다.
 - `AVOID`/`OVERTAKE`: ego가 local 경로 tail에 도달하고 global line에 설정 시간 동안
-  합류하면 `GLOBAL`로 복귀합니다.
+  합류하면 `GLOBAL`로 복귀합니다. 단, **끝속도 0의 정지/홀드 경로(웨이포인트 3개 미만 포함)는
+  합류 판정에서 제외**합니다 — 장애물 앞 safe-stop 홀드는 꼬리가 자차 위치라 세 합류 조건을
+  "정지해 있다는 이유만으로" 만족해버리는데, 그 상태로 GLOBAL 틱이 발생하면 장애물 관통
+  글로벌 라인과 속도 명령이 잠깐씩 전달되어 차가 장애물 쪽으로 기어갑니다 (2026-08-13
+  실차 재현·수리).
 - `allow_avoid_transition`과 `allow_overtake_transition`은 진입만 차단합니다. YAML 기본값은
   둘 다 `false`이므로 기본 운용은 `GLOBAL` 고정입니다.
 
