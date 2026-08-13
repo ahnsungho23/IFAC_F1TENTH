@@ -105,7 +105,10 @@ local_planner_node:
     # (tools/mcl_gt_error_probe.py, 181.6s/3145샘플) — GT 대비 횡 |오차| 속도구간별 P95
     # 최악 6.3cm. 10cm 초과는 전부 1~3샘플(≤0.07s) MCL 보정 스파이크(최대 29.6cm)라
     # 정적 마진이 아닌 retention 밴드가 흡수합니다. 실차 전 재측정 필요(시뮬 기준값).
-    localization_reserve_m: 0.06
+    # 0.12 = 2026-08-14 새 트랙 스캔-맵 정렬 오프셋 실측 p95 0.10~0.11 + 여유
+    # (최악 런 0.22는 이상 런으로 제외). 0.06이던 시절 pinch 저속 통과가 실제보다
+    # 후하게 판정되어 저속 클립 발생 (run_0814_011624 t=112 등).
+    localization_reserve_m: 0.12
     wall_safety_margin_m: 0.04
     fallback_track_half_width_m: 1.50
 
