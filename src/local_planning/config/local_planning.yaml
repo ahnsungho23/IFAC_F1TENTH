@@ -117,8 +117,8 @@ local_planner_node:
     # 아래 값은 2026-08-13 CMA v3(pop16×16세대, 265 feasible / best -0.9471) 최적 후보로,
     # retention 밴드·localization_reserve 0.06·팀 merge 제어가 반영된 스택 기준입니다.
     # normal-chain(MCL) 검증: FINALS 3장애물 맵 10.72s 무충돌 완주, 최소 클리어런스 0.305 m.
-    pre_apex_distances_m: [9.95922728836409, 6.639484858909394, 3.319742429454697]
-    post_apex_distances_m: [1.713037830204727, 3.426075660409454, 5.139113490614181]
+    pre_apex_distances_m: [11.442220427651225, 7.628146951767484, 3.814073475883742]
+    post_apex_distances_m: [2.059509950005119, 4.119019900010238, 6.178529850015357]
     # 장애물 뒤 exit 구간의 절대 길이 상한 [m]. 기본 0(비활성): exit를 자르면 경로가 일찍
     # 레이스라인으로 복귀하는데, 몇 m 뒤에 다음 장애물이 있으면 detector가 그걸 드러내는
     # 순간 잘린 exit가 그 inflated box를 관통해 커밋이 무효화되고, 그 거리에선 fresh 재계획도
@@ -128,15 +128,16 @@ local_planner_node:
     maximum_exit_length_m: 0.0
     # 세 entry fraction과 아래 세 exit scale의 모든 조합을 생성합니다. 첫 valid 후보를
     # 반환하지 않고 hard constraint 통과 후보를 normalized safety slack으로 순위화합니다.
-    entry_transition_fractions: [0.5390209027615948, 0.75, 1.00]
+    entry_transition_fractions: [0.5145810930150512, 0.75, 1.00]
     # 기존 이름을 호환성 때문에 유지하지만 이 값은 이제 exit에만 사용합니다.
-    transition_distance_scales: [0.41221812745907305, 0.6991537701867223, 3.440689927482147]
+    transition_distance_scales: [0.4971684162574945, 0.6991537701867223, 3.698773101198193]
     # 바깥쪽 회피의 exit에만 곱합니다. entry와 exit 의미를 다시 결합하지 않습니다.
     # 0.1(구 CMA 산출값)은 outside 라인 exit 길이를 ×0.1로 줄여 long-scale 프로브 하나를
     # 제외한 모든 outside exit이 곡률 검증(3.2 rad/m)을 통과할 수 없는 죽은 값이었습니다.
     # v2 파라미터 공간 하한 0.35에 맞춰 baseline을 0.5로 올렸습니다 (validate_baseline 계약).
-    # 0.578 = CMA v3 최적 후보 (위 pre/post_apex 주석 참고).
-    outside_line_transition_scale: 0.5783221023225422
+    # 0.406 = CMA v4 최적 후보 (2026-08-13, 16x16, fitness -0.9477; 일반체인 FINALS
+    # lap_complete 11.28s·최소여유 0.269m 검증 — runs/cmaes_tuning/p3_hybrid_p0_cma_v4).
+    outside_line_transition_scale: 0.4060036444074003
     # d=0 합류점 뒤 글로벌 점을 덧붙여 controller와 state machine이 handoff를 완료할 시간을 줍니다.
     # 실제 tail은 max(post_merge_lookahead_m, 계획 시 ego_speed * post_merge_min_time_sec)입니다.
     post_merge_lookahead_m: 5.0
