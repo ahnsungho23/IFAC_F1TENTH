@@ -35,6 +35,19 @@ if ! timeout 15 ros2 topic echo /pf/pose/odom --once >/dev/null 2>&1; then
   exit 1
 fi
 echo "🟢 odom 수신 확인."
+
+# 차가 실제로 따르는 라인을 라이브로 덤프해 referee 기준으로 사용한다.
+# 파일 사본(랩탑 vs 젯슨)이 다르거나 순서가 반대면 진행거리가 누적되지 않아
+# lap_complete가 영원히 안 뜬다(2026-08-13 실측 사고) — 라이브 덤프가 원천 차단.
+mkdir -p "$OUT"
+LIVE_WP="$OUT/live_global_waypoints.csv"
+if python3 "$WS/tools/dump_global_waypoints.py" "$LIVE_WP" 10; then
+  WP="$LIVE_WP"
+  echo "🟢 라이브 /global_waypoints 사용: $WP"
+else
+  echo "⚠️  /global_waypoints 미수신 — 파일 사본으로 진행: $WP"
+  echo "   (파일이 젯슨 발행 라인과 다르면 랩 판정이 안 될 수 있음)"
+fi
 echo ""
 echo "[2/3] referee 시작 — 이제 자율주행(A)을 시작하세요."
 echo "      ⚠️ Ctrl+C 금지: 랩 완주 시 referee가 'lap_complete'를 찍고 스스로 종료·저장합니다."
