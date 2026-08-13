@@ -17,15 +17,21 @@
 - 시간·배터리가 남으면 `max_speed:=1.6`·`2.9` 각 1랩 추가(셀 커버리지 향상, 필수 아님).
 - ⚠️ 속도를 바꿀 때마다 **control_real 재시작** (파라미터는 시작 시 1회만 읽음).
 
-## 1. 랩탑 준비 (모든 터미널 공통)
+## 1. 랩탑 준비
+
+HY_MIRU(젯슨 핫스팟) 접속 — 인터넷 안 되는 게 정상.
 
 ```bash
-# HY_MIRU(젯슨 핫스팟) 접속 — 인터넷 안 되는 게 정상
-export ROS_DOMAIN_ID=70
-export ROS_STATIC_PEERS=10.1.1.1      # 멀티캐스트 우회 (핵심)
+# ① 1회만 (부팅/와이파이 재접속 후, 아무 터미널):
 sudo iw dev wlo1 set power_save off    # wifi 절전이 다운링크 드랍의 단골 원인
 ros2 daemon stop
+
+# ② RViz·f1rec 등 ROS를 쓰는 터미널마다 이 한 줄:
+source ~/2026_IFAC/tools/car_env.sh    # = DOMAIN 70 + STATIC_PEERS 10.1.1.1
 ```
+
+runner(`tools/lut_lap_runner.sh`) 터미널은 **아무 설정도 불필요** — 스크립트가 자체 설정한다.
+젯슨 터미널들도 `.zshrc`에 도메인 70이 있으므로 추가 조치 없음.
 
 통신 자가진단 (스택이 뜬 뒤):
 ```bash
