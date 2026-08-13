@@ -103,6 +103,23 @@ def add_generator_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--max-accel", type=float, default=3.0, help="Longitudinal acceleration limit [m/s^2].")
     parser.add_argument("--max-decel", type=float, default=5.0, help="Longitudinal deceleration limit [m/s^2].")
     parser.add_argument(
+        "--outside-keepout-m", type=float, default=0.0,
+        help="Out-out-out mode [m]: in corners, shrink the INNER-side room by up to this "
+             "distance so mincurv settles on the outside band. Widens the lidar sightline "
+             "past inner walls (earlier hidden-obstacle reveal) and lowers peak curvature. "
+             "0 disables (default). Typical: 0.4-0.8.",
+    )
+    parser.add_argument(
+        "--outside-corner-kappa", type=float, default=0.25,
+        help="Centerline |curvature| [rad/m] at which the outside keepout reaches full "
+             "strength (quadratic ramp from 0; straights are untouched).",
+    )
+    parser.add_argument(
+        "--outside-smooth-sigma", type=float, default=6.0,
+        help="Gaussian smoothing (in optimizer points) applied to the keepout profile so "
+             "the usable band edge has no steps.",
+    )
+    parser.add_argument(
         "--max-curvature", type=float, default=1.2,
         help="Vehicle steering limit as max path curvature [rad/m] "
              "(= tan(max_steer)/wheelbase; ~1.2 for F1TENTH). The raceline "
@@ -793,11 +810,33 @@ def optimize_min_curvature(
     if args.optimizer == "centerline":
         return center_xy
 
-    _, psi, _ = headings_and_curvature(center_xy)
+    _, psi, kappa_center = headings_and_curvature(center_xy)
     normals = normals_from_heading(psi)
     clearance = safety_width * 0.5 + boundary_margin
-    lower = -np.maximum(d_right - clearance, 0.0)
-    upper = np.maximum(d_left - clearance, 0.0)
+
+    # Out-out-out 모드: 코너에서 "안쪽" 경계 여유를 keepout만큼 줄여 최적화가 바깥
+    # 밴드에 머물게 한다. 안쪽 벽이 라이다를 가리는 코너 너머 은닉 장애물을 더 멀리서
+    # 드러내는 것이 목적(P3 커밋에 7~9 m 노출이 필요). kappa>0(좌회전)의 안쪽은 좌측.
+    d_left_eff = d_left.astype(np.float64).copy()
+    d_right_eff = d_right.astype(np.float64).copy()
+    keepout_max = float(getattr(args, "outside_keepout_m", 0.0) or 0.0)
+    if keepout_max > 0.0:
+        corner_kappa = max(float(getattr(args, "outside_corner_kappa", 0.25)), 1e-6)
+        kappa_s = gaussian_filter1d(
+            kappa_center, sigma=max(float(getattr(args, "outside_smooth_sigma", 6.0)), 0.1),
+            mode="wrap")
+        gate = np.clip(np.abs(kappa_s) / corner_kappa, 0.0, 1.0) ** 2
+        keepout = keepout_max * gate
+        # 안쪽 여유를 줄이되, 최소한 clearance만큼의 밴드는 항상 남긴다(경계 역전 방지).
+        floor = clearance + 1e-3
+        left_inner = kappa_s > 0.0
+        d_left_eff = np.where(
+            left_inner, np.maximum(d_left_eff - keepout, floor), d_left_eff)
+        d_right_eff = np.where(
+            ~left_inner, np.maximum(d_right_eff - keepout, floor), d_right_eff)
+
+    lower = -np.maximum(d_right_eff - clearance, 0.0)
+    upper = np.maximum(d_left_eff - clearance, 0.0)
     if np.all(upper <= 1e-3) and np.all(lower >= -1e-3):
         return center_xy
 
