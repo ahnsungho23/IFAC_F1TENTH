@@ -103,6 +103,21 @@ def add_generator_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--max-accel", type=float, default=3.0, help="Longitudinal acceleration limit [m/s^2].")
     parser.add_argument("--max-decel", type=float, default=5.0, help="Longitudinal deceleration limit [m/s^2].")
     parser.add_argument(
+        "--reveal-speed-cap", action="store_true",
+        help="Blind-spot safety cap: bound each point's speed so that an obstacle placed "
+             "ANYWHERE in the corridor (not just on the line) can be braked for within its "
+             "worst-case reveal distance. Slows blind corner approaches only.")
+    parser.add_argument("--reveal-latency-sec", type=float, default=0.4,
+                        help="reveal cap: perception+commit reaction latency [s].")
+    parser.add_argument("--reveal-margin-m", type=float, default=0.4,
+                        help="reveal cap: distance margin subtracted from the reveal [m].")
+    parser.add_argument("--reveal-pass-speed", type=float, default=2.0,
+                        help="reveal cap: speed to shed down to within the reveal [m/s].")
+    parser.add_argument("--reveal-obstacle-wall-clearance", type=float, default=0.2,
+                        help="reveal cap: assumed minimum obstacle distance from walls [m].")
+    parser.add_argument("--reveal-lookahead-m", type=float, default=12.0,
+                        help="reveal cap: maximum backward arc searched for line of sight [m].")
+    parser.add_argument(
         "--outside-keepout-m", type=float, default=0.0,
         help="Out-out-out mode [m]: in corners, shrink the INNER-side room by up to this "
              "distance so mincurv settles on the outside band. Widens the lidar sightline "
@@ -1047,10 +1062,15 @@ def velocity_profile(
     max_lateral_accel: float,
     max_accel: float,
     max_decel: float,
+    vmax_per_point: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray, float]:
     seg = np.linalg.norm(np.roll(points_xy, -1, axis=0) - points_xy, axis=1)
     curve_speed = np.sqrt(max_lateral_accel / np.maximum(np.abs(kappa), 1e-4))
     v = np.clip(curve_speed, min_speed, max_speed)
+    if vmax_per_point is not None:
+        # 안전 상한(시야 캡 등)은 min_speed보다 우선한다. 다만 1.0 m/s 밑으로는
+        # 내리지 않는다 (정지 프로파일이 아니라 서행 프로파일이 목적).
+        v = np.minimum(v, np.maximum(np.asarray(vmax_per_point, dtype=float), 1.0))
 
     for _ in range(8):
         for i in range(len(v)):
@@ -1208,6 +1228,88 @@ def straighten_straight_segments(
     return straightened if changed else points_xy
 
 
+def reveal_speed_caps(
+    points_xy: np.ndarray,
+    d_right: np.ndarray,
+    d_left: np.ndarray,
+    free_mask: np.ndarray,
+    info: MapInfo,
+    flip_y: bool,
+    args: argparse.Namespace,
+) -> np.ndarray:
+    """코리도 최악(오프라인 위치 포함) 시야 기반 지점별 속도 상한.
+
+    각 웨이포인트 j에 장애물이 코리도 어디에 놓여도(벽에서 wall_clearance 이상),
+    라인 뒤쪽에서 그 위치가 처음 보이는 호 길이(최악 시야 R_j)를 구한다. 접근 차량은
+    시야 진입 순간부터 지연 t_lat + 제동으로 통과속도(2.0)까지 감속이 R_j - margin 안에
+    끝나야 하므로  v·t_lat + (v²-v_pass²)/(2a) ≤ R_j - margin  을 v에 대해 풀고, 그 상한을
+    j 앞 R_j 구간 전체에 적용한다 (시야 진입 시점에 이미 그 속도여야 하므로).
+
+    배경(2026-08-14): run_0814 충돌 8건 중 3건이 코너 안쪽 오프라인 박스의 노출거리
+    1~2 m 케이스 — 라인 위 점 기준 시야 모델(min 3.0 m)보다 훨씬 짧았다.
+    """
+    n = len(points_xy)
+    seg = np.linalg.norm(np.roll(points_xy, -1, axis=0) - points_xy, axis=1)
+    s = np.concatenate([[0.0], np.cumsum(seg[:-1])])
+    lap = float(np.sum(seg))
+    tangents = np.roll(points_xy, -1, axis=0) - np.roll(points_xy, 1, axis=0)
+    tangents /= np.maximum(np.linalg.norm(tangents, axis=1, keepdims=True), 1e-9)
+    normals = np.column_stack([-tangents[:, 1], tangents[:, 0]])
+
+    def clear(p: np.ndarray, q: np.ndarray) -> bool:
+        dist = float(np.hypot(*(q - p)))
+        steps = max(2, int(dist / (info.resolution * 0.8)))
+        samples = p + np.linspace(0.0, 1.0, steps + 1)[1:-1, None] * (q - p)
+        pix = np.round(world_to_pixel(samples, info, flip_y)).astype(np.int32)
+        rows_, cols_ = pix[:, 1], pix[:, 0]
+        inb = (rows_ >= 0) & (rows_ < info.height) & (cols_ >= 0) & (cols_ < info.width)
+        if not bool(np.all(inb)):
+            return False
+        return bool(np.all(free_mask[rows_, cols_] > 0))
+
+    wall_clear = max(0.0, args.reveal_obstacle_wall_clearance)
+    lookahead = max(1.0, args.reveal_lookahead_m)
+    caps = np.full(n, np.inf)
+    v_pass = max(0.0, args.reveal_pass_speed)
+    t_lat = max(0.0, args.reveal_latency_sec)
+    margin = max(0.0, args.reveal_margin_m)
+    a = max(0.5, args.max_decel)
+
+    for j in range(n):
+        lo = -float(d_right[j]) + wall_clear
+        hi = float(d_left[j]) - wall_clear
+        if hi <= lo:
+            offsets = [0.0]
+        else:
+            offsets = np.linspace(lo, hi, 5)
+        worst = np.inf
+        for off in offsets:
+            target = points_xy[j] + off * normals[j]
+            best = 0.0
+            i = j
+            while True:
+                i = (i - 1) % n
+                arc = (s[j] - s[i]) % lap
+                if arc > lookahead or i == j:
+                    break
+                if arc > best and clear(points_xy[i], target):
+                    best = arc
+            worst = min(worst, best)
+        reveal = max(0.0, worst - margin)
+        # v·t_lat + (v² - v_pass²)/(2a) = reveal  →  근의 공식
+        disc = (a * t_lat) ** 2 + v_pass * v_pass + 2.0 * a * reveal
+        v_allow = -a * t_lat + math.sqrt(max(0.0, disc))
+        v_allow = max(v_allow, v_pass)
+        # 시야 진입 시점(j 뒤 worst 지점)부터 j까지 상한 적용
+        i = j
+        while True:
+            caps[i] = min(caps[i], v_allow)
+            i = (i - 1) % n
+            if (s[j] - s[i]) % lap > max(worst, 0.5) or i == j:
+                break
+    return caps
+
+
 def build_trajectory(
     points_xy: np.ndarray,
     free_mask: np.ndarray,
@@ -1219,6 +1321,9 @@ def build_trajectory(
         points_xy, free_mask, info, flip_y, args.max_width_distance, args.width_mode
     )
     s_m, psi, kappa = headings_and_curvature(points_xy)
+    caps = None
+    if getattr(args, "reveal_speed_cap", False):
+        caps = reveal_speed_caps(points_xy, d_right, d_left, free_mask, info, flip_y, args)
     vx, ax, lap_time = velocity_profile(
         points_xy,
         kappa,
@@ -1227,6 +1332,7 @@ def build_trajectory(
         args.max_lateral_accel,
         args.max_accel,
         args.max_decel,
+        vmax_per_point=caps,
     )
     return Trajectory(points_xy, d_right, d_left, s_m, psi, kappa, vx, ax), lap_time
 
