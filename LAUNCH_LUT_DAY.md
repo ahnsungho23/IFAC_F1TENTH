@@ -22,13 +22,17 @@
 HY_MIRU(젯슨 핫스팟) 접속 — 인터넷 안 되는 게 정상.
 
 ```bash
-# ① 1회만 (부팅/와이파이 재접속 후, 아무 터미널):
-sudo iw dev wlo1 set power_save off    # wifi 절전이 다운링크 드랍의 단골 원인
+# ① 1회만 (아무 터미널):
 ros2 daemon stop
+# (wifi 절전은 NetworkManager HY_MIRU 프로필에 powersave=disable로 영구 설정됨 — 2026-08-13.
+#  확인: nmcli -f 802-11-wireless.powersave connection show HY_MIRU)
 
 # ② RViz·f1rec 등 ROS를 쓰는 터미널마다 이 한 줄:
 source ~/2026_IFAC/tools/car_env.sh    # = DOMAIN 70 + STATIC_PEERS 10.1.1.1
 ```
+
+⚠️ `ros2 topic list`가 비어 보이면 십중팔구 **그 터미널이 ②를 안 했거나 데몬이 옛 환경**이다
+(`ros2 daemon stop` 후 재시도). 실제 통신 이상과 혼동하지 말 것.
 
 runner(`tools/lut_lap_runner.sh`) 터미널은 **아무 설정도 불필요** — 스크립트가 자체 설정한다.
 젯슨 터미널들도 `.zshrc`에 도메인 70이 있으므로 추가 조치 없음.
@@ -64,6 +68,18 @@ bash ~/2026_IFAC/tools/lut_lap_runner.sh smoke_test
 - odom이 잡히면 referee가 뜨고, 차가 서 있으므로 **8초 뒤 no_start로 자기 종료 +
   `~/lut_traces/smoke_test_*.json/csv` 생성** ← 이 파일이 생겨야 전 구간 배선 증명
 - 파일이 안 생기면 주행을 시작하지 말 것
+
+## 3-1. referee 심박(HB) 로그 읽는 법 (5초마다 1줄)
+
+```
+HB: phase=RUN progress=12.3/32.9m idx=48 lat=0.05 v=2.01 odom(n=1520, age=0.0s)
+```
+- **progress가 주행 중 계속 오르면 정상** — 한 랩이면 lap_complete로 자기 종료
+- `odom age`가 커지거나 `n`이 안 늘면 → **odom 수신 두절** (통신 문제; `<prefix>_odom_hz.log`와 대조)
+- progress는 0인데 `idx`가 **감소**하면 → 웨이포인트 순서가 주행 방향과 반대 (라이브 덤프가
+  실패해 파일 사본으로 폴백한 경우에만 가능)
+- `HB: odom 수신 0건` 경고가 반복되면 → 위치추정 토픽 자체가 안 들어옴
+- 랩이 안 끝나면 **HB 줄 몇 개를 그대로 복사해 Claude에게** 주면 즉시 원인 특정 가능
 
 ## 4. 랩 절차 (랩마다 반복)
 
