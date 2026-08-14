@@ -10,7 +10,7 @@
 | 워크스페이스 | 젯슨 `~/f1tenth_ws`(하드웨어) + `~/2026_IFAC`(제어·플래닝·MCL) |
 | 지도 이름 | **`map`** (slam_toolbox 기본 저장명 그대로 씀) |
 
-젯슨 `~/.zshrc`에 `ROS_DOMAIN_ID=67`, `F1_MAP`, `RMW_IMPLEMENTATION=rmw_fastrtps_cpp`가
+젯슨 `~/.zshrc`에 `ROS_DOMAIN_ID=70`, `F1_MAP`, `RMW_IMPLEMENTATION=rmw_fastrtps_cpp`가
 이미 있다. 다만 🔴 **`F1_MAP` 값이 지금 `ifac_track`으로 잘못 박혀 있다**(2026-07-31 확인).
 지도 이름은 `map`이므로 **한 번 고쳐두고 시작할 것**:
 ```bash
@@ -134,7 +134,7 @@ cp ~/slam_toolbox/map.png ~/slam_toolbox/map.yaml \
 **② GUI로 라인 확인하며 생성** (새 트랙이면 이쪽. 라인을 눈으로 보고 조정)
 ```bash
 cd ~/2026_IFAC
-python3 offline_trajectory_generator/forza_trajectory_gui.py \
+python3 offline_trajectory_generator/trajectory_gui.py \
   --map-yaml src/monte_carlo_localization/maps/map.yaml
 ```
 - 파라미터를 만지면 `offline_trajectory_generator/gui_params.yaml`에 **자동 저장**된다
@@ -314,7 +314,7 @@ ros2 service call /lifecycle_manager_particle_filter/manage_nodes \
 ```bash
 source /opt/ros/jazzy/setup.zsh
 source ~/2026_IFAC/install/setup.zsh
-export ROS_DOMAIN_ID=67
+export ROS_DOMAIN_ID=70
 ros2 daemon stop && ros2 daemon start
 rviz2 -d "$(ros2 pkg prefix particle_filter_cpp)/share/particle_filter_cpp/rviz/particle_filter.rviz"
 ```
@@ -490,7 +490,7 @@ ros2 run tf2_ros tf2_echo base_link laser
 
 ```bash
 # 양쪽에서
-printenv ROS_DOMAIN_ID          # 67
+printenv ROS_DOMAIN_ID          # 70
 printenv RMW_IMPLEMENTATION     # rmw_fastrtps_cpp
 date                            # 시각 차이 크면 TF가 안 보인다
 ```
@@ -501,7 +501,7 @@ ros2 topic pub /network_test std_msgs/msg/String "{data: 'hello from jetson'}" -
 본체:
 ```bash
 source /opt/ros/jazzy/setup.zsh
-export ROS_DOMAIN_ID=67
+export ROS_DOMAIN_ID=70
 ros2 daemon stop && ros2 daemon start
 ros2 topic echo /network_test
 ```
@@ -525,7 +525,7 @@ export ROS_SUPER_CLIENT=true     # ros2 topic list 열거까지 하려면
 
 | 증상 | 먼저 볼 것 |
 |---|---|
-| 본체에서 젯슨 토픽이 안 보임 | `ROS_DOMAIN_ID` 양쪽 67 / 같은 서브넷 / `ros2 daemon stop && start` / AP client isolation / VPN·방화벽 |
+| 본체에서 젯슨 토픽이 안 보임 | `ROS_DOMAIN_ID` 양쪽 70 / 같은 서브넷 / `ros2 daemon stop && start` / AP client isolation / VPN·방화벽 |
 | 스캔이 벽과 안 맞음 | 지도, `2D Pose Estimate`, `base_link→laser` static TF, MCL |
 | 스캔은 맞는데 경로만 어긋남 | `global_waypoints.json`의 `map_info_str`, 지도 `origin`/`resolution` |
 | MCL만 다른 지도를 봄 | `map_name:=map`을 안 넘겼다 — MCL은 `F1_MAP`을 안 읽는다 (§0-1) |
