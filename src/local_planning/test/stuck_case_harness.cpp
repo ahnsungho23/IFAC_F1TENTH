@@ -109,7 +109,7 @@ RacelineSplineParameters operationalParameters()
   p.tracking_error_lut_speed_bins_mps = {0.0, 1.5, 3.0, 4.5, 6.5};
   p.tracking_error_lut_curvature_bins_radpm = {0.0, 0.2, 0.5, 0.9, 1.316266519079011};
   p.tracking_error_lut_values_m = {
-    0.350, 0.395, 0.395, 0.395, 0.395,
+    0.200, 0.200, 0.200, 0.200, 0.200,
     0.350, 0.395, 0.395, 0.395, 0.395,
     0.350, 0.395, 0.395, 0.395, 0.395,
     0.350, 0.395, 0.395, 0.395, 0.395,
