@@ -1509,6 +1509,12 @@ void RacelineSplinePlanner::measureCandidate(
   }
 
   double wall_clearance = std::numeric_limits<double>::infinity();
+  // Ranking-side wall room. Unlike the legacy centerline headroom above, this is measured from the
+  // same reference the obstacle term uses: the vehicle body plus the tracking-error tube. Without
+  // it the two ranking terms are not commensurate -- the obstacle side already spends half width +
+  // safety margin + tube while the wall side spent only wall_safety_margin_m -- and maximizing
+  // their minimum biases every selection toward the wall by (obstacle clearance - wall margin)/2.
+  double body_wall_clearance = std::numeric_limits<double>::infinity();
   double obstacle_clearance = std::numeric_limits<double>::infinity();
   double peak_curvature = 0.0;
   double peak_curvature_rate = 0.0;
@@ -1533,6 +1539,14 @@ void RacelineSplinePlanner::measureCandidate(
       wall_clearance,
       std::min(left_width - reserve - waypoint.d_m,
       waypoint.d_m + right_width - reserve));
+    // Track-bound VALIDATION still spends wall_safety_margin_m exactly once; this extra body and
+    // tube allowance is a ranking quantity only and never rejects a candidate.
+    const double body_reserve = reserve + parameters_.vehicle_half_width_m +
+      parameters_.avoidanceTrackingErrorReserve(waypoint.vx_mps, waypoint.kappa_radpm);
+    body_wall_clearance = std::min(
+      body_wall_clearance,
+      std::min(left_width - body_reserve - waypoint.d_m,
+      waypoint.d_m + right_width - body_reserve));
     const auto footprint = measureFootprintTrackBound(waypoint, i);
     if (footprint.footprint_clearance_m < minimum_footprint.footprint_clearance_m) {
       minimum_footprint = footprint;
@@ -1583,7 +1597,7 @@ void RacelineSplinePlanner::measureCandidate(
   if (!measured_obstacle) {
     obstacle_clearance = normalization_distance;
   }
-  const double wall_slack = wall_clearance / normalization_distance;
+  const double wall_slack = body_wall_clearance / normalization_distance;
   const double obstacle_slack = obstacle_clearance / normalization_distance;
   const double curvature_slack =
     (parameters_.maximum_curvature_radpm - peak_curvature) /
@@ -1607,9 +1621,10 @@ void RacelineSplinePlanner::measureCandidate(
     minimum_footprint.heading_relative_to_reference_rad;
   candidate.wallward_corner_protrusion_m =
     minimum_footprint.wallward_corner_protrusion_m;
-  // Candidate ranking intentionally retains its existing centerline-headroom metric. The
-  // rectangular footprint is an additional hard gate, not a new ranking weight or objective.
-  candidate.wall_clearance_m = wall_clearance;
+  // Ranking compares body-referenced room on both sides (see body_wall_clearance above). The
+  // rectangular footprint stays an additional hard gate, not a ranking weight or objective, and
+  // centerline_wall_clearance_m above keeps the legacy headroom for audit continuity.
+  candidate.wall_clearance_m = body_wall_clearance;
   candidate.obstacle_clearance_m = obstacle_clearance;
   candidate.peak_curvature_radpm = peak_curvature;
   candidate.peak_curvature_rate_radpm2 = peak_curvature_rate;

@@ -118,11 +118,23 @@
   `outside_line_transition_scale` as exit-only compatibility parameters. Generate all combinations.
 - Validate lateral slope, recomputed Cartesian curvature, curvature rate, obstacle clearance, and
   yaw-aware rectangular-footprint track-bound clearance before publishing. Keep corner projection
-  on the candidate waypoint's local track branch to avoid nearby snake-track branch aliasing. Keep
-  the legacy
-  centerline headroom as the existing ranking metric, but hard-reject any footprint violation with
-  `footprint_track_bound`. Track-bound validation uses `wall_safety_margin_m` exactly once. Do not
-  add any further boundary, commitment, hard, or fallback margin.
+  on the candidate waypoint's local track branch to avoid nearby snake-track branch aliasing.
+  Hard-reject any footprint violation with `footprint_track_bound`. Track-bound VALIDATION uses
+  `wall_safety_margin_m` exactly once. Do not add any further boundary, commitment, hard, or
+  fallback margin to validation.
+- The wall term of the RANKING slack is measured from the vehicle body plus the tracking-error
+  tube (`wall_safety_margin_m + vehicle_half_width_m + avoidanceTrackingErrorReserve`), matching
+  what the obstacle term already spends (`vehicle_half_width_m + safety_margin_m + tube`). This is
+  a ranking quantity only: it never rejects a candidate, so the feasible set and therefore the
+  avoidance/safe-stop verdict are unchanged. Do not revert it to the legacy centerline headroom
+  (`wall_safety_margin_m` alone) — that made the two terms incommensurate, and maximizing their
+  minimum then biased every selection toward the wall by exactly
+  `(obstacleSafetyClearance - wall_safety_margin_m) / 2`, up to 0.257 m, independently of how wide
+  the gap actually was (2026-08-15 measurement: on a 1.20 m obstacle-face-to-wall gap the car
+  planned 0.202 m of body-to-wall room against 0.711 m at the obstacle). `wall_clearance_m` now
+  carries this body-referenced value; `centerline_wall_clearance_m` keeps the legacy headroom for
+  audit continuity. Regression: `RankingCentresPassBetweenObstacleAndWall` and
+  `SafetySlackRejectsBarelyWallFeasibleTargetAsBest` in `test/test_raceline_spline.cpp`.
 - Before the first lateral commitment, publish `ot_line=raceline_static_prepare` with a validated
   braking prefix while collecting the nearest cluster's IDs and conservative Frenet-envelope union.
   Count distinct `/static_obs` messages, not planning ticks, and require the configured number of

@@ -445,13 +445,18 @@ TEST(RacelineSplinePlanner, SafetySlackRejectsBarelyWallFeasibleTargetAsBest)
   ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
   // Targets are sampled between the obstacle clearance (0.20 + 0.15) and the farthest offset whose
   // FOOTPRINT still fits (0.67 track - 0.12 half width): [0.35, 0.55] in five steps.
-  EXPECT_NEAR(result.target_d, 0.50, 1.0e-9);
+  // Ranking measures both sides from the vehicle body plus the tracking tube, so the selection
+  // lands on the sample nearest the geometric middle of the obstacle-face-to-wall gap
+  // ((0.20 + 0.67) / 2 = 0.435). The old centerline-headroom metric spent half width + tube on the
+  // obstacle side only and picked the wall-biased 0.50 instead.
+  EXPECT_NEAR(result.target_d, 0.45, 1.0e-9);
 
   const auto selected = std::find_if(
     result.candidate_audits.begin(), result.candidate_audits.end(),
     [](const SplineCandidateAudit & audit) {return audit.selected;});
   ASSERT_NE(selected, result.candidate_audits.end());
-  EXPECT_GT(selected->wall_clearance_m, 0.05);
+  // Body-referenced room left at the wall: 0.67 track - 0.12 half width - 0.45 offset.
+  EXPECT_NEAR(selected->wall_clearance_m, 0.10, 1.0e-6);
   EXPECT_GT(selected->rectangular_footprint_wall_clearance_m, 0.0);
   // The extreme sample now sits where a vehicle travelling parallel to the reference would just
   // touch the wall. It is still rejected, because the pass is not parallel there: the yaw the
@@ -468,6 +473,34 @@ TEST(RacelineSplinePlanner, SafetySlackRejectsBarelyWallFeasibleTargetAsBest)
   EXPECT_LT(wall_tangent->rectangular_footprint_wall_clearance_m, 0.0);
   EXPECT_EQ(wall_tangent->rejection_reason, "footprint_track_bound");
   EXPECT_FALSE(wall_tangent->selected);
+}
+
+TEST(RacelineSplinePlanner, RankingCentresPassBetweenObstacleAndWall)
+{
+  auto parameters = testParameters();
+  parameters.target_d_candidate_count = 9;
+  parameters.entry_transition_fractions = {1.0};
+  parameters.transition_distance_scales = {1.0};
+  parameters.maximum_lateral_slope = 100.0;
+  parameters.maximum_curvature_radpm = 100.0;
+  parameters.maximum_curvature_rate_radpm2 = 1000.0;
+  RacelineSplinePlanner planner(parameters);
+  ASSERT_TRUE(planner.setReference(makeStraightReference(300, 0.1, 1.20, 1.20)));
+
+  const auto result = planner.plan(
+    EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(311, 8.0)}, true, false);
+  ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
+
+  // Obstacle left face 0.20 against a 1.20 wall leaves a 1.00 m gap the car does not need all of.
+  // Both ranking terms are measured from the vehicle body, so the selected offset must leave
+  // comparable room on each side instead of hugging the wall. The pre-fix centerline metric
+  // biased this by (obstacle clearance - wall margin) / 2 and left 0.21 m more room at the
+  // obstacle than at the wall.
+  const double body_to_wall = 1.20 - result.target_d - parameters.vehicle_half_width_m;
+  const double body_to_obstacle = result.target_d - 0.20 - parameters.vehicle_half_width_m;
+  EXPECT_GT(body_to_wall, 0.0);
+  EXPECT_GT(body_to_obstacle, 0.0);
+  EXPECT_LT(std::abs(body_to_wall - body_to_obstacle), 0.10);
 }
 
 TEST(RacelineSplinePlanner, NominalEntryChangeAlwaysChangesEffectiveGeometry)

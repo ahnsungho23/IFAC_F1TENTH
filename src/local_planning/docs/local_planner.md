@@ -411,7 +411,44 @@ S = min(wall_headroom / maximum_target_offset,
 장애물과 벽 사이에 더 균형 잡힌 후보가 있는 한 우선 선택되지 않습니다. 완전 동률은 고정된
 생성 순서로만 해소해 lockstep 결과를 결정적으로 유지합니다.
 
-장애물에는 `C_obs`를 한 번 적용하고, 트랙 경계에는 `wall_safety_margin_m`만 한 번 적용합니다.
+#### 순위의 `wall_headroom`은 차체 기준이다 (2026-08-15)
+
+`S`의 두 여유 항은 **같은 기준점**에서 재야 합니다.
+
+```text
+obstacle_headroom = 경로 → 장애물 면 거리 − (vehicle_half_width + safety_margin + 추종오차 튜브)
+wall_headroom     = 경로 → 트랙 경계 거리 − (wall_safety_margin + vehicle_half_width + 추종오차 튜브)
+```
+
+이전에는 `wall_headroom`이 **경로 중심선 기준**이라 `wall_safety_margin_m` 하나만 뺐습니다.
+장애물 항은 반폭 + 안전마진 + 튜브(최대 0.455 m)를 이미 쓰고 있었으므로 두 항의 영점이
+어긋났고, 그 최솟값을 최대화하면 균형점이 항상
+
+```text
+편향 = (obstacleSafetyClearance − wall_safety_margin_m) / 2      ← 최대 0.257 m
+```
+
+만큼 **벽 쪽으로** 밀렸습니다. 이 편향은 틈의 폭과 무관한 상수라, 장애물과 벽 사이가 아무리
+널널해도 차가 벽에 붙어 지나갔습니다. 실측(2026-08-15, `stuck_case_harness`, 라이브 기준선
+`output/map`, 자차 s=30 v=2.5, 장애물 s=[35.0,35.5]):
+
+| 장애물 면↔벽 틈 | 기존 차체→벽 / →장애물 | 수정 후 차체→벽 / →장애물 |
+|---|---|---|
+| 1.40 m | 0.404 / 0.709 | **0.556 / 0.556** |
+| 1.20 m | 0.202 / 0.711 | **0.406 / 0.507** |
+| 1.00 m | 0.152 / 0.560 | **0.256 / 0.457** |
+| 0.90 m | 0.127 / 0.486 | **0.181 / 0.431** |
+
+⚠️ **이것은 순위 항일 뿐이며 hard validation은 그대로입니다.** 트랙 경계 검증은 여전히
+회전 사각형 코너에 `wall_safety_margin_m`만 정확히 한 번 적용하고, 추종오차 튜브를 더하지
+않습니다. 따라서 **feasible 후보 집합이 바뀌지 않아 회피/안전정지 판정 자체는 변하지
+않습니다** — 같은 후보들 중 어느 것을 고르느냐만 바뀝니다.
+
+`wall_clearance_m`(진단·audit)은 이제 이 차체 기준 값이고, 기존 중심선 여유는
+`centerline_wall_clearance_m`로 계속 발행됩니다.
+
+장애물에는 `C_obs`를 한 번 적용하고, 트랙 경계 **검증**에는 `wall_safety_margin_m`만 한 번
+적용합니다.
 완성된 spline은 재계산된 waypoint 곡률로 회피속도를 제한한 다음, 그 속도와 곡률로 LUT를 다시
 보간해 장애물 clearance를 점별 검사합니다. 별도 commitment reserve와 reduced-clearance
 fallback은 없습니다. 한쪽이 불가능하면 반대쪽을 평가하고, 양쪽 모두 불가능하면 safe-stop으로
