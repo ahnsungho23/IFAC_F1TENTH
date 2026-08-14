@@ -135,7 +135,7 @@ RacelineSplineParameters operationalParameters()
   p.maximum_lateral_slope = 0.8;
   p.maximum_curvature_radpm = 1.316266519079011;
   p.maximum_curvature_rate_radpm2 = 20.0;
-  p.safe_stop_buffer_m = 1.20;
+  p.safe_stop_buffer_m = 2.60;
   p.safe_stop_deceleration_mps2 = 1.8;
   p.minimum_path_points = 8;
   return p;
