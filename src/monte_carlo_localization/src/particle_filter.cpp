@@ -291,7 +291,23 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
 
     // Load map
     get_omap();
-    initialize_global();
+    // ⚠️ get_omap()은 map_server 응답을 기다리며 스핀한다. 그 사이 transient_local인
+    // /global_waypoints 콜백이 먼저 도착해 시작 포즈로 파티클을 이미 좁게 초기화할 수 있고,
+    // 그때 무조건 initialize_global()을 부르면 **정답 포즈를 랜덤 분산으로 덮어써** MCL이
+    // 끝내 수렴하지 못한다(2026-08-14: 시뮬 통합 검증 7회 중 4회가 이 경합으로 오차
+    // 4.2~12.7 m에 고정. 성공 런은 "글로벌 초기화 → 웨이포인트 초기화" 순서, 실패 런은
+    // 그 반대였다). 이미 초기화됐으면 건너뛴다.
+    if (auto_init_done_ || pose_initialized_from_rviz_)
+    {
+        RCLCPP_INFO(this->get_logger(),
+            "초기 포즈가 이미 설정됨 — 글로벌 랜덤 초기화를 건너뛴다 "
+            "(waypoints=%d, rviz=%d)",
+            static_cast<int>(auto_init_done_), static_cast<int>(pose_initialized_from_rviz_));
+    }
+    else
+    {
+        initialize_global();
+    }
 
     // Update timer - use slower frequency during startup to reduce resource contention
     double startup_frequency = std::min(TIMER_FREQUENCY, 15.0);  // Cap at 15Hz during startup
