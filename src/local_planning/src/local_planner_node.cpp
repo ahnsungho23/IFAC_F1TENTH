@@ -477,6 +477,28 @@ void LocalPlannerNode::initializeParameters()
     throw std::invalid_argument("p3_mode must be OFF, SHADOW, or TEST_ACTIVE");
   }
 
+  // P0 회피 격자 사용 여부. 회피 플래너를 P3 하나로 정리하려면 이것을 false로 둔다.
+  // 끄더라도 안전 계층(expandVisibleObstacles/validateCandidate/applyAvoidanceVelocityLimit)과
+  // 안전정지(buildSafeStop)는 P3의 토대라 그대로 살아 있다 — 끄는 것은 후보 생성뿐이다.
+  planner_parameters_.avoidance_candidates_enable =
+    declare_parameter<bool>("p0_avoidance_candidates_enable", true);
+  if (!planner_parameters_.avoidance_candidates_enable &&
+    p3_mode_ != P3RuntimeMode::kTestActive)
+  {
+    // OFF/SHADOW에서는 P0가 실제 주행을 담당한다. 그 상태로 격자를 끄면 차가 영영
+    // 회피하지 않고 모든 장애물에서 정지한다. 조용히 그렇게 두지 않는다.
+    RCLCPP_ERROR(
+      get_logger(),
+      "p0_avoidance_candidates_enable=false는 p3_mode=TEST_ACTIVE에서만 의미가 있다 "
+      "(현재 %s — 이 모드에서는 P0가 주행 담당). 강제로 true로 되돌린다.",
+      p3RuntimeModeName(p3_mode_));
+    planner_parameters_.avoidance_candidates_enable = true;
+  }
+  RCLCPP_INFO(
+    get_logger(), "회피 플래너: P3=%s, P0 격자=%s",
+    p3RuntimeModeName(p3_mode_),
+    planner_parameters_.avoidance_candidates_enable ? "사용" : "미사용(P3 단독)");
+
   const bool control_points_valid =
     planner_parameters_.pre_apex_distances_m.size() == 3U &&
     planner_parameters_.post_apex_distances_m.size() == 3U &&
@@ -2530,6 +2552,14 @@ void LocalPlannerNode::onPlanningTimer()
       get_logger(), "P3_LIFECYCLE_INVALIDATION %s", invalidation.str().c_str());
     resetP3SelectionEnvelope();
   }
+  ++p3_backup_fallback_count_;
+  RCLCPP_WARN_THROTTLE(
+    get_logger(), *get_clock(), 3000,
+    "P3 출력 없음 → %s (누적 %" PRIu64 "/%" PRIu64 " 콜백). 이유: %s",
+    planner_parameters_.avoidance_candidates_enable ? "P0 격자 백업" : "안전정지(P0 격자 미사용)",
+    p3_backup_fallback_count_, p3_callback_sequence_,
+    lifecycle.reason.empty() ? evaluation.failure_classification.c_str() :
+    lifecycle.reason.c_str());
   runP0PlanningCycle(&snapshot);
   publishP3CycleDiagnostic(
     active_snapshot, evaluation, lifecycle, "P0_BACKUP_ONLY", true,

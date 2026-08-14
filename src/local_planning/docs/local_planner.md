@@ -19,6 +19,34 @@
   재검증된 committed suffix가 `/avoid_waypoints`를 소유할 수 있습니다. 사용할 수 없으면 기존
   P0가 `P0_BACKUP_ONLY`로 즉시 처리하고 safe-stop 의미도 그대로 유지합니다.
 
+### P0/P3 계층 구분 — "P0를 끈다"가 무엇을 뜻하는가 (2026-08-14)
+
+P0(`RacelineSplinePlanner`)는 한 덩어리가 아니라 세 층이고, P3는 그중 둘 위에 서 있습니다.
+
+| 층 | 내용 | P3와의 관계 |
+|---|---|---|
+| ① 안전 계층 | `expandVisibleObstacles`(추종오차 LUT + `localization_reserve_m`), `validateCandidate`(회전 footprint + `wall_safety_margin_m`), `applyAvoidanceVelocityLimit`(gap 기반 속도 제한), `measureCandidate` | **P3가 직접 호출**. 없으면 P3가 동작하지 않음 |
+| ② 안전정지 | `buildSafeStop`(+정지점 탈출 검증), safe-stop 래치/lifecycle, margin slow pass, last-path brake, emergency hold | **P3에 대응물 없음**. 어느 모드에서나 P0 몫 |
+| ③ 회피 후보 생성 | `generateSideCandidates`/`buildCandidate`, quintic d-offset, target_d 5 × entry 4 × exit 3 × 2측 = 120후보 | P3와 **중복되는 유일한 부분** |
+
+따라서 `p0_avoidance_candidates_enable: false`가 끄는 것은 ③뿐입니다. ①②는 계속 삽니다 —
+추종오차 LUT·`localization_reserve_m`·`wall_safety_margin_m`·`safe_stop_buffer_m`·탈출 검증
+튜닝은 전부 그대로 유효합니다.
+
+**탐색 방식의 차이가 유일한 실질 차이입니다.** P0는 고정 격자를 전수 대입하므로 격자 밖의
+해를 못 찾습니다. P3는 스테이션별 통과 가능 d 구간을 교집합해 장애물 구간 전체에 걸쳐
+연결된 통로를 먼저 구하고(`connectedConstantRanges`) 그 안으로 해를 닫힌 형태로 풉니다 —
+통로가 존재하면 찾아냅니다. 순위 기준(`minimum_normalized_safety_slack` 사전식)은 동일합니다.
+
+**끄면 잃는 것**: P3의 M0는 구간 **전체**에 걸쳐 연결된 통로를 요구하므로 교집합이 비면
+후보가 0입니다. P0 격자는 그런 경우에도 가끔 해를 찾았습니다. 그래서 노드는 P3가 출력을
+못 낸 콜백을 누적해 3초 throttle WARN으로 보고합니다:
+`P3 출력 없음 → 안전정지(P0 격자 미사용) (누적 n/m 콜백)`. 이 숫자가 크면 되돌리는 것이
+정답입니다.
+
+**⚠️ `p3_mode`가 `OFF`/`SHADOW`면 P0가 실제 주행 담당이므로 이 플래그는 무시되고 강제로
+`true`가 됩니다**(노드가 ERROR 로그를 남깁니다). 그렇지 않으면 차가 모든 장애물에서 정지합니다.
+
 P3/M1은 authoritative nonempty `/static_obs` snapshot이 들어오면 즉시 candidate generation을
 수행합니다. P0가 이미 사용하던 `initial_observation_count`,
 `initial_observation_min_duration_sec`, `initial_observation_max_wait_sec` 동안의 envelope union은

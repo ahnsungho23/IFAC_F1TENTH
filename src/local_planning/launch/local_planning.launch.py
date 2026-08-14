@@ -100,6 +100,13 @@ def generate_launch_description():
         'lockstep_mode', default_value='false',
         description='CMA-only deterministic event-driven execution',
     )
+    p0_avoidance_arg = DeclareLaunchArgument(
+        'p0_avoidance_candidates_enable', default_value='false',
+        description=(
+            'P0 quintic 회피 격자 사용 여부. false면 P3(analytic corridor)가 유일한 회피 '
+            '플래너가 되고 P3 실패는 곧바로 안전정지로 간다. 안전 계층과 안전정지는 P3의 '
+            '토대라 어느 쪽이든 살아 있다. p3_mode=TEST_ACTIVE에서만 유효하다.'),
+    )
     p3_mode_arg = DeclareLaunchArgument(
         'p3_mode', default_value='TEST_ACTIVE',
         description='Production P3/M1 mode: OFF, SHADOW, or bounded TEST_ACTIVE',
@@ -176,6 +183,9 @@ def generate_launch_description():
                     LaunchConfiguration('lockstep_mode'), value_type=bool),
                 'p3_mode': ParameterValue(
                     LaunchConfiguration('p3_mode'), value_type=str),
+                'p0_avoidance_candidates_enable': ParameterValue(
+                    LaunchConfiguration('p0_avoidance_candidates_enable'),
+                    value_type=bool),
                 'p3_diagnostics_topic': LaunchConfiguration('p3_diagnostics_topic'),
             },
         ]
@@ -194,6 +204,7 @@ def generate_launch_description():
         detector_replay_diagnostics_topic_arg,
         planner_replay_diagnostics_topic_arg,
         lockstep_mode_arg,
+        p0_avoidance_arg,
         p3_mode_arg,
         p3_diagnostics_topic_arg,
         lockstep_scan_offset_arg,

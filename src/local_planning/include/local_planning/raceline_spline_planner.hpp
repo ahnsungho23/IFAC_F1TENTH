@@ -134,6 +134,20 @@ struct RacelineSplineParameters
   double safe_stop_deceleration_mps2{2.5};
   int minimum_path_points{8};
 
+  // P0 회피 후보 생성(quintic 격자) 사용 여부. false면 plan()이 후보를 하나도 만들지 않고
+  // 곧바로 기존 폴백 사다리(margin slow pass -> safe stop)로 내려간다.
+  //
+  // 왜 있는가: P3(analytic corridor)가 주 플래너가 되면 P0 격자는 백업으로만 남는데,
+  // 회피 플래너가 둘이면 튜닝 대상과 디버깅 표면이 두 배가 된다. 이 플래그로 P0 격자만
+  // 끄면 P3 실패가 곧바로 안전정지로 이어져 동작이 하나로 정리된다.
+  //
+  // ⚠️ 이건 "P0를 없앤다"가 아니다. expandVisibleObstacles / validateCandidate /
+  //    applyAvoidanceVelocityLimit / measureCandidate(=안전 계층)와 buildSafeStop(=안전정지)은
+  //    P3가 딛고 서 있는 토대라 항상 살아 있다. 끄는 것은 회피 후보 생성 하나뿐이다.
+  // ⚠️ P3가 비활성(p3_mode=OFF)이거나 SHADOW(=P0가 실제 주행 담당)일 때 이 값을 false로
+  //    두면 차가 영영 회피하지 않는다. 노드가 그 조합을 강제로 true로 되돌린다.
+  bool avoidance_candidates_enable{true};
+
   // 안전정지 정지점 탈출 검증. safe_stop_buffer_m은 손으로 맞춘 상수라, 기하에 따라
   // "정지는 했는데 그 자리에서 회피 곡선을 만들 진입 거리가 없는" 영구 교착이 생긴다
   // (2026-08-14 실차: 임계 2.0~2.5 m vs 버퍼 1.20 m — 모든 안전정지가 교착이었다).

@@ -1347,6 +1347,41 @@ TEST(RacelineSplinePlanner, EscapeCheckReexpandsObstaclesAtTheCandidateStopPoint
   EXPECT_LT(result.safe_stop_forward_m, 6.0);
 }
 
+// P0 회피 격자를 끄면 후보를 만들지 않고 기존 폴백 사다리로 내려간다. 중요한 것은
+// "경로 없음"이 아니라 "정지"로 귀결된다는 점이다 — 빈 경로가 나가면 state_machine이
+// 글로벌 라인으로 fail-open해 장애물을 관통한다.
+TEST(RacelineSplinePlanner, DisabledP0GridFallsBackToSafeStopNotEmptyPath)
+{
+  auto parameters = testParameters();
+  parameters.avoidance_candidates_enable = false;
+  RacelineSplinePlanner planner(parameters);
+  ASSERT_TRUE(planner.setReference(makeStraightReference()));
+
+  // 격자가 켜져 있었다면 회피가 나왔을 장애물(아래 대조 테스트가 이를 보증한다).
+  const auto result = planner.plan(EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(7, 7.0)});
+  EXPECT_NE(result.kind, SplinePlanKind::kAvoidance);
+  EXPECT_NE(result.reason.find("P0 avoidance candidates disabled"), std::string::npos);
+  // 안전정지 또는 margin 통과 — 어느 쪽이든 경로가 비어서는 안 된다.
+  if (result.kind == SplinePlanKind::kSafeStop) {
+    EXPECT_GE(result.path.wpnts.size(), 2U);
+    EXPECT_DOUBLE_EQ(result.path.wpnts.back().vx_mps, 0.0);
+  }
+  EXPECT_TRUE(result.candidate_audits.empty()) << "후보를 만들지 않아야 한다";
+}
+
+// 같은 장애물에서 격자를 켜면 회피가 나온다 — 위 테스트가 "원래 불가능한 장애물"을 쓴
+// 것이 아님을 보증한다(그렇지 않으면 위 테스트는 아무것도 검증하지 않는다).
+TEST(RacelineSplinePlanner, EnabledP0GridStillAvoidsTheSameObstacle)
+{
+  auto parameters = testParameters();
+  parameters.avoidance_candidates_enable = true;
+  RacelineSplinePlanner planner(parameters);
+  ASSERT_TRUE(planner.setReference(makeStraightReference()));
+  const auto result = planner.plan(EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(7, 7.0)});
+  EXPECT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
+  EXPECT_FALSE(result.candidate_audits.empty());
+}
+
 // 탈출 검증을 끄면 이전 동작(정지점 무검증)으로 돌아간다 — 회귀 시 즉시 되돌릴 수 있어야 한다.
 TEST(RacelineSplinePlanner, SafeStopEscapeCheckCanBeDisabled)
 {

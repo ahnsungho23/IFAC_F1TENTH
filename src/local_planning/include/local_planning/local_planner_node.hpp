@@ -305,6 +305,9 @@ private:
   std::uint64_t p3_source_epoch_{1U};
   std::uint64_t global_reference_generation_{0U};
   std::uint64_t p3_callback_sequence_{0U};
+  // P3가 출력을 못 내 P0 백업으로 내려간 콜백 수. "P3 단독으로 충분한가"를 재는 유일한
+  // 숫자라, P0 격자를 껐을 때도(그때는 곧바로 안전정지) 계속 센다.
+  std::uint64_t p3_backup_fallback_count_{0U};
   std::string current_path_owner_{"P0"};
   std::string last_selected_path_family_{"NONE"};
   std::string last_selected_path_digest_{"NONE"};

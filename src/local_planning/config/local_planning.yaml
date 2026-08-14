@@ -367,4 +367,21 @@ local_planner_node:
     # an exact-hard-valid P3/M1 path or current-hard-valid committed suffix; the unchanged P0 path
     # remains BACKUP_ONLY.
     p3_mode: "TEST_ACTIVE"
+    # 🔴 false = 회피 플래너를 P3 하나로 정리 (2026-08-14 결정).
+    # P0의 quintic 격자(target_d 5 × entry 4 × exit 3 × 2측 = 120후보)를 만들지 않고,
+    # P3가 출력을 못 내면 곧바로 기존 폴백 사다리(margin slow pass → safe stop)로 간다.
+    #
+    # ⚠️ "P0를 없앤다"가 아니다. P3는 P0의 안전 계층을 직접 호출한다:
+    #    expandVisibleObstacles(추종오차 LUT + localization_reserve),
+    #    validateCandidate(회전 footprint + wall_safety_margin),
+    #    applyAvoidanceVelocityLimit(gap 기반 속도 제한), measureCandidate.
+    #    안전정지(buildSafeStop + 탈출 검증)도 어느 모드에서나 P0 몫이다.
+    #    끄는 것은 회피 후보 생성 하나뿐이며, 위 값들의 튜닝은 전부 그대로 살아 있다.
+    #
+    # 잃는 것: P3의 M0는 장애물 구간 전체에 걸쳐 연결된 통로(connectedConstantRanges)를
+    # 요구하므로 그 교집합이 비면 후보가 0이다. P0 격자는 그런 경우에도 가끔 해를 찾았다.
+    # 그 백업이 사라지므로, P3 실패 콜백 수를 노드가 3초 throttle WARN으로 누적 보고한다
+    # ("P3 출력 없음 → 안전정지(P0 격자 미사용) (누적 n/m 콜백)").
+    # 그 숫자가 크면 이 값을 true로 되돌리는 것이 정답이다.
+    p0_avoidance_candidates_enable: false
     p3_diagnostics_topic: "/local_planning/p3_shadow"

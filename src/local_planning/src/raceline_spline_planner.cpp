@@ -2486,7 +2486,13 @@ RacelineSplineResult RacelineSplinePlanner::plan(
       }
     };
 
-  if (!preferred_left.has_value()) {
+  if (!parameters_.avoidance_candidates_enable) {
+    // P0 격자 비활성 — 후보를 만들지 않고 기존 폴백 사다리(margin slow pass -> safe stop)로
+    // 내려간다. 안전 계층과 안전정지는 그대로 살아 있으므로 "경로 없음"이 아니라
+    // "정지"로 귀결된다.
+    left_reason = "P0 avoidance candidates disabled (avoidance_candidates_enable=false)";
+    right_reason = left_reason;
+  } else if (!preferred_left.has_value()) {
     evaluate_side(true);
     evaluate_side(false);
   } else {
