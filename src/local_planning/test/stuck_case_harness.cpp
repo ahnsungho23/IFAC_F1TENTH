@@ -110,10 +110,10 @@ RacelineSplineParameters operationalParameters()
   p.tracking_error_lut_curvature_bins_radpm = {0.0, 0.2, 0.5, 0.9, 1.316266519079011};
   p.tracking_error_lut_values_m = {
     0.200, 0.200, 0.200, 0.200, 0.200,
-    0.350, 0.395, 0.395, 0.395, 0.395,
-    0.350, 0.395, 0.395, 0.395, 0.395,
-    0.350, 0.395, 0.395, 0.395, 0.395,
-    0.350, 0.395, 0.395, 0.395, 0.395};
+    0.325, 0.395, 0.395, 0.395, 0.395,
+    0.330, 0.395, 0.395, 0.395, 0.395,
+    0.330, 0.395, 0.395, 0.395, 0.395,
+    0.330, 0.395, 0.395, 0.395, 0.395};
   p.avoidance_velocity_limit_speed_bins_mps =
   {0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0};
   p.avoidance_velocity_limit_lateral_accel_mps2 =
@@ -123,7 +123,7 @@ RacelineSplineParameters operationalParameters()
   p.approach_feasibility_decel_mps2 = 2.0;
   p.commitment_retention_reserve_fraction = 0.5;
   p.localization_reserve_m = 0.12;
-  p.wall_safety_margin_m = 0.04;
+  p.wall_safety_margin_m = 0.10;
   p.fallback_track_half_width_m = 1.50;
   p.pre_apex_distances_m = {11.442, 7.628, 3.814};
   p.post_apex_distances_m = {2.0595099500051189, 4.1190199000102378, 6.1785298500153566};
