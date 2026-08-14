@@ -138,6 +138,9 @@ RacelineSplineParameters operationalParameters()
   p.safe_stop_buffer_m = 2.60;
   p.safe_stop_deceleration_mps2 = 1.8;
   p.minimum_path_points = 8;
+  p.safe_stop_escape_check_enable = true;
+  p.safe_stop_escape_retreat_step_m = 0.30;
+  p.safe_stop_escape_max_retreats = 8;
   return p;
 }
 
@@ -156,6 +159,12 @@ int main(int argc, char ** argv)
   if (argc >= 10) {
     parameters.localization_reserve_m = std::atof(argv[9]);
   }
+  // 선택 인자 10: 안전정지 탈출 검증 on/off (비용 측정·회귀 비교용)
+  if (argc >= 11) {
+    parameters.safe_stop_escape_check_enable = std::atoi(argv[10]) != 0;
+  }
+  // 선택 인자 11: plan() 반복 횟수 (비용 측정용)
+  const int repeat = (argc >= 12) ? std::max(1, std::atoi(argv[11])) : 1;
   RacelineSplinePlanner planner(parameters);
   if (!planner.setReference(reference)) {
     std::cerr << "reference rejected\n";
@@ -178,6 +187,9 @@ int main(int argc, char ** argv)
   obstacle.size = obstacle.d_left - obstacle.d_right;
   obstacle.is_static = true;
 
+  for (int i = 0; i < repeat - 1; ++i) {
+    (void)planner.plan(ego, {obstacle});
+  }
   const auto result = planner.plan(ego, {obstacle});
   const char * kind = "?";
   switch (result.kind) {
@@ -200,6 +212,11 @@ int main(int argc, char ** argv)
     "  이유: %s\n",
     kind, static_cast<int>(result.margin_pass), result.path.wpnts.size(),
     result.target_d, sel_wall, result.reason.c_str());
+  if (result.kind == SplinePlanKind::kSafeStop) {
+    std::printf(
+      "  안전정지: 정지점 자차+%.2f m, 탈출검증 %s\n",
+      result.safe_stop_forward_m, result.safe_stop_escape_verified ? "통과" : "❌실패");
+  }
   std::printf("후보 %zu개:\n", result.candidate_audits.size());
   for (const auto & a : result.candidate_audits) {
     std::printf(

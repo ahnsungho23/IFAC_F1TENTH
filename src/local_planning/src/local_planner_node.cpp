@@ -400,6 +400,12 @@ void LocalPlannerNode::initializeParameters()
     declare_parameter<double>("safe_stop_deceleration_mps2", 2.5);
   planner_parameters_.minimum_path_points =
     declare_parameter<int>("minimum_path_points", 8);
+  planner_parameters_.safe_stop_escape_check_enable =
+    declare_parameter<bool>("safe_stop_escape_check_enable", true);
+  planner_parameters_.safe_stop_escape_retreat_step_m =
+    std::max(0.05, declare_parameter<double>("safe_stop_escape_retreat_step_m", 0.30));
+  planner_parameters_.safe_stop_escape_max_retreats =
+    std::clamp(static_cast<int>(declare_parameter<int>("safe_stop_escape_max_retreats", 8)), 0, 40);
 
   require_obstacles_message_ = declare_parameter<bool>("require_obstacles_message", true);
   obstacle_stale_timeout_sec_ = declare_parameter<double>("obstacle_stale_timeout_sec", 0.75);
@@ -2812,6 +2818,16 @@ void LocalPlannerNode::runP0PlanningCycle(const P3CallbackSnapshot * snapshot)
     return;
   }
   if (result.kind == SplinePlanKind::kSafeStop) {
+    // 🔴 탈출 불가 정지는 반드시 드러낸다 (2026-08-14). 정지점에서도, 자차 위치까지
+    // 물러난 모든 지점에서도 회피 후보가 0개면 전진 계획으로는 재출발할 수 없다.
+    // 이전에는 이 상태가 아무 로그 없이 30초씩 매달려 있어 현장에서 원인을 알 수 없었다.
+    if (!result.safe_stop_escape_verified) {
+      RCLCPP_ERROR_THROTTLE(
+        get_logger(), *get_clock(), 2000,
+        "탈출 불가 안전정지 — 정지점(자차 +%.2f m)에서도, 더 뒤로 물려도 회피 후보가 "
+        "하나도 생성되지 않는다. 전진 계획으로는 재출발 불가(후진 필요). ego s=%.2f d=%+.2f",
+        result.safe_stop_forward_m, ego.s, ego.d);
+    }
     latchSafeStop(std::move(result), ego, planning_obstacles);
     (void)evaluateSafeStopLifecycle(ego, safe_stop_result_, planning_obstacles);
     publishResult(safe_stop_result_);

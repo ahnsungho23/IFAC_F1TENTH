@@ -2119,15 +2119,193 @@ bool RacelineSplinePlanner::validatePath(
   return true;
 }
 
+std::size_t RacelineSplinePlanner::generateSideCandidates(
+  const EgoFrenetState & ego,
+  const std::vector<ExpandedObstacle> & visible,
+  const std::vector<ExpandedObstacle> & cluster,
+  bool go_left,
+  bool outside_is_left,
+  bool stop_on_first_feasible,
+  std::vector<Candidate> & candidates,
+  std::string & side_reason,
+  std::size_t & generated_count) const
+{
+  generated_count = 0U;
+  double cluster_start = 0.0;
+  double cluster_end = 0.0;
+  double minimum_target = 0.0;
+  double maximum_target = 0.0;
+  if (!computeSideTargetRange(
+      ego, cluster, go_left, cluster_start, cluster_end,
+      minimum_target, maximum_target, side_reason))
+  {
+    return 0U;
+  }
+
+  const int requested_count = std::max(1, parameters_.target_d_candidate_count);
+  const bool collapsed_range = std::abs(maximum_target - minimum_target) <= kEpsilon;
+  const int sample_count = collapsed_range ? 1 : requested_count;
+  std::vector<double> entry_scales = parameters_.entry_transition_fractions;
+  // Keep every configured legacy entry candidate in its original order, then add one
+  // production candidate whose effective entry length consumes the complete distance from
+  // ego to the expanded cluster. This is intentionally derived from existing geometry and is
+  // not a tunable parameter.
+  entry_scales.push_back(
+    parameters_.detection_lookahead_m / parameters_.pre_apex_distances_m[0]);
+  std::size_t side_feasible_count = 0U;
+  for (int target_index = 0; target_index < sample_count; ++target_index) {
+    const double ratio = sample_count == 1 ? 0.0 :
+      static_cast<double>(target_index) / static_cast<double>(sample_count - 1);
+    const double target_d = minimum_target + ratio * (maximum_target - minimum_target);
+    for (const double entry_fraction : entry_scales) {
+      for (const double exit_scale : parameters_.transition_distance_scales) {
+        Candidate candidate = buildCandidate(
+          ego, visible, go_left, entry_fraction, exit_scale, outside_is_left,
+          cluster_start, cluster_end, target_d);
+        candidate.audit_index = candidates.size();
+        side_reason = candidate.reason;
+        ++generated_count;
+        const bool valid = candidate.valid;
+        if (valid) {
+          ++side_feasible_count;
+        }
+        candidates.push_back(std::move(candidate));
+        if (valid && stop_on_first_feasible) {
+          return side_feasible_count;
+        }
+      }
+    }
+  }
+  return side_feasible_count;
+}
+
+bool RacelineSplinePlanner::anyFeasibleCandidateFrom(
+  const EgoFrenetState & ego,
+  const std::vector<ExpandedObstacle> & visible,
+  const std::vector<ExpandedObstacle> & cluster) const
+{
+  if (cluster.empty()) {
+    return true;   // 막는 것이 없으면 굳이 정지할 이유도 없다
+  }
+  const bool outside_is_left = outsideIsLeft(ego, cluster);
+  std::vector<Candidate> candidates;
+  std::string reason;
+  std::size_t generated = 0U;
+  for (const bool go_left : {true, false}) {
+    if (generateSideCandidates(
+        ego, visible, cluster, go_left, outside_is_left, true,
+        candidates, reason, generated) > 0U)
+    {
+      return true;
+    }
+  }
+  return false;
+}
+
+void RacelineSplinePlanner::densifyPath(
+  f110_msgs::msg::WpntArray & path, std::size_t minimum_points) const
+{
+  if (path.wpnts.size() < 2U || path.wpnts.size() >= minimum_points) {
+    return;
+  }
+  // 가장 긴 구간을 반복해서 이등분한다. d가 일정한 정지 prefix라 선형 보간으로 충분하고,
+  // 곡률·가속도는 뒤에서 updateGeometryAndAcceleration이 다시 계산한다.
+  while (path.wpnts.size() < minimum_points) {
+    std::size_t longest = 0U;
+    double longest_length = -1.0;
+    for (std::size_t i = 0U; i + 1U < path.wpnts.size(); ++i) {
+      const double dx = path.wpnts[i + 1U].x_m - path.wpnts[i].x_m;
+      const double dy = path.wpnts[i + 1U].y_m - path.wpnts[i].y_m;
+      const double length = std::hypot(dx, dy);
+      if (length > longest_length) {
+        longest_length = length;
+        longest = i;
+      }
+    }
+    if (!(longest_length > kEpsilon)) {
+      break;      // 모든 구간이 이미 퇴화 — 더 쪼개도 의미가 없다
+    }
+    const auto & a = path.wpnts[longest];
+    const auto & b = path.wpnts[longest + 1U];
+    f110_msgs::msg::Wpnt mid = a;
+    mid.x_m = 0.5 * (a.x_m + b.x_m);
+    mid.y_m = 0.5 * (a.y_m + b.y_m);
+    mid.d_m = 0.5 * (a.d_m + b.d_m);
+    mid.d_left = 0.5 * (a.d_left + b.d_left);
+    mid.d_right = 0.5 * (a.d_right + b.d_right);
+    mid.vx_mps = 0.5 * (a.vx_mps + b.vx_mps);
+    mid.s_m = wrapS(a.s_m + 0.5 * forwardDistance(a.s_m, b.s_m));
+    mid.psi_rad = a.psi_rad + 0.5 * normalizeAngle(b.psi_rad - a.psi_rad);
+    mid.kappa_radpm = 0.5 * (a.kappa_radpm + b.kappa_radpm);
+    path.wpnts.insert(path.wpnts.begin() + static_cast<std::ptrdiff_t>(longest) + 1, mid);
+  }
+  for (std::size_t i = 0U; i < path.wpnts.size(); ++i) {
+    path.wpnts[i].id = static_cast<int32_t>(i);
+  }
+}
+
 RacelineSplineResult RacelineSplinePlanner::buildSafeStop(
   const EgoFrenetState & ego,
   const std::vector<ExpandedObstacle> & visible,
+  const std::vector<ExpandedObstacle> & cluster,
   const ExpandedObstacle & blocking) const
 {
   RacelineSplineResult result;
   result.kind = SplinePlanKind::kNoSafePath;
   result.obstacle_id = blocking.id;
-  const double stop_at = std::max(0.0, blocking.start - parameters_.safe_stop_buffer_m);
+  double stop_at = std::max(0.0, blocking.start - parameters_.safe_stop_buffer_m);
+
+  // 🔴 정지점 탈출 검증 (2026-08-14). 정지 자체보다 **어디에 서느냐**가 교착을 만든다.
+  // 실차에서 safe_stop_buffer_m 1.20 m는 탈출 임계(2.0~2.5 m)보다 작아서, 정지하는
+  // 순간 이미 회피 후보가 0개 생성되는 구역이었다(run_0101_090639: 장애물 1.6 m 앞에
+  // 28.8초 정지, 좌 1.17 m/우 1.36 m로 횡공간은 충분했음). 정지점에서 v=0으로
+  // 재계획이 되는지 먼저 묻고, 안 되면 뒤로 물린다.
+  bool escape_verified = !parameters_.safe_stop_escape_check_enable;
+  if (parameters_.safe_stop_escape_check_enable) {
+    const double requested_stop_at = stop_at;
+    const auto escapable_at = [&](double forward) {
+        EgoFrenetState at_stop;
+        at_stop.s = wrapS(ego.s + forward);
+        at_stop.d = ego.d;
+        at_stop.speed = 0.0;
+        return anyFeasibleCandidateFrom(at_stop, visible, cluster);
+      };
+
+    // 탈출 가능성은 정지점을 **뒤로 물릴수록**(=forward가 작을수록) 단조 증가한다:
+    // 장애물까지 남는 진입 거리가 그만큼 길어지기 때문이다. 그래서 선형 후퇴 대신
+    // 이분탐색으로 "탈출 가능한 가장 늦은 정지점"을 찾는다. 선형 후퇴는 탈출이 아예
+    // 불가능한 경우에 매 사이클 (후퇴횟수 × 2면 × 36후보)를 다 태워 실측 23.8 ms가
+    // 나왔다(40 Hz 예산 25 ms를 젯슨에서 확실히 초과). 이분탐색은 흔한 경우 1회,
+    // 가망 없는 경우 2회 탐침으로 끝난다.
+    // ⚠️ 트랙 폭이 구간마다 달라 단조성이 국소적으로 깨질 수 있다. 그때 이분탐색은
+    // 중간의 통과 가능 지점을 놓칠 수 있는데, 결과는 "원래 정지점 유지"라 보수적이다.
+    if (escapable_at(stop_at)) {
+      escape_verified = true;                      // 탐침 1회 — 정상 경로
+    } else if (stop_at > kEpsilon && escapable_at(0.0)) {
+      // 자차 자리에서는 탈출 가능 → 그 사이 어딘가가 경계다. 가장 늦은 탈출 가능점 탐색.
+      escape_verified = true;
+      double feasible = 0.0;                       // 탈출 가능이 확인된 값
+      double infeasible = stop_at;                 // 탈출 불가가 확인된 값
+      const int probes = std::clamp(parameters_.safe_stop_escape_max_retreats, 0, 12);
+      const double resolution = std::max(kEpsilon, parameters_.safe_stop_escape_retreat_step_m);
+      for (int i = 0; i < probes && (infeasible - feasible) > resolution; ++i) {
+        const double middle = 0.5 * (feasible + infeasible);
+        if (escapable_at(middle)) {
+          feasible = middle;
+        } else {
+          infeasible = middle;
+        }
+      }
+      stop_at = feasible;
+    }
+    // 어느 지점에서도 탈출이 안 되면 후퇴는 아무것도 사지 못한다. 축소된 stop_at을 그대로
+    // 쓰면 (a) 필요보다 훨씬 일찍 서고 (b) 정지 prefix가 짧아져 경로가 통째로 무효화된다
+    // (이 복원이 없을 때 kSafeStop이 kNoSafePath로 퇴화하는 것을 확인했다).
+    if (!escape_verified) {
+      stop_at = requested_stop_at;
+    }
+  }
+
   const std::size_t first_index = nextReferenceIndex(ego.s);
   result.path.header = reference_.header;
   for (std::size_t k = 0; k < reference_.wpnts.size(); ++k) {
@@ -2154,6 +2332,21 @@ RacelineSplineResult RacelineSplinePlanner::buildSafeStop(
     result.path.wpnts.clear();
     return result;
   }
+  // 🔴 minimum_path_points를 안전정지 경로에도 적용한다 (2026-08-14). 이전에는 가드가
+  // size()<2뿐이라 2점 경로 [v, 0]이 그대로 나갔는데, 제어기는 룩어헤드 지점의 속도를
+  // 읽으므로 2점에서는 룩어헤드가 곧바로 끝점 0에 걸려 감속 프로파일을 통째로 건너뛰고
+  // 즉시 0을 명령한다(실차 관측: /local_waypoints [1.08, 0.00] → /drive_autonomous 0.00).
+  densifyPath(result.path, static_cast<std::size_t>(std::max(2, parameters_.minimum_path_points)));
+  // 보간으로 생긴 점에도 같은 제동 프로파일을 다시 씌운다 — 선형 보간된 속도는
+  // sqrt(2·a·거리) 곡선보다 항상 크거나 같아 낙관적이다.
+  for (auto & waypoint : result.path.wpnts) {
+    const double forward_s = forwardDistance(ego.s, waypoint.s_m);
+    waypoint.vx_mps = std::min(
+      std::max(0.0, waypoint.vx_mps),
+      std::sqrt(
+        2.0 * parameters_.safe_stop_deceleration_mps2 *
+        std::max(0.0, stop_at - forward_s)));
+  }
   result.path.wpnts.back().vx_mps = 0.0;
   updateGeometryAndAcceleration(result.path);
 
@@ -2165,7 +2358,15 @@ RacelineSplineResult RacelineSplinePlanner::buildSafeStop(
   }
   result.kind = SplinePlanKind::kSafeStop;
   result.merge_s = result.path.wpnts.back().s_m;
-  result.reason = "both spline sides rejected; braking before the static obstacle";
+  result.safe_stop_escape_verified = escape_verified;
+  result.safe_stop_forward_m = stop_at;
+  result.reason = escape_verified ?
+    "both spline sides rejected; braking before the static obstacle" :
+    // 여기까지 왔다면 자차 위치까지 물러나도 회피 후보가 하나도 생성되지 않는다. 전진
+    // 계획으로는 풀 수 없는 상태(후진이 필요)이므로, 조용히 매달려 있지 말고 알린다.
+    "both spline sides rejected; braking before the static obstacle; "
+    "WARNING no escapable stop point exists — the car will not be able to resume from this "
+    "stop by forward planning";
   return result;
 }
 
@@ -2206,7 +2407,7 @@ RacelineSplineResult RacelineSplinePlanner::buildPreparationStop(
     }
   }
 
-  result = buildSafeStop(ego, visible, cluster.front());
+  result = buildSafeStop(ego, visible, cluster, cluster.front());
   result.obstacle_ids.reserve(cluster.size());
   for (const auto & obstacle : cluster) {
     result.obstacle_ids.push_back(obstacle.id);
@@ -2259,48 +2460,13 @@ RacelineSplineResult RacelineSplinePlanner::plan(
         right_evaluated = true;
       }
       std::string & side_reason = go_left ? left_reason : right_reason;
-      double cluster_start = 0.0;
-      double cluster_end = 0.0;
-      double minimum_target = 0.0;
-      double maximum_target = 0.0;
-      if (!computeSideTargetRange(
-          ego, cluster, go_left, cluster_start, cluster_end,
-          minimum_target, maximum_target, side_reason))
-      {
-        return;
-      }
-
-      const int requested_count = std::max(1, parameters_.target_d_candidate_count);
-      const bool collapsed_range = std::abs(maximum_target - minimum_target) <= kEpsilon;
-      const int sample_count = collapsed_range ? 1 : requested_count;
-      std::vector<double> entry_scales = parameters_.entry_transition_fractions;
-      // Keep every configured legacy entry candidate in its original order, then add one
-      // production candidate whose effective entry length consumes the complete distance from
-      // ego to the expanded cluster. This is intentionally derived from existing geometry and is
-      // not a tunable parameter.
-      entry_scales.push_back(
-        parameters_.detection_lookahead_m / parameters_.pre_apex_distances_m[0]);
+      // 후보 생성은 generateSideCandidates 한 곳에만 둔다. 안전정지 탈출 검증
+      // (anyFeasibleCandidateFrom)이 같은 함수를 쓰므로, "정지점에서 회피 가능"이라는
+      // 판정과 실제 재계획이 어긋날 수 없다.
       std::size_t side_candidate_count = 0U;
-      std::size_t side_feasible_count = 0U;
-      for (int target_index = 0; target_index < sample_count; ++target_index) {
-        const double ratio = sample_count == 1 ? 0.0 :
-          static_cast<double>(target_index) / static_cast<double>(sample_count - 1);
-        const double target_d = minimum_target + ratio * (maximum_target - minimum_target);
-        for (const double entry_fraction : entry_scales) {
-          for (const double exit_scale : parameters_.transition_distance_scales) {
-            Candidate candidate = buildCandidate(
-              ego, visible, go_left, entry_fraction, exit_scale, outside_is_left,
-              cluster_start, cluster_end, target_d);
-            candidate.audit_index = candidates.size();
-            side_reason = candidate.reason;
-            ++side_candidate_count;
-            if (candidate.valid) {
-              ++side_feasible_count;
-            }
-            candidates.push_back(std::move(candidate));
-          }
-        }
-      }
+      const std::size_t side_feasible_count = generateSideCandidates(
+        ego, visible, cluster, go_left, outside_is_left, false,
+        candidates, side_reason, side_candidate_count);
       if (side_feasible_count == 0U) {
         side_reason = std::to_string(side_candidate_count) +
           " generated candidates rejected; last: " + side_reason;
@@ -2416,7 +2582,7 @@ RacelineSplineResult RacelineSplinePlanner::plan(
         return slow_pass;
       }
     }
-    auto safe_stop = buildSafeStop(ego, visible, cluster.front());
+    auto safe_stop = buildSafeStop(ego, visible, cluster, cluster.front());
     safe_stop.obstacle_ids.reserve(cluster.size());
     for (const auto & obstacle : cluster) {
       safe_stop.obstacle_ids.push_back(obstacle.id);
@@ -2427,6 +2593,12 @@ RacelineSplineResult RacelineSplinePlanner::plan(
       "committed side rejected; alternate side locked after lateral engagement; braking before "
       "the static obstacle";
     safe_stop.reason += "; left: " + left_reason + "; right: " + right_reason;
+    // buildSafeStop이 붙인 탈출-불가 경고는 위 대입으로 지워지므로 여기서 다시 붙인다.
+    if (!safe_stop.safe_stop_escape_verified) {
+      safe_stop.reason +=
+        "; WARNING no escapable stop point exists — the car will not be able to resume from "
+        "this stop by forward planning";
+    }
     safe_stop.candidate_audits = build_audits();
     return safe_stop;
   }

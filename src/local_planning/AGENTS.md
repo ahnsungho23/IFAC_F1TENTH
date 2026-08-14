@@ -256,6 +256,21 @@
 - End-to-end detector harness: `test/static_obs_pipeline_test.py`; run it while
   `obstacle_detector_node` and `local_planner_node` are active to verify
   `/scan -> /static_obs -> /avoid_waypoints`.
+- Stuck-case harness: `test/stuck_case_harness.cpp` (diagnostic, not a runtime node). Feed it the
+  raceline CSV the car actually ran plus an ego/obstacle state pulled from a bag, and it prints
+  every candidate's rejection reason plus the safe-stop escape verdict:
+  `./build/local_planning/stuck_case_harness <csv> <ego_s> <ego_d> <ego_v> <obs_s0> <obs_s1>
+  <obs_dr> <obs_dl> [reserve] [escape_check 0|1] [repeat]`. `repeat` runs `plan()` N times for
+  cost measurement. **Use the live raceline** — a mismatched reference silently produces wrong
+  curvature and wrong coordinates (see the reference-line note in `config/local_planning.yaml`).
+  Keep the hardcoded `operationalParameters()` in sync with `config/local_planning.yaml`;
+  a silently different margin makes the harness answer a question nobody asked.
+- Safe-stop escape verification: `buildSafeStop` must decide the stop point with the **same**
+  candidate generator `plan()` uses (`generateSideCandidates`). If a second copy of that loop is
+  ever introduced, "avoidance is possible from the stop point" and the actual replan will drift
+  apart and the trap comes back. Any change here needs the three regression cases in
+  `test_raceline_spline.cpp` (`DensifiesShortSafeStopPrefixToMinimumPoints`,
+  `ReportsWhenSafeStopPointIsNotEscapable`, `SafeStopEscapeCheckCanBeDisabled`) to stay green.
 - Safe-stop/state harness: `test/safe_stop_latch_pipeline_test.py`; run it with
   `local_planner_node`, `state_machine_node`, and `wpnt_publisher` to verify the same-ID
   avoidance-to-stop latch, delayed release, and `/local_waypoints` forwarding contract.

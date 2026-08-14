@@ -134,6 +134,17 @@ struct RacelineSplineParameters
   double safe_stop_deceleration_mps2{2.5};
   int minimum_path_points{8};
 
+  // 안전정지 정지점 탈출 검증. safe_stop_buffer_m은 손으로 맞춘 상수라, 기하에 따라
+  // "정지는 했는데 그 자리에서 회피 곡선을 만들 진입 거리가 없는" 영구 교착이 생긴다
+  // (2026-08-14 실차: 임계 2.0~2.5 m vs 버퍼 1.20 m — 모든 안전정지가 교착이었다).
+  // 켜면 정지점을 확정하기 전에 그 지점에서 v=0으로 회피가 생성되는지 확인하고,
+  // 안 되면 safe_stop_escape_retreat_step_m씩 뒤로 물린다.
+  bool safe_stop_escape_check_enable{true};
+  // 한 스텝 후퇴 거리와 최대 후퇴 횟수. step × max_steps가 버퍼에 더해질 수 있는 최대
+  // 후퇴량이다. 후보 생성을 그만큼 반복하므로 무한정 키우면 안 된다.
+  double safe_stop_escape_retreat_step_m{0.30};
+  int safe_stop_escape_max_retreats{8};
+
   bool hasTrackingErrorLut() const;
   bool trackingErrorLutValid() const;
   bool avoidanceVelocityLimitValid() const;
@@ -241,6 +252,11 @@ struct RacelineSplineResult
   // band, so margin-based commitment validation must not replace it; it stays valid until an
   // obstacle's raw envelope (plus the physical base clearance) actually reaches the race line.
   bool margin_pass{false};
+  // 안전정지 진단. escape_verified가 false면 정지점(그리고 자차 위치까지의 모든 후퇴
+  // 지점)에서 회피 후보가 하나도 생성되지 않는다 — 전진 계획으로는 재출발할 수 없는
+  // 상태이므로 노드가 이를 로그로 드러내야 한다. forward_m은 자차 기준 정지점 거리다.
+  bool safe_stop_escape_verified{true};
+  double safe_stop_forward_m{std::numeric_limits<double>::quiet_NaN()};
   std::string reason;
 };
 
@@ -428,9 +444,31 @@ private:
   FootprintTrackBoundSample measureFootprintTrackBound(
     const f110_msgs::msg::Wpnt & waypoint,
     std::size_t waypoint_index) const;
+  // plan()의 한쪽 방향 후보 생성. plan()과 안전정지 탈출 검증이 **같은 코드**로 후보를
+  // 만들어야 "정지점에서 회피 가능"이라는 판정이 실제 재계획과 일치한다. 두 벌로 나뉘면
+  // 조용히 어긋난다. 반환값은 이번 호출에서 생성된 feasible 후보 수.
+  // stop_on_first_feasible=true면 첫 통과 후보에서 즉시 멈춘다(탈출 가능성만 물을 때).
+  std::size_t generateSideCandidates(
+    const EgoFrenetState & ego,
+    const std::vector<ExpandedObstacle> & visible,
+    const std::vector<ExpandedObstacle> & cluster,
+    bool go_left,
+    bool outside_is_left,
+    bool stop_on_first_feasible,
+    std::vector<Candidate> & candidates,
+    std::string & side_reason,
+    std::size_t & generated_count) const;
+  // 주어진 자차 상태에서 회피 경로가 하나라도 생성되는가. 경로는 만들지 않고 가능성만 본다.
+  bool anyFeasibleCandidateFrom(
+    const EgoFrenetState & ego,
+    const std::vector<ExpandedObstacle> & visible,
+    const std::vector<ExpandedObstacle> & cluster) const;
+  // 경로 점 수가 minimum_path_points에 못 미치면 최장 구간을 반복 이등분해 채운다.
+  void densifyPath(f110_msgs::msg::WpntArray & path, std::size_t minimum_points) const;
   RacelineSplineResult buildSafeStop(
     const EgoFrenetState & ego,
     const std::vector<ExpandedObstacle> & visible,
+    const std::vector<ExpandedObstacle> & cluster,
     const ExpandedObstacle & blocking) const;
   RacelineSplineResult buildMarginSlowPass(
     const EgoFrenetState & ego,

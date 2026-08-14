@@ -513,10 +513,37 @@ margin-pass 커밋은 의도적으로 마진 밴드 안을 지나므로 마진 �
 통과를 발행합니다. `0.0`이면 기능이 꺼지고 기존 escalation으로 복귀합니다.
 
 **2) 물리적으로 막힌 경우의 정지**: 글로벌 `d=0` 위에서 longitudinal padding이 적용된 장애물
-경계 앞 `safe_stop_buffer_m`까지의 충돌 없는 prefix를 만들고 마지막 속도를 0으로 둡니다. 현재
-설정은 `safe_stop_buffer_m=0.40 m`, `obstacle_longitudinal_padding_m=0.3661363 m`이므로 detector
-원본 AABB 앞 기준 nominal 정지 거리는 0.7661363 m입니다. 회피 spline의 `minimum_path_points`보다
-짧더라도 2점 이상의 정지 prefix는 별도로 검증해 사용합니다.
+경계 앞 `safe_stop_buffer_m`까지의 충돌 없는 prefix를 만들고 마지막 속도를 0으로 둡니다.
+현재 설정은 `safe_stop_buffer_m=2.60 m`입니다.
+
+**2-a) 정지점 탈출 검증 (2026-08-14 신규)** — 정지 자체보다 **어디에 서느냐**가 교착을
+만듭니다. 실차에서 버퍼가 1.20 m였을 때 탈출 임계(2.0~2.5 m)보다 작아, 정지하는 순간 이미
+회피 후보가 0개 생성되는 구역이었습니다(`run_0101_090639`: 장애물 1.6 m 앞에 28.8초 정지,
+그 지점 좌 1.17 m / 우 1.36 m로 **횡공간은 충분**했음).
+
+`safe_stop_escape_check_enable`이 켜져 있으면 정지점을 확정하기 전에 그 지점에서 `v=0`으로
+회피 경로가 생성되는지 확인합니다. 안 되면 **탈출 가능한 가장 늦은 지점**까지 물립니다.
+탈출 가능성은 정지점을 뒤로 물릴수록 단조 증가하므로(진입 거리가 길어짐) 선형 후퇴가 아니라
+이분탐색을 씁니다. 판정에는 `plan()`과 **같은 후보 생성 함수**(`generateSideCandidates`)를
+쓰므로 "정지점에서 회피 가능"이라는 판정과 실제 재계획이 어긋날 수 없습니다.
+
+어느 지점에서도 불가능하면 원래 정지점을 유지하고(후퇴가 아무것도 사지 못하므로),
+`RacelineSplineResult::safe_stop_escape_verified=false`와 reason 경고를 남기며 노드가
+2초 throttle ERROR를 찍습니다. 이전에는 이 상태가 아무 로그 없이 30초씩 매달렸습니다.
+
+비용(랩톱 실측, `plan()` 1회): 회피가 성립하는 정상 경로는 5.17 → 5.00 ms로 **변화 없음**
+(검증은 안전정지 경로에서만 호출). 탈출이 아예 불가능한 최악의 안전정지 경로가
+3.30 → 8.78 ms(선형 후퇴 버전은 23.80 ms였습니다). 젯슨에서 안전정지 중 루프 지연이
+관측되면 `safe_stop_escape_check_enable: false`로 즉시 이전 동작으로 돌아갑니다.
+
+**2-b) 정지 prefix 세분 보간 (2026-08-14 신규)** — 정지 prefix는 `minimum_path_points`보다
+짧아도 거부하지 않지만, 그 상태로 발행하지도 않습니다. 이전에는 가드가 `size()<2`뿐이라
+2점 경로 `[v, 0]`이 그대로 나갔는데, 제어기(`control_map_node`)는 **룩어헤드 지점의 속도**를
+읽으므로 2점에서는 룩어헤드가 곧바로 끝점 `0`에 걸려 감속 프로파일을 통째로 건너뛰고 즉시
+정지를 명령했습니다(실차 관측: `/local_waypoints [1.08, 0.00]` → `/drive_autonomous 0.00`).
+이제 최장 구간을 반복 이등분해 `minimum_path_points`를 채우고, 보간으로 생긴 점에도 같은
+`sqrt(2·a·거리)` 제동 프로파일을 다시 씌웁니다(선형 보간 속도는 항상 낙관적이므로).
+보간은 점 수만 늘리고 정지 지점은 옮기지 않습니다.
 
 **3) stop prefix가 없을 때 — 직전 유효 경로 제동**: 장애물이 이미 buffer 안에 있어 prefix를
 만들 수 없으면, 그 자리 0속도 emergency hold 대신 **마지막으로 발행한 유효 안내 경로**
@@ -706,8 +733,12 @@ commitment는 지우지 않으므로 odometry가 회복되면 다시 검증한 �
 - maneuver 연결: `chain_release_distance_m`
 - 기하 제한: `maximum_lateral_slope`, `maximum_curvature_radpm`,
   `maximum_curvature_rate_radpm2`
-- 실패 시 정지: `safe_stop_buffer_m`, `safe_stop_deceleration_mps2`,
+- 실패 시 정지: `safe_stop_buffer_m`(기본 2.60 m), `safe_stop_deceleration_mps2`,
   `safe_stop_release_cycles`
+- 정지점 탈출 검증: `safe_stop_escape_check_enable`(기본 true, false=이전 동작),
+  `safe_stop_escape_retreat_step_m`(이분탐색 해상도, 기본 0.30 m),
+  `safe_stop_escape_max_retreats`(최대 탐침 횟수, 기본 8 — 흔한 경우 1회로 끝남).
+  자세한 동작·비용은 위 "2-a) 정지점 탈출 검증" 참고.
 
 정상 회피 경로는 변경된 heading·curvature를 계산한 뒤 velocity-limit 표로 `vx_mps`를 제한하고
 `ax_mps2`를 다시 계산합니다. safe-stop은 별도의 `safe_stop_deceleration_mps2`를 사용합니다.

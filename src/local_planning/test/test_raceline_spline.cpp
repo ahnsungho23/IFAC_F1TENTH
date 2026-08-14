@@ -1254,7 +1254,13 @@ TEST(RacelineSplinePlanner, RefusesPreparationDelayInsideSafeStopBuffer)
   EXPECT_NE(result.reason.find("inside the safe-stop buffer"), std::string::npos);
 }
 
-TEST(RacelineSplinePlanner, AllowsShortValidatedSafeStopPrefix)
+// 짧은 안전정지 prefix는 여전히 허용된다(minimum_path_points 미달을 이유로 거부하지
+// 않는다). 다만 2026-08-14부터는 그 상태로 내보내지 않고 minimum_path_points까지
+// 세분 보간한다. 제어기가 룩어헤드 지점의 속도를 읽기 때문에, 2~3점짜리 경로에서는
+// 룩어헤드가 곧바로 끝점 0에 걸려 감속 프로파일을 통째로 건너뛰고 즉시 정지를 명령한다
+// (실차 관측: /local_waypoints [1.08, 0.00] -> /drive_autonomous 0.00, 28.8초 교착).
+// 보간은 점 수만 늘릴 뿐 정지 지점(기하 구간)을 늘려서는 안 된다.
+TEST(RacelineSplinePlanner, DensifiesShortSafeStopPrefixToMinimumPoints)
 {
   auto parameters = testParameters();
   parameters.maximum_target_offset_m = 0.45;
@@ -1265,8 +1271,57 @@ TEST(RacelineSplinePlanner, AllowsShortValidatedSafeStopPrefix)
   const auto result = planner.plan(
     EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(5, 1.65, -0.40, 0.40)});
   ASSERT_EQ(result.kind, SplinePlanKind::kSafeStop) << result.reason;
-  EXPECT_GE(result.path.wpnts.size(), 2U);
-  EXPECT_LT(result.path.wpnts.size(), 8U);
+  ASSERT_GE(result.path.wpnts.size(), 8U);
+
+  // 기하 구간은 짧은 그대로여야 한다 — 보간이 정지점을 밀어내지 않았음을 확인한다.
+  const double span = result.path.wpnts.back().s_m - result.path.wpnts.front().s_m;
+  EXPECT_LT(span, 1.30);
+
+  // 감속 프로파일이 살아 있어야 한다: 단조 비증가 + 종점 0.
+  EXPECT_DOUBLE_EQ(result.path.wpnts.back().vx_mps, 0.0);
+  EXPECT_GT(result.path.wpnts.front().vx_mps, 0.0);
+  for (std::size_t i = 1U; i < result.path.wpnts.size(); ++i) {
+    EXPECT_LE(result.path.wpnts[i].vx_mps, result.path.wpnts[i - 1U].vx_mps + 1e-9)
+      << "index " << i;
+  }
+}
+
+// 정지점 탈출 검증: 정지한 자리에서 회피 후보가 하나도 생성되지 않으면 그 사실이
+// 결과에 남아야 한다. 이전에는 아무 표시 없이 정지해 현장에서 30초씩 매달렸다.
+TEST(RacelineSplinePlanner, ReportsWhenSafeStopPointIsNotEscapable)
+{
+  auto parameters = testParameters();
+  parameters.maximum_target_offset_m = 0.45;
+  parameters.minimum_path_points = 8;
+  parameters.safe_stop_buffer_m = 0.80;
+  parameters.safe_stop_escape_check_enable = true;
+  RacelineSplinePlanner planner(parameters);
+  ASSERT_TRUE(planner.setReference(makeStraightReference()));
+  // 트랙 폭을 가득 막는 장애물 — 어느 지점에서도 회피가 불가능하다.
+  const auto result = planner.plan(
+    EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(5, 3.0, -1.20, 1.20)});
+  ASSERT_EQ(result.kind, SplinePlanKind::kSafeStop) << result.reason;
+  EXPECT_FALSE(result.safe_stop_escape_verified);
+  EXPECT_NE(result.reason.find("no escapable stop point"), std::string::npos);
+  // 탈출이 어차피 불가능하면 후퇴는 아무것도 사지 못하므로 원래 정지점을 지켜야 한다.
+  EXPECT_GT(result.safe_stop_forward_m, 1.0);
+}
+
+// 탈출 검증을 끄면 이전 동작(정지점 무검증)으로 돌아간다 — 회귀 시 즉시 되돌릴 수 있어야 한다.
+TEST(RacelineSplinePlanner, SafeStopEscapeCheckCanBeDisabled)
+{
+  auto parameters = testParameters();
+  parameters.maximum_target_offset_m = 0.45;
+  parameters.minimum_path_points = 8;
+  parameters.safe_stop_buffer_m = 0.80;
+  parameters.safe_stop_escape_check_enable = false;
+  RacelineSplinePlanner planner(parameters);
+  ASSERT_TRUE(planner.setReference(makeStraightReference()));
+  const auto result = planner.plan(
+    EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(5, 3.0, -1.20, 1.20)});
+  ASSERT_EQ(result.kind, SplinePlanKind::kSafeStop) << result.reason;
+  EXPECT_TRUE(result.safe_stop_escape_verified);   // 검증 자체를 안 했으므로 참으로 둔다
+  EXPECT_EQ(result.reason.find("no escapable stop point"), std::string::npos);
 }
 
 TEST(RacelineSplinePlanner, BuildsZeroSpeedEmergencyHold)
