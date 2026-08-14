@@ -9,12 +9,6 @@ endif()
 # compile_commands.json 생성 활성화 (VS Code Linter 연동용)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-
-# ==============================================================================
-# 임베디드 제어 성능 극대화를 위한 컴파일 최적화 플래그 (-O3, -march=native)
-# ==============================================================================
-# (2026-08-01: MPPI GPU 솔버 제거로 CUDA(.cu) 빌드 유닛이 없어져 CXX 언어 스코프 제한이
-#  더 이상 필수는 아니지만, 순수 C++ 패키지로 남는 한 부작용이 없어 그대로 둔다.)
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(
     "$<$<COMPILE_LANGUAGE:CXX>:-O3>"          # 최대 런타임 속도 최적화
@@ -41,9 +35,6 @@ find_package(ament_index_cpp REQUIRED)
 add_executable(control_map_node
   control_code/control_map_node.cpp
 )
-# ⚠️ 2026-08-06: gap_follower.cpp / imu_stability_controller.hpp를 저장소에서 삭제했다.
-#    전자는 08-04에 호출부가 사라진 뒤 컴파일만 되던 죽은 코드였고, 후자는 요레이트
-#    카운터스티어(기본 0.00 = 비활성)와 함께 제거됐다. 되살릴 근거가 생기면 git 이력에서 꺼낼 것.
 target_include_directories(control_map_node PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
@@ -69,26 +60,12 @@ target_link_libraries(sim_imu_bridge_node
   ${nav_msgs_TARGETS}
 )
 
-# ==============================================================================
-# 6. Drive Source Selector 노드 (자율 명령 포워더 — sim/real 공용)
-#    수동/자율/E-stop Mux(teleop)는 이 저장소 밖 담당이다: 실차는 f1tenth_stack
-#    (drive_mode_manager+ackermann_mux), 시뮬은 Mux 없이 이 노드가 자율 명령을 /drive로
-#    직결한다. control_map_node의 /drive_autonomous를 그대로 /drive로 포워딩한다.
-#    (2026-08-01: MPPI 노드/솔버 전체 제거와 함께 MAP/MPPI 셀렉터 기능도 걷어냄 — 대회
-#    준비 기간 동안 MAP 하나에만 집중하기로 함. MPPI 코드는 git 이력에서 꺼낼 수 있음.)
-# ==============================================================================
 add_executable(drive_source_selector control_code/drive_source_selector.cpp)
 target_link_libraries(drive_source_selector
   rclcpp::rclcpp
   ${ackermann_msgs_TARGETS}
 )
 
-# ==============================================================================
-# 6-B. Odom 거리 스케일 보정 노드 (실차 원격 — 우리 컴에서 실행)
-#    "명령 주고 자로 재기" 테스트 자동화. odom 한 토픽 안의 twist(VESC 휠 패스스루)와
-#    pose(MCL 스캔매칭)를 따로 적분해 명령/휠/맵 세 거리를 동시 측정 → 어느 게인이
-#    틀렸는지 분리해준다. /drive 미발행(순수 관찰자).
-# ==============================================================================
 add_executable(odom_calib_node control_code/odom_calib_node.cpp)
 target_link_libraries(odom_calib_node
   rclcpp::rclcpp
@@ -116,6 +93,17 @@ install(DIRECTORY launch
 # (control_map_node가 get_package_share_directory("f1tenth_control")+"/cfg/..."로 조회)
 install(FILES control_code/LUT_calibrated.csv
   DESTINATION share/${PROJECT_NAME}/cfg
+)
+
+# 섹터 스케일 테이블 — scripts/sector_learner.py가 읽어 /sector_scales로 발행한다.
+# ⚠️ --symlink-install로 빌드하면 install 쪽이 src를 가리키는 심볼릭 링크가 되어
+#    **재빌드 없이 값 수정이 즉시 반영**된다(런치 파일과 같은 성질).
+install(FILES config/sectors.yaml
+  DESTINATION share/${PROJECT_NAME}/config
+)
+
+install(PROGRAMS scripts/sector_learner.py
+  DESTINATION lib/${PROJECT_NAME}
 )
 
 ament_package()
