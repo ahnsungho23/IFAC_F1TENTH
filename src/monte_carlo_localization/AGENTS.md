@@ -20,6 +20,12 @@ This document defines package-specific developer rules and guidelines for `monte
   - `scan_topic` (string, default: `/scan`): LiDAR scan input topic.
   - `odom_topic` (string, default: `/odom`): Odometry input topic.
   - `publish_map_odom_tf` (bool, default: `true`): Controls publication of `map -> odom` TF.
+  - `publish_extrapolation_sec` (double, default `0.0` in code; real YAML `0.09`, sim YAML `0.0`):
+    forward-extrapolates the PUBLISHED `/pf/pose/odom` position along heading by `v × this`
+    to compensate the measured ~90 ms end-to-end output lag (2026-08-14 diagnosis: corner
+    p95 0.101→0.000 with 90 ms; yaw has NO lag so only translation is shifted; filter/EKF/TF
+    state untouched; clamped to [0, 0.15]). ⚠️ Keep the sim value at 0.0 — CMA lockstep
+    bit-determinism depends on it, and sim has no hardware pipeline lag to compensate.
 
 ## Launch Policy
 
