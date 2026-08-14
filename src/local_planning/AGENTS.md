@@ -160,8 +160,17 @@
   the frozen commitment and the last valid obstacle snapshot, complete the odometry-based merge and
   GLOBAL handoff normally, and reuse the snapshot when planning on a later lap. A fresh valid
   obstacle array, including an explicitly empty array, replaces that memory. Rejecting a wrong-frame
-  array must not erase it. Do not wait for repeated observations when replanning solely from retained
+  array must not erase it, and neither must a non-empty array whose every entry failed the Frenet
+  validity check: an all-rejected array is degraded perception, and storing the empty accepted list
+  would be indistinguishable from the explicitly-empty case that IS allowed to erase the memory.
+  Return from such an array without touching the snapshot, sequence, source stamp, or P3 epoch. Do
+  not wait for repeated observations when replanning solely from retained
   stale memory because no new samples can arrive.
+- The reference-change test must compare every waypoint field the planner consumes -- `s_m`, `x_m`,
+  `y_m`, `d_left`, `d_right`, `psi_rad`, `kappa_radpm`, `vx_mps` -- not only the centreline
+  geometry. A boundary-only recalibration changes none of `s/x/y`, and `obstacle_detector` already
+  treats `d_left/d_right` changes as a new reference; comparing fewer fields here desynchronizes
+  the two nodes onto different track widths.
 - Separate commitment violations into hard physical collisions and soft uncertainty-envelope
   collisions. Both checks use the same unified physical clearance. Test hard collisions against
   raw detector bounds and replan immediately; test soft collisions against uncertainty Guards.

@@ -1451,10 +1451,13 @@ void ObstacleDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
     const auto dynamic_objs = mergeLayer(dynamic_members, false);
     const int opp = selectOpponent(dynamic_objs);
     // Layer 3 ranks opponents by forward distance from ego_s_. A stale ego odometry sample would
-    // misplace that ranking, so /opp_obs is suppressed until fresh odometry arrives.
+    // misplace that ranking, so /opp_obs is suppressed until fresh odometry arrives. ego_s_ < 0.0
+    // means odometry was NEVER received, which is the weakest state of all: selectOpponent then
+    // falls back to ranking by positional variance and names an opponent with no ahead/behind
+    // check at all. It must suppress, not permit.
     const bool ego_s_fresh =
-        ego_s_ < 0.0 ||
-        (ego_s_stamp_ >= 0.0 && std::abs(stamp - ego_s_stamp_) <= meas_motion_timeout_);
+        ego_s_ >= 0.0 && ego_s_stamp_ >= 0.0 &&
+        std::abs(stamp - ego_s_stamp_) <= meas_motion_timeout_;
 
     f110_msgs::msg::ObstacleArray static_arr;
     static_arr.header = msg->header;
@@ -1493,7 +1496,9 @@ void ObstacleDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
     else
     {
         RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
-                             "Ego odometry stale beyond meas_motion_timeout; suppressing /opp_obs");
+                             "Ego odometry %s; suppressing /opp_obs",
+                             ego_s_ < 0.0 ? "not received yet"
+                                          : "stale beyond meas_motion_timeout");
     }
 
     // RViz mirrors are built from the final published Frenet arrays. They therefore visualize the

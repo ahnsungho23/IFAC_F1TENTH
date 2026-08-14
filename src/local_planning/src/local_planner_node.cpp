@@ -658,9 +658,21 @@ bool LocalPlannerNode::sameReference(const f110_msgs::msg::WpntArray & message) 
   for (std::size_t i = 0; i < message.wpnts.size(); ++i) {
     const auto & first = message.wpnts[i];
     const auto & second = global_waypoints_.wpnts[i];
+    // Compare every field the planner actually consumes, not just the centreline geometry.
+    // d_left/d_right feed the track-bound gate and the footprint validator, psi_rad places each
+    // shifted waypoint on its own normal, kappa_radpm and vx_mps drive the velocity limit and the
+    // tracking-error LUT. A boundary-only recalibration (the control team's per-sector lidar wall
+    // table, see docs/local_planner.md merge-ramp note) changes none of s/x/y, so comparing those
+    // alone would silently keep the planner on the previous widths while obstacle_detector --
+    // which already compares d_left/d_right -- switches to the new ones.
     if (std::abs(first.s_m - second.s_m) > 1.0e-9 ||
       std::abs(first.x_m - second.x_m) > 1.0e-9 ||
-      std::abs(first.y_m - second.y_m) > 1.0e-9)
+      std::abs(first.y_m - second.y_m) > 1.0e-9 ||
+      std::abs(first.d_left - second.d_left) > 1.0e-9 ||
+      std::abs(first.d_right - second.d_right) > 1.0e-9 ||
+      std::abs(first.psi_rad - second.psi_rad) > 1.0e-9 ||
+      std::abs(first.kappa_radpm - second.kappa_radpm) > 1.0e-9 ||
+      std::abs(first.vx_mps - second.vx_mps) > 1.0e-9)
     {
       return false;
     }
@@ -728,6 +740,19 @@ void LocalPlannerNode::onObstacles(const f110_msgs::msg::ObstacleArray::SharedPt
       get_logger(), *get_clock(), 2000,
       "Rejected %zu static obstacles with invalid detector-provided Frenet bounds.",
       rejected);
+  }
+  // An array whose every obstacle was rejected is degraded perception, not proof that the track is
+  // clear. Accepting it would store an empty snapshot that is indistinguishable from an explicitly
+  // empty array, and an explicitly empty array is contractually allowed to erase the retained
+  // obstacle memory. Retain the last valid snapshot instead, exactly as the wrong-frame branch
+  // above does, and do not advance the sequence, source stamp, or P3 epoch from it.
+  if (!message->obstacles.empty() && accepted_obstacles.empty()) {
+    RCLCPP_WARN_THROTTLE(
+      get_logger(), *get_clock(), 2000,
+      "Every obstacle in a %zu-entry /static_obs array had invalid Frenet bounds; treating it as "
+      "degraded perception and retaining the last valid snapshot.",
+      message->obstacles.size());
+    return;
   }
   const std::int64_t incoming_source_stamp_ns = stampNs(message->header.stamp);
   if (p3_mode_ != P3RuntimeMode::kOff && has_obstacles_message_ &&

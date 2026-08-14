@@ -145,7 +145,10 @@ published Frenet bounds instead of reprojecting the Cartesian metadata.
 - Publish `/static_obs`, `/confirmed_static_obs`, and `/opp_obs` every scan, including empty
   arrays, so downstream consumers receive a deterministic scan-rate tick. The only exception:
   `/opp_obs` (and its marker) is suppressed with a throttled warning while the ego odometry stamp
-  is stale beyond `meas_motion_timeout`, because the ahead-ranking would be misplaced.
+  is stale beyond `meas_motion_timeout`, because the ahead-ranking would be misplaced. "Never
+  received" (`ego_s_ < 0`) suppresses too and must never be treated as fresh: `selectOpponent`
+  then has no ahead/behind test at all and ranks purely by positional variance, so permitting
+  publication there is strictly worse than the stale case the rule exists for.
 - **Confirmed-static occlusion hold (do not revert)**: a `Confirmed` static track is a map-fixed
   object, so losing sight of it (occlusion, FOV, brake nose-dive) is not evidence of
   disappearance. It stays alive with its envelope-stability evidence and last measured geometry
