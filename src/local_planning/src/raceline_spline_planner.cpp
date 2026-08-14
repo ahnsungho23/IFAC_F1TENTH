@@ -2248,8 +2248,10 @@ RacelineSplineResult RacelineSplinePlanner::buildSafeStop(
   const EgoFrenetState & ego,
   const std::vector<ExpandedObstacle> & visible,
   const std::vector<ExpandedObstacle> & cluster,
+  const std::vector<f110_msgs::msg::Obstacle> & raw_obstacles,
   const ExpandedObstacle & blocking) const
 {
+  (void)cluster;   // 탈출 검증은 정지점 기준으로 다시 확장한 cluster를 쓴다(아래 참고)
   RacelineSplineResult result;
   result.kind = SplinePlanKind::kNoSafePath;
   result.obstacle_id = blocking.id;
@@ -2268,7 +2270,15 @@ RacelineSplineResult RacelineSplinePlanner::buildSafeStop(
         at_stop.s = wrapS(ego.s + forward);
         at_stop.d = ego.d;
         at_stop.speed = 0.0;
-        return anyFeasibleCandidateFrom(at_stop, visible, cluster);
+        // ⚠️ ExpandedObstacle의 center/start/end는 **자차 상대거리**다
+        //    (expandVisibleObstacles: center = forwardDistance(ego.s, obstacle.s_center)).
+        //    그래서 자차 s만 정지점으로 옮기고 기존 visible/cluster를 재사용하면 장애물이
+        //    정지점에서도 여전히 같은 거리에 있는 것으로 보여, 검증이 "현재 위치에서
+        //    v=0으로 회피 가능한가"를 물을 뿐 정지점과 무관해진다(이분탐색도 무의미해진다).
+        //    반드시 절대 s를 담은 원본으로 정지점 기준 재확장해야 한다.
+        const auto at_stop_visible = expandVisibleObstacles(at_stop, raw_obstacles);
+        const auto at_stop_cluster = nearestCluster(at_stop_visible);
+        return anyFeasibleCandidateFrom(at_stop, at_stop_visible, at_stop_cluster);
       };
 
     // 탈출 가능성은 정지점을 **뒤로 물릴수록**(=forward가 작을수록) 단조 증가한다:
@@ -2407,7 +2417,7 @@ RacelineSplineResult RacelineSplinePlanner::buildPreparationStop(
     }
   }
 
-  result = buildSafeStop(ego, visible, cluster, cluster.front());
+  result = buildSafeStop(ego, visible, cluster, obstacles, cluster.front());
   result.obstacle_ids.reserve(cluster.size());
   for (const auto & obstacle : cluster) {
     result.obstacle_ids.push_back(obstacle.id);
@@ -2582,7 +2592,7 @@ RacelineSplineResult RacelineSplinePlanner::plan(
         return slow_pass;
       }
     }
-    auto safe_stop = buildSafeStop(ego, visible, cluster, cluster.front());
+    auto safe_stop = buildSafeStop(ego, visible, cluster, obstacles, cluster.front());
     safe_stop.obstacle_ids.reserve(cluster.size());
     for (const auto & obstacle : cluster) {
       safe_stop.obstacle_ids.push_back(obstacle.id);

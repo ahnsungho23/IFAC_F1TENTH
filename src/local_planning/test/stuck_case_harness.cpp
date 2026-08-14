@@ -97,14 +97,21 @@ f110_msgs::msg::WpntArray loadReference(const std::string & path)
 
 // 운영 YAML(local_planning.yaml)과 같은 값. 하니스가 조용히 다른 마진으로 통과시키는 것을
 // 막기 위해 여기 명시한다.
+//
+// ⚠️ 2026-08-14 리뷰에서 실제로 어긋나 있던 것이 발견됐다: vehicle_length 0.58 vs 0.56,
+// localization_reserve 0.12 vs 0.06, maximum_target_offset 1.20 vs 1.50,
+// target_d_candidate_count 3 vs 5. 뒤의 둘은 후보를 60개가 아니라 36개만, 그것도 좁은
+// 오프셋 범위에서만 생성하게 만들어 하니스를 운영보다 **비관적**으로 만들었고, 그 상태로
+// 잰 탈출 임계(2.0~2.5 m)로 safe_stop_buffer_m을 정했다. YAML을 고칠 때 이 표도 같이
+// 고칠 것 — 아래 test/test_params_match_yaml.py가 이를 자동으로 검사한다.
 RacelineSplineParameters operationalParameters()
 {
   RacelineSplineParameters p;
   p.detection_lookahead_m = 12.0;
   p.obstacle_longitudinal_padding_m = 0.4149924657737441;
   p.vehicle_half_width_m = 0.1435;
-  p.vehicle_length_m = 0.58;
-  p.safety_margin_m = 0.0148;
+  p.vehicle_length_m = 0.56;
+  p.safety_margin_m = 0.014789254299520768;
   p.tracking_error_reserve_m = 0.14;
   p.tracking_error_lut_speed_bins_mps = {0.0, 1.5, 3.0, 4.5, 6.5};
   p.tracking_error_lut_curvature_bins_radpm = {0.0, 0.2, 0.5, 0.9, 1.316266519079011};
@@ -122,16 +129,16 @@ RacelineSplineParameters operationalParameters()
   p.margin_pass_speed_cap_mps = 2.0;
   p.approach_feasibility_decel_mps2 = 2.0;
   p.commitment_retention_reserve_fraction = 0.5;
-  p.localization_reserve_m = 0.12;
+  p.localization_reserve_m = 0.06;
   p.wall_safety_margin_m = 0.10;
   p.fallback_track_half_width_m = 1.50;
   p.pre_apex_distances_m = {11.442, 7.628, 3.814};
   p.post_apex_distances_m = {2.0595099500051189, 4.1190199000102378, 6.1785298500153566};
   p.entry_transition_fractions = {0.5145, 0.75, 1.00};
   p.transition_distance_scales = {0.497, 0.699, 3.698};
-  p.outside_line_transition_scale = 0.406;
-  p.maximum_target_offset_m = 1.20;
-  p.target_d_candidate_count = 3;
+  p.outside_line_transition_scale = 0.4060036444074003;
+  p.maximum_target_offset_m = 1.50;
+  p.target_d_candidate_count = 5;
   p.maximum_lateral_slope = 0.8;
   p.maximum_curvature_radpm = 1.316266519079011;
   p.maximum_curvature_rate_radpm2 = 20.0;

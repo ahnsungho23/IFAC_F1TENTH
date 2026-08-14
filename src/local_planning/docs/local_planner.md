@@ -531,9 +531,17 @@ margin-pass 커밋은 의도적으로 마진 밴드 안을 지나므로 마진 �
 `RacelineSplineResult::safe_stop_escape_verified=false`와 reason 경고를 남기며 노드가
 2초 throttle ERROR를 찍습니다. 이전에는 이 상태가 아무 로그 없이 30초씩 매달렸습니다.
 
-비용(랩톱 실측, `plan()` 1회): 회피가 성립하는 정상 경로는 5.17 → 5.00 ms로 **변화 없음**
-(검증은 안전정지 경로에서만 호출). 탈출이 아예 불가능한 최악의 안전정지 경로가
-3.30 → 8.78 ms(선형 후퇴 버전은 23.80 ms였습니다). 젯슨에서 안전정지 중 루프 지연이
+⚠️ **좌표계 주의**: `ExpandedObstacle`의 `center/start/end`는 **자차 상대거리**입니다
+(`expandVisibleObstacles`가 `forwardDistance(ego.s, ...)`로 만듭니다). 따라서 가상의 정지점
+기준으로 판정하려면 **절대 s를 담은 원본 장애물로 그 지점에서 다시 확장**해야 합니다.
+`ego.s`만 옮기고 기존 `visible/cluster`를 재사용하면 장애물이 정지점에서도 같은 거리에 있는
+것으로 보여 검증이 통째로 무의미해집니다(이분탐색도 항상 같은 답). 2026-08-14 리뷰에서
+실제로 이 상태로 한 번 커밋됐다가 수리했습니다. 회귀 가드:
+`EscapeCheckReexpandsObstaclesAtTheCandidateStopPoint`.
+
+비용(랩톱 실측, `plan()` 1회): 회피가 성립하는 정상 경로는 7.40 → 7.55 ms로 **사실상 변화
+없음**(검증은 안전정지 경로에서만 호출). 탈출이 아예 불가능한 최악의 안전정지 경로가
+5.30 → 14.85 ms(선형 후퇴 초안은 23.80 ms였습니다). 젯슨에서 안전정지 중 루프 지연이
 관측되면 `safe_stop_escape_check_enable: false`로 즉시 이전 동작으로 돌아갑니다.
 
 **2-b) 정지 prefix 세분 보간 (2026-08-14 신규)** — 정지 prefix는 `minimum_path_points`보다

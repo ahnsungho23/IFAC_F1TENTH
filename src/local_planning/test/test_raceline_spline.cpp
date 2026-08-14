@@ -1307,6 +1307,46 @@ TEST(RacelineSplinePlanner, ReportsWhenSafeStopPointIsNotEscapable)
   EXPECT_GT(result.safe_stop_forward_m, 1.0);
 }
 
+// 🔴 좌표계 회귀 가드 (2026-08-14 리뷰). ExpandedObstacle의 center/start/end는 자차
+// 상대거리라, 가상의 정지점으로 ego.s만 옮기고 기존 visible/cluster를 재사용하면 장애물이
+// 정지점에서도 같은 거리에 있는 것으로 보여 검증이 통째로 무의미해진다(이분탐색도 항상
+// 같은 답을 낸다). buildSafeStop은 반드시 절대 s 원본으로 정지점 기준 재확장해야 한다.
+//
+// 검사 방법: 버퍼를 탈출 임계보다 크게 잡아 요청 정지점을 "장애물에서 너무 먼" 쪽이 아니라
+// 자차에 가까운 쪽으로 두고, 요청 정지점과 실제 채택된 정지점이 다른지 본다. 좌표계가
+// 틀렸다면 재확장이 없으므로 후퇴 탐색이 아무 효과를 못 내고 요청값 그대로 남는다.
+TEST(RacelineSplinePlanner, EscapeCheckReexpandsObstaclesAtTheCandidateStopPoint)
+{
+  auto parameters = testParameters();
+  parameters.maximum_target_offset_m = 0.45;
+  parameters.minimum_path_points = 8;
+  // 임계보다 작은 버퍼 → 요청 정지점은 탈출 불가 구역 안. 검증이 살아 있으면 뒤로 물린다.
+  parameters.safe_stop_buffer_m = 0.30;
+  parameters.safe_stop_escape_check_enable = true;
+  parameters.safe_stop_escape_retreat_step_m = 0.10;
+  parameters.safe_stop_escape_max_retreats = 10;
+  RacelineSplinePlanner planner(parameters);
+  ASSERT_TRUE(planner.setReference(makeStraightReference()));
+
+  const EgoFrenetState ego{0.0, 0.0, 2.0};
+  const auto obstacle = makeObstacle(5, 6.0, -0.40, 0.40);
+  const auto result = planner.plan(ego, {obstacle});
+  ASSERT_EQ(result.kind, SplinePlanKind::kSafeStop) << result.reason;
+
+  if (result.safe_stop_escape_verified) {
+    // 후퇴가 성공했다면 채택된 정지점에서 실제로 회피가 나와야 한다 — 판정과 재계획이
+    // 같은 후보 생성기를 쓰므로 이 두 값은 반드시 일치한다.
+    const EgoFrenetState at_stop{
+      ego.s + result.safe_stop_forward_m, ego.d, 0.0};
+    const auto replan = planner.plan(at_stop, {obstacle});
+    EXPECT_EQ(replan.kind, SplinePlanKind::kAvoidance)
+      << "정지점에서 회피 가능하다고 판정했는데 실제 재계획은 실패했다: " << replan.reason;
+  }
+  // 좌표계가 틀렸을 때 나타나는 형태: 정지점이 자차 뒤로 가거나 장애물을 넘어선다.
+  EXPECT_GE(result.safe_stop_forward_m, 0.0);
+  EXPECT_LT(result.safe_stop_forward_m, 6.0);
+}
+
 // 탈출 검증을 끄면 이전 동작(정지점 무검증)으로 돌아간다 — 회귀 시 즉시 되돌릴 수 있어야 한다.
 TEST(RacelineSplinePlanner, SafeStopEscapeCheckCanBeDisabled)
 {

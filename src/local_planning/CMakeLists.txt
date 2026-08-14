@@ -63,6 +63,11 @@ if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   ament_lint_auto_find_test_dependencies()
 
+  # 진단 하니스가 운영 YAML과 다른 마진으로 조용히 답하는 것을 막는다.
+  # (2026-08-14: 실제로 6개 값이 어긋난 채 탈출 임계를 재고 운영값을 정했다.)
+  find_package(ament_cmake_pytest REQUIRED)
+  ament_add_pytest_test(params_match_yaml test/test_params_match_yaml.py)
+
   ament_add_gtest(test_raceline_spline test/test_raceline_spline.cpp)
   if(TARGET test_raceline_spline)
     ament_target_dependencies(test_raceline_spline

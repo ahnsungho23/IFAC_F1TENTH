@@ -465,10 +465,15 @@ private:
     const std::vector<ExpandedObstacle> & cluster) const;
   // 경로 점 수가 minimum_path_points에 못 미치면 최장 구간을 반복 이등분해 채운다.
   void densifyPath(f110_msgs::msg::WpntArray & path, std::size_t minimum_points) const;
+  // raw_obstacles는 **절대 s**를 담은 원본이다. ExpandedObstacle은 자차 상대거리를
+  // 담으므로, 가상의 정지점 기준으로 탈출 가능성을 물으려면 그 지점 기준으로 다시
+  // 확장해야 한다. 원본 없이 기존 visible/cluster를 재사용하면 장애물이 정지점에서도
+  // 같은 거리에 있는 것으로 보여 검증이 통째로 무의미해진다.
   RacelineSplineResult buildSafeStop(
     const EgoFrenetState & ego,
     const std::vector<ExpandedObstacle> & visible,
     const std::vector<ExpandedObstacle> & cluster,
+    const std::vector<f110_msgs::msg::Obstacle> & raw_obstacles,
     const ExpandedObstacle & blocking) const;
   RacelineSplineResult buildMarginSlowPass(
     const EgoFrenetState & ego,
