@@ -1428,16 +1428,115 @@ TEST(RacelineSplinePlanner, MarginOnlyClusterDegradesToSlowPassInsteadOfSafeStop
   ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance);
   EXPECT_TRUE(result.margin_pass);
   ASSERT_GE(result.path.wpnts.size(), 2U);
+  // 접근 실현성 램프: 자차(3.0 m/s)가 cap(2.0)보다 빠르므로 앞머리는 flat 2.0이 아니라
+  // 자차 속도에서 내려오는 프로파일이다. 전 구간 단조 비증가 + 자차 속도 이하이고,
+  // 장애물 스팬(및 그 이후)은 cap을 넘지 않아야 한다.
+  double previous = std::numeric_limits<double>::infinity();
   for (const auto & waypoint : result.path.wpnts) {
     EXPECT_DOUBLE_EQ(waypoint.d_m, 0.0);
-    EXPECT_LE(waypoint.vx_mps, 2.0 + 1e-9);
+    EXPECT_LE(waypoint.vx_mps, ego.speed + 1e-9);
+    EXPECT_LE(waypoint.vx_mps, previous + 1e-9);
+    previous = waypoint.vx_mps;
+    if (waypoint.s_m >= margin_only.s_start) {
+      EXPECT_LE(waypoint.vx_mps, 2.0 + 1e-9);
+    }
   }
+  EXPECT_GT(result.path.wpnts.front().vx_mps, 2.5);   // 계단(즉시 2.0) 금지 = 램프 실존
   EXPECT_GT(result.merge_s, margin_only.s_end);
 
   // Contrast: the same track with a genuinely line-straddling obstacle must still stop.
   const auto physically_blocking = planner.plan(ego, {makeObstacle(91, 5.0)});
   EXPECT_EQ(physically_blocking.kind, SplinePlanKind::kSafeStop);
   EXPECT_FALSE(physically_blocking.margin_pass);
+}
+
+TEST(RacelineSplinePlanner, MarginPassApproachRampReachesCapBeforeClusterStart)
+{
+  // 0814 실차 회귀(run_0814_111210): 4.4 m/s 접근에 flat 2.0 margin pass가 발행돼 계단
+  // 감속 → 서비스 브레이크 포화 → 마찰 한계 초과 슬립 → 벽. 램프는 실측 자차 속도에서
+  // approach_feasibility_decel로 내려가되 군집 시작 전에 cap에 도달해야 한다.
+  RacelineSplineParameters parameters = testParameters();
+  parameters.tracking_error_reserve_m = 0.30;
+  parameters.margin_pass_speed_cap_mps = 2.0;
+  parameters.approach_feasibility_decel_mps2 = 2.0;
+  RacelineSplinePlanner planner(parameters);
+  ASSERT_TRUE(planner.setReference(makeStraightReference(300, 0.1, 0.3, 0.3)));
+  const auto margin_only = makeObstacle(92, 9.0, 0.20, 0.60);
+  const EgoFrenetState ego{0.0, 0.0, 4.4};
+
+  const auto result = planner.plan(ego, {margin_only});
+  ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance);
+  EXPECT_TRUE(result.margin_pass);
+  ASSERT_GE(result.path.wpnts.size(), 2U);
+  // 필요 감속 (4.4²-2.0²)/(2·~8.5) ≈ 0.9 < 2.0 → 완만한 파라미터 감속이 그대로 쓰이고,
+  // cap 도달 지점은 (4.4²-2.0²)/(2·2.0) = 3.84 m — 군집 시작(≈8.5 m)보다 훨씬 앞이다.
+  const double reach_cap_at = (ego.speed * ego.speed - 4.0) / (2.0 * 2.0);
+  for (const auto & waypoint : result.path.wpnts) {
+    // 프로파일 상한(3.0)은 절대 넘지 않는다: 램프값이 그보다 커도 참조 프로파일이 이긴다.
+    EXPECT_LE(waypoint.vx_mps, 3.0 + 1e-9);
+    if (waypoint.s_m >= reach_cap_at + 0.2) {
+      EXPECT_LE(waypoint.vx_mps, 2.0 + 1e-9);
+    }
+  }
+  // 앞머리는 램프를 따른다(참조 프로파일 3.0에 클램프): flat 2.0이 아니어야 한다.
+  EXPECT_NEAR(result.path.wpnts.front().vx_mps, 3.0, 1e-9);
+
+  // 비활성(<=0)이면 구 거동(flat cap) 그대로다.
+  parameters.approach_feasibility_decel_mps2 = 0.0;
+  RacelineSplinePlanner flat_planner(parameters);
+  ASSERT_TRUE(flat_planner.setReference(makeStraightReference(300, 0.1, 0.3, 0.3)));
+  const auto flat = flat_planner.plan(ego, {margin_only});
+  ASSERT_EQ(flat.kind, SplinePlanKind::kAvoidance);
+  for (const auto & waypoint : flat.path.wpnts) {
+    EXPECT_LE(waypoint.vx_mps, 2.0 + 1e-9);
+  }
+}
+
+TEST(RacelineSplinePlanner, AvoidanceApproachBrakesBeforeSpanInsteadOfStepping)
+{
+  // 회피 스플라인의 접근 구간: 간극/곡률 캡은 스팬 안에서만 작동하므로 접근은 프로파일
+  // 속도 그대로다가 스팬 경계에서 계단으로 떨어진다. 후방 제동 램프는 그 계단을 스팬
+  // 시작 속도로 미리 내려가는 프로파일로 바꾼다(낮추기만 함). 스팬 내부는 비트 동일.
+  auto ramp_parameters = testParameters();
+  // 속도에 가파르게 커지는 추적오차 예약 LUT + 좁은 왼쪽 통로: 스팬 안에서 간극 캡이
+  // 프로파일(3.0)보다 확실히 낮은 속도를 강제해 "접근 빠름 / 스팬 느림" 계단을 만든다.
+  ramp_parameters.tracking_error_lut_speed_bins_mps = {0.0, 2.0, 4.0};
+  ramp_parameters.tracking_error_lut_curvature_bins_radpm = {0.0};
+  ramp_parameters.tracking_error_lut_values_m = {0.05, 0.08, 0.60};
+  ramp_parameters.approach_feasibility_decel_mps2 = 2.0;
+  auto flat_parameters = ramp_parameters;
+  flat_parameters.approach_feasibility_decel_mps2 = 0.0;
+  RacelineSplinePlanner ramp_planner(ramp_parameters);
+  RacelineSplinePlanner flat_planner(flat_parameters);
+  const auto reference = makeStraightReference(300, 0.1, 0.6, 0.6);
+  ASSERT_TRUE(ramp_planner.setReference(reference));
+  ASSERT_TRUE(flat_planner.setReference(reference));
+  const EgoFrenetState ego{0.0, 0.0, 2.0};
+  // 비대칭 장애물(오른쪽으로 치우침): 후보 랭킹 1순위(safety slack)에서 왼쪽이 명확히
+  // 이기게 해, 램프로 달라지는 2순위(velocity_loss)가 후보 선택을 못 바꾸게 고정한다.
+  const std::vector<f110_msgs::msg::Obstacle> obstacles{makeObstacle(93, 8.0, -0.35, 0.05)};
+
+  const auto ramped = ramp_planner.plan(ego, obstacles);
+  const auto flat = flat_planner.plan(ego, obstacles);
+  ASSERT_EQ(ramped.kind, SplinePlanKind::kAvoidance);
+  ASSERT_EQ(flat.kind, SplinePlanKind::kAvoidance);
+  ASSERT_EQ(ramped.path.wpnts.size(), flat.path.wpnts.size());
+  const double span_start = obstacles.front().s_start;
+  bool lowered_somewhere = false;
+  for (std::size_t index = 0; index < ramped.path.wpnts.size(); ++index) {
+    const auto & with_ramp = ramped.path.wpnts[index];
+    const auto & without = flat.path.wpnts[index];
+    ASSERT_DOUBLE_EQ(with_ramp.s_m, without.s_m);
+    // 램프는 어디서도 속도를 올리지 않는다.
+    EXPECT_LE(with_ramp.vx_mps, without.vx_mps + 1e-9);
+    if (with_ramp.s_m >= span_start) {
+      // 스팬 및 그 이후는 손대지 않는다(간극/예약 캡 보존).
+      EXPECT_DOUBLE_EQ(with_ramp.vx_mps, without.vx_mps);
+    } else if (with_ramp.vx_mps < without.vx_mps - 1e-6) {
+      lowered_somewhere = true;
+    }
+  }
+  EXPECT_TRUE(lowered_somewhere);
 }
 
 TEST(RacelineSplinePlanner, RetentionReserveScaleHoldsCommittedPathThroughEnvelopeGrowth)

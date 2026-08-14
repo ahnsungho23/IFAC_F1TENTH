@@ -69,6 +69,19 @@ struct RacelineSplineParameters
   // never reaches d = 0) is physically passable on the line, so avoidance failure degrades to a
   // capped-speed lane hold instead of a safe stop or a zero-speed hold.
   double margin_pass_speed_cap_mps{2.0};
+  // Approach feasibility ramp: a slow section that begins abruptly (margin pass flat cap from
+  // ego, gap/curvature-capped obstacle span) is a speed STEP the vehicle cannot track — the
+  // service brake saturates, the tires slip past the friction limit and steering authority is
+  // lost (2026-08-14 real-car wall crashes: 4.4 m/s ego vs flat 2.0 m/s plan). Two shapes, one
+  // rate, both only active when the ego/profile is faster than the slow section:
+  //  - margin slow pass: pre-cluster waypoints may keep a profile that decelerates from the
+  //    MEASURED ego speed at this rate, steepened only as much as needed to still reach the cap
+  //    by the cluster start (degrades to the old flat cap when there is no room).
+  //  - avoidance spline: pre-span waypoints are LOWERED onto the backward braking profile that
+  //    reaches the span-start speed at this rate, so braking starts well before the span
+  //    boundary instead of as a step at it. Span speeds themselves are never touched.
+  // <= 0 disables both (old step behavior).
+  double approach_feasibility_decel_mps2{2.0};
   // Committed-path retention band: while re-validating an ALREADY COMMITTED path (P3
   // continuation, P0 commitment hold), the tracking-error reserve portion of the obstacle
   // clearance is scaled by this fraction, so envelope growth/jitter inside the released band
