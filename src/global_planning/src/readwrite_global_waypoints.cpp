@@ -325,8 +325,6 @@ bool read_global_waypoints(const std::string & map_dir, GlobalWaypointBundle & o
     from_json(j.at("centerline_waypoints"), out_bundle.centerline_waypoints);
     from_json(j.at("global_traj_markers_iqp"), out_bundle.global_traj_markers_iqp);
     from_json(j.at("global_traj_wpnts_iqp"), out_bundle.global_traj_wpnts_iqp);
-    from_json(j.at("global_traj_markers_sp"), out_bundle.global_traj_markers_sp);
-    from_json(j.at("global_traj_wpnts_sp"), out_bundle.global_traj_wpnts_sp);
     from_json(j.at("trackbounds_markers"), out_bundle.trackbounds_markers);
   } catch (const std::exception & e) {
     error_msg = "Failed parsing global_waypoints.json: " + std::string(e.what());

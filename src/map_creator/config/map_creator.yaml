@@ -20,13 +20,18 @@ map_creator_node:
     decision:
       transition_distance_scales: [0.180794, 0.963633, 1.904460]
       outside_line_transition_scale: 0.356840
-      commitment_clearance_reserve_m: 0.026811
-      minimum_avoidance_clearance_m: 0.249991  # ~= obstacle_clearance: tight retry effectively disabled
-      boundary_margin_m: 0.087942
+      # Post-sync(70c5a9d) 이관: 구 obstacle_clearance_m 0.25는 장애물 모서리->경로
+      # 중심 전체 인플레이션(반폭 포함)이었으므로 반폭(0.121)을 뺀 나머지를
+      # safety_margin_m으로 옮김. tracking_error_reserve_m 0.0이면 strict == relaxed
+      # clearance가 되어 구 "tight retry 비활성" 튜닝 의도가 유지됨.
+      # (구 commitment_clearance_reserve_m는 런타임 커밋 재검증 전용이라 오프라인
+      #  판정에는 해당 없음 -> 제거)
+      safety_margin_m: 0.129
+      tracking_error_reserve_m: 0.0
+      wall_safety_margin_m: 0.087942   # 구 boundary_margin_m
       minimum_target_offset_m: 0.168582
       maximum_lateral_slope: 0.640085
       # Unlisted items pinned to the deployed local_planning.yaml values:
-      obstacle_clearance_m: 0.25
       maximum_target_offset_m: 1.50
       side_tie_epsilon_m: 0.02
       vehicle_half_width_m: 0.121

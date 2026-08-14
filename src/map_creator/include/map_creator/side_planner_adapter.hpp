@@ -19,15 +19,13 @@ struct SideDecision
   Side side{Side::kSafeStop};
   double target_d{0.0};
   std::string reason;
-  local_planning::SideCandidateEvaluation left;
-  local_planning::SideCandidateEvaluation right;
 };
 
 // Wraps a RacelineSplinePlanner instance configured with map_creator's OWN
 // decision parameter snapshot (which intentionally differs from the runtime
-// local_planning yaml) and runs the shared evaluateObstacleScenario() entry
-// point with the fixed offline ego protocol (s = obstacle.s - lookback, d = 0,
-// speed = reference vx at ego s). No Python replication, no guard inflation.
+// local_planning yaml) and runs the shared plan() entry point with the fixed
+// offline ego protocol (s = obstacle.s - lookback, d = 0, speed = reference vx
+// at ego s). No Python replication, no guard inflation.
 class SidePlannerAdapter
 {
 public:

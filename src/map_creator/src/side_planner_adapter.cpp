@@ -64,16 +64,24 @@ SideDecision SidePlannerAdapter::decide(
   ego.d = 0.0;
   ego.speed = speedAtS(ego_s);
 
-  const auto evaluation =
-    planner_.evaluateObstacleScenario(ego, {obstacle});
+  const auto result = planner_.plan(ego, {obstacle});
 
-  decision.left = evaluation.left;
-  decision.right = evaluation.right;
-  decision.reason = evaluation.result.reason;
-  if (evaluation.result.kind == local_planning::SplinePlanKind::kAvoidance) {
+  decision.reason = result.reason;
+  if (result.kind == local_planning::SplinePlanKind::kAvoidance) {
+    // Covers margin_pass too: its go_left records which side of the obstacle
+    // the race line itself passes on, which is exactly the side to bake.
     decision.side =
-      evaluation.result.go_left ? SideDecision::Side::kLeft : SideDecision::Side::kRight;
-    decision.target_d = evaluation.result.target_d;
+      result.go_left ? SideDecision::Side::kLeft : SideDecision::Side::kRight;
+    decision.target_d = result.target_d;
+  } else if (result.kind == local_planning::SplinePlanKind::kNoObstacle) {
+    // plan() gates on isBlockingRaceline, so an obstacle the race line already
+    // clears is never spline-evaluated (the removed evaluateObstacleScenario()
+    // forced that and came back with the side away from the obstacle). Take
+    // that side directly from the obstacle's lateral sign instead: Frenet
+    // d > 0 is left of the line, so the line passes on its right.
+    decision.side = obstacle.d_center < 0.0 ?
+      SideDecision::Side::kLeft : SideDecision::Side::kRight;
+    decision.target_d = 0.0;
   } else {
     decision.side = SideDecision::Side::kSafeStop;
   }

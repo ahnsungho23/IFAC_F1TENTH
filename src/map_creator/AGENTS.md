@@ -9,9 +9,12 @@ map_creator package rules. These instructions apply to `src/map_creator`.
   → blocked-side painting →
   offline regeneration → gated swap via `/global_planning/reload_waypoints`.
 - The left/right side decision MUST go through
-  `local_planning::RacelineSplinePlanner::evaluateObstacleScenario` (linked via the
-  exported `local_planning::raceline_planner` target). Never replicate the decision
-  logic in this package or in Python.
+  `local_planning::RacelineSplinePlanner::plan` (linked via the exported
+  `local_planning::raceline_planner` target). Never replicate the decision
+  logic in this package or in Python. (`evaluateObstacleScenario` was removed from
+  local_planning in the sungho_main sync `70c5a9d`; plan() gates on
+  isBlockingRaceline, so `SidePlannerAdapter::decide` maps kNoObstacle to the side
+  the race line already passes on via the obstacle's Frenet d sign.)
 - The painting target is the trajectory-generator input map only (gui_params
   `map_yaml`). Never paint the MCL map or the local_planning wall-only reference map.
 - Every paint session starts from the pristine base map (immutable baseline).

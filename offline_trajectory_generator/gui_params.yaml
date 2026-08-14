@@ -1,7 +1,7 @@
 map_yaml: src/monte_carlo_localization/maps/map.yaml
 output_dir: ~/2026_IFAC/offline_trajectory_generator/output/map
 velocity_limits_csv: offline_trajectory_generator/config/velocity_limits.csv
-optimizer: d_ratio
+optimizer: mincurv
 width_mode: hybrid
 show_centerline: true
 show_rt_lane: true

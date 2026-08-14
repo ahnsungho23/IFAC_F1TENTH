@@ -4,7 +4,8 @@
 
 랩 1·2에서 확정된 정적 장애물을 글로벌 경로에 **영구 반영**하는 파이프라인 노드입니다.
 랩 2→3 전이(`lap_count` 1→2) 시점에 장애물 원장을 freeze하고, local_planning의 좌/우 판정 로직
-(`evaluateObstacleScenario`, C++ 공유 — Python 복제 없음)으로 **막을 쪽**을 정한 뒤,
+(`RacelineSplinePlanner::plan`, C++ 공유 — Python 복제 없음)으로 **막을 쪽**을 정한 뒤
+(레이스라인을 아예 안 막는 장애물은 plan()이 평가하지 않으므로 장애물 d 부호로 통과 쪽을 정함),
 그쪽을 맵에서 벽까지 검게 칠한 `obstacle_map`을 만들고, 오프라인 생성기로 글로벌
 레이스라인을 재생성해, 다음 랩 경계에서 `/global_planning/reload_waypoints`로 원자
 교체합니다. 설계 근거는 `learning_adaptive_globalpath/MAP_CREATOR_PROPOSAL.md` 참고.

@@ -7,7 +7,7 @@
 // Laps 1-2: consume the persistent confirmed-static snapshot
 // (/adaptive_obstacle_map) into a ledger.
 // At the lap 2 -> 3 transition: freeze -> per-obstacle left/right decision via
-// the SHARED RacelineSplinePlanner::evaluateObstacleScenario (map_creator's own
+// the SHARED RacelineSplinePlanner::plan (map_creator's own
 // tuned parameter snapshot) -> paint the NON-chosen side to the wall on a copy
 // of the pristine base map -> run the offline regeneration driver
 // (regenerate_obstacle_map.py, gui_params.yaml values) -> when the driver's
@@ -112,12 +112,15 @@ private:
     declare_parameter<std::vector<double>>(
       "decision.transition_distance_scales", {1.0, 1.25, 1.50});
     declare_parameter<double>("decision.outside_line_transition_scale", 1.35);
-    declare_parameter<double>("decision.commitment_clearance_reserve_m", 0.05);
-    declare_parameter<double>("decision.minimum_avoidance_clearance_m", 0.18);
-    declare_parameter<double>("decision.boundary_margin_m", 0.13);
+    // Post-sync (70c5a9d) clearance model: obstacle inflation =
+    // vehicle_half_width + safety_margin + tracking-error reserve; the wall
+    // reserve is wall_safety_margin_m alone. The old obstacle_clearance_m /
+    // boundary_margin_m / minimum_avoidance_clearance_m knobs no longer exist.
+    declare_parameter<double>("decision.safety_margin_m", 0.03);
+    declare_parameter<double>("decision.tracking_error_reserve_m", 0.14);
+    declare_parameter<double>("decision.wall_safety_margin_m", 0.0);
     declare_parameter<double>("decision.minimum_target_offset_m", 0.20);
     declare_parameter<double>("decision.maximum_lateral_slope", 0.65);
-    declare_parameter<double>("decision.obstacle_clearance_m", 0.25);
     declare_parameter<double>("decision.maximum_target_offset_m", 1.50);
     declare_parameter<double>("decision.side_tie_epsilon_m", 0.02);
     declare_parameter<double>("decision.vehicle_half_width_m", 0.121);
@@ -169,18 +172,16 @@ private:
       get_parameter("decision.transition_distance_scales").as_double_array();
     decision_params_.outside_line_transition_scale =
       get_parameter("decision.outside_line_transition_scale").as_double();
-    decision_params_.commitment_clearance_reserve_m =
-      get_parameter("decision.commitment_clearance_reserve_m").as_double();
-    decision_params_.minimum_avoidance_clearance_m =
-      get_parameter("decision.minimum_avoidance_clearance_m").as_double();
-    decision_params_.boundary_margin_m =
-      get_parameter("decision.boundary_margin_m").as_double();
+    decision_params_.safety_margin_m =
+      get_parameter("decision.safety_margin_m").as_double();
+    decision_params_.tracking_error_reserve_m =
+      get_parameter("decision.tracking_error_reserve_m").as_double();
+    decision_params_.wall_safety_margin_m =
+      get_parameter("decision.wall_safety_margin_m").as_double();
     decision_params_.minimum_target_offset_m =
       get_parameter("decision.minimum_target_offset_m").as_double();
     decision_params_.maximum_lateral_slope =
       get_parameter("decision.maximum_lateral_slope").as_double();
-    decision_params_.obstacle_clearance_m =
-      get_parameter("decision.obstacle_clearance_m").as_double();
     decision_params_.maximum_target_offset_m =
       get_parameter("decision.maximum_target_offset_m").as_double();
     decision_params_.side_tie_epsilon_m =
