@@ -16,6 +16,7 @@
 #define LOCAL_PLANNING__LOCAL_PLANNER_NODE_HPP_
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <mutex>
 #include <optional>
@@ -97,9 +98,12 @@ private:
   P3ShadowResult evaluateP3Snapshot(
     const P3CallbackSnapshot & snapshot,
     const std::string & p0_context) const;
+  // Continuation-first is a computation order, not only an output priority: `evaluate` is pulled
+  // ONLY when the recorded maneuver fails to continue. A held frozen suffix therefore costs no
+  // candidate generation and no hard validation at all. Do not take a materialized result here.
   P3ManeuverLifecycleDecision advanceP3Lifecycle(
     const P3CallbackSnapshot & snapshot,
-    const P3ShadowResult & evaluation);
+    const std::function<const P3ShadowResult &()> & evaluate);
   RacelineSplineResult makeP3ActiveResult(
     const P3ManeuverLifecycleDecision & decision) const;
   bool armP3CompletionHandoff(
@@ -114,9 +118,7 @@ private:
     const P3ShadowResult & evaluation,
     const P3ManeuverLifecycleDecision & lifecycle,
     const std::string & path_owner,
-    bool p0_backup_only,
-    bool same_callback_replan_attempted = false,
-    bool same_callback_replan_succeeded = false);
+    bool p0_backup_only);
 
   bool sameReference(const f110_msgs::msg::WpntArray & message) const;
   void clearCommitment();

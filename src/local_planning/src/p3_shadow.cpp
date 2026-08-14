@@ -261,6 +261,8 @@ public:
         parameters_.maximum_lateral_slope - selected->peak_lateral_slope;
       result.selected_min_speed_mps = selected->minimum_commanded_speed_mps;
       result.selected_max_speed_mps = selected->maximum_commanded_speed_mps;
+      result.selected_validation = selected->validation;
+      result.selected_validation_available = true;
       result.selected_path = selected->path;
       result.failure_classification = "NONE";
     } else if (result.m1_boundary_handoff_unresolved_count > 0U) {
@@ -1024,6 +1026,7 @@ private:
         trace.maximum_commanded_speed_mps, waypoint.vx_mps);
     }
     trace.rejection_reason = evaluation.rejection_reason;
+    trace.validation = evaluation;
     trace.path_digest = pathDigest(path);
     trace.source_branch_regime = sourceBranchRegime(stations, ego.d, target, middle);
     trace.path = std::move(path);

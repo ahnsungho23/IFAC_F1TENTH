@@ -93,6 +93,9 @@ struct P3ManeuverLifecycleDecision
   bool guard_raw_revalidated{false};
   bool guarded_validation_attempted{false};
   bool guarded_validation_hard_valid{false};
+  // True when the guarded verdict came from the evaluator's own certificate instead of a repeated
+  // validation. Diagnostic only: the verdict itself is identical either way.
+  bool guarded_validation_reused_certificate{false};
   bool raw_validation_attempted{false};
   bool raw_validation_hard_valid{false};
   bool guard_soft_violation_pending{false};

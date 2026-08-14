@@ -40,11 +40,16 @@
   widths interpolated on the matching local reference segment. Subtract only
   `wall_safety_margin_m`, exactly once. Never add the tracking tube, obstacle margin, simulator TTC
   sweep, scan-noise guard, or another boundary/commitment/fallback margin.
-- P3 lifecycle is continuation-first: an active recorded maneuver is continued (frozen path,
-  revalidated every callback via guard containment + raw fallback) BEFORE any fresh M1
-  selection, and fresh selection runs only with no active maneuver or in the same callback in
-  which continuation invalidated. Do not restore fresh-first ordering: it re-shapes the
-  published path every callback while the obstacle envelope is still being resolved.
+- P3 lifecycle is continuation-first, and that is a COMPUTATION order, not only an output
+  priority: an active recorded maneuver is continued (frozen path, revalidated every callback via
+  guard containment + raw fallback) BEFORE any fresh M1 selection, and fresh selection runs only
+  with no active maneuver or in the same callback in which continuation invalidated. Do not
+  restore fresh-first ordering: it re-shapes the published path every callback while the obstacle
+  envelope is still being resolved. `advanceP3Lifecycle` therefore takes a LAZY evaluator
+  (`std::function<const P3ShadowResult &()>`), never a materialized result, and pulls it only
+  after continuation fails to produce output or completion. Passing an already-computed
+  evaluation would silently pay for up to 24 candidate constructions and their hard validations
+  on every 25 ms callback while a frozen suffix is holding perfectly well.
 - Committed-path retention band (`commitment_retention_reserve_fraction`, default 0.5): when
   re-validating an ALREADY COMMITTED path (P3 continuation raw fallback, P0 commitment hard
   check), the tracking-error reserve portion of the obstacle clearance is scaled by this
@@ -328,7 +333,9 @@
   themselves are reserve-backed — never raise them.
 - P3/M1 is production-owned C++ in this package. External CMA/evaluator executables are parity
   oracles only and must never supply runtime local paths.
-- Run P3/M1 candidate generation immediately for every authoritative non-empty snapshot. Guard
+- Run P3/M1 candidate generation immediately for every authoritative non-empty snapshot that
+  actually needs a path -- that is, whenever no active maneuver continues on that callback. Never
+  gate it behind an additional readiness wait. Guard
   readiness is diagnostic provenance, not a standalone ownership veto: before the observation
   count/time Guard is complete, grant initial ownership only when the exact validator proves the
   selected path hard-valid against both the accumulated conservative geometry and the same
@@ -338,9 +345,21 @@
 - Preserve a selected P3 maneuver's immutable original geometry. Lifecycle continuation may trim
   only its passed prefix and must exact-revalidate the current suffix; it must complete after the
   expanded obstacle region is passed before a short suffix reaches the validator minimum.
-- In `TEST_ACTIVE`, if current raw-obstacle validation discards a committed P3 suffix, run the
-  unchanged P3/M1 planner at most once more in that callback using the exact same immutable
-  snapshot. Publish only a fresh exact-hard-valid result; otherwise use the existing
-  `P0_BACKUP_ONLY`/safe-stop fallback. Never retain or publish the rejected suffix.
+- In `TEST_ACTIVE`, when current raw-obstacle validation discards a committed P3 suffix, the
+  rejected suffix is never retained or published and control falls through to the existing
+  `P0_BACKUP_ONLY`/safe-stop path. Do NOT re-run the evaluator on the same snapshot to retry: the
+  lifecycle only reports `CURRENT_RAW_OBSTACLE_COLLISION` when the evaluation did not recover, and
+  a pure re-evaluation of the same immutable snapshot returns the same verdict, so the retry can
+  never select a fresh path. When the evaluation DOES recover, `advanceP3Lifecycle` already falls
+  through to `selectFresh` within the same call. A same-callback replan branch existed here until
+  2026-08-15 and was unreachable by construction.
+- The exact validator runs once per fresh candidate. `P3ShadowResult` carries the selected
+  candidate's guarded-geometry verdict as `selected_validation` /
+  `selected_validation_available`, and `selectFresh` reuses it instead of repeating a bit-identical
+  validation -- the `FRESH_RESULT_SNAPSHOT_LINEAGE_MISMATCH` guard above it already proves the
+  inputs are the same snapshot. The subsequent RAW-geometry validation tests DIFFERENT geometry and
+  must always run; never collapse the two. Regression:
+  `EvaluatorCertificateReplacesRedundantGuardedValidation` and
+  `CertifiedCandidateStillRejectedWhenRawGeometryCollides` in `test/test_p3_maneuver_lifecycle.cpp`.
 - Update this file and the Korean documentation when behavior, topics, parameters, or launch usage
   changes.

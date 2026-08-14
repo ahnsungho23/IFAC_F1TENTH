@@ -190,8 +190,16 @@ P3ManeuverLifecycleDecision P3ManeuverLifecycle::selectFresh(
   // validator independently confirms both that authority and the detector-owned raw geometry.
   // This adds no waiting frame or tolerance and cannot publish a hard-invalid path.
   decision.guarded_validation_attempted = true;
-  decision.validation = planner.evaluateP3PathCurrent(
-    snapshot.ego, selected.selected_path, snapshot.obstacles);
+  // The evaluator already validated this exact path against this exact ego/guarded-obstacle pair
+  // while constructing the candidate, and the FRESH_RESULT_SNAPSHOT_LINEAGE_MISMATCH guard above
+  // has already proven the inputs are that same snapshot. Reuse the certificate instead of running
+  // a bit-identical validation again; only a result produced before this field existed (or by a
+  // non-production evaluator) still needs the fallback. The RAW check below is NOT redundant and
+  // always runs: it tests different geometry.
+  decision.guarded_validation_reused_certificate = selected.selected_validation_available;
+  decision.validation = selected.selected_validation_available ?
+    selected.selected_validation :
+    planner.evaluateP3PathCurrent(snapshot.ego, selected.selected_path, snapshot.obstacles);
   decision.guarded_validation_hard_valid = decision.validation.hard_valid;
   decision.guarded_validation_rejection = decision.validation.rejection_reason.empty() ?
     "NONE" : decision.validation.rejection_reason;

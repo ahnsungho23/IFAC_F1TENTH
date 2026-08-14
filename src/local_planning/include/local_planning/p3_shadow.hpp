@@ -101,6 +101,10 @@ struct P3ShadowCandidateTrace
   double minimum_commanded_speed_mps{std::numeric_limits<double>::quiet_NaN()};
   double maximum_commanded_speed_mps{std::numeric_limits<double>::quiet_NaN()};
   std::string rejection_reason;
+  // The exact-validator verdict this candidate was already measured with, kept verbatim so the
+  // maneuver lifecycle can reuse it instead of re-running an identical validation. Valid only
+  // together with the owning result's snapshot lineage (stamp/epoch/reference generation).
+  P3ShadowPathEvaluation validation;
   f110_msgs::msg::WpntArray path;
 };
 
@@ -171,6 +175,10 @@ struct P3ShadowResult
   double selected_slope_margin{std::numeric_limits<double>::quiet_NaN()};
   double selected_min_speed_mps{std::numeric_limits<double>::quiet_NaN()};
   double selected_max_speed_mps{std::numeric_limits<double>::quiet_NaN()};
+  // Guarded-geometry validation certificate for selected_path, produced during candidate
+  // construction against exactly the ego/obstacles this result was evaluated with.
+  bool selected_validation_available{false};
+  P3ShadowPathEvaluation selected_validation;
   f110_msgs::msg::WpntArray selected_path;
 
   double runtime_total_us{0.0};

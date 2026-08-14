@@ -1076,13 +1076,49 @@ wall timer를 만들지 않고, 동일 header timestamp를 가진 `/static_obs`�
 이 모드는 장애물 GT나 scenario manifest를 구독하지 않습니다. 장애물 입력은 production과
 같이 detector의 `/static_obs`뿐이며 planner parameter와 핵심 경로 생성 알고리즘도 같습니다.
 전체 실행과 hash 검증 방법은 `tools/cmaes_tuning/docs/deterministic_lockstep_mode.md`에 있습니다.
-### P3 동일 콜백 재계획
+### P3 콜백 비용 정리 (2026-08-15)
 
-`TEST_ACTIVE`에서 committed P3 suffix가 현재 raw obstacle geometry에 대해
-`CURRENT_RAW_OBSTACLE_COLLISION`으로 판정되면 lifecycle은 해당 suffix를 즉시 폐기한다.
-노드는 그 콜백에서 캡처한 동일한 ego, obstacle, global-reference snapshot으로 기존 P3/M1을
-정확히 한 번만 다시 실행한다. 새 결과가 기존 exact validator에서 hard-valid일 때만 새 P3
-경로를 commit/publish하며, 실패하면 기존 `P0_BACKUP_ONLY` 또는 safe-stop 경로를 사용한다.
-이 절차는 solver, M1, margin, padding, validator threshold나 ROS parameter를 변경하지 않는다.
-진단 JSON의 `same_callback_replan_attempted`와 `same_callback_replan_succeeded`로 실제 수행
-여부를 확인할 수 있다.
+세 가지가 함께 정리됐다. 셋 다 **안전 로직은 건드리지 않는다** — 검증 항목, 마진, 임계값,
+파라미터 어느 것도 바뀌지 않았고 판정 결과도 동일하다.
+
+#### 1. 동일 콜백 재계획 제거 (도달 불가 분기였음)
+
+`TEST_ACTIVE`에서 committed P3 suffix가 `CURRENT_RAW_OBSTACLE_COLLISION`으로 폐기되면, 예전에는
+같은 snapshot으로 P3/M1을 한 번 더 돌렸다. **이 재시도는 성공할 수 없었다.**
+
+lifecycle이 그 사유를 내놓는 조건 자체가 `evaluation.would_recover == false`이고
+(`advanceP3Lifecycle`의 continuation 분기), 같은 불변 snapshot을 순수 재평가하면 결과가 같으므로
+`would_recover`는 여전히 false다. 즉 **진입 조건이 곧 실패 보장 조건**이었다. 반대로
+`would_recover`가 true면 첫 호출이 이미 같은 함수 안에서 `selectFresh`로 넘어간다.
+
+이제 폐기된 suffix는 발행하지 않고 기존 `P0_BACKUP_ONLY`/safe-stop 경로로 바로 내려간다.
+진단 JSON의 `same_callback_replan_attempted`/`_succeeded` 필드도 함께 제거됐다.
+
+#### 2. continuation-first를 계산 순서로 (`advanceP3Lifecycle` lazy 평가)
+
+이전에는 `evaluateP3Snapshot()`을 **먼저 끝내고** 그 결과를 `advanceP3Lifecycle()`에 넘겼다.
+continuation-first는 출력 권한 순서였을 뿐이라, 고정된 frozen suffix가 멀쩡히 유지되는
+동안에도 매 콜백(25 ms) 후보 최대 24개 생성 + hard validation을 반복했다.
+
+이제 `advanceP3Lifecycle`은 결과 대신 **lazy evaluator**
+(`std::function<const P3ShadowResult &()>`)를 받고, continuation이 출력이나 완료를 내지 못했을
+때만 그것을 호출한다. 유지 중인 기동은 후보 생성 비용이 0이 된다. 평가가 한 번도 호출되지
+않은 콜백의 진단에는 `failure_classification`이
+`EVALUATOR_NOT_INVOKED_CONTINUATION_HELD`로 찍힌다 (solver 실패와 구분하기 위함).
+
+`SHADOW`는 관측 목적이므로 종전대로 매 콜백 평가한다.
+
+#### 3. guarded 검증 중복 제거 (인증서 재사용)
+
+`buildCandidate`가 후보를 만들 때 이미 `validateP3ShadowPath(ego, path, obstacles)`로 exact
+검증을 한다. 그런데 `selectFresh`가 **완전히 같은** ego/guarded-obstacle/path로 한 번 더
+검증하고 있었다.
+
+이제 `P3ShadowResult`가 선택된 후보의 검증 결과를 `selected_validation`과
+`selected_validation_available`로 실어 나르고, `selectFresh`는 그것을 재사용한다. 입력이 같은
+snapshot이라는 보장은 바로 위의 `FRESH_RESULT_SNAPSHOT_LINEAGE_MISMATCH` 검사가 이미 해준다.
+
+⚠️ **뒤이은 raw geometry 검증은 중복이 아니므로 그대로 남는다.** guarded 인증서는 raw
+기하에 대해 아무것도 보증하지 않는다. 회귀 테스트
+`CertifiedCandidateStillRejectedWhenRawGeometryCollides`가 인증서가 재사용된 상태에서도 raw
+충돌이 후보를 기각하는지 확인한다.

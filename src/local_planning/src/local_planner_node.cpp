@@ -2091,7 +2091,7 @@ P3ShadowResult LocalPlannerNode::evaluateP3Snapshot(
 
 P3ManeuverLifecycleDecision LocalPlannerNode::advanceP3Lifecycle(
   const P3CallbackSnapshot & snapshot,
-  const P3ShadowResult & evaluation)
+  const std::function<const P3ShadowResult &()> & evaluate)
 {
   if (!p3_maneuver_lifecycle_.active() &&
     (p3_maneuver_lifecycle_.state() == P3ManeuverLifecycleState::kInvalidated ||
@@ -2127,12 +2127,17 @@ P3ManeuverLifecycleDecision LocalPlannerNode::advanceP3Lifecycle(
     }
     auto continued = p3_maneuver_lifecycle_.continueCurrent(
       snapshot.maneuver, planner_, commitment_soft_violation_confirm_cycles_);
-    if (continued.has_output || continued.complete ||
-      !(evaluation.invoked && evaluation.would_recover))
-    {
+    // Return BEFORE touching evaluate(): this is the branch that makes continuation-first a
+    // computation saving and not merely an output priority.
+    if (continued.has_output || continued.complete) {
+      return continued;
+    }
+    const P3ShadowResult & continuation_fallback = evaluate();
+    if (!(continuation_fallback.invoked && continuation_fallback.would_recover)) {
       return continued;
     }
   }
+  const P3ShadowResult & evaluation = evaluate();
   if (evaluation.invoked && evaluation.would_recover) {
     return p3_maneuver_lifecycle_.selectFresh(snapshot.maneuver, evaluation, planner_);
   }
@@ -2234,9 +2239,7 @@ void LocalPlannerNode::publishP3CycleDiagnostic(
   const P3ShadowResult & evaluation,
   const P3ManeuverLifecycleDecision & lifecycle,
   const std::string & path_owner,
-  bool p0_backup_only,
-  bool same_callback_replan_attempted,
-  bool same_callback_replan_succeeded)
+  bool p0_backup_only)
 {
   RCLCPP_INFO(
     get_logger(),
@@ -2368,10 +2371,6 @@ void LocalPlannerNode::publishP3CycleDiagnostic(
        << jsonEscape(last_selected_path_digest_) << "\""
        << ",\"path_owner\":\"" << jsonEscape(path_owner) << "\""
        << ",\"p0_backup_only\":" << (p0_backup_only ? "true" : "false")
-       << ",\"same_callback_replan_attempted\":"
-       << (same_callback_replan_attempted ? "true" : "false")
-       << ",\"same_callback_replan_succeeded\":"
-       << (same_callback_replan_succeeded ? "true" : "false")
        << ",\"safe_stop_active\":"
        << (safe_stop_lifecycle_.active() ? "true" : "false")
        << ",\"shadow_lifecycle_isolated_from_p0_output_authority\":"
@@ -2406,9 +2405,11 @@ void LocalPlannerNode::onPlanningTimer()
       shadow_snapshot.not_ready_reason.clear();
     }
     (void)prepareP3InitialSelectionSnapshot(shadow_snapshot);
+    // SHADOW is observational: it always evaluates, so the lazy hook is satisfied eagerly here.
     const P3ShadowResult evaluation = evaluateP3Snapshot(
       shadow_snapshot, "SHADOW_PRODUCTION_" + last_selected_path_family_);
-    const auto lifecycle = advanceP3Lifecycle(shadow_snapshot, evaluation);
+    const auto lifecycle = advanceP3Lifecycle(
+      shadow_snapshot, [&evaluation]() -> const P3ShadowResult & {return evaluation;});
     publishP3CycleDiagnostic(
       shadow_snapshot, evaluation, lifecycle, "P0_SHADOW_UNCHANGED", false);
     return;
@@ -2416,43 +2417,41 @@ void LocalPlannerNode::onPlanningTimer()
 
   P3CallbackSnapshot active_snapshot = snapshot;
   (void)prepareP3InitialSelectionSnapshot(active_snapshot);
-  P3ShadowResult evaluation = evaluateP3Snapshot(active_snapshot, "TEST_ACTIVE_PRIMARY");
-  auto lifecycle = advanceP3Lifecycle(active_snapshot, evaluation);
-  bool same_callback_replan_attempted = false;
-  bool same_callback_replan_succeeded = false;
-
-  // A committed suffix that is hard-invalid against the current raw obstacle geometry has
-  // already been discarded atomically by the lifecycle. Give the unchanged production P3/M1
-  // solver exactly one fresh attempt on this callback's immutable ego/obstacle/reference
-  // snapshot. No suffix geometry, validator threshold, margin, or planner parameter is changed.
-  // A failed fresh attempt falls through to the existing P0_BACKUP_ONLY/safe-stop path.
-  if (lifecycle.invalidated &&
-    lifecycle.reason.rfind("CURRENT_RAW_OBSTACLE_COLLISION:", 0U) == 0U)
-  {
-    same_callback_replan_attempted = true;
-    P3ShadowResult replan_evaluation = evaluateP3Snapshot(
-      active_snapshot, "TEST_ACTIVE_SAME_CALLBACK_REPLAN");
-    auto replan_lifecycle = advanceP3Lifecycle(active_snapshot, replan_evaluation);
-    if (replan_lifecycle.has_output && replan_lifecycle.fresh_selected &&
-      replan_lifecycle.suffix_hard_valid)
-    {
-      evaluation = std::move(replan_evaluation);
-      lifecycle = std::move(replan_lifecycle);
-      same_callback_replan_succeeded = true;
-    }
-    RCLCPP_INFO(
-      get_logger(),
-      "P3_SAME_CALLBACK_REPLAN callback=%" PRIu64 " attempted=true succeeded=%s",
-      p3_callback_sequence_, same_callback_replan_succeeded ? "true" : "false");
+  // Lazy by contract: advanceP3Lifecycle pulls this only after continuation fails to produce
+  // output. While a frozen suffix keeps hard-validating, no candidate is constructed and no hard
+  // validation runs on this callback.
+  std::optional<P3ShadowResult> evaluation_storage;
+  const auto evaluate = [&]() -> const P3ShadowResult & {
+      if (!evaluation_storage.has_value()) {
+        evaluation_storage = evaluateP3Snapshot(active_snapshot, "TEST_ACTIVE_PRIMARY");
+      }
+      return *evaluation_storage;
+    };
+  const auto lifecycle = advanceP3Lifecycle(active_snapshot, evaluate);
+  // The previous same-callback replan branch lived here. It was unreachable by construction: the
+  // lifecycle only surfaces CURRENT_RAW_OBSTACLE_COLLISION when the evaluation did NOT recover,
+  // and re-running the evaluator on the same immutable snapshot cannot change that verdict, so the
+  // retry could never select a fresh path. When the evaluation DOES recover, advanceP3Lifecycle
+  // already falls through to selectFresh inside the very same call. Do not reintroduce it.
+  if (!evaluation_storage.has_value()) {
+    // Continuation held without ever consulting the evaluator. Report that explicitly instead of
+    // publishing a default-constructed result that would read as a solver failure.
+    P3ShadowResult held;
+    held.enabled = true;
+    held.snapshot_source_stamp_ns = active_snapshot.maneuver.source_stamp_ns;
+    held.snapshot_epoch = active_snapshot.maneuver.source_epoch;
+    held.global_reference_generation = active_snapshot.maneuver.global_reference_generation;
+    held.failure_classification = "EVALUATOR_NOT_INVOKED_CONTINUATION_HELD";
+    evaluation_storage = std::move(held);
   }
+  const P3ShadowResult & evaluation = *evaluation_storage;
   if (lifecycle.has_output && lifecycle.suffix_hard_valid) {
     // A fresh/continuing valid maneuver always has authority over an older completed tail.
     clearP3CompletionHandoff();
     current_path_owner_ = lifecycle.fresh_selected ? "P3_M1" : "P3_COMMITTED_SUFFIX";
     publishResult(makeP3ActiveResult(lifecycle));
     publishP3CycleDiagnostic(
-      active_snapshot, evaluation, lifecycle, current_path_owner_, false,
-      same_callback_replan_attempted, same_callback_replan_succeeded);
+      active_snapshot, evaluation, lifecycle, current_path_owner_, false);
     return;
   }
 
@@ -2587,8 +2586,7 @@ void LocalPlannerNode::onPlanningTimer()
     lifecycle.reason.c_str());
   runP0PlanningCycle(&snapshot);
   publishP3CycleDiagnostic(
-    active_snapshot, evaluation, lifecycle, "P0_BACKUP_ONLY", true,
-    same_callback_replan_attempted, same_callback_replan_succeeded);
+    active_snapshot, evaluation, lifecycle, "P0_BACKUP_ONLY", true);
 }
 
 void LocalPlannerNode::runP0PlanningCycle(const P3CallbackSnapshot * snapshot)
