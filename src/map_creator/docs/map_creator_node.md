@@ -47,6 +47,13 @@ IDLE ──(lap_count ≥ trigger, 원장 freeze)──▶ 판정+페인팅+저�
 6. **스왑**: republisher가 기존 `output/map`은 그대로 둔 채 별도
    `output/obstacle_map/global_waypoints.json`을 읽고 검증한 후, 메모리 bundle과
    활성 참조 경로만 교체해 즉시 발행.
+7. **AVOID 게이트 갱신**: 스왑 **성공 직후**(새 라인이 실제로 살아난 뒤에만)
+   state_machine의 `allow_avoid_transition` 파라미터를 `false`로 내려
+   GLOBAL→AVOID 진입을 차단한다. 새 라인이 장애물을 이미 우회하므로 로컬 회피가
+   불필요해지기 때문이다. 반대로 장애물 전부 소멸로 baseline rollback 스왑이
+   성공하면 `true`로 복원한다. `kArmed`(생성 검증 통과) 시점에는 절대 내리지
+   않는다 — 스왑 전까지는 장애물을 통과하는 옛 라인 위라 회피가 계속 필요하다.
+   파라미터 서비스 미준비 시 tick마다 재시도하며, 거부되면 로그만 남긴다.
 
 ## 3. 구독·발행·서비스
 
@@ -57,6 +64,7 @@ IDLE ──(lap_count ≥ trigger, 원장 freeze)──▶ 판정+페인팅+저�
 | 구독 | `/lap_count` | `std_msgs/Int32` | 트리거·스왑 랩 경계 |
 | 발행 | `/map_creator/status` | `std_msgs/String` | 단계·결과 |
 | 클라이언트 | `/global_planning/reload_waypoints` | `std_srvs/Trigger` | 원자 스왑/롤백 |
+| 클라이언트 | `state_machine_node/set_parameters` | `rcl_interfaces/SetParameters` | 스왑 성공 후 AVOID 게이트 갱신 |
 
 ## 4. 주요 파라미터 (`config/map_creator.yaml`)
 
@@ -75,6 +83,8 @@ IDLE ──(lap_count ≥ trigger, 원장 freeze)──▶ 판정+페인팅+저�
 | `retry_safety_width` | 0.4 | 게이트 실패 시에도 유지하는 safety_width |
 | `retry_smooth_sigma` | 2.5 | 게이트 실패 시 1회 재시도 smooth_sigma |
 | `max_swap_deferral_laps` | 3 | 리로드 서비스 미준비 시 이월 상한 |
+| `disable_avoid_after_swap` | true | 스왑 성공 후 state_machine AVOID 게이트 자동 갱신 |
+| `state_machine_node_name` | state_machine_node | 게이트 갱신 대상 노드 이름 |
 
 ## 5. 실행 방법
 
@@ -119,3 +129,6 @@ ros2 launch global_planning global_planning.launch.py
 5. `output/map/global_waypoints.json`이 변경되지 않았고, republisher의 `map_name` 런타임
    파라미터가 `obstacle_map`으로 바뀌었는지 확인합니다.
 6. 랩 2+에서 로컬 플래너가 해당 장애물에 재개입하지 않는지 확인합니다.
+7. 스왑 직후 status `avoid gate disabled (obstacle line active)`와
+   `ros2 param get /state_machine_node allow_avoid_transition`이 `false`인지
+   확인합니다 (baseline rollback 스왑 후에는 다시 `true`).

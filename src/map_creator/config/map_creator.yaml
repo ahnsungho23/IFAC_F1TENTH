@@ -6,6 +6,13 @@ map_creator_node:
     lap_count_topic: "/lap_count"
     reload_service: "/global_planning/reload_waypoints"
 
+    # ---- post-swap avoid gate ----
+    # 스왑 성공(새 장애물 회피 글로벌 라인 적용) 직후 state_machine의
+    # allow_avoid_transition을 false로 내려 GLOBAL->AVOID 진입을 차단합니다.
+    # baseline rollback 스왑(장애물 전부 소멸)은 반대로 true로 복원합니다.
+    disable_avoid_after_swap: true
+    state_machine_node_name: "state_machine_node"
+
     # ---- trigger / ledger ----
     trigger_lap_count: 2          # freeze at the lap-2 finish (lap_count 1 -> 2)
     match_max_ds_m: 1.0           # 입력 메시지의 Frenet s 기준 wrap-aware 기하 매칭

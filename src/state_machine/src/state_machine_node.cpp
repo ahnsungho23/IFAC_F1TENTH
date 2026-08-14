@@ -156,6 +156,10 @@ StateMachineNode::StateMachineNode()
     std::chrono::duration<double>(1.0 / publish_rate_hz));
   timer_ = create_wall_timer(period, std::bind(&StateMachineNode::publish_state_cycle, this));
 
+  // map_creator flips the transition gates at runtime after a global-line swap.
+  param_cb_handle_ = add_on_set_parameters_callback(
+    std::bind(&StateMachineNode::on_set_parameters, this, std::placeholders::_1));
+
   const auto parsed_default = parse_state(default_state_name_);
   if (!parsed_default.has_value()) {
     RCLCPP_WARN(
@@ -178,6 +182,48 @@ StateMachineNode::StateMachineNode()
       get_logger(),
       "Both local-path transitions are disabled. The FSM will stay in its default state.");
   }
+}
+
+rcl_interfaces::msg::SetParametersResult StateMachineNode::on_set_parameters(
+  const std::vector<rclcpp::Parameter> & parameters)
+{
+  rcl_interfaces::msg::SetParametersResult result;
+  result.successful = true;
+
+  // Validate first so a rejected batch does not partially apply.
+  for (const auto & parameter : parameters) {
+    const auto & name = parameter.get_name();
+    if (name != "allow_avoid_transition" && name != "allow_overtake_transition") {
+      continue;  // every other parameter keeps its read-once-at-startup semantics
+    }
+    if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_BOOL) {
+      result.successful = false;
+      result.reason = name + " must be a bool";
+      return result;
+    }
+  }
+
+  for (const auto & parameter : parameters) {
+    const auto & name = parameter.get_name();
+    bool * target = nullptr;
+    if (name == "allow_avoid_transition") {
+      target = &allow_avoid_transition_;
+    } else if (name == "allow_overtake_transition") {
+      target = &allow_overtake_transition_;
+    } else {
+      continue;
+    }
+    if (*target != parameter.as_bool()) {
+      RCLCPP_INFO(
+        get_logger(),
+        "%s changed at runtime: %s -> %s.",
+        name.c_str(),
+        *target ? "true" : "false",
+        parameter.as_bool() ? "true" : "false");
+    }
+    *target = parameter.as_bool();
+  }
+  return result;
 }
 
 std::optional<uint8_t> StateMachineNode::parse_state(const std::string & state_name) const

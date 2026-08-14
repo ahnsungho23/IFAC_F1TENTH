@@ -26,8 +26,12 @@ Frenet 입력이 멈추면 마지막 index로 경로를 재발행하지 않습�
   진입합니다. 둘 다 만족하면 `AVOID`가 우선입니다.
 - `AVOID`/`OVERTAKE`: ego가 local 경로 tail에 도달하고 global line에 설정 시간 동안
   합류하면 `GLOBAL`로 복귀합니다.
-- `allow_avoid_transition`과 `allow_overtake_transition`은 진입만 차단합니다. YAML 기본값은
-  둘 다 `false`이므로 기본 운용은 `GLOBAL` 고정입니다.
+- `allow_avoid_transition`과 `allow_overtake_transition`은 진입만 차단합니다. 현재 YAML은
+  avoid `true`, overtake `false`입니다.
+- 두 allow 플래그는 **런타임 동적 파라미터**입니다. `set_parameters` 서비스로 바꾸면
+  즉시 다음 FSM 평가부터 반영됩니다. 대표 사용처: map_creator가 글로벌 라인 스왑
+  성공 직후 `allow_avoid_transition`을 `false`로 내려 GLOBAL→AVOID 진입을 차단하고,
+  baseline rollback 스왑 후 `true`로 복원합니다.
 
 ### 2.2 경로 유효성 및 선택
 
@@ -64,18 +68,19 @@ GLOBAL 출력은 Frenet odometry의 `child_frame_id`를 최근접 글로벌 segm
 |---|---:|---|
 | `publish_rate_hz` | `10.0` | FSM 평가와 `/state` heartbeat 주기 |
 | `waypoint_num` | `50` | GLOBAL에서 추출할 전방 waypoint 수 |
-| `allow_avoid_transition` | `false` | GLOBAL→AVOID 진입 허용 |
-| `allow_overtake_transition` | `false` | GLOBAL→OVERTAKE 진입 허용 |
-| `local_path_confirmation_window_size` | `5` | 진입 확인 메시지 창 크기 N |
-| `local_path_confirmation_min_hits` | `3` | 필요한 non-empty 수 M |
+| `allow_avoid_transition` | `true` | GLOBAL→AVOID 진입 허용 (런타임 동적) |
+| `allow_overtake_transition` | `false` | GLOBAL→OVERTAKE 진입 허용 (런타임 동적) |
+| `local_path_confirmation_window_size` | `3` | 진입 확인 메시지 창 크기 N |
+| `local_path_confirmation_min_hits` | `2` | 필요한 non-empty 수 M |
 | `overtake_hold_duration_sec` | `2.0` | 추월 경로 갱신 억제 시간 |
 | `global_publisher_warn_timeout_sec` | `5.0` | 정적 GLOBAL 발행자 침묵 경고 시간 |
 | `frenet_stale_timeout_sec` | `0.5` | 모든 local 출력의 Frenet freshness 제한 |
 | `invalid_local_path_policy` | `global_fallback` | local 전용 경로 무효 시 정책 |
 | `enter_global_*` | YAML 참고 | local 경로 tail에서 GLOBAL 복귀 조건 |
 
-현재 `invalid_local_path_policy`는 `global_fallback`만 지원합니다. 파라미터는 기동 시 한 번
-읽으므로 값을 바꾼 뒤 노드를 재시작해야 합니다.
+현재 `invalid_local_path_policy`는 `global_fallback`만 지원합니다. `allow_avoid_transition`과
+`allow_overtake_transition`만 런타임 변경(`ros2 param set`)이 즉시 반영되며, 나머지 파라미터는
+기동 시 한 번 읽으므로 값을 바꾼 뒤 노드를 재시작해야 합니다.
 
 ## 5. 빌드와 실행
 

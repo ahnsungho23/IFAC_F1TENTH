@@ -30,6 +30,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include "rcl_interfaces/msg/set_parameters_result.hpp"
+#include "rclcpp/parameter_client.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/int32.hpp"
 #include "std_msgs/msg/string.hpp"
@@ -82,6 +84,10 @@ public:
       std::bind(&MapCreatorNode::obstaclesCallback, this, std::placeholders::_1));
     status_pub_ = create_publisher<std_msgs::msg::String>("/map_creator/status", 10);
     reload_client_ = create_client<std_srvs::srv::Trigger>(reload_service_);
+    if (disable_avoid_after_swap_) {
+      state_machine_param_client_ = std::make_shared<rclcpp::AsyncParametersClient>(
+        this, state_machine_node_name_);
+    }
 
     timer_ = create_wall_timer(
       std::chrono::milliseconds(100), std::bind(&MapCreatorNode::tick, this));
@@ -99,6 +105,8 @@ private:
     declare_parameter<std::string>("lap_count_topic", "/lap_count");
     declare_parameter<std::string>(
       "reload_service", "/global_planning/reload_waypoints");
+    declare_parameter<bool>("disable_avoid_after_swap", true);
+    declare_parameter<std::string>("state_machine_node_name", "state_machine_node");
 
     declare_parameter<int>("trigger_lap_count", 2);
     declare_parameter<double>("match_max_ds_m", 1.0);
@@ -159,6 +167,8 @@ private:
     global_waypoints_topic_ = get_parameter("global_waypoints_topic").as_string();
     lap_count_topic_ = get_parameter("lap_count_topic").as_string();
     reload_service_ = get_parameter("reload_service").as_string();
+    disable_avoid_after_swap_ = get_parameter("disable_avoid_after_swap").as_bool();
+    state_machine_node_name_ = get_parameter("state_machine_node_name").as_string();
 
     trigger_lap_count_ = static_cast<int>(get_parameter("trigger_lap_count").as_int());
     ledger_.setMatchThresholds(
@@ -460,6 +470,10 @@ private:
           RCLCPP_INFO(get_logger(), "swap done: %s", response->message.c_str());
           publishStatus("swapped: " + response->message);
           writeManifest("swapped", response->message);
+          // Obstacle-line swap: the live global line now clears the obstacles,
+          // so the GLOBAL->AVOID entry gate is no longer needed. A baseline
+          // rollback swap (frozen_ empty) restores the gate instead.
+          scheduleAvoidGate(frozen_.empty());
         } else {
           abort("reload rejected: " + response->message);
         }
@@ -508,9 +522,53 @@ private:
     status_pub_->publish(msg);
   }
 
+  // ------------------------------------------ state_machine avoid-gate update
+  void scheduleAvoidGate(bool allow)
+  {
+    if (!disable_avoid_after_swap_) {
+      return;
+    }
+    pending_avoid_gate_ = allow;
+    trySendAvoidGate();
+  }
+
+  void trySendAvoidGate()
+  {
+    if (!pending_avoid_gate_.has_value() || !state_machine_param_client_) {
+      return;
+    }
+    if (!state_machine_param_client_->service_is_ready()) {
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
+        "state_machine '%s' parameter service not ready; "
+        "retrying allow_avoid_transition update", state_machine_node_name_.c_str());
+      return;
+    }
+    const bool allow = *pending_avoid_gate_;
+    pending_avoid_gate_.reset();
+    state_machine_param_client_->set_parameters(
+      {rclcpp::Parameter("allow_avoid_transition", allow)},
+      [this, allow](
+        std::shared_future<std::vector<rcl_interfaces::msg::SetParametersResult>> future) {
+        for (const auto & result : future.get()) {
+          if (!result.successful) {
+            RCLCPP_ERROR(get_logger(),
+              "allow_avoid_transition=%s rejected by state_machine: %s",
+              allow ? "true" : "false", result.reason.c_str());
+            publishStatus("avoid gate update rejected");
+            return;
+          }
+        }
+        RCLCPP_INFO(get_logger(),
+          "state_machine allow_avoid_transition set to %s", allow ? "true" : "false");
+        publishStatus(std::string("avoid gate ") +
+          (allow ? "re-enabled (baseline rollback)" : "disabled (obstacle line active)"));
+      });
+  }
+
   // ---------------------------------------------------------------- FSM tick
   void tick()
   {
+    trySendAvoidGate();
     switch (stage_) {
       case Stage::kIdle:
         if (!fired_ && adapter_ && lap_count_ >= trigger_lap_count_) {
@@ -606,6 +664,8 @@ private:
   // ---------------------------------------------------------------- members
   std::string obstacle_map_topic_, global_waypoints_topic_, lap_count_topic_;
   std::string reload_service_;
+  bool disable_avoid_after_swap_{true};
+  std::string state_machine_node_name_;
   int trigger_lap_count_{2};
   int removal_miss_laps_{2};
   double ego_lookback_m_{12.0};
@@ -643,6 +703,8 @@ private:
   rclcpp::Subscription<f110_msgs::msg::ObstacleArray>::SharedPtr obs_sub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;
   rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr reload_client_;
+  rclcpp::AsyncParametersClient::SharedPtr state_machine_param_client_;
+  std::optional<bool> pending_avoid_gate_;
   rclcpp::TimerBase::SharedPtr timer_;
 };
 

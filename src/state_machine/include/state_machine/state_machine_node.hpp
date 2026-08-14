@@ -4,12 +4,14 @@
 #include <deque>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "f110_msgs/msg/ot_wpnt_array.hpp"
 #include "f110_msgs/msg/state_machine.hpp"
 #include "f110_msgs/msg/wpnt_array.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "nav_msgs/msg/path.hpp"
+#include "rcl_interfaces/msg/set_parameters_result.hpp"
 #include "rclcpp/rclcpp.hpp"
 
 namespace state_machine
@@ -48,6 +50,9 @@ private:
     uint8_t eval_state,
     bool local_available,
     const f110_msgs::msg::OTWpntArray::SharedPtr & local_wpnts);
+
+  rcl_interfaces::msg::SetParametersResult on_set_parameters(
+    const std::vector<rclcpp::Parameter> & parameters);
 
   void on_frenet_odom(const nav_msgs::msg::Odometry::SharedPtr msg);
   void on_global_waypoints(const f110_msgs::msg::WpntArray::SharedPtr msg);
@@ -117,6 +122,7 @@ private:
   rclcpp::Subscription<f110_msgs::msg::OTWpntArray>::SharedPtr avoid_sub_;
   rclcpp::Subscription<f110_msgs::msg::OTWpntArray>::SharedPtr overtake_sub_;
   rclcpp::TimerBase::SharedPtr timer_;
+  rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr param_cb_handle_;
 };
 
 }  // namespace state_machine

@@ -68,6 +68,17 @@ map_creator package rules. These instructions apply to `src/map_creator`.
 3. Reload-service unavailability may defer the request, bounded by
    `max_swap_deferral_laps`.
 
+## Post-Swap Avoid Gate
+
+- After a SUCCESSFUL swap (and only then — never at kArmed, where the old line
+  through the obstacles is still live), the node sets the state_machine's
+  `allow_avoid_transition` parameter via its `set_parameters` service:
+  obstacle-line swap → `false` (the live line now clears the obstacles);
+  baseline-rollback swap (`frozen_` empty) → `true` (local avoidance must cover
+  again). Gated by `disable_avoid_after_swap`; target node name in
+  `state_machine_node_name`. If the parameter service is not ready, the update
+  stays pending and `tick()` retries; a rejected set is logged and dropped.
+
 ## Runtime Code
 
 - Runtime code must be C++ for ROS 2 Jazzy. The Python driver is an offline
