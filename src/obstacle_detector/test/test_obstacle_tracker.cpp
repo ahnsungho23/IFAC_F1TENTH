@@ -726,6 +726,70 @@ TEST(ObstacleTrackerLifetime, ConfirmedStaticTrackHeldThroughOcclusionForHoldSec
     EXPECT_TRUE(tracker.tracks().empty());
 }
 
+TEST(ObstacleTrackerLifetime, TranslatingUnknownTrackIsNotHeldAsMapFixedObject)
+{
+    TrackerParams params = testParams();
+    params.ttl_static = 3;
+    params.ttl_dynamic = 3;
+    params.static_lost_hold_sec = 1.0;
+    ObstacleTracker tracker;
+    tracker.configure(params, nullptr);
+
+    // A moving object measured while ego motion withholds dynamic votes: it translates provably,
+    // yet stays Confirmed+UNKNOWN, which is exactly the state that used to earn a full
+    // static_lost_hold_sec of frozen republication on /static_obs.
+    double stamp = 0.0;
+    for (int i = 0; i < 6; ++i)
+    {
+        tracker.update({makeDetection(10.0 + 0.15 * i)}, stamp, 0.0, true, true);
+        stamp += 0.04;
+    }
+    ASSERT_EQ(tracker.tracks().size(), 1U);
+    const Track &moving = tracker.tracks().front();
+    ASSERT_EQ(moving.track_status, TrackStatus::Confirmed);
+    ASSERT_EQ(moving.motion_status, MotionStatus::Unknown);
+    ASSERT_TRUE(std::isfinite(moving.provable_translation_m));
+    ASSERT_GE(moving.provable_translation_m, params.dynamic_min_translation_m);
+
+    // Occlusion: the ordinary frame TTL must retire it instead of the map-fixed-object hold.
+    for (int i = 0; i < 4; ++i)
+    {
+        tracker.update({}, stamp);
+        stamp += 0.04;
+    }
+    EXPECT_TRUE(tracker.tracks().empty())
+        << "a provably translating UNKNOWN track was held as if it were a map-fixed object";
+}
+
+TEST(ObstacleTrackerLifetime, HoldFallsBackToPermissiveWhenCorroborationDisabled)
+{
+    TrackerParams params = testParams();
+    params.ttl_static = 3;
+    params.static_lost_hold_sec = 1.0;
+    // Without translation corroboration there is no evidence to judge an UNKNOWN track by, so the
+    // hold must keep its previous permissive behaviour rather than silently retiring everything.
+    params.translation_corroboration_enable = false;
+    ObstacleTracker tracker;
+    tracker.configure(params, nullptr);
+
+    double stamp = 0.0;
+    for (int i = 0; i < 6; ++i)
+    {
+        tracker.update({makeDetection(10.0 + 0.15 * i)}, stamp, 0.0, true, true);
+        stamp += 0.04;
+    }
+    ASSERT_EQ(tracker.tracks().size(), 1U);
+    ASSERT_EQ(tracker.tracks().front().track_status, TrackStatus::Confirmed);
+    ASSERT_EQ(tracker.tracks().front().motion_status, MotionStatus::Unknown);
+
+    for (int i = 0; i < 4; ++i)
+    {
+        tracker.update({}, stamp);
+        stamp += 0.04;
+    }
+    EXPECT_EQ(tracker.tracks().size(), 1U);
+}
+
 TEST(ObstacleTrackerClassification, EgoMotionTransientWithholdsDynamicVotes)
 {
     // Identical translating cadence; only the ego-motion transient flag differs. The witness run

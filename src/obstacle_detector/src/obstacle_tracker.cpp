@@ -705,6 +705,38 @@ void ObstacleTracker::updateTranslationEvidence(
     t.measured_aabb_history.push_back(sample);
 }
 
+bool ObstacleTracker::holdEligibleWhileUnmeasured(const Track &t) const
+{
+    if (p_.static_lost_hold_sec <= 0.0 || t.track_status != TrackStatus::Confirmed ||
+        !t.is_static)
+    {
+        return false;
+    }
+    // The hold's justification is "a map-fixed object cannot change while unobserved". That is
+    // proven for a Confirmed STATIC track. It is NOT proven for a Confirmed UNKNOWN one, and
+    // `is_static` alone means only "not Dynamic", which every track is before it accumulates
+    // dynamic votes. Because a dynamic vote additionally requires dynamic_min_translation_m of
+    // corroborated translation over translation_window_sec, EVERY opponent spends at least that
+    // window Confirmed-and-Unknown while already published on /static_obs; holding it there turns
+    // a briefly occluded opponent into a static_lost_hold_sec ghost at a stale pose.
+    if (t.motion_status == MotionStatus::Static)
+    {
+        return true;
+    }
+    // Unknown is admitted only on positive evidence that the measured box did not translate.
+    // provable_translation_m counts only motion shared by both edges of an axis, so progressive
+    // revelation of a stationary obstacle (one edge growing) reads as ~0 and keeps its hold --
+    // which is the flicker case static_lost_hold_sec exists for. With corroboration disabled the
+    // evidence does not exist at all, so fall back to the previous permissive behaviour instead
+    // of silently retiring every Unknown track.
+    if (!p_.translation_corroboration_enable)
+    {
+        return true;
+    }
+    return std::isfinite(t.provable_translation_m) &&
+           t.provable_translation_m < p_.dynamic_min_translation_m;
+}
+
 void ObstacleTracker::classify(Track &t, bool measurement_received) const
 {
     if (t.track_status != TrackStatus::Confirmed)
@@ -860,9 +892,7 @@ void ObstacleTracker::update(
         // prediction-only frame (time_since == 0 here) still propagates normally, so visible
         // tracks are untouched.
         const bool freeze_lost_static =
-            p_.static_lost_hold_sec > 0.0 && t.is_static &&
-            t.track_status == TrackStatus::Confirmed &&
-            t.time_since_last_measurement > 0.0;
+            holdEligibleWhileUnmeasured(t) && t.time_since_last_measurement > 0.0;
         if (!freeze_lost_static)
         {
             predict(t, dt);
@@ -1058,8 +1088,7 @@ void ObstacleTracker::update(
             // original frame-TTL retirement, and the stability streak still resets because a
             // prediction-only frame breaks consecutive-scan evidence.
             const bool hold_lost_static =
-                p_.static_lost_hold_sec > 0.0 && t.is_static &&
-                t.track_status == TrackStatus::Confirmed &&
+                holdEligibleWhileUnmeasured(t) &&
                 t.time_since_last_measurement < p_.static_lost_hold_sec;
             if (hold_lost_static)
             {

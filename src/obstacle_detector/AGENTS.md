@@ -157,6 +157,29 @@ published Frenet bounds instead of reprojecting the Cartesian metadata.
   the dropout. Reverting either half reintroduces the 2026-08-12 21:11 planner failures
   (per-lap zero-hold stops at the hairpin, 80 path rebuilds in 91 s). The dynamic layer keeps
   the visible-only Cartesian rule.
+- **The hold requires map-fixed EVIDENCE, not merely "not Dynamic"** (2026-08-15): both hold sites
+  ask `holdEligibleWhileUnmeasured()`, the single authority; never re-inline the predicate. A
+  `Confirmed` track qualifies when `motion_status == Static`, or -- while still `Unknown` -- only
+  when `provable_translation_m` is finite and below `dynamic_min_translation_m`. Rationale: a
+  dynamic vote additionally requires that much corroborated translation across
+  `translation_window_sec`, so EVERY opponent is necessarily `Confirmed`+`Unknown` for at least
+  that window while already published on `/static_obs`; gating the hold on `is_static` (which only
+  means "not Dynamic") froze such an opponent at a stale pose for the full
+  `static_lost_hold_sec`. Do NOT tighten this to `motion_status == Static` alone: a stationary
+  obstacle under progressive revelation cannot reach `Static` (its centroid shift keeps
+  `map_position_rms` above `static_max_position_rms`), and that tightening measurably breaks
+  `ConfirmedStaticTrackHeldThroughOcclusionForHoldSeconds` -- i.e. it removes the hold exactly in
+  the hairpin flicker case the hold exists for. `provable_translation_m` is the right
+  discriminator because `anchoredAxisTranslation()` counts only motion shared by BOTH edges of an
+  axis, so one-edge growth from progressive revelation reads as ~0. With
+  `translation_corroboration_enable` false there is no evidence to judge by, so the predicate
+  falls back to the previous permissive behaviour rather than retiring every `Unknown` track.
+  Regression: `TranslatingUnknownTrackIsNotHeldAsMapFixedObject` and
+  `HoldFallsBackToPermissiveWhenCorroborationDisabled` in `test/test_obstacle_tracker.cpp`.
+  Residual gap (accepted): an opponent occluded before it accumulates
+  `dynamic_min_translation_m` of provable translation still gets the hold. Lowering that
+  threshold is NOT the fix -- it is pinned just above the measured real-car MCL jitter (0.27 m),
+  and the 0.10 m era leaked static boxes into `/opp_obs` (run_0814_010624).
 - **Held tracks freeze their Kalman filters**: during the hold's prediction-only frames both the
   Frenet and map filters are NOT propagated (first miss frame still predicts). Propagating a CV
   model through a multi-second dropout integrates a noisy velocity estimate — the state drifts

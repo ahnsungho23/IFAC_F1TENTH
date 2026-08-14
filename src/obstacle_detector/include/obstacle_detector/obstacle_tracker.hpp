@@ -319,6 +319,10 @@ class ObstacleTracker
     void updateTranslationEvidence(
         Track &t, const Detection &detection, double stamp) const;
     void classify(Track &t, bool measurement_received) const;
+    // Single authority for "this unmeasured track may be held/frozen as a map-fixed object".
+    // Both the state-freeze and the TTL/publish-evidence hold must ask the same question; two
+    // copies of the predicate would drift apart.
+    bool holdEligibleWhileUnmeasured(const Track &t) const;
     int countEvidence(
         const std::deque<MotionEvidence> &history,
         MotionEvidence evidence,
