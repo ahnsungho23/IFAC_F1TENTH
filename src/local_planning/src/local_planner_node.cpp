@@ -346,6 +346,8 @@ void LocalPlannerNode::initializeParameters()
     declare_parameter<double>("avoidance_minimum_speed_mps", 2.0);
   planner_parameters_.margin_pass_speed_cap_mps =
     declare_parameter<double>("margin_pass_speed_cap_mps", 2.0);
+  planner_parameters_.approach_feasibility_decel_mps2 =
+    declare_parameter<double>("approach_feasibility_decel_mps2", 2.0);
   planner_parameters_.commitment_retention_reserve_fraction =
     declare_parameter<double>("commitment_retention_reserve_fraction", 0.5);
   planner_parameters_.localization_reserve_m =
@@ -516,6 +518,7 @@ void LocalPlannerNode::initializeParameters()
     planner_parameters_.avoidance_minimum_speed_mps < 0.0 ||
     !std::isfinite(planner_parameters_.margin_pass_speed_cap_mps) ||
     planner_parameters_.margin_pass_speed_cap_mps < 0.0 ||
+    !std::isfinite(planner_parameters_.approach_feasibility_decel_mps2) ||
     !std::isfinite(planner_parameters_.commitment_retention_reserve_fraction) ||
     planner_parameters_.commitment_retention_reserve_fraction < 0.0 ||
     planner_parameters_.commitment_retention_reserve_fraction > 1.0 ||

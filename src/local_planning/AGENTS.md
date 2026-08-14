@@ -277,6 +277,12 @@
   no stop prefix, brake along `last_valid_guidance_path_` (`buildCommittedPathStop`, then
   `buildLastPathBrake`); (4) the in-place zero-speed emergency hold is the last resort only
   when no valid guidance path was ever published.
+- Never publish a slow section as a flat step from the ego position
+  (`approach_feasibility_decel_mps2`, 2026-08-14): the margin pass ramps down from the MEASURED
+  ego speed, and the avoidance spline carries a backward braking ramp into the obstacle-span
+  speed. A flat step saturates the service brake, slips past the friction limit and cost us
+  steering authority on the real car (run_0814_111210 wall crash). Obstacle-span speeds
+  themselves are reserve-backed — never raise them.
 - P3/M1 is production-owned C++ in this package. External CMA/evaluator executables are parity
   oracles only and must never supply runtime local paths.
 - Run P3/M1 candidate generation immediately for every authoritative non-empty snapshot. Guard

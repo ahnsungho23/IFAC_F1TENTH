@@ -659,6 +659,28 @@ RacelineSplineResult RacelineSplinePlanner::buildMarginSlowPass(
     result.reason = "margin slow pass disabled (margin_pass_speed_cap_mps <= 0)";
     return result;
   }
+  // 접근 실현성 램프(2026-08-14 실차): 자차가 cap보다 빠를 때 flat cap을 자차 위치부터
+  // 그대로 명령하면 계단 감속이 된다 — 서비스 브레이크가 포화하고 마찰 한계를 넘겨
+  // 슬립(조향 상실)으로 이어졌다(4.4 m/s 접근에 flat 2.0 → 벽 충돌). 군집 시작 전
+  // 구간은 실측 자차 속도에서 approach_feasibility_decel_mps2로 내려가는 프로파일까지
+  // 허용하되, 그 감속으로 군집 시작까지 cap에 못 닿으면 닿는 만큼만 더 가파르게 잡는다
+  // (여유가 전혀 없으면 기존 flat cap으로 수렴). 군집 스팬부터는 항상 cap 그대로다.
+  double cluster_start = cluster.front().start;
+  for (const auto & obstacle : cluster) {
+    cluster_start = std::min(cluster_start, obstacle.start);
+  }
+  cluster_start = std::max(0.0, cluster_start);
+  const double approach_decel = parameters_.approach_feasibility_decel_mps2;
+  const double ego_speed =
+    std::isfinite(ego.speed) ? std::max(0.0, std::abs(ego.speed)) : 0.0;
+  const bool ramp_active =
+    approach_decel > 0.0 && ego_speed > cap && cluster_start > kEpsilon;
+  double ramp_decel = approach_decel;
+  if (ramp_active) {
+    ramp_decel = std::max(
+      approach_decel,
+      (ego_speed * ego_speed - cap * cap) / (2.0 * cluster_start));
+  }
   // End far enough past the cluster that the merge-completion check (tail reach) fires with the
   // full vehicle clear of the obstacle span.
   const double end_at = std::min(
@@ -675,7 +697,12 @@ RacelineSplineResult RacelineSplinePlanner::buildMarginSlowPass(
     auto waypoint = reference_.wpnts[index];
     waypoint.id = static_cast<int32_t>(result.path.wpnts.size());
     waypoint.d_m = 0.0;
-    waypoint.vx_mps = std::min(std::max(0.0, waypoint.vx_mps), cap);
+    double allowed = cap;
+    if (ramp_active && forward_s < cluster_start) {
+      allowed = std::sqrt(
+        std::max(cap * cap, ego_speed * ego_speed - 2.0 * ramp_decel * forward_s));
+    }
+    waypoint.vx_mps = std::min(std::max(0.0, waypoint.vx_mps), allowed);
     result.path.wpnts.push_back(waypoint);
   }
   if (result.path.wpnts.size() < 2U) {
@@ -1725,6 +1752,48 @@ void RacelineSplinePlanner::applyAvoidanceVelocityLimit(
     // The reserve shrinks with speed, so the curvature cap has to be re-imposed on the reduced
     // value; it can only lower the speed further, never raise it.
     waypoint.vx_mps = parameters_.limitedAvoidanceSpeed(speed, waypoint.kappa_radpm);
+  }
+
+  // 접근 실현성 후방 제동 램프(2026-08-14 실차): 위 캡들은 장애물 스팬 안에서만 속도를
+  // 낮추므로, 접근 구간은 프로파일 속도 그대로다가 스팬 경계에서 속도가 계단으로
+  // 떨어진다. 실차에서는 그 계단이 서비스 브레이크 포화 → 마찰 한계 초과 슬립 →
+  // 조향 상실로 이어졌다. 스팬 시작 시점의 계획 속도에서 approach_feasibility_decel_mps2로
+  // 거꾸로 올라가는 제동 프로파일을 접근 구간에 씌워(낮추기만 한다) 제동이 스팬 훨씬
+  // 전에 완만하게 시작되게 한다. 스팬 내부 속도는 건드리지 않는다.
+  const double approach_decel = parameters_.approach_feasibility_decel_mps2;
+  if (!(approach_decel > 0.0) || path.wpnts.empty()) {
+    return;
+  }
+  double must_reach = std::numeric_limits<double>::infinity();
+  for (const auto & obstacle : visible) {
+    must_reach = std::min(must_reach, obstacle.start);
+  }
+  if (!std::isfinite(must_reach)) {
+    return;
+  }
+  must_reach = std::max(0.0, must_reach);
+  if (must_reach <= kEpsilon) {
+    return;   // 스팬이 자차에 붙어 있음(정지 탈출 등) — 접근 구간이 없다.
+  }
+  double target_speed = std::numeric_limits<double>::quiet_NaN();
+  for (const auto & waypoint : path.wpnts) {
+    if (forwardDistance(ego.s, waypoint.s_m) >= must_reach) {
+      target_speed = std::max(0.0, waypoint.vx_mps);
+      break;
+    }
+  }
+  if (!std::isfinite(target_speed)) {
+    return;   // 경로가 스팬까지 이어지지 않음 — 접근/스팬 경계를 정할 수 없다.
+  }
+  for (auto & waypoint : path.wpnts) {
+    const double forward_s = forwardDistance(ego.s, waypoint.s_m);
+    if (forward_s >= must_reach) {
+      continue;
+    }
+    const double braking_speed = std::sqrt(
+      target_speed * target_speed +
+      2.0 * approach_decel * (must_reach - forward_s));
+    waypoint.vx_mps = std::min(std::max(0.0, waypoint.vx_mps), braking_speed);
   }
 }
 
