@@ -1,3 +1,16 @@
+// Copyright 2026 2026_IFAC contributors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 // 실차 정지 교착 재현 하니스 (진단 전용, 런타임 코드 아님).
 //
 // 실제 글로벌 라인 CSV + bag에서 뽑은 자차/장애물 상태를 그대로 넣어 plan()을 호출하고,
@@ -139,6 +152,10 @@ int main(int argc, char ** argv)
   }
   const auto reference = loadReference(argv[1]);
   auto parameters = operationalParameters();
+  // 선택 인자 9: localization_reserve_m 오버라이드 (MCL 수리 전/후 비교용)
+  if (argc >= 10) {
+    parameters.localization_reserve_m = std::atof(argv[9]);
+  }
   RacelineSplinePlanner planner(parameters);
   if (!planner.setReference(reference)) {
     std::cerr << "reference rejected\n";
@@ -172,9 +189,17 @@ int main(int argc, char ** argv)
   std::printf("ego s=%.2f d=%+.2f v=%.2f | obs s=[%.2f,%.2f] d=[%+.2f,%+.2f]\n",
     ego.s, ego.d, ego.speed, obstacle.s_start, obstacle.s_end,
     obstacle.d_right, obstacle.d_left);
-  std::printf("결과: %s (margin_pass=%d, 점 %zu개)\n  이유: %s\n",
+  double sel_wall = std::nan("");
+  for (const auto & a : result.candidate_audits) {
+    if (a.selected) {
+      sel_wall = a.centerline_wall_clearance_m;
+    }
+  }
+  std::printf(
+    "결과: %s (margin_pass=%d, 점 %zu개) target_d=%+.3f 선택후보 벽여유=%.3f\n"
+    "  이유: %s\n",
     kind, static_cast<int>(result.margin_pass), result.path.wpnts.size(),
-    result.reason.c_str());
+    result.target_d, sel_wall, result.reason.c_str());
   std::printf("후보 %zu개:\n", result.candidate_audits.size());
   for (const auto & a : result.candidate_audits) {
     std::printf(
