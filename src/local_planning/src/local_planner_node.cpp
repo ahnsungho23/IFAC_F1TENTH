@@ -2666,6 +2666,28 @@ void LocalPlannerNode::runP0PlanningCycle(const P3CallbackSnapshot * snapshot)
         const bool stable = updateInitialStabilization(
           preparation.obstacle_ids, conservative_obstacles, eventNow());
         if (!stable) {
+          // 🔴 2026-08-14 실차: 안정화가 끝날 때까지 무조건 정지 경로를 내보내면, 그 사이
+          // 브레이크로 장애물까지 간극이 줄어 **정지 후 탈출이 물리적으로 불가능해지는**
+          // 함정에 빠진다(하니스 실측: 정지 상태 탈출은 간극 2.5 m 이상에서만 가능, 그
+          // 아래는 곡률 한계로 전 후보 거부). 실제로 0814 백에서 자율 정지 11건 중 8건이
+          // 이 경로로 들어가 사람이 E-stop으로 꺼내야 했고, 같은 순간을 오프라인으로
+          // 재현하면 회피 후보가 36개 중 6개나 실현 가능했다.
+          //
+          // 그래서 안정화 중이라도 **지금까지 모은 보수적 합집합 엔벨로프**에 대해 하드
+          // 검증을 통과하는 회피가 있으면 정지 대신 그것을 발행한다. 안전 성질은 유지된다:
+          // 판단 근거가 단일 메시지가 아니라 누적 최악 엔벨로프이고, plan()은 하드 검증을
+          // 통과한 후보만 kAvoidance로 돌려준다. 커밋은 하지 않으므로 관측이 흔들리면
+          // 다음 사이클에 다시 판단하고, 회피가 성립하지 않으면 종전대로 정지 준비로 간다.
+          const auto stabilizing_obstacles =
+            buildGuardedObstacles(buildInitialStabilizationInput());
+          if (!stabilizing_obstacles.empty()) {
+            auto early_avoidance = planner_.plan(ego, stabilizing_obstacles);
+            if (early_avoidance.kind == SplinePlanKind::kAvoidance) {
+              initial_prepare_published_ = false;
+              publishResult(early_avoidance);
+              return;
+            }
+          }
           initial_prepare_published_ = true;
           publishResult(preparation);
           return;

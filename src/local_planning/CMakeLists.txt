@@ -110,6 +110,13 @@ if(BUILD_TESTING)
   ament_target_dependencies(p3_production_parity_harness f110_msgs)
   target_link_libraries(p3_production_parity_harness local_planner_core)
 
+  # 실차 정지 교착 재현용 진단 하니스 (런타임 노드 아님)
+  add_executable(
+    stuck_case_harness
+    test/stuck_case_harness.cpp)
+  ament_target_dependencies(stuck_case_harness f110_msgs)
+  target_link_libraries(stuck_case_harness local_planner_core)
+
 endif()
 
 ament_package()
