@@ -54,13 +54,10 @@ esac
 say ""
 say "[3] 방화벽"
 FWBAD=0
-# ⚠️ systemctl is-active만 보면 오탐한다 — ufw.service는 ENABLED=no(방화벽 꺼짐)여도
-# active로 뜬다(2026-08-13 실측: 이 오탐이 진짜 원인 진단을 하루 가렸다).
-# 실제 규칙 로드 여부는 /etc/ufw/ufw.conf의 ENABLED가 정답이다(월드 리더블).
-if command -v ufw >/dev/null && grep -qs '^ENABLED=yes' /etc/ufw/ufw.conf; then
-  say "  ufw       : enabled  ← 인바운드 UDP를 막는다"; FWBAD=1
+if command -v ufw >/dev/null && [ "$(systemctl is-active ufw 2>/dev/null)" = "active" ]; then
+  say "  ufw       : active   ← 인바운드 UDP를 막는다"; FWBAD=1
 else
-  say "  ufw       : 꺼짐(ENABLED=no) 또는 미설치"
+  say "  ufw       : $(systemctl is-active ufw 2>/dev/null || echo 없음)"
 fi
 if [ "$(systemctl is-active firewalld 2>/dev/null)" = "active" ]; then
   say "  firewalld : active   ← 인바운드 UDP를 막는다"; FWBAD=2
@@ -123,8 +120,5 @@ else
   say "     · 젯슨 스택이 안 떠 있다 (제일 흔함)"
   say "     · 젯슨이 도메인 $D 가 아니다"
   say "     · docker/VPN 인터페이스가 멀티캐스트를 가로챈다 → 끄고 재시도"
-  say "     · WiFi 절전이 멀티캐스트를 버린다 → nmcli connection modify <SSID> 802-11-wireless.powersave 2"
-  say "     · 이 AP가 멀티캐스트를 아예 안 흘린다(2026-08-13 HY_MIRU 실측) →"
-  say "       유니캐스트 디스커버리 프로필로 우회: source ~/2026_IFAC/tools/car_env.sh"
-  say "       (FASTRTPS_DEFAULT_PROFILES_FILE=tools/fastdds_car_client.xml — 참가자 0~31 커버)"
+  say "     · WiFi 절전이 멀티캐스트를 버린다 → sudo iw dev $IF set power_save off"
 fi
