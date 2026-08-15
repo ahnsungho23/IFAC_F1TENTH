@@ -8,6 +8,7 @@ state_machine_node:
     global_waypoints_topic: "/global_waypoints"
     avoid_waypoints_topic: "/avoid_waypoints"
     opponent_topic: "/opp_obs"
+    static_obstacles_topic: "/static_obs"
 
     frame_id: "map"
     default_state: "global"
@@ -40,3 +41,12 @@ state_machine_node:
     avoid_path_stale_timeout_sec: 0.5
     avoid_path_exhaustion_sec: 0.5
     avoid_path_exhaustion_s_gap_tol_m: 0.75
+
+    # 정지 회피 경로가 정상 합류 조건(vx_mps > 0)을 의도적으로 거부할 때의 보험 복귀.
+    # /static_obs가 stale이면 장애물 없음으로 간주하지 않으며, 전방 corridor가 비어 있는
+    # 상태가 stopped_path_clear_sec 동안 유지될 때만 GLOBAL(0)으로 복귀합니다.
+    static_obstacles_stale_timeout_sec: 0.3
+    stopped_path_clear_sec: 1.0
+    stopped_path_speed_threshold_mps: 0.01
+    stopped_path_obstacle_lookahead_m: 3.0
+    stopped_path_ego_half_width_m: 0.16
