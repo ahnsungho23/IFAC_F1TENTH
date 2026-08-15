@@ -192,7 +192,7 @@ class StaleObstacleMemoryProbe(Node):
             self.sensor_cut_time = time.monotonic()
             self.stage = 'stale_hold'
             self.get_logger().info(
-                'stopped /static_obs after commitment; waiting past stale timeout')
+                'stopped /confirmed_static_obs after commitment; waiting past stale timeout')
             return
 
         if self.stage == 'stale_hold':
