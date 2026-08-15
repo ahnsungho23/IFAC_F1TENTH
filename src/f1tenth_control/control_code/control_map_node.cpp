@@ -1,5 +1,6 @@
 #include <chrono>
 #include <cmath>
+#include <deque>
 #include <memory>
 #include <vector>
 #include <algorithm>
@@ -15,10 +16,12 @@
 #include "visualization_msgs/msg/marker_array.hpp"
 #include "geometry_msgs/msg/point.hpp"
 #include "std_msgs/msg/string.hpp"
+#include "std_msgs/msg/float32_multi_array.hpp"
 
 #include "f1tenth_control/types.hpp"
 #include "f1tenth_control/steering_lookup_table.hpp"
 #include "f110_msgs/msg/wpnt_array.hpp"
+#include "f110_msgs/msg/state_machine.hpp"
 
 #include "ament_index_cpp/get_package_share_directory.hpp"
 
@@ -26,10 +29,6 @@ using namespace f1tenth_control;
 
 namespace {
 
-// 조향각 물리 한계 [rad] — 좌우 한계 파라미터의 기본값(대칭 하드웨어 기준).
-// ⚠️ 실차는 서보 트림이 기계 중심에서 밀려 좌 0.41 / 우 0.379로 비대칭이다. 이 값은 젯슨
-//    vesc.yaml의 servo_min/servo_max와 **반드시 한 쌍**으로 움직인다 — 컨트롤러만 올리면
-//    vesc_driver가 조용히 자르고 컨트롤러는 "꺾었다"고 착각한다.
 constexpr double MAX_STEERING_ANGLE = 0.41;
 
 // 전 구간 최근접 웨이포인트 스캔. 반환 {최단거리, 인덱스}.
@@ -47,6 +46,25 @@ inline double wrap_pi(double a) {
     while (a > M_PI) a -= 2.0 * M_PI;
     while (a < -M_PI) a += 2.0 * M_PI;
     return a;
+}
+
+std::tuple<double, size_t, bool> scan_closest_heading_gated(
+    const std::vector<Waypoint>& wps, double x, double y, double yaw, double max_heading_err) {
+    if (max_heading_err <= 0.0) {   // 0이면 게이트 비활성 = 구 거동
+        auto [d, i] = scan_closest(wps, x, y);
+        return {d, i, false};
+    }
+    double min_dist = std::numeric_limits<double>::max();
+    size_t closest_idx = 0;
+    bool found = false;
+    for (size_t i = 0; i < wps.size(); ++i) {
+        if (std::abs(wrap_pi(wps[i].yaw - yaw)) > max_heading_err) continue;
+        double dist = std::hypot(wps[i].x - x, wps[i].y - y);
+        if (dist < min_dist) { min_dist = dist; closest_idx = i; found = true; }
+    }
+    if (found) return {min_dist, closest_idx, true};
+    auto [d, i] = scan_closest(wps, x, y);
+    return {d, i, false};
 }
 
 // start_idx에서 경로를 따라 호 길이 max_dist만큼 전진하며 각 웨이포인트를 방문한다.
@@ -77,12 +95,6 @@ size_t walk_forward(const std::vector<Waypoint>& wps, size_t start_idx,
     return idx;
 }
 
-// 곡률 사전감속용 물리거리 창 평활 곡률.
-// wp.curvature는 인접점 헤딩차분이라 웨이포인트가 촘촘하면 단일점 kappa가 실제 지속 곡률보다
-// 크게 튄다. 그대로 쓰면 노이즈 스파이크 하나로 프로파일 속도보다 훨씬 낮게 과잉감속한다.
-// ⚠️ 글로벌·로컬 **양쪽 모두**에 적용할 것 — 팀 플래너의 /local_waypoints는 짧은 회피
-//    세그먼트가 아니라 191점 풀랩이라 "로컬은 짧으니 불필요" 가정이 깨진다(2026-07-21).
-// 원본 wp.curvature는 FF 조향 등 다른 용도로 그대로 둔다.
 void smooth_curvature(std::vector<Waypoint>& wps, bool closed, double window_half_m = 0.3) {
     const int n = static_cast<int>(wps.size());
     if (n < 2) return;
@@ -125,11 +137,6 @@ public:
         // ── 1. 파라미터 (전부 생성자에서 1회만 읽음 — 콜백 없음, 변경하려면 노드 재시작) ──
         wheelbase_ = declare_parameter<double>("wheelbase", 0.33);
 
-        // L1 Guidance: L1 = clamp(l1_offset + v·l1_speed_gain,
-        //                        max(t_clip_min, √2·lat_err), t_clip_max)
-        // 이름이 역할과 반대였던 구 파라미터(l1_gain=절편, l1_distance=속도계수)를 2026-07-30에
-        // 개명했다 — l1_offset[m] = 절편, l1_speed_gain[s] = 속도 계수(원본 Python MAP의 q_l1/m_l1).
-        // (구 이름 호환 shim은 2026-08-06 제거 — 런치가 새 이름만 넘긴 지 오래됐다)
         l1_offset_ = declare_parameter<double>("l1_offset", 0.5);
         l1_speed_gain_ = declare_parameter<double>("l1_speed_gain", 0.3);
         t_clip_min_ = declare_parameter<double>("t_clip_min", 0.8);
@@ -146,28 +153,12 @@ public:
             declare_parameter<double>("acceleration_scaler_for_steering", 1.0);
         deceleration_scaler_for_steering_ =
             declare_parameter<double>("deceleration_scaler_for_steering", 0.95);
-        // 위 두 스케일러의 **완전 적용 기준 종가속도** [m/s²]. 예전엔 acc_mean이 ±1.0을 넘는
-        // 순간 스케일러가 계단으로 붙었다(0.95배 = 조향 5% 점프). 실측 coast 감속이 −0.4라
-        // 감속측은 급제동 스파이크에서만 드물게 튀는, 가장 나쁜 형태였다 → 0~ref 구간
-        // 선형 블렌딩으로 바꿨다(ref 이상에서 구 거동과 동일).
         steering_scaler_accel_ref_ =
             std::max(0.05, declare_parameter<double>("steering_scaler_accel_ref", 1.0));
         start_scale_speed_ = declare_parameter<double>("start_scale_speed", 7.0);
         end_scale_speed_ = declare_parameter<double>("end_scale_speed", 8.0);
         downscale_factor_ = declare_parameter<double>("downscale_factor", 0.10);
 
-        // 조향 도달각 비율 — 명령한 조향각 중 **바퀴가 실제로 내는** 비율.
-        // 🔴 2026-07-28 실차 3회 재현: 0.41 rad을 명령해도 실측 ~0.30 rad(74%)뿐이고,
-        //    당시 횡가속 1.09 m/s²라 슬립으로 설명이 안 된다 = 기계적(링키지/서보 트림).
-        // 이 상수 하나가 두 곳을 동시에 지배한다(예전엔 둘이 어긋나 있었다):
-        //   ① 조향 명령 보상: LUT가 낸 각을 바퀴가 실제로 내도록 1/ratio를 곱한다(control_loop 6-6).
-        //      ⚠️ 예전에는 이 자리에 `*= clamp(1 + v/10, 1.0, 1.4)`가 **하드코딩**돼 있었다.
-        //         1/0.74 = 1.35 ≈ 1.4라 사실상 이 도달각 보상이었지만, 기계적 손실은 속도와
-        //         무관한데 속도 램프로 만들어놔서 4 m/s에서 천장에 붙는 이상한 모양이었고
-        //         이름·문서·파라미터가 전부 없었다(바로 윗줄 downscale_factor와도 싸웠다).
-        //   ② 조향 권한 속도 캡(②-b)의 δ_avail: 캡은 명령각이 아니라 **도달각**으로 계산해야
-        //      한다. 예전엔 0.379를 다 낼 수 있다고 보고 코너 진입 속도를 과대 허용했다.
-        // 1.0으로 두면 보상·캡 모두 구 낙관 거동(각도기 실측 후 조정할 값).
         steering_reach_ratio_ =
             std::clamp(declare_parameter<double>("steering_reach_ratio", 0.74), 0.3, 1.0);
 
@@ -177,13 +168,10 @@ public:
         std::string lut_file = declare_parameter<std::string>("lookup_table_file", "");
 
         base_max_accel_ = declare_parameter<double>("base_max_accel", 4.0);
-        // ⚠️ 감속도 파라미터가 둘인 이유 — 튜닝 방향이 정반대다.
-        //   base_max_decel : 명령 속도의 하강 rate limit. 낮추면 감속 명령이 늦게 도달 → 높게 유지.
-        //   prebrake_decel : 차가 **실제로 낼 수 있는** 감속도(제동거리 v²/2a 산출용).
-        //     07-25 실차 실측은 -0.4 m/s²(VESC 속도모드는 회생제동이 거의 없어 사실상 coast).
-        //     8.0을 쓰면 4 m/s에서 제동거리를 1.0m로 착각한다(실제 필요 ~8m) → 시케인 크래시.
         base_max_decel_ = declare_parameter<double>("base_max_decel", 8.0);
         prebrake_decel_ = declare_parameter<double>("prebrake_decel", 1.5);
+
+        ramp_lead_max_ = declare_parameter<double>("ramp_lead_max", 2.4);
 
         // 런치 킥(자율 정지출발 시 센서리스 데드존 관통) — control_loop 8-c
         launch_boost_enable_ = declare_parameter<bool>("launch_boost_enable", true);
@@ -192,12 +180,22 @@ public:
         launch_exit_speed_ = declare_parameter<double>("launch_exit_speed", 0.8);
         launch_standstill_speed_ = declare_parameter<double>("launch_standstill_speed", 0.3);
 
-        // IMU. 단위 보정 계수의 실제 값은 런치가 넘긴다(_control_common.py IMU_LINEAR_SCALE).
-        // ⚠️ 2026-08-06: 요레이트 카운터스티어(yaw_rate_gain + StabilityController)를 제거해
-        //    자이로 소비처가 없어졌다 → imu_angular_scale도 함께 삭제. IMU는 이제 종가속
-        //    (조향 가감속 스케일러)에만 쓰인다.
         use_imu_ = declare_parameter<bool>("use_imu", true);
         imu_linear_scale_ = declare_parameter<double>("imu_linear_scale", 1.0);
+        imu_angular_scale_ = declare_parameter<double>("imu_angular_scale", 1.0);
+
+        steering_trim_gain_ =
+            std::max(0.0, declare_parameter<double>("steering_trim_adapt_gain", 0.0));
+        steering_trim_limit_ =
+            std::clamp(declare_parameter<double>("steering_trim_limit", 0.06), 0.0, 0.15);
+        steering_trim_max_steer_ =
+            std::max(0.01, declare_parameter<double>("steering_trim_max_steer", 0.10));
+        steering_trim_min_speed_ =
+            std::max(0.5, declare_parameter<double>("steering_trim_min_speed", 2.0));
+        steering_trim_max_lat_acc_ =
+            std::max(0.1, declare_parameter<double>("steering_trim_max_lat_acc", 2.0));
+        steering_trim_lag_ =
+            std::clamp(declare_parameter<double>("steering_trim_lag", 0.14), 0.0, 0.5);
 
         max_speed_ = declare_parameter<double>("max_speed", 12.0);
         min_speed_ = declare_parameter<double>("min_speed", 2.0);
@@ -206,29 +204,39 @@ public:
         curvature_lookahead_count_ =
             static_cast<size_t>(declare_parameter<int>("curvature_lookahead_count", 60));
         max_lateral_accel_ = declare_parameter<double>("max_lateral_accel", 6.0);
-        // 조향 권한 캡 — 곡률 캡이 **그립만** 보던 구멍을 메운다. 그립("타이어가 그 횡가속을
-        // 낼 수 있나")과 조향("바퀴가 그만큼 꺾일 수 있나")은 다른 물리다.
-        //   정상상태 자전거 모델 δ = L·κ + K_us·κ·v² ≤ δ_avail  ⇒  v ≤ √((δ_avail − L·κ)/(K_us·κ))
-        // 07-26 실차 κ=1.190(R=0.84m) 헤어핀: 그립 한계 2.11 m/s vs 조향 한계 0.87 m/s —
-        // 조향이 먼저 걸린다. 그립만 보고 2배 빠르게 진입해 풀락에도 안 돌아가고 이탈했다.
-        // 0이면 이 항 전체 비활성(구 거동).
         understeer_gradient_ = declare_parameter<double>("understeer_gradient", 0.019);
         // δ_max 중 곡률 추종에 배정할 비율. 나머지는 횡오차 보정·요레이트 피드백 여유.
         steer_authority_ratio_ = declare_parameter<double>("steer_authority_ratio", 0.85);
         curvature_ff_blend_ = declare_parameter<double>("curvature_ff_blend", 0.0);
         odom_topic_ = declare_parameter<std::string>("odom_topic", "/ego_racecar/odom");
 
-        // L1 횡가속 분모로 목표점까지의 **실제** 직선거리를 쓸지. 목표점은 호 길이 기준으로
-        // 고르므로 |목표점−차량| != L1_distance다(07-27 bag 실측 비율 중앙 1.06~1.31, p95 1.72).
-        // 명목값을 분모로 쓰면 횡가속 명령이 최대 +70% 과대해지고, 경로에서 벗어날수록
-        // = 복귀가 필요한 바로 그 순간에 더 심해진다. false면 구 거동(즉시 롤백용).
+        sector_scale_enable_ = declare_parameter<bool>("sector_scale_enable", false);
+        sector_scale_topic_ = declare_parameter<std::string>("sector_scale_topic", "/sector_scales");
+        sector_scale_max_ = declare_parameter<double>("sector_scale_max", 1.5);
+        sector_scale_blend_ = declare_parameter<double>("sector_scale_blend", 0.5);
+        sector_scale_track_len_tol_ = declare_parameter<double>("sector_scale_track_len_tol", 0.02);
+        // 회피/추월 중에는 스케일을 끄고 보수적 전역 MLA로 돌아간다. scale의 근거인 벽 여유는
+        // **차가 라인 위에 있을 때** 잰 값이라, 라인에서 0.5 m 밀려나면 그 여유가 성립하지 않는다.
+        // (0810 섹터2: 여유 p5 0.453인데 벽 쪽으로 0.4 m 밀리면 0.05가 된다)
+        sector_scale_global_only_ = declare_parameter<bool>("sector_scale_global_only", true);
+        sector_scale_state_topic_ = declare_parameter<std::string>("sector_scale_state_topic", "/state");
+        sector_scale_state_timeout_ = declare_parameter<double>("sector_scale_state_timeout", 1.0);
+        sector_scale_timeout_ = declare_parameter<double>("sector_scale_timeout", 3.0);
+
         l1_use_actual_distance_ = declare_parameter<bool>("l1_use_actual_distance", true);
 
-        // 조향 rate limit [rad/s]. ⚠️ 예전엔 "사이클당 0.4 rad" 하드코딩이었다 — 50Hz에서
-        // 20 rad/s = 풀락까지 2 사이클(40ms)이라 제한이 있는 척만 하고 아무것도 안 막았고,
-        // dt와 무관해서 루프가 밀리면 실효 제한이 더 느슨해졌다. 기본값 20.0은 구 거동과 동일
-        // (0.4/0.02). 서보 물리 속도(~7 rad/s 추정)로 낮추면 고주파 조향 채터링을 막을 수 있으나
-        // 실측 전이라 기본은 중립으로 둔다.
+        steering_speed_cap_measured_ =
+            declare_parameter<bool>("steering_speed_cap_measured", true);
+
+        // 상태 한 줄 로그 주기 [ms]. 0이면 끈다. 예전엔 500ms 고정이라 실차 로그의 61%가
+        // 이 줄이었다(0807 로그 1007줄 중 617줄 / 317초).
+        const auto status_log_param = declare_parameter<int>("status_log_period_ms", 2000);
+        status_log_period_ms_ = static_cast<int>(status_log_param > 0 ? status_log_param : 0);
+
+        // L1 목표점이 차량보다 이만큼 더 많이 튀면 진단 경고 + 카운트. 0이면 검출 끔.
+        // 주행 개입은 전혀 없다(순수 관측). 상세는 control_loop의 검출부 주석 참고.
+        l1_jump_warn_m_ = declare_parameter<double>("l1_jump_warn_m", 1.0);
+
         max_steering_rate_ = std::max(0.5, declare_parameter<double>("max_steering_rate", 20.0));
 
         // 좌우 조향 한계. 둘 다 같으면 기존 대칭 거동과 100% 동일.
@@ -245,12 +253,6 @@ public:
                 max_steering_left_, max_steering_right_, steer_limit_min_);
         }
 
-        // 자율 미체결 중 속도 램프 고정 (bumpless transfer).
-        // 이 노드는 /drive_mode를 모른 채 상시 돌기 때문에 MANUAL/E-stop으로 서 있는 동안에도
-        // 램프가 감겨 올라가고, engage 순간 그 값이 계단으로 VESC에 꽂힌다(07-27 bag 8개 전부:
-        // 정차 중 명령 1.50~3.98 → engage 시 0→6348 ERPM 한 스텝 → 모터전류 60~62A 포화).
-        // ⚠️ 체결 중에는 아무것도 하지 않는다 — 07-22에 금지한 일반 lead-clamp와 다르다.
-        // ⚠️ /drive_mode 미수신·끊김 시 게이트 자동 비활성(시뮬 호환).
         engage_gate_enable_ = declare_parameter<bool>("engage_gate_enable", true);
         drive_mode_topic_ = declare_parameter<std::string>("drive_mode_topic", "/drive_mode");
         engaged_mode_value_ = declare_parameter<std::string>("engaged_mode_value", "autonomous");
@@ -259,14 +261,11 @@ public:
         // 경로 소스 중재
         local_fresh_timeout_ = declare_parameter<double>("local_fresh_timeout", 0.3);
 
+        closest_idx_max_heading_err_ =
+            declare_parameter<double>("closest_idx_max_heading_err", 1.40);
+
         acc_now_ = std::vector<double>(10, 0.0);
 
-        // ── 2. LUT 로드 (다중 경로 Fallback — 전부 ament 경로, 하드코딩 홈 경로 없음) ──
-        // f1tenth_control 자신의 cfg를 먼저 본다 — steering_lookup은 서드파티 패키지라
-        // 파일명이 우연히 겹치면(과거 NUC6_glc_pacejka_lookup_table.csv가 그랬다) 우리
-        // 보정본이 조용히 안 먹히고 그쪽의 미보정 원본이 로드된다. 이름을 LUT_calibrated.csv로
-        // 바꾼 것도 그 충돌을 피하기 위함(steering_lookup엔 이 이름의 파일이 없다) — 순서까지
-        // 같이 뒤집어 어느 한쪽만 믿어도 되게 한다.
         bool loaded = !lut_file.empty() && lookup_table_.load(lut_file);
         for (const char* pkg : {"f1tenth_control", "steering_lookup"}) {
             if (loaded) break;
@@ -309,6 +308,85 @@ public:
                         drive_mode_topic_.c_str(), engaged_mode_value_.c_str(), drive_mode_timeout_);
         }
         drive_mode_last_recv_time_ = this->now();
+        sector_state_last_recv_time_ = this->now();   // 노드 클럭 타입으로 초기화
+        sector_table_last_recv_time_ = this->now();
+
+        // 섹터 스케일 구독. transient_local이라 컨트롤러가 늦게 떠도 마지막 테이블을 받는다.
+        if (sector_scale_enable_) {
+            sector_scale_sub_ = this->create_subscription<std_msgs::msg::Float32MultiArray>(
+                sector_scale_topic_,
+                rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local(),
+                std::bind(&ControlMapNode::sector_scale_callback, this, std::placeholders::_1));
+            if (sector_scale_global_only_) {
+                sector_state_sub_ = this->create_subscription<f110_msgs::msg::StateMachine>(
+                    sector_scale_state_topic_, 10,
+                    [this](const f110_msgs::msg::StateMachine::SharedPtr msg) {
+                        const bool was = sector_on_global_ && sector_state_seen_;
+                        sector_on_global_ = (msg->state == f110_msgs::msg::StateMachine::STATE_GLOBAL);
+                        sector_state_last_recv_time_ = this->now();
+                        sector_state_seen_ = true;
+                        if (was != sector_on_global_) {
+                            // 상태가 바뀌면 이미 받아둔 경로의 mla를 즉시 다시 해소해야 한다 —
+                            // 안 그러면 회피에 들어갔는데 다음 경로 메시지까지 옛 스케일이 남는다.
+                            apply_sector_scales(waypoints_);
+                            apply_sector_scales(local_waypoints_);
+                        }
+                    });
+            }
+            // 테이블 데드맨 감시. 스케일은 **수신 콜백에서 웨이포인트에 구워 두는** 구조라
+            // (50 Hz 루프를 가볍게 유지하려는 설계), 신선도가 끊긴 순간 누가 다시 굽지 않으면
+            // 옛 스케일이 배열에 그대로 남는다. 그래서 전이를 감시해 한 번만 되굽는다.
+            if (sector_scale_timeout_ > 0.0) {
+                sector_deadman_timer_ = this->create_wall_timer(
+                    std::chrono::milliseconds(500), [this]() {
+                        // ⚠️ 테이블을 **한 번도 못 받은** 상태는 "끊김"이 아니다(발행자가 아직
+                        //    안 떴을 뿐). 이걸 안 거르면 기동 직후 매번 가짜 경고가 뜬다.
+                        if (!sector_table_seen_) return;
+                        const bool fresh = sector_table_fresh();
+                        if (fresh == sector_table_fresh_prev_) return;
+                        sector_table_fresh_prev_ = fresh;
+                        if (!fresh) {
+                            apply_sector_scales(waypoints_);
+                            apply_sector_scales(local_waypoints_);
+                            RCLCPP_WARN(this->get_logger(),
+                                "🔴 섹터 테이블이 %.1fs 넘게 끊겼다 — 전역 MLA %.2f로 복귀. "
+                                "발행자(sector_pub/sector_learner)가 죽었는지 확인할 것",
+                                sector_scale_timeout_, max_lateral_accel_);
+                        }
+                    });
+            }
+            RCLCPP_INFO(this->get_logger(),
+                        "섹터 횡가속 스케일 활성 — %s 구독 (scale ∈ [1.0, %.2f], 블렌딩 %.2f m, "
+                        "전역 MLA %.2f, %s, 데드맨 %s)",
+                        sector_scale_topic_.c_str(), sector_scale_max_, sector_scale_blend_,
+                        max_lateral_accel_,
+                        sector_scale_global_only_
+                            ? "회피/추월 중 자동 1.0 복귀" : "⚠️ 회피 중에도 적용(global_only=false)",
+                        sector_scale_timeout_ > 0.0
+                            ? (std::to_string(sector_scale_timeout_).substr(0, 4) + "s").c_str()
+                            : "꺼짐(테이블 영구 유지)");
+        }
+
+        // 조향 트림 자동 보상 설정을 기동 시 1회 남긴다 — 나중에 로그만 보고 "그때 켜져
+        // 있었나 / 단위 계수가 맞았나"를 확인할 수 있어야 한다. imu_angular_scale이
+        // 1.0으로 남아 있으면(real인데 pi/180이 아니면) 요레이트가 57.3배가 되므로 경고한다.
+        if (steering_trim_gain_ > 0.0) {
+            RCLCPP_INFO(this->get_logger(),
+                        "조향 트림 자동 보상 활성 — gain %.2f (τ=%.1fs), 한계 ±%.2f°, "
+                        "학습게이트: v≥%.1f m/s, |δ|≤%.1f°, |a_lat|≤%.1f m/s², lag %.0f ms | "
+                        "imu_angular_scale %.6f",
+                        steering_trim_gain_, 1.0 / steering_trim_gain_,
+                        steering_trim_limit_ * 180.0 / M_PI, steering_trim_min_speed_,
+                        steering_trim_max_steer_ * 180.0 / M_PI, steering_trim_max_lat_acc_,
+                        steering_trim_lag_ * 1000.0, imu_angular_scale_);
+            if (std::abs(imu_angular_scale_ - 1.0) < 1e-6) {
+                RCLCPP_WARN(this->get_logger(),
+                    "⚠️ imu_angular_scale=1.0 — 시뮬(sim_imu_bridge_node)이면 정상이지만 "
+                    "실차면 VESC가 deg/s로 발행하므로 요레이트가 57.3배가 된다. "
+                    "그 경우 트림이 즉시 한계(±%.1f°)에 붙는다.",
+                    steering_trim_limit_ * 180.0 / M_PI);
+            }
+        }
 
         drive_pub_ = this->create_publisher<ackermann_msgs::msg::AckermannDriveStamped>(
             "/drive_autonomous", 10);
@@ -378,16 +456,12 @@ private:
         // acc_now_는 0 초기화 상태로 남아 acc_mean=0 → 스케일러 중립(1.0)으로 안전히 떨어진다.
         if (!use_imu_) return;
 
-        // 종가속 rolling buffer (조향 가감속 스케일러용).
-        // ⚠️ VESC 가속도계는 m/s²가 아니라 g로 발행한다(imu_linear_scale로 환산).
-        // ⚠️ 장착 회전은 180°다 — **전방 = −a_x**, 좌측 = −a_y, 위 = +z (2026-07-29 확정).
-        //    독립적인 두 방법이 부호까지 일치: bag 회귀(−a_x↔dv/dt R²=0.787, −a_y↔v·ψ̇ R²=0.958),
-        //    VESC Tool 정지 자세(수평 z=+1.04 / 앞코위 x=−1.00 / 좌측눕힘 y=+0.95).
-        //    이전엔 −a_y(횡방향!)를 종방향으로 써서 스케일러가 **우선회에서만** 걸렸다.
-        //    이 매핑은 젯슨 VESC의 `Imu Rotation Yaw`(현재 −90°)와 한 쌍 — 그 값이 바뀌면
-        //    여기 부호도 같이 바뀌어야 한다(조용히 깨지는 결합).
         std::rotate(acc_now_.rbegin(), acc_now_.rbegin() + 1, acc_now_.rend());
         acc_now_[0] = -msg->linear_acceleration.x * imu_linear_scale_;
+
+        yaw_rate_now_ = msg->angular_velocity.z * imu_angular_scale_;
+        yaw_rate_last_recv_ = this->now();
+        yaw_rate_seen_ = true;
     }
 
     void drive_mode_callback(const std_msgs::msg::String::ConstSharedPtr msg) {
@@ -407,6 +481,43 @@ private:
     // 나머지(1 − steer_authority_ratio)는 횡오차 보정·요레이트 피드백 여유로 남긴다.
     double steer_avail() const {
         return steer_authority_ratio_ * steer_limit_min_ * steering_reach_ratio_;
+    }
+
+    void update_steering_trim(double dt, double published) {
+        // 발행 이력은 게이트와 무관하게 항상 쌓는다(게이트가 열린 순간 lag만큼 과거가 필요).
+        const double tnow = this->now().seconds();
+        steer_hist_.emplace_back(tnow, published);
+        while (steer_hist_.size() > 2 && tnow - steer_hist_.front().first > steering_trim_lag_ + 0.3)
+            steer_hist_.pop_front();
+
+        if (steering_trim_gain_ <= 0.0 || !use_imu_ || !yaw_rate_seen_) return;
+        if (!is_engaged_ && engage_gate_active()) return;
+        if (launch_active_) return;
+        const double v = std::abs(current_speed_);
+        if (v < steering_trim_min_speed_) return;
+        if ((this->now() - yaw_rate_last_recv_).seconds() > 0.2) return;
+        if (std::abs(published) > steering_trim_max_steer_) return;
+        if (std::abs(v * yaw_rate_now_) > steering_trim_max_lat_acc_) return;
+
+        // lag만큼 과거의 발행값 (선형보간). 이력이 아직 짧으면 학습을 미룬다.
+        const double t_target = tnow - steering_trim_lag_;
+        if (steer_hist_.front().first > t_target) return;
+        double past = steer_hist_.back().second;
+        for (size_t i = 1; i < steer_hist_.size(); ++i) {
+            if (steer_hist_[i].first >= t_target) {
+                const auto &a = steer_hist_[i - 1], &b = steer_hist_[i];
+                const double w = (b.first > a.first) ? (t_target - a.first) / (b.first - a.first) : 0.0;
+                past = a.second + w * (b.second - a.second);
+                break;
+            }
+        }
+
+        // 실측 요레이트가 함의하는 바퀴각 → 명령 공간으로 환산.
+        const double delta_wheel = yaw_rate_now_ * (wheelbase_ / v + understeer_gradient_ * v);
+        const double e = past - delta_wheel / std::max(0.3, steering_reach_ratio_);
+        steering_trim_ += steering_trim_gain_ * (e - steering_trim_) * dt;
+        steering_trim_ = std::clamp(steering_trim_, -steering_trim_limit_, steering_trim_limit_);
+        steering_trim_samples_++;
     }
 
     // engage 게이트가 지금 실제로 작동 중인가. /drive_mode를 한 번도 못 받았거나 timeout 넘게
@@ -464,14 +575,24 @@ private:
 
         smooth_curvature(waypoints_, /*closed=*/true);
 
-        RCLCPP_INFO(this->get_logger(), "🔄 글로벌 경로 수신! 웨이포인트 %zu개, 초기 인덱스 %zu",
-                    waypoints_.size(), last_target_idx_);
+        // 섹터 테이블이 이 라인 기준인지 확인한 뒤 mla를 해소한다. 순서가 중요하다 —
+        // 검증 결과(sector_len_ok_)가 apply_sector_scales의 활성 조건에 들어간다.
+        validate_sector_track_length(total_path_length);
+        apply_sector_scales(waypoints_);
+
+        // 플래너가 **같은 경로를 2초마다 재발행**하므로 매번 찍으면 로그의 16%가 이 줄이 된다
+        // (0807 실차 로그 1007줄 중 158줄). 내용이 실제로 바뀐 경우에만 찍는다.
+        const size_t path_sig = waypoints_.size() ^
+            (std::hash<double>{}(waypoints_.front().x) << 1) ^
+            (std::hash<double>{}(waypoints_.back().y) << 2) ^
+            (std::hash<double>{}(total_path_length) << 3);
+        if (path_sig != last_global_sig_) {
+            last_global_sig_ = path_sig;
+            RCLCPP_INFO(this->get_logger(), "🔄 글로벌 경로 수신! 웨이포인트 %zu개, 길이 %.2f m, 초기 인덱스 %zu",
+                        waypoints_.size(), total_path_length, last_target_idx_);
+        }
     }
 
-    // 로컬 경로: 상류 플래너의 전방 구간을 그대로 저장한다.
-    // ⚠️ "짧은 열린 구간"이라고 가정하지 않는다 — 팀 플래너 구성에 따라 글로벌과 같은
-    //    풀랩(닫힌 루프)이 실려 올 수 있고, 그걸 열린 경로로 취급하면 배열 끝에서 룩어헤드가
-    //    끊긴다. 소스가 아니라 **기하로 판정**한다.
     void local_path_callback(const f110_msgs::msg::WpntArray::ConstSharedPtr msg) {
         if (msg->wpnts.empty()) {
             local_waypoints_.clear();   // 빈 로컬 → 다음 사이클에 글로벌로 폴백
@@ -514,6 +635,8 @@ private:
 
         smooth_curvature(local_waypoints_, local_is_closed_);
 
+        apply_sector_scales(local_waypoints_);
+
         // 배열이 교체되면 로컬 추적기를 초기화.
         if (n != prev_size) last_local_idx_ = 0;
 
@@ -529,21 +652,11 @@ private:
     // 하류(ackermann_mux→VESC)가 **직전 명령을 그대로 유지**해 타력주행이 되기 때문이다.
     void publish_safe_stop() {
         last_steering_angle_ = 0.0;
-        // ⚠️ 램프 **상태**는 0이 아니라 실측으로 물린다(발행값은 아래에서 하드 0).
-        //    ramp_speed는 증분을 실측 기준 오차로 정하는데, 오차가 0 이하면 "목표를 넘지 마라"
-        //    클램프가 out을 target으로 **끌어올린다**. 그래서 램프 상태가 0인 채 차가 굴러가는
-        //    상태에서 정상 제어로 복귀하면 명령이 한 사이클에 0 → target으로 계단 점프한다
-        //    (07-27 engage 급발진과 같은 형태). engage 게이트가 쓰는 것과 동일한 bumpless
-        //    처리를 안전정지에도 적용해, 복귀 명령이 실측 근처에서 이어지게 한다.
         last_target_speed_ = std::max(0.0, current_speed_);
         last_published_speed_ = 0.0;
         publish_drive(0.0, 0.0, 0.0);
     }
 
-    // 명령 속도 램프(rate limit).
-    // ⚠️ 증분은 **실측 속도** 기준 오차로 정하고 직전 **명령**에 더한다(원본 MAP 컨트롤러 규약).
-    //    VESC 속도 PID는 ERPM 오차에 비례해 전류를 만들므로 명령이 실측보다 앞서 있어야
-    //    가속이 나온다 — 이 선행을 좁히면 가속이 그대로 죽는다(07-22 lead-clamp 금지 사유).
     double ramp_speed(double last_cmd, double target, double dt,
                       double max_accel, double max_decel) const {
         double speed_error = target - current_speed_;
@@ -571,11 +684,6 @@ private:
     void control_loop() {
         rclcpp::Time current_time = this->now();
         double dt = (current_time - last_time_).seconds();
-        // ⚠️ dt는 **위아래 둘 다** 묶어야 한다. dt는 속도 램프 증분(base_max_*·dt), 런치 킥
-        //    타이머, 발행 가속도(Δv/dt)에 전부 곱해지는데 wall_timer는 실시간 보장이 없다.
-        //    젯슨에서 로깅/wifi/MCL 부하로 한 사이클이 0.2s 밀리면 램프가 한 스텝에
-        //    8.0×0.2 = 1.6 m/s 튀고(= 계단 명령 = 07-27 급발진과 같은 형태), 반대로 dt가
-        //    아주 작으면 Δv/dt가 폭발한다. 정상 20ms의 5배(0.1s)를 상한으로 자른다.
         if (dt <= 0.0) dt = 0.02;
         dt = std::clamp(dt, 0.001, 0.1);
         last_time_ = current_time;
@@ -591,6 +699,29 @@ private:
         // 0. 경로 소스 중재: 로컬(신선) → 글로벌 → 둘 다 없으면 안전 정지
         bool local_fresh = !local_waypoints_.empty() &&
                            (current_time - local_last_recv_time_).seconds() < local_fresh_timeout_;
+
+        if (local_fresh && closest_idx_max_heading_err_ > 0.0) {
+            auto [ld, li, lgated] = scan_closest_heading_gated(
+                local_waypoints_, current_x_, current_y_, current_yaw_,
+                closest_idx_max_heading_err_);
+            (void)ld; (void)li;
+            if (!lgated) {
+                ++local_heading_reject_count_;
+                if (!waypoints_.empty()) {
+                    local_fresh = false;   // 글로벌로 폴백
+                    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+                        "로컬 경로가 차량 헤딩과 ±%.0f° 안에서 정합하는 점이 하나도 없다 — "
+                        "상류(state_machine/frenet) 경로 반전 의심, 글로벌로 폴백 (누적 %u회)",
+                        closest_idx_max_heading_err_ * 180.0 / M_PI, local_heading_reject_count_);
+                } else {
+                    // 글로벌이 없으면 재획득 불능을 만들지 않기 위해 로컬을 그대로 쓴다.
+                    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+                        "로컬 경로 진행방향 불일치(±%.0f°) — 글로벌이 없어 그대로 추종한다 (누적 %u회)",
+                        closest_idx_max_heading_err_ * 180.0 / M_PI, local_heading_reject_count_);
+                }
+            }
+        }
+
         if (!local_fresh && waypoints_.empty()) {
             publish_safe_stop();
             return;
@@ -598,12 +729,6 @@ private:
 
         const std::vector<Waypoint>& wps = local_fresh ? local_waypoints_ : waypoints_;
 
-        // ⚠️ "경로 소스"와 "경로 기하"를 분리한다.
-        //   following_local : 로컬 경로 추종 중인가 (인덱스 추적기 선택용)
-        //   path_closed     : 그 경로가 실제로 닫힌 루프인가 (wrap 여부 — walk_forward/윈도우용)
-        // 예전엔 `closed = !local_fresh` 하나로 겸했는데, /local_waypoints가 191점 풀랩이라
-        // 매 랩 배열 끝에서 walk_forward가 끊겨(룩어헤드 truncation) 오프닝 헤어핀의 곡률
-        // 사전감속 창이 붕괴했다.
         const bool following_local = local_fresh;
         const bool path_closed = local_fresh ? local_is_closed_ : true;
 
@@ -618,10 +743,6 @@ private:
         if (idx_tracker >= n) idx_tracker = 0;
 
         if (path_closed) {
-            // 윈도우 크기는 고정 인덱스 개수가 아니라 물리 거리(후방 1m·전방 3m) 기준으로 잡는다.
-            // 고정 개수면 촘촘한 소스에서 탐색 반경이 줄어, 트랙이 스스로에게 가까워지는 구간에서
-            // 진짜 최근접점을 놓치고 엉뚱한 인덱스에 잠긴다(min_dist가 2.5m 밑이면 전역 재탐색도
-            // 발동하지 않아 인덱스가 역행/진동하며 조향 포화로 이어짐).
             const double spacing = std::max(0.01, avg_waypoint_spacing_);
             const int half_n = static_cast<int>(n / 2);
             int back_count = std::min(std::max(2, static_cast<int>(std::ceil(1.0 / spacing))), half_n);
@@ -634,12 +755,29 @@ private:
                 if (dist < min_dist) { min_dist = dist; closest_idx = idx; }
             }
             // Fail-safe: 경로와 2.5m 넘게 멀어지면 전역 재탐색.
+            // ⚠️ 이 전역 재탐색이 pose 붕괴 시 인덱스 텔레포트의 통로다 — 헤딩 게이트를 건다.
             if (min_dist > 2.5) {
-                std::tie(min_dist, closest_idx) = scan_closest(wps, current_x_, current_y_);
+                std::tie(min_dist, closest_idx, std::ignore) = scan_closest_heading_gated(
+                    wps, current_x_, current_y_, current_yaw_, closest_idx_max_heading_err_);
             }
         } else {
             // 열린 구간(짧은 회피경로): 전체 최근접 스캔(저렴, wrap 인덱스 미사용)
-            std::tie(min_dist, closest_idx) = scan_closest(wps, current_x_, current_y_);
+            std::tie(min_dist, closest_idx, std::ignore) = scan_closest_heading_gated(
+                wps, current_x_, current_y_, current_yaw_, closest_idx_max_heading_err_);
+        }
+
+        if (closest_idx_max_heading_err_ > 0.0 && n > 0 &&
+            std::abs(wrap_pi(wps[closest_idx].yaw - current_yaw_)) > closest_idx_max_heading_err_) {
+            auto [d, i, gated] = scan_closest_heading_gated(
+                wps, current_x_, current_y_, current_yaw_, closest_idx_max_heading_err_);
+            if (gated) {
+                min_dist = d; closest_idx = i;
+            } else {
+                RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                    "전역 재탐색: 헤딩 정합(±%.0f°) 후보가 없어 게이트 없이 선택 — "
+                    "차량이 경로 반대 방향이거나 pose가 깨졌을 수 있음",
+                    closest_idx_max_heading_err_ * 180.0 / M_PI);
+            }
         }
 
         // ⚠️ 추적기 갱신은 두 분기 공통이어야 한다. 예전엔 닫힌 분기에서만 되써서 로컬 추종 중
@@ -663,29 +801,19 @@ private:
         });
         double curv_lookahead_dist = std::max({min_lookahead_dist, brake_dist, adaptive_lookahead_dist});
 
-        // 프로파일 신뢰형 backward-pass: 오프라인 최적화된 vx_mps가 이미 각 지점의 최적 속도를
-        // 담고 있다는 전제로, 전방 각 지점의 상한 v_cap[i]까지 prebrake_decel로 감속 가능한
-        // 현재 최대 속도 v_reach = √(v_cap² + 2·a·d)의 최소값을 캡으로 쓴다(accum=0 항이
-        // 순간 그립 클램프도 겸함). 직선은 κ≈0이라 안 눌리고, 코너는 제동거리만큼 앞에서
-        // 정확히 선제동된다. (구 방식인 "창 내 최대 κ로 블랭킷 재캡"은 전 구간 과잉감속이라 폐기)
         double curvature_speed_limit = std::numeric_limits<double>::max();
         double steer_bound_k = 0.0, steer_bound_v = 0.0;   // 진단 로그용
         walk_forward(wps, closest_idx, curv_lookahead_dist, path_closed, [&](size_t i, double accum) {
             double v_cap_i = wps[i].speed;
             double k_i = std::abs(wps[i].smoothed_curvature);
             if (k_i > 0.01) {
-                v_cap_i = std::min(v_cap_i, std::sqrt(max_lateral_accel_ / k_i));   // (a) 그립
+                const double mla_i = (wps[i].mla > 0.0) ? wps[i].mla : max_lateral_accel_;
+                v_cap_i = std::min(v_cap_i, std::sqrt(mla_i / k_i));                // (a) 그립
                 if (understeer_gradient_ > 1e-6) {                                  // (b) 조향 권한
                     // ⚠️ 좌우 중 **작은** 한계를 쓰고, 거기에 도달각 비율까지 곱한다 —
                     //    캡은 "바퀴가 실제로 꺾이는 각"으로 계산해야 의미가 있다(0.379를 다
                     //    낸다고 보면 코너 진입 속도를 그만큼 과대 허용한다).
                     double steer_budget = steer_avail() - wheelbase_ * k_i;
-                    // 🔴 예전엔 budget ≤ 0(= 기구학적으로 불가능한 코너)일 때 이 캡을
-                    //    **통째로 건너뛰어서**, 가장 급한 코너만 그립 캡만 받았다(실측:
-                    //    ifac_track_v2 187점 중 7점). budget=0에서 v_steer→0이므로 0으로
-                    //    이어 붙이는 것이 연속이고 문서(②-b)가 말하는 거동이다.
-                    //    이후 backward-pass가 그 지점까지 정상 제동 프로파일을 만들고,
-                    //    최종 max(min_speed, ...)가 정지를 막는다.
                     double v_steer = (steer_budget > 0.0)
                         ? std::sqrt(steer_budget / (understeer_gradient_ * k_i))
                         : 0.0;
@@ -724,6 +852,26 @@ private:
         const double L1_x = wps[idx_a].x, L1_y = wps[idx_a].y;
         publish_l1_marker(L1_x, L1_y);   // 표시 전용
 
+        if (l1_jump_warn_m_ > 0.0 && l1_prev_valid_) {
+            const double veh_move = std::hypot(current_x_ - prev_pose_x_, current_y_ - prev_pose_y_);
+            const double tgt_move = std::hypot(L1_x - prev_l1_x_, L1_y - prev_l1_y_);
+            if (tgt_move - veh_move > l1_jump_warn_m_) {
+                ++l1_jump_count_;
+                RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                    "L1 목표점 순간이동: 목표점 %.2f m 이동 / 차량 %.2f m (초과 %.2f m). "
+                    "누적 점프 %lu회, 뒤쪽 %lu회 / 주행 %lu 사이클",
+                    tgt_move, veh_move, tgt_move - veh_move,
+                    l1_jump_count_, l1_behind_count_, l1_cycle_count_);
+            }
+            // 목표점이 차량 **뒤**에 찍히면 sin_eta 부호가 뒤집혀 조향이 반대로 나간다.
+            const double fwd = std::cos(current_yaw_) * (L1_x - current_x_) +
+                               std::sin(current_yaw_) * (L1_y - current_y_);
+            if (fwd < 0.0) ++l1_behind_count_;
+            if (current_speed_ > 0.5) ++l1_cycle_count_;
+        }
+        prev_pose_x_ = current_x_; prev_pose_y_ = current_y_;
+        prev_l1_x_ = L1_x; prev_l1_y_ = L1_y; l1_prev_valid_ = true;
+
         // 3. sin(eta) — 차량 헤딩과 L1 목표점 사이의 횡방향 성분
         double L1_vector_x = L1_x - current_x_;
         double L1_vector_y = L1_y - current_y_;
@@ -734,26 +882,18 @@ private:
             sin_eta = std::clamp(lat / L1_norm, -1.0, 1.0);
         }
 
-        // 4. 조향용 속도(speed_for_lu): 룩어헤드 예측 위치의 프로파일 속도
-        // ❌ 2026-07-30: 여기 있던 `lat_err_scale`(횡오차 기반 속도 감쇠)을 **제거**했다.
-        //    이유 3가지 — 되살리기 전에 읽을 것:
-        //    ① **죽은 코드였다.** curv_factor = clamp(2·(mean|κ|/0.8) − 2, 0, 1)이라 랩 전체
-        //       평균 |κ| ≥ 0.8 rad/m(평균 반경 1.25m)이어야 켜지는데, ifac_track_v2 실측
-        //       평균은 0.273이다(트랙이 2.9배 더 꼬여야 함) → 항상 정확히 1.0. 조향용 속도와
-        //       target_speed 두 곳 모두 무효였다. 즉 제거는 거동 변화 0.
-        //    ② **모양이 레이싱에 못 쓴다.** 완전 발동 시 exp(−1) = 0.368, 횡오차 0.5m에서
-        //       속도를 63% 깎는다. MCL 지터 수준의 오차로도 랩타임이 붕괴한다.
-        //    ③ 라인 복귀 감속 전용 기구와 같은 신호에 모양이 다른 감속을 둘씩 걸면
-        //       서로 싸운다(yaw_rate_gain ↔ 언더스티어 가드로 이미 겪은 패턴).
         double speed_for_lu =
             wps[find_lookahead_wp_idx(wps, path_closed, closest_idx, speed_lookahead_for_steering_)].speed;
 
         // 5. 목표 횡가속도 → LUT 조향각
         double lat_acc = 0.0;
         speed_for_lu = std::min(speed_for_lu, curvature_speed_limit);
-        // ⚠️ 분모는 목표점까지의 **실제 직선거리**다(l1_use_actual_distance, 선언부 주석 참고).
-        //    하한 l1_min_denom은 목표점이 차량에 붙은 경우(L1_norm→0) 발산 방지 — t_clip_min을
-        //    재사용하던 것을 2026-07-30에 분리했다(룩어헤드 노브가 횡가속 상한을 조용히 흔들었다).
+        // 🔴 실측 속도 상한 (선언부 주석 참고). L1_distance가 실측 속도로 계산되므로 게인도
+        //    같은 속도를 써야 한다 — 안 그러면 정지/저속에서 게인이 (v_prof/v_meas)²배로 뛴다.
+        //    ⚠️ 반드시 lat_acc 계산과 LUT 조회 **앞**에 둘 것(둘 다 speed_for_lu를 쓴다).
+        if (steering_speed_cap_measured_) {
+            speed_for_lu = std::min(speed_for_lu, current_speed_);
+        }
         double l1_denom = l1_use_actual_distance_ ? std::max(L1_norm, l1_min_denom_)
                                                   : std::max(L1_distance, l1_min_denom_);
         lat_acc = 2.0 * speed_for_lu * speed_for_lu / l1_denom * sin_eta;
@@ -761,12 +901,6 @@ private:
         bool lut_saturated = false;
         double steering_angle = lookup_table_.lookup_steer_angle(lat_acc, speed_for_lu, &lut_saturated);
 
-        // 5-b. LUT 속도축 상한(7.0 m/s) 초과 보정. 축을 넘으면 LUT가 끝 열로 클램프되는데,
-        //      같은 lat_acc에 대해 느린 열은 **더 큰** 조향각을 준다(κ = a/v²) → 최고속에서
-        //      과대 조향. 정상상태 자전거모델의 기구학 항 L·κ만큼 빼서 보정한다
-        //      (타이어 슬립항 K_us·a_lat은 속도에 직접 의존하지 않아 그대로 유효).
-        //      ⚠️ 크기는 작다(a_lat 3.0, 7→8 m/s에서 5 mrad). 근본 해결은 LUT CSV를
-        //         9 m/s까지 재생성하는 것.
         const double lut_v_max = lookup_table_.max_velocity();
         if (lut_v_max > 1e-3 && speed_for_lu > lut_v_max) {
             const double a_abs = std::abs(lat_acc);
@@ -780,12 +914,6 @@ private:
                 "LUT를 max_speed 이상까지 재생성할 것", speed_for_lu, lut_v_max, corr);
         }
 
-        // 5-c. LUT 그립 포화 진단(제어 개입 없음). 포화 중에는 lat_acc가 얼마나 커도 조향각이
-        //      같아서 **조향 피드백이 개루프**가 된다 — 횡오차가 커지는 바로 그 순간에 복구
-        //      권한이 없다는 뜻이다. 자주 뜨면 원인은 조향이 아니라 진입 속도(사전감속)다.
-        //      ⚠️ 저속은 게이트로 제외한다 — v<2.5에서는 LUT 피크 조향각 자체가 ~0.39 rad(거의
-        //         풀락)이라 헤어핀에서 포화가 **정상**이다(실측: v=0.5, a_lat=3.0 → 0.390 rad
-        //         SAT). 위험한 건 고속 포화(피크각이 0.12 rad밖에 안 되는데 그마저 다 쓴 상태)다.
         if (lut_saturated && std::abs(sin_eta) > 0.05 && speed_for_lu > 2.5) {
             RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
                 "LUT 그립 포화: 요구 a_lat %.2f m/s² @ %.2f m/s (조향 %.3f rad에서 saturate) — "
@@ -793,11 +921,6 @@ private:
                 std::abs(lat_acc), speed_for_lu, std::abs(steering_angle));
         }
 
-        // 6. 조향각 보정 ─────────────────────────────────────────────────────────────
-        // 6-1) 가감속 스케일링. ⚠️ 예전엔 acc_mean이 ±1.0을 **넘는 순간** 스케일러가 계단으로
-        //      붙었다(조향 5% 점프). 실측 coast 감속이 −0.4 m/s²라 감속측은 급제동 스파이크에서만
-        //      드물게 튀는 최악의 형태였고, 임계 근처를 오가면 50Hz 채터링이다.
-        //      → 0 ~ steering_scaler_accel_ref 구간 선형 블렌딩(ref 이상은 구 거동과 동일).
         double acc_mean = 0.0;
         for (double a : acc_now_) acc_mean += a;
         acc_mean /= acc_now_.size();
@@ -808,12 +931,6 @@ private:
             steering_angle *= (1.0 - w) + w * target_scaler;
         }
 
-        // 6-2) 속도 구간 다운스케일
-        // ❌ 2026-07-30: 여기 있던 `*= clamp(1 + v/10, 1.0, 1.4)`를 제거하고 도달각 보상
-        //    (6-6, steering_reach_ratio)으로 대체했다. 값 자체는 1/0.74 = 1.35 ≈ 1.4라
-        //    사실상 같은 보상이었지만, ⓐ 기계적 손실인데 속도 램프 모양이라 4 m/s에서 천장에
-        //    붙었고 ⓑ 바로 이 줄의 다운스케일(−10%)과 정면으로 싸웠고 ⓒ 이름·파라미터·문서가
-        //    없었고 ⓓ 조향 권한 캡(②-b)의 δ_avail과 어긋나 있었다(캡은 0.379를 다 낸다고 가정).
         double speed_diff = std::max(0.1, end_scale_speed_ - start_scale_speed_);
         double clip_factor = std::clamp((speed_for_lu - start_scale_speed_) / speed_diff, 0.0, 1.0);
         steering_angle *= (1.0 - clip_factor * downscale_factor_);
@@ -828,30 +945,10 @@ private:
         double heading_err = wrap_pi(wps[closest_idx].yaw - current_yaw_);
         steering_angle += heading_damping_gain_ * heading_err;
 
-        // ❌ 2026-08-06: 여기 있던 **요레이트 피드백 카운터스티어**(yaw_rate_gain +
-        //    StabilityController)를 제거했다. 되살리기 전에 읽을 것:
-        //    ① 런치 기본값이 계속 0.00(=비활성)이었다 → 실거동 변화 0.
-        //    ② 이 항은 "지금 언더스티어다"라고 **컨트롤러가 판정**해 조향을 더 주는 보정이다.
-        //       주행 판단은 planning이 전담한다는 방침(팀 결정)과 정면으로 어긋난다.
-        //    ③ 애초에 오버스티어 보정인데 우리 크래시는 전부 언더스티어였고, 게인을 검증할
-        //       저마찰 드리프트 bag이 없어 켤 근거 자체가 없었다(WORKLOG 07-29).
-        //
-        // ❌ 2026-08-06: 여기 있던 **출발 정렬**(launch_align_enable 외 2개)도 제거했다.
-        //    기본 false였고, 실측(0805 bag 10개)에서 정상 출발 시 효과가 0~25%뿐이었다
-        //    (블렌딩이 0.46~0.70s밖에 안 사는데 큰 조향은 그 뒤 v 2.8~4.8 구간에서 나온다).
-        //    효과가 컸던 52~75% 케이스는 전부 **탈조로 못 나간** bag이라 조향과 무관했다 —
-        //    출발 덜그럭의 정체는 VESC 오픈루프 기동 시퀀스다(CLAUDE.md "출발 시 덜그럭" 참고).
-
-        // 6-6) 조향 도달각 보상 — 명령각 중 바퀴가 실제로 내는 비율이 74%(실차 3회 재현)라
-        //      LUT/보정항이 의도한 각을 바퀴가 내도록 1/ratio를 곱한다.
-        //      ⚠️ **모든 보정항 뒤, 클리핑 앞**이 유일하게 맞는 자리다 — 보정항(heading·FF)도
-        //         같은 링키지를 통과하므로 함께 보상돼야 한다.
         if (steering_reach_ratio_ < 0.999) steering_angle /= steering_reach_ratio_;
 
-        // 6-7) rate limit → 좌우 물리 한계 (δ>0 = 좌). 하드웨어가 못 내는 각을 명령해봐야
-        //      vesc_driver의 servo_limit이 조용히 자를 뿐이고 컨트롤러는 그걸 모른다.
-        //      ⚠️ rate limit은 dt에 비례해야 한다 — 예전엔 "사이클당 0.4 rad" 하드코딩이라
-        //         루프가 밀리면 실효 제한이 느슨해졌고, 50Hz에서 20 rad/s = 사실상 무제한이었다.
+        steering_angle += steering_trim_;
+
         const double steer_step = max_steering_rate_ * dt;
         steering_angle = std::clamp(steering_angle,
                                     last_steering_angle_ - steer_step,
@@ -859,27 +956,29 @@ private:
         steering_angle = std::clamp(steering_angle, -max_steering_right_, max_steering_left_);
         last_steering_angle_ = steering_angle;
 
+        // 6-8) 트림 추정기 갱신 — **최종 발행값**으로 학습해야 한다. rate limit/클램프에
+        //      걸린 값을 안 쓰고 원래 명령을 쓰면 포화 구간에서 있지도 않은 오차를 학습한다.
+        update_steering_trim(dt, steering_angle);
+
         // 7. 목표 속도 ───────────────────────────────────────────────────────────────
         double global_speed =
             wps[find_lookahead_wp_idx(wps, path_closed, closest_idx, speed_lookahead_)].speed;
         global_speed = std::min(global_speed, curvature_speed_limit);
-        // 직선 최고속도 캡. 곡률 제한은 코너에서만 걸리므로(직선은 κ≈0) 이 줄이 컨트롤러 쪽
-        // 유일한 상한이다 — 2026-07-19 이전엔 이 clamp가 빠져 max_speed:=X가 무효였다.
         global_speed = std::min(global_speed, max_speed_);
-        // ❌ 2026-07-30: 여기 있던 `* lat_err_scale`을 제거했다(항상 1.0인 죽은 코드 + 모양이
-        //    레이싱에 부적합 — 위 4 참고).
         double target_speed = global_speed;
-
-        // ❌ 2026-08-06: 여기 있던 **데드존 바닥**(deadzone_floor_speed)을 제거했다.
-        //    기본 0(비활성)이라 실거동 변화는 없다. 제거 이유는 코드가 원래 달고 있던 경고
-        //    그대로다 — 플래닝이 요구한 속도보다 **빠르게** 가는 것이라 회피 중 권한 침범이다.
-        //    FOC 센서리스 데드존(0.17~0.49 m/s)에 걸터앉는 문제는 planning이 속도 레버를
-        //    쥐고 푸는 게 맞다(08-06 stall_guard 재제거와 같은 판단).
 
         // 8. 명령 속도 램프
         double final_speed = ramp_speed(last_target_speed_, target_speed, dt,
                                         base_max_accel_, base_max_decel_);
         last_target_speed_ = final_speed;
+
+        if (ramp_lead_max_ > 0.0) {
+            const double lead_cap = std::max(0.0, current_speed_) + ramp_lead_max_;
+            if (final_speed > lead_cap) {
+                final_speed = lead_cap;
+                last_target_speed_ = final_speed;
+            }
+        }
 
         // 8-a2. 자율 미체결 중 램프 고정 — bumpless transfer (선언부 주석 참고).
         const bool disengaged = engage_gate_active() && !is_engaged_;
@@ -891,20 +990,18 @@ private:
             //    킥이 무한 재무장돼 미체결 중에도 발행값이 부스트 값으로 덮인다.
             launch_active_ = false;
             launch_time_ = 0.0;
-            RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+            // 조향 트림 추정도 리셋한다 — 미체결 중엔 발행이 하류로 안 나가므로 그 구간의
+            // "명령 vs 요레이트"는 물리적 의미가 없고, 재체결 시 남은 값이 계단으로 나간다.
+            steering_trim_ = 0.0;
+            steering_trim_samples_ = 0;
+            steer_hist_.clear();
+            // ⚠️ 2초 throttle이면 대기 중 계속 찍힌다(0807 로그 1007줄 중 156줄). 상태 전이는
+            //    이미 위 "자율 체결 상태 변경"이 1회 찍으므로, 여기선 30초 하트비트로 충분하다.
+            RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 30000,
                 "자율 미체결 — 속도 램프를 실측(%.2f m/s)에 고정 중(engage 시 무충격 전환)",
                 current_speed_);
         }
 
-        // 8-c. 런치 킥 — 자율 정지출발 시 VESC 센서리스 데드존 관통.
-        //   매뉴얼은 초반 스로틀 펀치로 데드존(~0.5 m/s)을 때려 관통하는데, 자율은 프로파일을
-        //   살살 램프해 명령이 데드존에 걸터앉아 탈조한다. 정지 상태에서 짧게 높은 속도를 명령하면
-        //   속도 PID가 ERPM 오차에 비례해 큰 전류를 뽑아 매뉴얼 펀치와 같은 효과가 난다.
-        //   (오픈루프 전류 상향·HFI·Coupled HFI는 이 모터의 저돌극성 때문에 부하서 실패 확인)
-        //   ⚠️ final_speed(램프 상태)는 건드리지 않고 발행값만 덮는다 → 킥 종료 후 램프가 이어짐.
-        //   ⚠️ 킥 실패 시 포기한다(과열 방지 위해 차가 실제 움직일 때까지 재시도 안 함).
-        //   ⚠️ 미체결 중에는 킥도 돌리지 않는다 — 킥은 발행값만 덮으므로 게이트가 램프를 눌러놔도
-        //      킥이 켜져 있으면 정차 중 부스트 속도가 계속 발행된다.
         double publish_speed = final_speed;
         if (launch_boost_enable_ && !disengaged) {
             bool moving = std::abs(current_speed_) > launch_exit_speed_;
@@ -935,18 +1032,24 @@ private:
             }
         }
 
-        RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 500,
-            "Pose: (%.2f, %.2f, %.2f) | Target WP: (%.2f, %.2f), Idx: %zu -> %zu | Steer: %.4f | "
-            "Speed: %.2f / %.2f | L1_dist: %.2f | acc_mean: %.2f",
-            current_x_, current_y_, current_yaw_, L1_x, L1_y, closest_idx, idx_a, steering_angle,
-            final_speed, current_speed_, L1_distance, acc_mean);
+        if (status_log_period_ms_ > 0) {
+            // ⚠️ Idx 앞의 L/G는 **어느 배열의 인덱스인지**다. 로컬(L)과 글로벌(G)은 배열이
+            //    달라 소스가 바뀌면 번호가 크게 튀는데(실측 L53→G134) 실제 목표점 좌표는
+            //    연속이다. 이 표기가 없으면 "룩어헤드가 트랙 반대쪽으로 튀었다"로 오독된다.
+            RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), status_log_period_ms_,
+                "Pose: (%.2f, %.2f, %.2f) | Target WP: (%.2f, %.2f), Idx: %c%zu -> %c%zu | Steer: %.4f | "
+                "Speed: %.2f / %.2f | L1_dist: %.2f | acc_mean: %.2f | 점프 %lu/뒤쪽 %lu/경로반전 %u"
+                " | trim: %+.2f° (n=%ld)%s",
+                current_x_, current_y_, current_yaw_, L1_x, L1_y,
+                following_local ? 'L' : 'G', closest_idx, following_local ? 'L' : 'G', idx_a,
+                steering_angle, final_speed, current_speed_, L1_distance, acc_mean,
+                l1_jump_count_, l1_behind_count_, local_heading_reject_count_,
+                steering_trim_ * 180.0 / M_PI, steering_trim_samples_,
+                // 섹터가 켜져 있으면 **지금 이 지점에 실제로 적용된 MLA**를 같이 찍는다.
+                // 파라미터가 아니라 적용값을 찍어야 "켜졌는데 왜 안 빨라지나"를 로그만으로 가른다.
+                sector_status_suffix(wps[closest_idx].mla).c_str());
+        }
 
-        // 9. 발행. ⚠️ acceleration 필드는 **명령 속도의 시간미분**이다 —
-        //    예전엔 `(publish_speed − current_speed_)/dt`, 즉 "명령−실측 추종오차 ÷ dt"를
-        //    가속도라고 발행했다. VESC 속도 PID는 명령이 실측보다 앞서야 전류가 나오는 구조라
-        //    (60A를 뽑으려면 ~4.7 m/s 선행) 정상 가속 중에도 이 값이 200 m/s²급으로 나오고,
-        //    odom 속도 노이즈가 ×50(=1/dt) 증폭돼 실렸다. 하류가 이 필드로 제동을 중재하면
-        //    (젯슨 ackermann_to_vesc 서비스 브레이크 패치) 그대로 오작동한다.
         const double cmd_accel = (publish_speed - last_published_speed_) / dt;
         last_published_speed_ = publish_speed;
         publish_drive(steering_angle, publish_speed, cmd_accel);
@@ -992,7 +1095,194 @@ private:
         l1_marker_pub_->publish(arr);
     }
 
-    // 룩어헤드 투영점(현재 속도로 lookahead_time만큼 직진한 위치) 기준 최근접 웨이포인트.
+    struct Sector { double s0, s1, scale; };
+    struct SectorTrans { double s, before, after; };   // 값이 실제로 바뀌는 지점만
+
+    void sector_scale_callback(const std_msgs::msg::Float32MultiArray::SharedPtr msg) {
+        const auto& d = msg->data;
+        // ⚠️ 하나라도 이상하면 **메시지 전체를 버리고 직전 값을 유지**한다. 부분 적용하면
+        //    어느 구간이 새 값이고 어느 구간이 옛 값인지 알 수 없는 상태가 된다.
+        if (d.empty() || (d.size() - 1) % 3 != 0) {
+            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                "섹터 테이블 무시: 길이 %zu — [track_length, (s0,s1,scale)×N] 형식이 아님", d.size());
+            return;
+        }
+        const double decl_len = d[0];
+        if (!std::isfinite(decl_len) || decl_len <= 1.0) {
+            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                "섹터 테이블 무시: track_length %.3f가 비정상", decl_len);
+            return;
+        }
+        std::vector<Sector> parsed;
+        parsed.reserve((d.size() - 1) / 3);
+        for (size_t i = 1; i + 2 < d.size(); i += 3) {
+            const double s0 = d[i], s1 = d[i + 1], sc = d[i + 2];
+            if (!std::isfinite(s0) || !std::isfinite(s1) || !std::isfinite(sc) ||
+                s1 <= s0 || s0 < 0.0 || s1 > decl_len + 1e-6) {
+                RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                    "섹터 테이블 무시: %zu번 항목이 비정상 (s %.2f→%.2f, 랩길이 %.2f, scale %.2f)",
+                    i / 3, s0, s1, decl_len, sc);
+                return;
+            }
+            if (sc < 1.0 || sc > sector_scale_max_) {
+                RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                    "섹터 테이블 무시: %zu번 scale %.2f이 [1.0, %.2f] 밖 — 1.0 미만은 "
+                    "설계상 금지다(미수신 시 위험 코너가 빨라지는 방향이 된다)",
+                    i / 3, sc, sector_scale_max_);
+                return;
+            }
+            parsed.push_back({s0, s1, sc});
+        }
+        // 내용 서명 — 재발행이 잦으므로 "실제로 바뀌었나"를 싸게 판정하기 위한 것.
+        double sig = decl_len * 7919.0 + static_cast<double>(parsed.size());
+        for (const auto& p : parsed) sig += p.s0 * 31.0 + p.s1 * 131.0 + p.scale * 1009.0;
+
+        sectors_ = std::move(parsed);
+        sector_decl_track_len_ = decl_len;
+        rebuild_sector_profile();
+        const bool was_stale = sector_table_seen_ && !sector_table_fresh();
+        sector_table_seen_ = true;
+        sector_table_last_recv_time_ = this->now();
+        if (was_stale) {
+            RCLCPP_INFO(this->get_logger(), "섹터 테이블 재개 — 발행자가 돌아왔다");
+        }
+        if (sector_track_len_ > 0.0) validate_sector_track_length(sector_track_len_);
+        apply_sector_scales(waypoints_);
+        apply_sector_scales(local_waypoints_);
+        if (sig != sector_table_sig_ || was_stale) {
+            sector_table_sig_ = sig;
+            RCLCPP_INFO(this->get_logger(), "섹터 테이블 갱신: %zu구간 / 랩길이 %.2f m%s",
+                        sectors_.size(), decl_len,
+                        sector_len_ok_ ? "" : " (⚠️ 라인 길이 미검증 — 글로벌 경로 수신 대기)");
+        }
+    }
+
+    // 블렌딩 없는 계단 함수. 구간이 겹치면 큰 쪽(발행 쪽에서 겹침을 금지하지만 방어적으로).
+    double sector_scale_step(double s) const {
+        double v = 1.0;
+        for (const auto& sec : sectors_) {
+            if (s >= sec.s0 && s < sec.s1) v = std::max(v, static_cast<double>(sec.scale));
+        }
+        return v;
+    }
+
+    void rebuild_sector_profile() {
+        sector_trans_.clear();
+        const double L = sector_decl_track_len_;
+        if (sectors_.empty() || L <= 0.0) return;
+        std::vector<double> bounds;
+        bounds.reserve(sectors_.size() * 2);
+        for (const auto& sec : sectors_) { bounds.push_back(sec.s0); bounds.push_back(sec.s1); }
+        std::sort(bounds.begin(), bounds.end());
+        bounds.erase(std::unique(bounds.begin(), bounds.end()), bounds.end());
+        const double eps = 1e-4;
+        for (double b : bounds) {
+            const double before = sector_scale_step(std::fmod(b - eps + L, L));
+            const double after = sector_scale_step(std::fmod(b + eps, L));
+            if (std::abs(after - before) > 1e-9) sector_trans_.push_back({b, before, after});
+        }
+    }
+
+    // s에 적용할 스케일. 전이점 ±blend/2에서만 선형 램프.
+    double sector_scale_at(double s) const {
+        const double L = sector_decl_track_len_;
+        if (sectors_.empty() || L <= 0.0) return 1.0;
+        s = std::fmod(std::fmod(s, L) + L, L);
+        const double v = sector_scale_step(s);
+        const double h = 0.5 * sector_scale_blend_;
+        if (h <= 1e-9) return v;
+        for (const auto& t : sector_trans_) {
+            double d = s - t.s;
+            if (d > L * 0.5) d -= L; else if (d < -L * 0.5) d += L;
+            if (std::abs(d) >= h) continue;
+            // 전이 간격이 blend보다 좁으면 겹치지만, 그건 발행 쪽에서 금지한다
+            // (bag_analyzer는 경계를 κ 최소점으로 스냅해 충분히 벌려서 준다).
+            return t.before + (t.after - t.before) * std::clamp((d + h) / (2.0 * h), 0.0, 1.0);
+        }
+        return v;
+    }
+
+    void apply_sector_scales(std::vector<Waypoint>& wps) {
+        const bool active = sector_active();
+        for (auto& w : wps) {
+            w.mla = active ? max_lateral_accel_ * sector_scale_at(w.s) : max_lateral_accel_;
+        }
+    }
+
+    // 스케일을 지금 적용해도 되는가. ⚠️ "모르겠으면 끈다"가 원칙이다 — 여기서 애매한 걸
+    // 켜는 쪽으로 처리하면 불변식(모든 실패는 느려지는 방향)이 깨진다.
+    // 테이블이 신선한가. 데드맨이 꺼져 있으면(0) 항상 참 = 구 거동.
+    bool sector_table_fresh() const {
+        if (sector_scale_timeout_ <= 0.0) return true;
+        if (!sector_table_seen_) return false;
+        return (this->now() - sector_table_last_recv_time_).seconds() <= sector_scale_timeout_;
+    }
+
+    bool sector_active() const {
+        if (!sector_scale_enable_ || !sector_table_seen_ || !sector_len_ok_) return false;
+        if (!sector_table_fresh()) return false;
+        if (!sector_scale_global_only_) return true;
+        // /state를 한 번도 못 받았거나 끊겼으면 회피 중인지 알 수 없다 → 끈다.
+        // (state_machine을 안 띄우는 시뮬에서는 이 경로로 항상 비활성이 된다. 의도된 것 —
+        //  검증 근거인 벽 여유가 실차 bag에서만 나오므로 시뮬에서 켤 이유가 없다.)
+        if (!sector_state_seen_) return false;
+        if ((this->now() - sector_state_last_recv_time_).seconds() > sector_scale_state_timeout_)
+            return false;
+        return sector_on_global_;
+    }
+
+    // 상태 로그 꼬리표. 꺼져 있으면 빈 문자열이라 기존 로그 형식이 그대로 유지된다.
+    std::string sector_status_suffix(double applied_mla) const {
+        if (!sector_scale_enable_) return "";
+        char buf[96];
+        if (!sector_active()) {
+            // ⚠️ "/state 끊김"과 "회피 중"을 구분해서 찍는다. 둘 다 비활성이지만 원인이
+            //    정반대다 — 전자는 배선 문제(고쳐야 함), 후자는 의도된 동작(정상)이다.
+            const bool state_stale =
+                sector_state_seen_ &&
+                (this->now() - sector_state_last_recv_time_).seconds() > sector_scale_state_timeout_;
+            const char* why = !sector_table_seen_     ? "테이블 미수신"
+                            : !sector_len_ok_         ? "라인 불일치"
+                            : !sector_table_fresh()   ? "테이블 끊김"
+                            : !sector_state_seen_     ? "/state 미수신"
+                            : state_stale             ? "/state 끊김"
+                                                      : "회피/추월 중";
+            std::snprintf(buf, sizeof(buf), " | 섹터: 비활성(%s)", why);
+        } else {
+            const double m = (applied_mla > 0.0) ? applied_mla : max_lateral_accel_;
+            std::snprintf(buf, sizeof(buf), " | 섹터 MLA %.2f (×%.2f)", m, m / max_lateral_accel_);
+        }
+        return std::string(buf);
+    }
+
+    // 섹터 테이블이 지금 들어온 글로벌 라인과 같은 라인 기준인지 확인한다.
+    // 다르면 s가 다른 코너를 가리키고, scale ≥ 1.0이라 그 오적용은 "빨라지는" 쪽이다.
+    void validate_sector_track_length(double track_len) {
+        if (!sector_scale_enable_) return;
+        sector_track_len_ = track_len;
+        if (sector_decl_track_len_ <= 0.0) {
+            // 발행 쪽이 길이를 안 알려준 경우 — 검증 없이 쓰는 건 위험하니 비활성.
+            sector_len_ok_ = false;
+            if (sector_table_seen_)
+                RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000,
+                    "섹터 스케일 비활성: 발행 쪽이 track_length를 안 줬다 "
+                    "(sector_scale_track_length 파라미터 또는 테이블 헤더 필요)");
+            return;
+        }
+        const bool ok = std::abs(track_len - sector_decl_track_len_) <= sector_scale_track_len_tol_;
+        if (ok != sector_len_ok_) {
+            if (ok) RCLCPP_INFO(this->get_logger(),
+                        "섹터 스케일 라인 검증 통과 (테이블 %.2f m / 현재 %.2f m)",
+                        sector_decl_track_len_, track_len);
+            else RCLCPP_ERROR(this->get_logger(),
+                        "🔴 섹터 스케일 폐기: 테이블이 다른 라인 기준이다 (%.2f m vs 현재 %.2f m, "
+                        "허용 %.2f) — 전 구간 scale 1.0으로 되돌린다. 라인을 재생성했으면 "
+                        "섹터 파일도 새 bag으로 다시 뽑을 것",
+                        sector_decl_track_len_, track_len, sector_scale_track_len_tol_);
+        }
+        sector_len_ok_ = ok;
+    }
+
     size_t find_lookahead_wp_idx(const std::vector<Waypoint>& wps, bool closed, size_t base_idx,
                                  double lookahead_time) const {
         const size_t nn = wps.size();
@@ -1021,6 +1311,15 @@ private:
     double l1_min_denom_ = 0.6;              // L1 횡가속 분모 하한 [m] (t_clip_min과 분리)
     double heading_damping_gain_;
     bool l1_use_actual_distance_ = true;
+    bool steering_speed_cap_measured_ = true;  // 조향용 속도를 실측 속도로 상한(정지 시 LUT 포화 차단)
+    int status_log_period_ms_ = 2000;          // 상태 한 줄 로그 주기 [ms], 0 = 끔
+    size_t last_global_sig_ = 0;               // 글로벌 경로 재발행 중복 로그 억제용 서명
+
+    // L1 목표점 점프 검출 (진단 전용)
+    double l1_jump_warn_m_ = 1.0;
+    double prev_pose_x_ = 0.0, prev_pose_y_ = 0.0, prev_l1_x_ = 0.0, prev_l1_y_ = 0.0;
+    bool l1_prev_valid_ = false;
+    unsigned long l1_jump_count_ = 0, l1_behind_count_ = 0, l1_cycle_count_ = 0;
 
     // 조향 스케일러 / 속도 룩어헤드
     double acceleration_scaler_for_steering_, deceleration_scaler_for_steering_;
@@ -1034,6 +1333,7 @@ private:
 
     // 종방향
     double base_max_accel_;
+    double ramp_lead_max_ = 2.4;   // 램프 안티와인드업 선행 상한 [m/s], 0이면 비활성
     double base_max_decel_;                  // 명령 속도 하강 rate limit [m/s²]
     double prebrake_decel_ = 1.5;            // 곡률 사전감속용 실측 감속 권한 [m/s²]
     double max_speed_, min_speed_;           // max_speed_는 런타임 파라미터 변경 수용(생성자 콜백)
@@ -1047,11 +1347,23 @@ private:
     double launch_time_ = 0.0;
     bool launch_latched_off_ = false;        // 관통 실패로 포기(차가 실제로 움직일 때까지 재시도 안 함)
 
-    // IMU — 종가속(조향 가감속 스케일러)에만 쓴다. 자이로 소비처는 2026-08-06 요레이트
-    // 카운터스티어 제거와 함께 사라졌다(imu_angular_scale도 같이 삭제).
     bool use_imu_;
     double imu_linear_scale_ = 1.0;
+    double imu_angular_scale_ = 1.0;         // deg/s → rad/s (real=pi/180, sim=1.0)
     std::vector<double> acc_now_;            // 종가속 rolling buffer
+    double yaw_rate_now_ = 0.0;              // 실측 요레이트 [rad/s] (트림 추정 전용)
+    rclcpp::Time yaw_rate_last_recv_{0, 0, RCL_ROS_TIME};
+    bool yaw_rate_seen_ = false;
+
+    double steering_trim_ = 0.0;             // 추정된 트림 [rad], 발행 명령에 더해진다
+    double steering_trim_gain_ = 0.0;        // 1/τ [1/s], 0 = 비활성
+    double steering_trim_limit_ = 0.06;      // |trim| 상한 [rad] (≈3.4°)
+    double steering_trim_max_steer_ = 0.10;  // 이 각을 넘는 조향 중엔 학습 정지 [rad]
+    double steering_trim_min_speed_ = 2.0;   // 이 속도 미만에선 학습 정지 [m/s]
+    double steering_trim_max_lat_acc_ = 2.0; // 이 횡가속을 넘으면 학습 정지 [m/s²]
+    double steering_trim_lag_ = 0.14;        // 조향→요레이트 지연 [s] (0810 bag 실측 140 ms)
+    long   steering_trim_samples_ = 0;       // 학습 샘플 수 (로그용)
+    std::deque<std::pair<double, double>> steer_hist_;   // (t, 발행 조향) — lag 조회용
 
     // 곡률 사전감속
     size_t curvature_lookahead_count_;
@@ -1085,8 +1397,33 @@ private:
     bool local_is_closed_ = false, last_logged_local_closed_ = false;
     rclcpp::Time local_last_recv_time_;
     double local_fresh_timeout_ = 0.3;
+    double closest_idx_max_heading_err_ = 1.40;  // 경로 진행방향 게이트 [rad], 0=비활성
+    uint32_t local_heading_reject_count_ = 0;    // 로컬 경로 반전 거부 누적(진단용)
     // 자율 체결 게이트 (bumpless transfer)
     bool engage_gate_enable_ = true;
+    // ── 섹터 스케일 상태 ──
+    bool sector_scale_enable_ = false, sector_scale_global_only_ = true;
+    std::string sector_scale_topic_ = "/sector_scales", sector_scale_state_topic_ = "/state";
+    double sector_scale_max_ = 1.5, sector_scale_blend_ = 0.5, sector_scale_track_len_tol_ = 0.02;
+    std::vector<Sector> sectors_;
+    std::vector<SectorTrans> sector_trans_;
+    bool sector_table_seen_ = false;   // 테이블을 한 번이라도 받았나
+    bool sector_len_ok_ = false;       // 그 테이블이 지금 라인과 같은 라인 기준인가
+    // ⚠️ 기본 false다. "글로벌 추종 중"이 확인되기 전에는 켜지 않는다 — true로 두면
+    //    /state 발행자가 없을 때 회피 여부를 모르는 채로 스케일이 먹는다.
+    bool sector_on_global_ = false, sector_state_seen_ = false;
+    double sector_scale_state_timeout_ = 1.0;
+    double sector_scale_timeout_ = 3.0;              // 테이블 데드맨, 0이면 비활성
+    rclcpp::Time sector_table_last_recv_time_;
+    bool sector_table_fresh_prev_ = true;            // 데드맨 전이 검출용
+    double sector_table_sig_ = 0.0;                  // 재발행 로그 억제용 내용 서명
+    rclcpp::TimerBase::SharedPtr sector_deadman_timer_;
+    double sector_decl_track_len_ = 0.0;  // 테이블이 선언한 랩 길이
+    double sector_track_len_ = 0.0;       // 실제 글로벌 경로에서 잰 랩 길이
+    rclcpp::Time sector_state_last_recv_time_;
+    rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr sector_scale_sub_;
+    rclcpp::Subscription<f110_msgs::msg::StateMachine>::SharedPtr sector_state_sub_;
+
     std::string drive_mode_topic_ = "/drive_mode", engaged_mode_value_ = "autonomous";
     double drive_mode_timeout_ = 1.0;
     bool is_engaged_ = false, drive_mode_seen_ = false;
