@@ -16,6 +16,7 @@
 #include "visualization_msgs/msg/marker_array.hpp"
 #include "geometry_msgs/msg/point.hpp"
 #include "std_msgs/msg/string.hpp"
+#include "std_msgs/msg/float64.hpp"
 #include "std_msgs/msg/float32_multi_array.hpp"
 
 #include "f1tenth_control/types.hpp"
@@ -261,6 +262,16 @@ public:
         // 경로 소스 중재
         local_fresh_timeout_ = declare_parameter<double>("local_fresh_timeout", 0.3);
 
+        // Cruise controller는 경로를 바꾸지 않고 종방향 속도 상한만 제공한다. 토픽을 한 번도
+        // 못 받은 상태는 기존 주행과 동일하게 제한하지 않고, 수신 후 stale이면 보수 속도로 내린다.
+        cruise_limit_enable_ = declare_parameter<bool>("cruise_limit_enable", true);
+        cruise_speed_limit_topic_ =
+            declare_parameter<std::string>("cruise_speed_limit_topic", "/cruise_speed_limit");
+        cruise_speed_limit_timeout_ =
+            std::max(0.01, declare_parameter<double>("cruise_speed_limit_timeout", 0.15));
+        cruise_stale_speed_ =
+            std::max(0.0, declare_parameter<double>("cruise_stale_speed", 1.5));
+
         closest_idx_max_heading_err_ =
             declare_parameter<double>("closest_idx_max_heading_err", 1.40);
 
@@ -291,6 +302,13 @@ public:
             "/local_waypoints", rclcpp::QoS(rclcpp::KeepLast(1)).reliable(),
             std::bind(&ControlMapNode::local_path_callback, this, std::placeholders::_1));
         local_last_recv_time_ = this->now();  // 노드 클럭 타입으로 초기화(clock mismatch 방지)
+
+        if (cruise_limit_enable_) {
+            cruise_speed_limit_sub_ = this->create_subscription<std_msgs::msg::Float64>(
+                cruise_speed_limit_topic_, 10,
+                std::bind(&ControlMapNode::cruise_speed_limit_callback,
+                          this, std::placeholders::_1));
+        }
 
         odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
             odom_topic_, 10, std::bind(&ControlMapNode::odom_callback, this, std::placeholders::_1));
@@ -451,6 +469,17 @@ private:
         is_engaged_ = engaged;
         drive_mode_last_recv_time_ = this->now();
         drive_mode_seen_ = true;
+    }
+
+    void cruise_speed_limit_callback(const std_msgs::msg::Float64::ConstSharedPtr msg) {
+        if (!std::isfinite(msg->data) || msg->data < 0.0) {
+            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+                "비정상 cruise speed limit %.3f 무시", msg->data);
+            return;
+        }
+        cruise_speed_limit_ = msg->data;
+        cruise_speed_limit_last_recv_time_ = this->now();
+        cruise_speed_limit_seen_ = true;
     }
 
     // 곡률 추종에 쓸 수 있는 **실제 도달** 조향각 [rad].
@@ -944,6 +973,20 @@ private:
         global_speed = std::min(global_speed, max_speed_);
         double target_speed = global_speed;
 
+        // Cruise는 기존 글로벌/adaptive-global 기하를 그대로 두고 속도만 cap한다.
+        // 노드가 기동하지 않은 구성을 깨지 않기 위해 첫 메시지 전에는 제한하지 않는다.
+        if (cruise_limit_enable_ && cruise_speed_limit_seen_) {
+            const bool cruise_fresh =
+                (current_time - cruise_speed_limit_last_recv_time_).seconds() <=
+                cruise_speed_limit_timeout_;
+            const double cruise_cap = cruise_fresh ? cruise_speed_limit_ : cruise_stale_speed_;
+            target_speed = std::min(target_speed, cruise_cap);
+            if (!cruise_fresh) {
+                RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+                    "cruise speed limit stale — %.2f m/s fail-safe cap 적용", cruise_stale_speed_);
+            }
+        }
+
         // 8. 명령 속도 램프
         double final_speed = ramp_speed(last_target_speed_, target_speed, dt,
                                         base_max_accel_, base_max_decel_);
@@ -1314,6 +1357,13 @@ private:
     double base_max_decel_;                  // 명령 속도 하강 rate limit [m/s²]
     double prebrake_decel_ = 1.5;            // 곡률 사전감속용 실측 감속 권한 [m/s²]
     double max_speed_, min_speed_;
+    bool cruise_limit_enable_ = true;
+    std::string cruise_speed_limit_topic_ = "/cruise_speed_limit";
+    double cruise_speed_limit_timeout_ = 0.15;
+    double cruise_stale_speed_ = 1.5;
+    double cruise_speed_limit_ = 0.0;
+    bool cruise_speed_limit_seen_ = false;
+    rclcpp::Time cruise_speed_limit_last_recv_time_{0, 0, RCL_ROS_TIME};
 
     // 런치 킥
     bool launch_boost_enable_ = true;
@@ -1413,6 +1463,7 @@ private:
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr drive_mode_sub_;
     rclcpp::Subscription<f110_msgs::msg::WpntArray>::SharedPtr global_path_sub_;
     rclcpp::Subscription<f110_msgs::msg::WpntArray>::SharedPtr local_path_sub_;
+    rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr cruise_speed_limit_sub_;
     rclcpp::Publisher<ackermann_msgs::msg::AckermannDriveStamped>::SharedPtr drive_pub_;
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr l1_marker_pub_;
     rclcpp::TimerBase::SharedPtr control_timer_;

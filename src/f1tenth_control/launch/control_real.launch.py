@@ -70,6 +70,10 @@ def generate_launch_description():
         remappings=[('/imu/data', 'sensors/imu/raw')],
     )
 
+    cruise_controller = common.build_cruise_controller_node(
+        max_speed=LaunchConfiguration('max_speed')
+    )
+
     drive_source_selector = Node(
         package='f1tenth_control',
         executable='drive_source_selector',
@@ -88,6 +92,7 @@ def generate_launch_description():
         max_steering_right_arg,
         lookup_table_file_arg,
         base_max_accel_arg,
+        cruise_controller,
         steering_control,
         drive_source_selector,
         sector_learner_node,

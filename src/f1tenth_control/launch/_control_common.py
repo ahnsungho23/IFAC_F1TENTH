@@ -5,6 +5,8 @@ from launch_ros.parameter_descriptions import ParameterValue
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 from launch.conditions import IfCondition
+from launch.substitutions import PathJoinSubstitution
+from launch_ros.substitutions import FindPackageShare
 
 IMU_LINEAR_SCALE_REAL = 9.80665      # g → m/s². VESC가 g로 발행(2026-07-19 소스 확인)
 IMU_LINEAR_SCALE_SIM  = 1.0          # sim_imu_bridge_node는 0 고정
@@ -18,6 +20,20 @@ IMU_ANGULAR_SCALE_SIM  = 1.0         # sim_imu_bridge_node는 이미 rad/s로 �
 def declare_common_args(sector_scale_enable_default='false'):
     """두 런치파일에서 동일하게 쓰는 인자 선언 목록."""
     return [
+
+        # ── CMA 락스텝 하니스 (tools/cmaes_tuning — 실주행은 기본 false로 완전 비활성) ──
+        DeclareLaunchArgument(
+            'lockstep_mode', default_value='false',
+            description='CMA 결정론 하니스 전용: wall timer 대신 stamp 일치 시 1사이클 실행'
+        ),
+        DeclareLaunchArgument(
+            'lockstep_period_sec', default_value='0.01',
+            description='락스텝 논리 제어 주기 [s] (dt로 사용)'
+        ),
+        DeclareLaunchArgument(
+            'cruise_enable', default_value='true',
+            description='/opp_obs 기반 종방향 cruise speed cap 사용'
+        ),
 
         # ── 조향 스케일러 (가감속/속도 구간별 조향 게인 완화) ──
         DeclareLaunchArgument(
@@ -64,7 +80,7 @@ def declare_common_args(sector_scale_enable_default='false'):
                         '구 이름 l1_gain'
         ),
         DeclareLaunchArgument(
-            'l1_speed_gain', default_value='0.4',
+            'l1_speed_gain', default_value='0.3',
             description='L1 룩어헤드 거리의 **속도 계수** [s] (공식: l1_offset + v*l1_speed_gain). '
                         '구 이름 l1_distance'
         ),
@@ -241,7 +257,7 @@ def declare_common_args(sector_scale_enable_default='false'):
             description='곡률 룩어헤드 스캔 거리 하한 (×0.1m). 80 = 8m'
         ),
         DeclareLaunchArgument(
-            'min_speed', default_value='1.2',
+            'min_speed', default_value='2.0',
             description='최저 순항 속도 [m/s] (곡률 감속 하한). 장애물 정지엔 미적용(0까지 허용)'
         ),
 
@@ -280,7 +296,7 @@ def declare_common_args(sector_scale_enable_default='false'):
             description='관통 실패 시 포기까지 최대 펀치 시간 [s]'
         ),
         DeclareLaunchArgument(
-            'launch_exit_speed', default_value='0.9',
+            'launch_exit_speed', default_value='1.2',
             description='실측이 이 속도[m/s] 넘으면 관통 성공 판정 → 킥 종료(데드존 상단 0.59보다 위)'
         ),
         DeclareLaunchArgument(
@@ -316,6 +332,9 @@ def build_control_map_node(*, odom_topic, max_speed, max_lateral_accel, base_max
         parameters=[{
             'odom_topic': odom_topic,
             'wheelbase': 0.33,
+            'lockstep_mode': ParameterValue(
+                LaunchConfiguration('lockstep_mode'), value_type=bool),
+            'lockstep_period_sec': LaunchConfiguration('lockstep_period_sec'),
             'l1_offset': LaunchConfiguration('l1_offset'),
             'l1_speed_gain': LaunchConfiguration('l1_speed_gain'),
             't_clip_min': LaunchConfiguration('t_clip_min'),
@@ -377,6 +396,11 @@ def build_control_map_node(*, odom_topic, max_speed, max_lateral_accel, base_max
             'speed_lookahead_for_steering': LaunchConfiguration('speed_lookahead_for_steering'),
             'local_fresh_timeout': LaunchConfiguration('local_fresh_timeout'),
             'closest_idx_max_heading_err': LaunchConfiguration('closest_idx_max_heading_err'),
+            'cruise_limit_enable': ParameterValue(
+                LaunchConfiguration('cruise_enable'), value_type=bool),
+            'cruise_speed_limit_topic': '/cruise_speed_limit',
+            'cruise_speed_limit_timeout': 0.15,
+            'cruise_stale_speed': 1.5,
             # 섹터별 횡가속 권한 스케일 (기본 꺼짐 — 켜기 전 bag_analyzer 판정 필수)
             'sector_scale_enable': LaunchConfiguration('sector_scale_enable'),
             'sector_scale_topic': LaunchConfiguration('sector_scale_topic'),
@@ -388,6 +412,22 @@ def build_control_map_node(*, odom_topic, max_speed, max_lateral_accel, base_max
             'sector_scale_state_timeout': LaunchConfiguration('sector_scale_state_timeout'),
             'sector_scale_timeout': LaunchConfiguration('sector_scale_timeout'),
         }]
+    )
+
+def build_cruise_controller_node(*, max_speed):
+    """전방 상대차 간격을 속도 상한으로 변환하는 종방향 보조 노드."""
+    config_file = PathJoinSubstitution([
+        FindPackageShare('f1tenth_control'), 'config', 'cruise_controller.yaml'
+    ])
+    return Node(
+        package='f1tenth_control',
+        executable='cruise_controller_node',
+        name='cruise_controller_node',
+        output='screen',
+        condition=IfCondition(LaunchConfiguration('cruise_enable')),
+        parameters=[config_file, {
+            'maximum_speed': ParameterValue(max_speed, value_type=float),
+        }],
     )
 
 def build_sector_learner_node():
