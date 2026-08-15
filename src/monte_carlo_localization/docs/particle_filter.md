@@ -64,6 +64,13 @@
      (`use_scan_quality_r`, 실차만 기본 활성). 진동/환경 변화 구간을 odom 우세로 버티고
      지나면 자동 복귀. 하드 게이트와 달리 부분 신뢰라 복구 불능이 없음.
 
+8. **근본 수정 및 구조적 격리 (2026-08-15, T1~T7)**:
+   - **T2 & T3 (MultiThreadedExecutor 및 콜백 그룹)**: `main()` 단일 스레드 `spin()`을 `MultiThreadedExecutor`로 전환하고, 40 Hz MCL 루프와 `/map` 재발행(2000 ms로 연장) 및 시각화 콜백을 서로 다른 `MutuallyExclusiveCallbackGroup`에 배치. 타이머/맵 재발행으로 인한 MCL 루프의 1.3초 블로킹 공백 현상을 구조적으로 예방.
+   - **T4 (헬스 토픽 `/pf/health`)**: 1 Hz 주기로 사이클 타임 p50, 포즈 발행 공백 gap(ms), `ess_ratio_`, 입자 퍼짐 지표($\sigma_{pos}, \sigma_{yaw}$), 다봉성 분산 지표(`bimodality`)를 JSON 메시지로 내보내 실시간 MCL 상태 모니터링 가능.
+   - **T5 (ESS 게이트 리샘플링 & 가중치 누적)**: 매 주기의 무조건적인 Multinomial Resampling 대신 $ESS / N < ess\_threshold$ (기본 0.5) 일 때만 리샘플링을 실행. 리샘플링을 건너뛰는 프레임에서는 가중치를 곱연산으로 누적 및 정규화하여 입자 다양성을 유지하고 정지 중 입자 발산을 억제.
+   - **T6 (Primary Cluster 기반 포즈 추정)**: 단순 전역 가중 평균 대신 최고 가중치 파티클 주변 반경 0.5m / 각도 0.5rad 이내의 입자(Primary Cluster)만으로 포즈 가중 평균을 계산하여 파티클 구름이 두 갈래(Bimodal)로 split될 때 사잇값(빈 공간)을 추정하던 버그를 철저히 예방.
+   - **T7 (시각화 확장)**: 진단 및 구름 분포 관측을 위해 `max_viz_particles` 기본값을 200으로 확장.
+
 ---
 
 ## 3. 구독 및 발행 토픽 (Topics & Message Types)
@@ -78,7 +85,8 @@
 - `/pf/pose/odom` (`nav_msgs/msg/Odometry`): MCL 최종 추정 포즈 오도메트리
 - `/pf/viz/inferred_pose` (`geometry_msgs/msg/PoseStamped`): 시각화용 추정 포즈
 - `/pf/viz/particles` (`geometry_msgs/msg/PoseArray`): RViz 파티클 군집 시각화
-- `/map` (`nav_msgs/msg/OccupancyGrid`): 맵 서버로부터 전달받은 지도 정보 재발행
+- `/map` (`nav_msgs/msg/OccupancyGrid`): 맵 서버로부터 전달받은 지도 정보 재발행 (2초 주기)
+- `/pf/health` (`std_msgs/msg/String`): MCL 헬스 진단 모니터링 토픽 (1 Hz)
 
 ---
 
@@ -94,6 +102,14 @@
   - `use_pose_ekf` (`bool`, 기본값: `true`): 출력단 pose fusion EKF 활성화 (false = 구 EMA)
   - `ekf_trans_error_rate` (`double`, 기본값: `0.01`): 주행거리 대비 휠 odom 병진 오차율
   - `ekf_meas_long_inflation` (`double`, 기본값: `25.0`): 차체 종방향 측정 불신 배율
+  - `publish_extrapolation_sec` (`double`, 코드 기본 `0.0` / 실차 YAML `0.09` / 시뮬 YAML `0.0`):
+    발행 직전 `/pf/pose/odom`의 **위치만** 진행방향으로 `v × 이 값`만큼 전방 외삽.
+    2026-08-14 실측 진단 — 출력 병진이 실제보다 ~90 ms 지연(스캔 나이 + 연산 + 타이머
+    양자화 + VESC odom 직렬 지연 합)돼 코너에서 벽 방향 오차로 투영됨(코너 p95 0.101,
+    최악 코너 0.144). 90 ms 외삽 시 코너 p95 0.000 / 최악 0.050 / 직선 부작용 없음
+    (무장애물 백 5개·591프레임, v×τ 스윕). 요(헤딩)는 지연이 없어 건드리지 않는다.
+    필터·EKF·TF 상태 불변, 코드가 [0, 0.15]로 클램프. ⚠️ 시뮬은 0.0 유지 — 하드웨어
+    지연이 없고 CMA 락스텝 비트 결정론이 이 값에 의존한다.
   - 나머지 EKF/스무딩 파라미터는 `mcl_config.yaml`의 주석 참고
 
 ---

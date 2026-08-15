@@ -17,6 +17,7 @@
 #include <nav_msgs/srv/get_map.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/laser_scan.hpp>
+#include <std_msgs/msg/string.hpp>
 #include <tf2_ros/transform_broadcaster.hpp>
 #include <tf2_ros/transform_listener.hpp>
 #include <tf2_ros/buffer.hpp>
@@ -122,6 +123,8 @@ class ParticleFilter : public rclcpp::Node
     double SQUASH_FACTOR_FAST_CONVERGENCE;    // 초기 수렴 시 squash 지수 = 1/이값 (base보다 작게 → 더 뾰족)
     double MAX_RANGE_METERS;
     bool PUBLISH_ODOM;
+    // /pf/pose/odom 발행 시 병진 전방 외삽 시간 [s] (0=off). 출력 지연 보상 — cpp 선언부 주석 참고.
+    double PUBLISH_EXTRAPOLATION_SEC{0.0};
     bool PUBLISH_MAP_ODOM_TF;
     bool PUBLISH_ODOM_BASE_TF;
     bool DO_VIZ;
@@ -133,6 +136,11 @@ class ParticleFilter : public rclcpp::Node
     double SMOOTHING_VELOCITY_FULL_MPS;   // 속도 적응 alpha가 최대 보정에 도달하는 속도
     double SMOOTHING_ALPHA_GAIN;          // 최대 속도에서 base alpha에 더해지는 폭
     double SMOOTHING_ALPHA_MAX;           // 속도 적응 alpha 상한
+
+    // ------------------------- ESS & CLUSTER PARAMETERS (T5, T6) -------------------------
+    double ESS_THRESHOLD;                 // ESS/N < threshold 일 때만 리샘플링
+    double CLUSTER_RADIUS;                // 최고 가중치 주변 클러스터 포즈 추정 반경 (m)
+    double CLUSTER_YAW_THRES;             // 최고 가중치 주변 클러스터 포즈 추정 각도 범위 (rad)
 
     // ------------------------- POSE FUSION EKF (odom 예측 + MCL 보정) -------------------------
     // 복도처럼 진행방향 관측성이 없는 구간에서 파티클 기대값이 종방향으로 표류하는 문제를
@@ -173,7 +181,7 @@ class ParticleFilter : public rclcpp::Node
     // --------------------------------- SENSOR MODEL PARAMETERS ---------------------------------
     double Z_SHORT, Z_MAX, Z_RAND, Z_HIT, SIGMA_HIT;
 
-    // --------------------------------- SCAN ROBUSTNESS (다이낯믹 환경 대응) ---------------------------------
+    // --------------------------------- SCAN ROBUSTNESS & HEALTH ---------------------------------
     double RAY_LIKELIHOOD_FLOOR_RATIO;      // per-ray likelihood 하한 (열 최댓값 대비, 0=비활성)
     std::vector<double> sensor_model_col_max_;  // 센서 모델 열(기대 거리)별 최댓값
     bool USE_SCAN_QUALITY_R;                // 스캔 품질 연동 측정 노이즈 부풀림
@@ -183,6 +191,10 @@ class ParticleFilter : public rclcpp::Node
     double SCAN_QUALITY_ESS_START;          // ess0
     double outlier_fraction_ = 0.0;         // 최대 가중치 파티클 기준 outlier 레이 비율
     double ess_ratio_ = 1.0;                // ESS / N
+    bool was_resampled_in_last_step_ = true;// 가중치 누적 vs 리셋 추적용
+    double bimodality_ratio_ = 0.0;         // 클러스터 외 파티클 가중치 비율 (다봉성 지표)
+    double last_publish_gap_ms_ = 0.0;      // 포즈 발행 마지막 공백 (ms)
+    rclcpp::Time last_pose_pub_stamp_{0};   // 직전 포즈 발행 타임스탬프
 
     // --------------------------------- MOTION MODEL PARAMETERS ---------------------------------
     double MOTION_DISPERSION_X, MOTION_DISPERSION_Y, MOTION_DISPERSION_THETA;
@@ -253,6 +265,10 @@ class ParticleFilter : public rclcpp::Node
     std::vector<float> obs_px_;              // Pre-allocated for sensor model
     std::vector<float> ranges_px_;           // Pre-allocated for sensor model
 
+    // --------------------------------- CALLBACK GROUPS ---------------------------------
+    rclcpp::CallbackGroup::SharedPtr update_cb_group_;
+    rclcpp::CallbackGroup::SharedPtr map_viz_cb_group_;
+
     // --------------------------------- ROS2 INTERFACES ---------------------------------
     // Subscribers
     rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr laser_sub_;
@@ -270,6 +286,7 @@ class ParticleFilter : public rclcpp::Node
     rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pose_pub_;
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub_;
     rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr map_pub_;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr health_pub_;
 
     // Services and TF
     rclcpp::Client<nav_msgs::srv::GetMap>::SharedPtr map_client_;
@@ -280,6 +297,7 @@ class ParticleFilter : public rclcpp::Node
     // Timers
     rclcpp::TimerBase::SharedPtr update_timer_;
     rclcpp::TimerBase::SharedPtr map_timer_;
+    rclcpp::TimerBase::SharedPtr health_timer_;
 
     // --------------------------------- THREADING ---------------------------------
     std::mutex state_lock_;
@@ -307,6 +325,7 @@ class ParticleFilter : public rclcpp::Node
     // --------------------------------- UPDATE CONTROL ---------------------------------
     void timer_update();
     void publish_map_periodically();
+    void publish_health();
 };
 
 } // namespace particle_filter_cpp
