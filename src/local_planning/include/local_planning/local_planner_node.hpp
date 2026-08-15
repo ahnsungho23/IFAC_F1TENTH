@@ -310,6 +310,9 @@ private:
   // P3가 출력을 못 내 P0 백업으로 내려간 콜백 수. "P3 단독으로 충분한가"를 재는 유일한
   // 숫자라, P0 격자를 껐을 때도(그때는 곧바로 안전정지) 계속 센다.
   std::uint64_t p3_backup_fallback_count_{0U};
+  // Last owner|lifecycle|backup triple actually logged, so P3_PATH_OWNERSHIP reports transitions
+  // instead of repeating the steady state at the planning rate.
+  std::string last_logged_ownership_state_;
   std::string current_path_owner_{"P0"};
   std::string last_selected_path_family_{"NONE"};
   std::string last_selected_path_digest_{"NONE"};

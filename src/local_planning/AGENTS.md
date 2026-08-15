@@ -202,6 +202,39 @@
   validating the current commitment against obstacles that lie before its merge until a validated
   chained path replaces it. A post-merge controller-tail obstacle must not make the current
   maneuver fail. Hand off to GLOBAL only after no unfinished blocking cluster remains.
+- **`p0_avoidance_candidates_enable=false` makes every P0-only planning call site dead.** That is
+  the operational default, so any logic that asks `planner_.plan()` for an AVOIDANCE answer is
+  answered "safe stop" unconditionally. Two consequences were found in simulation (2026-08-15):
+  (a) safe-stop release condition B reads a `planner_.plan()` result, so its
+  "hard-valid avoidance for the latched obstacle" input was structurally unproducible and a latch
+  became PERMANENT; the TEST_ACTIVE path now runs `probeP3SafeStopEscape()` while the latch holds
+  authority and feeds that candidate to the lifecycle (evaluation only -- the probe never
+  publishes, never touches the P3 lifecycle, and every other release gate is unchanged).
+  (b) `beginChainedManeuverIfNeeded()` and `tryEarlyChainedManeuver()` still ask only
+  `planner_.plan()`, so chaining to the NEXT cluster cannot produce a path in the P3-only
+  configuration -- the car coasts until the next obstacle enters `safe_stop_buffer_m` and then
+  safe-stops at a range where no lateral shift is physically possible. **(b) is NOT fixed.**
+  Before adding any new "can I plan from here?" call, route it through P3, not `planner_.plan()`.
+- **`p0_avoidance_candidates_enable` is controlled by the LAUNCH ARGUMENT, not the YAML.** The
+  launch parameter dict is applied after `params_file`, so the launch default silently overrides
+  `config/local_planning.yaml`. Changing the YAML alone does nothing (verified 2026-08-15: the
+  node still logged `P0 격자=미사용`). Both files now default to `true` and MUST be kept in sync.
+  The same trap applies to every other value the launch file re-declares (`p3_mode`,
+  `lockstep_mode`, the diagnostics toggles): always confirm the node's startup log line rather
+  than trusting the YAML.
+- Safe-stop release condition B requires the escape to target the latched obstacle ONLY while that
+  obstacle is still present in the current `/static_obs` snapshot. Once it is gone (the car
+  stopped just past it and it left the FOV) the identity test is a stale bookkeeping token, while
+  condition A cannot fire either because clearing the danger range by `safe_stop_buffer_m` needs
+  forward motion the latch itself prevents. Keep the "latched obstacle no longer present" branch:
+  without it that combination is a permanent deadlock (sim 2026-08-15: latched on obstacle 0, a
+  valid left escape existed for obstacle 1, car stopped indefinitely). The escape candidate is
+  exact-validated against the CURRENT raw detector geometry before it reaches the lifecycle.
+- The `p3_backup_fallback_count_` ratio counts only callbacks where P3 was actually ASKED for a
+  path -- a usable snapshot AND a non-empty blocking cluster. On a clear track every callback
+  reaches the P0 fallback by design; counting those made an obstacle-free lap report
+  "1872/1924 콜백" as if P3 had failed 97% of the time, inverting the one number this counter
+  exists to produce.
 - If neither side is safe, publish only a collision-checked gradual-stop prefix before the obstacle.
   During an active avoidance, derive that prefix from the remaining committed geometry so stopping
   never forces an immediate return to `d=0`. Without a usable committed prefix, keep the current

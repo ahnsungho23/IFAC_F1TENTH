@@ -1692,9 +1692,27 @@ SafeStopCycleDecision LocalPlannerNode::evaluateSafeStopLifecycle(
   input.ego_s = ego.s;
   input.ego_speed_mps = ego.speed;
   input.static_obstacles_empty = static_obstacles_.empty();
+  // "Targets the latched obstacle" exists so a release cannot ignore the thing that made us
+  // stop. That test is only meaningful while the latched obstacle is still being detected. When
+  // it is gone from the current snapshot -- the car stopped just past it and it left the FOV --
+  // requiring the escape to target it makes condition B unsatisfiable, and condition A cannot
+  // fire either because clearing the danger range by safe_stop_buffer_m needs forward motion the
+  // latch is preventing. That combination is a PERMANENT deadlock, reproducible within ~20 s of
+  // driving and independent of p0_avoidance_candidates_enable (sim 2026-08-15: latched on
+  // obstacle 0, a valid avoidance for obstacle 1 existed every cycle, car stopped indefinitely).
+  // The replanned result is hard-valid against the current geometry before it reaches here, so
+  // when the latched obstacle is no longer present that validated path is the stronger evidence
+  // and the identity check is just a stale bookkeeping token.
+  const auto & latched_ids = safe_stop_lifecycle_.activation().obstacle_ids;
+  const bool latched_obstacle_still_present = std::any_of(
+    latched_ids.begin(), latched_ids.end(), [this](int id) {
+      return std::any_of(
+        static_obstacles_.begin(), static_obstacles_.end(),
+        [id](const auto & obstacle) {return obstacle.id == id;});
+    });
   input.hard_valid_avoidance_for_latched_obstacle =
     replanned_result.kind == SplinePlanKind::kAvoidance &&
-    resultTargetsLatchedObstacle(replanned_result);
+    (resultTargetsLatchedObstacle(replanned_result) || !latched_obstacle_still_present);
   input.state_can_select_avoidance = has_state_ &&
     current_state_ == f110_msgs::msg::StateMachine::STATE_AVOID;
   input.explicit_forward_corridor_clear = explicitForwardCorridorClear(ego);
@@ -2597,14 +2615,29 @@ void LocalPlannerNode::onPlanningTimer()
       get_logger(), "P3_LIFECYCLE_INVALIDATION %s", invalidation.str().c_str());
     resetP3SelectionEnvelope();
   }
-  ++p3_backup_fallback_count_;
-  RCLCPP_WARN_THROTTLE(
-    get_logger(), *get_clock(), 3000,
-    "P3 출력 없음 → %s (누적 %" PRIu64 "/%" PRIu64 " 콜백). 이유: %s",
-    planner_parameters_.avoidance_candidates_enable ? "P0 격자 백업" : "안전정지(P0 격자 미사용)",
-    p3_backup_fallback_count_, p3_callback_sequence_,
-    lifecycle.reason.empty() ? evaluation.failure_classification.c_str() :
-    lifecycle.reason.c_str());
+  // Reaching the P0 path is only a P3 SHORTFALL when P3 was actually asked for a maneuver: a
+  // usable snapshot AND a blocking cluster to avoid. On a clear track every callback lands here
+  // by design, and counting those made the ratio meaningless -- an obstacle-free lap reported
+  // "1872/1924 콜백" as if P3 had failed 97% of the time, which is exactly backwards from what
+  // this counter exists to measure ("is P3 alone sufficient"). Keep the fallback behaviour
+  // unchanged; only the accounting and the warning are gated.
+  const bool p3_was_asked_for_a_path =
+    active_snapshot.ready && evaluation.invoked && !evaluation.cluster_obstacle_ids.empty();
+  if (p3_was_asked_for_a_path) {
+    ++p3_backup_fallback_count_;
+    RCLCPP_WARN_THROTTLE(
+      get_logger(), *get_clock(), 3000,
+      "P3 출력 없음 → %s (누적 %" PRIu64 "/%" PRIu64 " 콜백). 이유: %s",
+      planner_parameters_.avoidance_candidates_enable ? "P0 격자 백업" : "안전정지(P0 격자 미사용)",
+      p3_backup_fallback_count_, p3_callback_sequence_,
+      lifecycle.reason.empty() ? evaluation.failure_classification.c_str() :
+      lifecycle.reason.c_str());
+  } else {
+    RCLCPP_DEBUG(
+      get_logger(), "P3 미요청 콜백(장애물 없음/스냅샷 미준비): %s",
+      lifecycle.reason.empty() ? evaluation.failure_classification.c_str() :
+      lifecycle.reason.c_str());
+  }
   runP0PlanningCycle(&snapshot);
   publishP3CycleDiagnostic(
     active_snapshot, evaluation, lifecycle, "P0_BACKUP_ONLY", true);

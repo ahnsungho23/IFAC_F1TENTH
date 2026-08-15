@@ -1076,6 +1076,58 @@ wall timer를 만들지 않고, 동일 header timestamp를 가진 `/static_obs`�
 이 모드는 장애물 GT나 scenario manifest를 구독하지 않습니다. 장애물 입력은 production과
 같이 detector의 `/static_obs`뿐이며 planner parameter와 핵심 경로 생성 알고리즘도 같습니다.
 전체 실행과 hash 검증 방법은 `tools/cmaes_tuning/docs/deterministic_lockstep_mode.md`에 있습니다.
+### P0 격자 비활성이 만든 P0 전용 경로 사각 (2026-08-15 시뮬 발견)
+
+`p0_avoidance_candidates_enable: false`가 운영 기본값이라 `planner_.plan()`은 **절대 회피를
+반환하지 않는다**(`raceline_spline_planner.cpp`의 조기 반환). 그런데 회피 여부를 `plan()`에게
+묻는 코드가 여러 곳 남아 있어, 그 경로들이 통째로 죽어 있었다. 실차 맵+장애물 6개 시뮬에서
+두 건이 드러났다.
+
+#### (a) 안전정지 영구 교착 — 수정함
+
+안전정지 해제 조건 B("래치된 장애물에 대한 hard-valid 회피가 연속 확인됨")의 입력이
+`planner_.plan()` 결과였다. P0가 꺼져 있으면 이 입력은 **구조적으로 생성 불가**다. 남은
+해제 조건은 A(위험구간 통과)와 C(정지 상태 전방 클리어)뿐인데, A는 전진이 필요하고 전진은
+래치가 막으므로 **한 번 걸리면 영원히 안 풀린다**. 실제로 시뮬에서 차가 2분 넘게 정지했다.
+
+두 가지를 고쳤다.
+
+1. **탈출 탐침 `probeP3SafeStopEscape()`**: 래치가 권한을 쥔 동안 스냅샷은 일부러 not-ready라
+   P3가 평가조차 되지 않는다. SHADOW 모드가 이미 같은 이유로 `safe_stop_authority`를 지우고
+   P3를 돌리는데, TEST_ACTIVE에는 그 배선이 없었다. 이제 래치 중에도 P3를 **평가만** 해서
+   해제 조건에 공급한다. 발행하지 않고, P3 lifecycle도 건드리지 않으며, 선택된 경로는 guarded
+   검증에 더해 **현재 raw 기하로 한 번 더** exact 검증한다. 연속 확인 횟수·FSM 선택 가능성 등
+   나머지 게이트는 그대로다.
+
+2. **래치 장애물이 사라진 경우**: 조건 B는 탈출 경로가 *래치된* 장애물을 대상으로 할 것을
+   요구한다. 이는 그 장애물이 아직 보일 때만 의미가 있다. 차가 그 장애물을 막 지나쳐 정지하면
+   장애물은 FOV를 벗어나 사라지고, 그 뒤로는 대상 일치가 영원히 불가능하다(시뮬 실측:
+   `래치 ID=[0] 대상일치=아니오`인 채 정지 유지). 이제 래치 장애물이 현재 스냅샷에 없으면
+   대상 일치를 요구하지 않는다 — 후보는 이미 현재 raw 기하 전체에 대해 검증됐으므로 그쪽이
+   더 강한 증거다.
+
+수정 후 시뮬에서 `Safe-stop released ... after 8 confirmations`로 해제되어 주행을 재개했다.
+
+#### (b) 연쇄 기동이 다음 장애물을 계획하지 못함 — **미수정**
+
+`beginChainedManeuverIfNeeded()`(L1241)와 `tryEarlyChainedManeuver()`(L2863)도 `planner_.plan()`만
+묻는다. 그래서 P3 단독 구성에서는 다음 클러스터로의 연쇄 계획이 **항상 실패**한다. 로그:
+
+```
+Next static maneuver is stabilized but not yet feasible from ego (ego_s=11.295 ...):
+  left: P0 avoidance candidates disabled (avoidance_candidates_enable=false);
+  right: P0 avoidance candidates disabled (avoidance_candidates_enable=false)
+```
+
+결과적으로 차는 다음 장애물을 향해 계획 없이 접근하다가, 그 장애물이 `safe_stop_buffer_m`
+안에 들어온 뒤에야 반응한다. 그 거리에서는 회피가 **물리적으로 불가능**하다 — 시뮬 사례에서
+자차 s=15.12, 장애물 s=16.30(패딩 후 진입 가용 0.76 m)에 0.72 m 횡이동이 필요해
+`maximum_lateral_slope`(0.8)와 full-lock 곡률을 동시에 초과했다. 안전정지 자체는 그 시점에서는
+올바른 판정이지만, 애초에 그 상황에 도달한 것이 문제다.
+
+⚠️ **이 두 지점을 P3로 라우팅하는 것이 남은 최우선 작업이다.** 그 전까지 P3 단독 구성은
+연속 장애물 구간에서 신뢰할 수 없다.
+
 ### P3 콜백 비용 정리 (2026-08-15)
 
 세 가지가 함께 정리됐다. 셋 다 **안전 로직은 건드리지 않는다** — 검증 항목, 마진, 임계값,

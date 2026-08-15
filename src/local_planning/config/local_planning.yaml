@@ -383,5 +383,5 @@ local_planner_node:
     # 그 백업이 사라지므로, P3 실패 콜백 수를 노드가 3초 throttle WARN으로 누적 보고한다
     # ("P3 출력 없음 → 안전정지(P0 격자 미사용) (누적 n/m 콜백)").
     # 그 숫자가 크면 이 값을 true로 되돌리는 것이 정답이다.
-    p0_avoidance_candidates_enable: false
+    p0_avoidance_candidates_enable: true
     p3_diagnostics_topic: "/local_planning/p3_shadow"
