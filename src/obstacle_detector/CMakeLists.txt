@@ -43,7 +43,8 @@ set(detector_deps
   f110_msgs
   global_planning
 )
-add_executable(obstacle_detector_node
+# The node lives in a library so node-level tests can link it; the executable is main() only.
+add_library(obstacle_detector_core STATIC
   src/aabb_frenet_projector.cpp
   src/frenet_marker_builder.cpp
   src/obstacle_detector_node.cpp
@@ -51,12 +52,16 @@ add_executable(obstacle_detector_node
   src/obstacle_tracker.cpp
   src/wall_distance_filter.cpp
 )
-target_include_directories(obstacle_detector_node PRIVATE
+target_include_directories(obstacle_detector_core PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
-target_link_libraries(obstacle_detector_node Eigen3::Eigen)
-ament_target_dependencies(obstacle_detector_node ${detector_deps})
+target_link_libraries(obstacle_detector_core Eigen3::Eigen)
+ament_target_dependencies(obstacle_detector_core ${detector_deps})
+
+add_executable(obstacle_detector_node src/obstacle_detector_main.cpp)
+target_link_libraries(obstacle_detector_node obstacle_detector_core)
+ament_target_dependencies(obstacle_detector_node rclcpp)
 
 install(TARGETS obstacle_detector_node
   DESTINATION lib/${PROJECT_NAME}
@@ -74,6 +79,12 @@ install(DIRECTORY
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   find_package(ament_lint_auto REQUIRED)
+
+  # Node-level: covers the publish gating inside scanCallback, which the class-level tests
+  # cannot reach.
+  ament_add_gtest(test_obstacle_detector_node test/test_obstacle_detector_node.cpp TIMEOUT 120)
+  target_link_libraries(test_obstacle_detector_node obstacle_detector_core)
+  ament_target_dependencies(test_obstacle_detector_node ${detector_deps})
 
   ament_add_gtest(test_obstacle_tracker
     test/test_obstacle_tracker.cpp

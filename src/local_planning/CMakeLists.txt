@@ -68,6 +68,19 @@ if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
   ament_add_pytest_test(params_match_yaml test/test_params_match_yaml.py)
 
+  # Node-level: covers the subscription callbacks themselves (which arrays/references the node
+  # accepts as authoritative). The algorithm gtests cannot reach that wiring.
+  ament_add_gtest(test_local_planner_node test/test_local_planner_node.cpp TIMEOUT 120)
+  if(TARGET test_local_planner_node)
+    ament_target_dependencies(test_local_planner_node
+      rclcpp
+      std_msgs
+      nav_msgs
+      f110_msgs
+    )
+    target_link_libraries(test_local_planner_node local_planner_core)
+  endif()
+
   ament_add_gtest(test_raceline_spline test/test_raceline_spline.cpp)
   if(TARGET test_raceline_spline)
     ament_target_dependencies(test_raceline_spline

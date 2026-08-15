@@ -2241,14 +2241,35 @@ void LocalPlannerNode::publishP3CycleDiagnostic(
   const std::string & path_owner,
   bool p0_backup_only)
 {
-  RCLCPP_INFO(
-    get_logger(),
-    "P3_PATH_OWNERSHIP callback=%" PRIu64
-    " mode=%s owner=%s lifecycle=%s p0_backup_only=%s",
-    p3_callback_sequence_, p3RuntimeModeName(p3_mode_),
-    path_owner.c_str(), p3ManeuverLifecycleStateName(lifecycle.state),
-    p0_backup_only ? "true" : "false");
-  if (p3_diagnostics_pub_ == nullptr) {
+  // Ownership is a state, not an event: at the 25 ms planning period an unconditional INFO here
+  // was 40 lines/second of identical text, which buries the transitions that actually matter.
+  // Log every real change, and throttle the steady state so a stuck condition is still visible.
+  const std::string ownership_state = path_owner + "|" +
+    p3ManeuverLifecycleStateName(lifecycle.state) + "|" + (p0_backup_only ? "1" : "0");
+  if (ownership_state != last_logged_ownership_state_) {
+    last_logged_ownership_state_ = ownership_state;
+    RCLCPP_INFO(
+      get_logger(),
+      "P3_PATH_OWNERSHIP callback=%" PRIu64
+      " mode=%s owner=%s lifecycle=%s p0_backup_only=%s",
+      p3_callback_sequence_, p3RuntimeModeName(p3_mode_),
+      path_owner.c_str(), p3ManeuverLifecycleStateName(lifecycle.state),
+      p0_backup_only ? "true" : "false");
+  } else {
+    RCLCPP_INFO_THROTTLE(
+      get_logger(), *get_clock(), 5000,
+      "P3_PATH_OWNERSHIP callback=%" PRIu64
+      " mode=%s owner=%s lifecycle=%s p0_backup_only=%s (unchanged)",
+      p3_callback_sequence_, p3RuntimeModeName(p3_mode_),
+      path_owner.c_str(), p3ManeuverLifecycleStateName(lifecycle.state),
+      p0_backup_only ? "true" : "false");
+  }
+  // Building the cycle JSON walks the whole candidate trace. With no subscriber that work is
+  // discarded inside the publisher, so skip it entirely rather than paying for it every callback.
+  // This mirrors what local_path_pub_ already does below.
+  if (p3_diagnostics_pub_ == nullptr ||
+    p3_diagnostics_pub_->get_subscription_count() == 0U)
+  {
     return;
   }
 

@@ -171,6 +171,7 @@ void ObstacleDetectorNode::declareParameters()
     this->declare_parameter<int>("meas_reference_points", 8);
     this->declare_parameter<double>("meas_variance_scale_max", 10.0);
     this->declare_parameter<double>("meas_motion_timeout", 0.1);
+    this->declare_parameter<double>("tf_fallback_max_age_sec", 0.05);
 
     // Layer-1 filtering
     this->declare_parameter<double>("max_viewing_distance", 13.0);
@@ -302,6 +303,8 @@ void ObstacleDetectorNode::loadParameters()
         std::max(1.0, this->get_parameter("meas_variance_scale_max").as_double());
     meas_motion_timeout_ =
         std::max(0.0, this->get_parameter("meas_motion_timeout").as_double());
+    tf_fallback_max_age_sec_ =
+        this->get_parameter("tf_fallback_max_age_sec").as_double();
 
     max_viewing_distance_ = this->get_parameter("max_viewing_distance").as_double();
     view_behind_distance_ = this->get_parameter("view_behind_distance").as_double();
@@ -628,6 +631,19 @@ bool ObstacleDetectorNode::lookupScanToMap(const std_msgs::msg::Header &scan_hea
     }
     catch (const tf2::TransformException &)
     {
+        // The latest-TF fallback silently answers a question nobody asked: it transforms this
+        // scan's points with a pose from a DIFFERENT time. While the car is moving that skews
+        // every cluster's map-frame AABB and therefore its Frenet footprint, which downstream is
+        // authoritative obstacle geometry. Accept it only while the age is small enough that the
+        // skew stays below detection noise, and never accept it silently.
+        if (!(tf_fallback_max_age_sec_ > 0.0))
+        {
+            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                                 "TF %s->%s unavailable at the scan stamp and the latest-TF "
+                                 "fallback is disabled (tf_fallback_max_age_sec <= 0)",
+                                 map_frame_.c_str(), scan_header.frame_id.c_str());
+            return false;
+        }
         try
         {
             tf = tf_buffer_->lookupTransform(map_frame_, scan_header.frame_id, tf2::TimePointZero);
@@ -639,6 +655,22 @@ bool ObstacleDetectorNode::lookupScanToMap(const std_msgs::msg::Header &scan_hea
                                  scan_header.frame_id.c_str(), e.what());
             return false;
         }
+        const double age = stampToSec(scan_header.stamp) - stampToSec(tf.header.stamp);
+        if (!std::isfinite(age) || std::abs(age) > tf_fallback_max_age_sec_)
+        {
+            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                                 "Rejecting latest-TF fallback for %s->%s: %.3f s from the scan "
+                                 "stamp exceeds tf_fallback_max_age_sec=%.3f; dropping this scan "
+                                 "instead of distorting its obstacle geometry",
+                                 map_frame_.c_str(), scan_header.frame_id.c_str(), age,
+                                 tf_fallback_max_age_sec_);
+            return false;
+        }
+        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                             "TF %s->%s missing at the scan stamp; using the latest transform "
+                             "(%.3f s away, within tf_fallback_max_age_sec=%.3f)",
+                             map_frame_.c_str(), scan_header.frame_id.c_str(), age,
+                             tf_fallback_max_age_sec_);
     }
     tx = tf.transform.translation.x;
     ty = tf.transform.translation.y;
@@ -1640,14 +1672,3 @@ void ObstacleDetectorNode::publishReplayDiagnostics(
 }
 
 }  // namespace obstacle_detector
-
-// ------------------------------------------------------------------------------------------------
-// main
-// ------------------------------------------------------------------------------------------------
-int main(int argc, char **argv)
-{
-    rclcpp::init(argc, argv);
-    rclcpp::spin(std::make_shared<obstacle_detector::ObstacleDetectorNode>());
-    rclcpp::shutdown();
-    return 0;
-}

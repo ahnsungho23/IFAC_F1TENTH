@@ -182,6 +182,9 @@ class ObstacleDetectorNode : public rclcpp::Node
     int meas_reference_points_;
     double meas_variance_scale_max_;
     double meas_motion_timeout_;
+    // Max age accepted from the latest-TF fallback in lookupScanToMap [s]. <=0 disables the
+    // fallback entirely (scan-stamp lookup only).
+    double tf_fallback_max_age_sec_;
     // Layer-1 filtering
     double max_viewing_distance_;
     double view_behind_distance_;

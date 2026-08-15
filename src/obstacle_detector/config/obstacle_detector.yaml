@@ -53,6 +53,15 @@ obstacle_detector:
     meas_reference_points: 8
     meas_variance_scale_max: 10.0
     meas_motion_timeout: 0.1                    # max scan/odom timestamp difference for yaw rate (s)
+    # scan stamp의 TF 조회가 실패하면 최신 TF로 대체하는데, 그건 이 스캔의 점들을 "다른
+    # 시각의 자세"로 변환하는 것이라 주행 중이면 클러스터의 map-frame AABB와 Frenet
+    # footprint가 통째로 어긋납니다. 그 값이 하류에서는 authoritative 장애물 기하입니다.
+    # 대체 TF가 scan stamp에서 이 시간보다 멀면 스캔을 버립니다(왜곡된 기하를 내보내지
+    # 않음). 허용 범위 안이어도 throttle WARN을 남깁니다. 0 이하면 대체 자체를 끄고
+    # scan-stamp 조회만 사용합니다.
+    # 0.05 근거: 10 m/s에서 0.05 s는 0.5 m 편차라 이미 크므로 상한이고, 정상 상황에서는
+    # scan-stamp 조회가 성공하므로 이 경로 자체가 드물게 쓰입니다.
+    tf_fallback_max_age_sec: 0.05
 
     # === LAYER 1 FILTERING (map + track boundary + viewing window) ===
     max_viewing_distance: 13.0                 # only consider obstacles up to this far ahead (m);

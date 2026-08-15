@@ -12,6 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""
+Start the full static-obstacle perception + local planning stack.
+
+Ownership note: local_planner_node itself subscribes to NO occupancy map. The reference map
+server started here exists solely for the obstacle_detector that produces /static_obs, so it is
+gated by the same start_obstacle_detector condition. With start_obstacle_detector:=false this
+launch reduces to local_planner_only.launch.py, which it includes for the planner node itself.
+"""
+
 import os
 
 from ament_index_python.packages import get_package_share_directory
@@ -21,7 +30,6 @@ from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node, SetRemap
-from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
@@ -32,6 +40,7 @@ def generate_launch_description():
         'maps',
         os.environ.get('F1_MAP', 'ifac_track') + '.yaml',
     )
+    local_planner_only_launch = os.path.join(pkg_dir, 'launch', 'local_planner_only.launch.py')
     obstacle_detector_launch = os.path.join(
         get_package_share_directory('obstacle_detector'),
         'launch',
@@ -101,7 +110,7 @@ def generate_launch_description():
         description='CMA-only deterministic event-driven execution',
     )
     p0_avoidance_arg = DeclareLaunchArgument(
-        'p0_avoidance_candidates_enable', default_value='false',
+        'p0_avoidance_candidates_enable', default_value='true',
         description=(
             'P0 quintic 회피 격자 사용 여부. false면 P3(analytic corridor)가 유일한 회피 '
             '플래너가 되고 P3 실패는 곧바로 안전정지로 간다. 안전 계층과 안전정지는 P3의 '
@@ -130,6 +139,7 @@ def generate_launch_description():
             'use_sim_time': LaunchConfiguration('use_sim_time'),
         }],
         remappings=[('/map', LaunchConfiguration('planning_map_topic'))],
+        condition=IfCondition(LaunchConfiguration('start_obstacle_detector')),
     )
     reference_map_lifecycle = Node(
         package='nav2_lifecycle_manager',
@@ -141,6 +151,7 @@ def generate_launch_description():
             'node_names': ['local_planning_map_server'],
             'use_sim_time': LaunchConfiguration('use_sim_time'),
         }],
+        condition=IfCondition(LaunchConfiguration('start_obstacle_detector')),
     )
 
     obstacle_detector = GroupAction(actions=[
@@ -163,32 +174,22 @@ def generate_launch_description():
         ),
     ])
 
-    local_planner_node = Node(
-        package='local_planning',
-        executable='local_planner_node',
-        name='local_planner_node',
-        output='screen',
-        parameters=[
-            LaunchConfiguration('params_file'),
-            {
-                'use_sim_time': LaunchConfiguration('use_sim_time'),
-                'timing_diagnostics_enable': ParameterValue(
-                    LaunchConfiguration('timing_diagnostics_enable'), value_type=bool),
-                'timing_diagnostics_topic': LaunchConfiguration('timing_diagnostics_topic'),
-                'replay_diagnostics_enable': ParameterValue(
-                    LaunchConfiguration('replay_diagnostics_enable'), value_type=bool),
-                'replay_diagnostics_topic': LaunchConfiguration(
-                    'planner_replay_diagnostics_topic'),
-                'lockstep_mode': ParameterValue(
-                    LaunchConfiguration('lockstep_mode'), value_type=bool),
-                'p3_mode': ParameterValue(
-                    LaunchConfiguration('p3_mode'), value_type=str),
-                'p0_avoidance_candidates_enable': ParameterValue(
-                    LaunchConfiguration('p0_avoidance_candidates_enable'),
-                    value_type=bool),
-                'p3_diagnostics_topic': LaunchConfiguration('p3_diagnostics_topic'),
-            },
-        ]
+    local_planner = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(local_planner_only_launch),
+        launch_arguments={
+            'params_file': LaunchConfiguration('params_file'),
+            'use_sim_time': LaunchConfiguration('use_sim_time'),
+            'timing_diagnostics_enable': LaunchConfiguration('timing_diagnostics_enable'),
+            'timing_diagnostics_topic': LaunchConfiguration('timing_diagnostics_topic'),
+            'replay_diagnostics_enable': LaunchConfiguration('replay_diagnostics_enable'),
+            'replay_diagnostics_topic': LaunchConfiguration(
+                'planner_replay_diagnostics_topic'),
+            'lockstep_mode': LaunchConfiguration('lockstep_mode'),
+            'p0_avoidance_candidates_enable': LaunchConfiguration(
+                'p0_avoidance_candidates_enable'),
+            'p3_mode': LaunchConfiguration('p3_mode'),
+            'p3_diagnostics_topic': LaunchConfiguration('p3_diagnostics_topic'),
+        }.items(),
     )
 
     return LaunchDescription([
@@ -211,5 +212,5 @@ def generate_launch_description():
         reference_map_server,
         reference_map_lifecycle,
         obstacle_detector,
-        local_planner_node
+        local_planner,
     ])
