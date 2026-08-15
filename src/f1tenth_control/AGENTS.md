@@ -21,6 +21,9 @@ Package-specific rules for `src/f1tenth_control`.
 - Publish `/cruise_speed_limit` with `std_msgs/msg/Float64`.
 - Publish `/cruise/gap_data` with the existing `f110_msgs/msg/GapData` for diagnostics.
 - A cruise speed limit is a cap only. Steering and path-source selection must remain unchanged.
+- Keep the default fixed-distance `trailing_gap` aligned with the detector's
+  `interference_distance_m`; the detector margin is only a state-retention band, not the control
+  target.
 
 ## Parameters and Launch
 
