@@ -17,6 +17,7 @@
 // at the node level.
 
 #include <chrono>
+#include <cstdlib>
 #include <cmath>
 #include <memory>
 #include <string>
@@ -40,7 +41,15 @@ namespace
 class RclcppEnvironment : public ::testing::Environment
 {
 public:
-    void SetUp() override {rclcpp::init(0, nullptr);}
+    void SetUp() override
+    {
+      // These node-level tests publish on the same well-known topics as the other
+      // package's node test, and colcon runs packages in parallel. Without an isolated
+      // domain they cross-talk (a foreign /global_waypoints made this suite flaky).
+      setenv("ROS_DOMAIN_ID", "92", 1);
+      setenv("ROS_LOCALHOST_ONLY", "1", 1);
+      rclcpp::init(0, nullptr);
+    }
     void TearDown() override {rclcpp::shutdown();}
 };
 
