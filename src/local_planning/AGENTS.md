@@ -93,13 +93,16 @@
   inside or just after a maximum-curvature corner is unavoidable on both sides (the shifted
   line must exceed full lock), and safe-stop there is the correct verdict. Do not "fix" such a
   scenario by raising this limit.
-- For every permitted side, sample `target_d_candidate_count` targets between the minimum
-  obstacle-clearance offset and the maximum track-bound/`maximum_target_offset_m` offset. Generate
-  every target/entry/exit combination before selecting; never return the first valid candidate.
-  Hard-reject candidates with the existing transition, wall, obstacle, slope, curvature, and
-  curvature-rate checks. Rank feasible candidates lexicographically by maximum minimum normalized
-  wall/obstacle/curvature/curvature-rate slack, then minimum speed loss, then minimum global-line
-  deviation. Do not replace this with a weighted sum.
+- Candidates come from the P3 analytic ladder (M0-V1 → M0-V2 → M1) over the side's valid target
+  domain — the minimum obstacle-clearance offset to the maximum track-bound /
+  `maximum_target_offset_m` offset. Rank feasible candidates lexicographically by maximum minimum
+  normalized wall/obstacle/curvature/curvature-rate slack, then minimum speed loss, then minimum
+  global-line deviation. Do not replace this with a weighted sum, and never return the first
+  valid candidate when a full ladder generation is available. NOTE the ranking consequence: P3
+  picks the slack-maximizing plateau, not the minimum-clearance point, so on a wide track the
+  selected `target_d` sits well beyond the clearance minimum. Tests that pin margins must narrow
+  the track so the valid window pins the plateau (see the margin tests in
+  `test/test_raceline_spline.cpp`).
 - Reject a side before spline fitting when even its minimum-clearance target cannot fit the waypoint
   track widths across the expanded obstacle-cluster span. Use the remaining track-bound interval as
   the target sampling range; full sampled-path validation still applies before and after the span.
@@ -108,19 +111,21 @@
   the half width offers targets the footprint check can never accept. When the race-line-speed gate
   does not fit, retry once against the gate the pass would need at `avoidance_minimum_speed_mps`
   before declaring the side blocked — a gap that is merely slower must not read as unreachable.
-  This widens what is considered, never what is accepted; every candidate is still validated at the
-  speed it actually ends up with.
-- Build entry and exit offsets in unwrapped global Frenet `s` with a monotone quintic smoothstep.
-  Keep `d`, `dd/ds`, and `d2d/ds2` continuous at the ego/target/global-line joins, clamp the
-  profile to the ego/target extrema, and convert each selected global waypoint with its own normal.
-  Preserve `s_m` and order. Keep entry and exit parameter families separate. Convert each positive
-  `entry_transition_fraction` and nominal `pre_apex_distances_m[0]` into an effective length with
-  `available * pre_apex_far / detection_lookahead * entry_fraction`, where `available` is
-  ego-to-cluster distance; never clamp multiple entry values to the same ego start. Require
-  `pre_apex_far <= detection_lookahead`. Preserve those configured candidates in order and append
-  exactly one non-tunable candidate with effective length equal to the complete available
-  ego-to-cluster distance. Treat `transition_distance_scales` and
-  `outside_line_transition_scale` as exit-only compatibility parameters. Generate all combinations.
+  ADDITIONALLY (2026-08-15): when the strict gate DOES fit the track but every ladder candidate is
+  rejected by the exact validator, `evaluateP3Shadow` reruns the whole evaluation once with the
+  relaxed (`avoidance_minimum_speed_mps`) gate — domain endpoints AND the corridor's per-station
+  obstacle envelopes both switch to the relaxed inflation, or the corridor re-closes the window the
+  domain opened. The rerun happens only on a failed strict pass, so wide-gap selections and their
+  race speed are unchanged; a recovered result is tagged `+RELAXED_CLEARANCE_GATE` in
+  `selected_source`. Both retries widen what is considered, never what is accepted; every candidate
+  is still validated at the speed it actually ends up with.
+- Build the lateral profile as P3's 5-knot C² quintic Hermite `d(s)` in unwrapped global Frenet
+  `s` (knot offsets `{ego.d, d_target, d_mid, d_target, 0}`, harmonic-mean knot-derivative rule),
+  keep `d`, `dd/ds`, and `d2d/ds2` continuous at the ego/target/global-line joins, and convert
+  each selected global waypoint with its own normal. Preserve `s_m` and order. Entry/exit station
+  lengths come from `entry_transition_fractions` × `pre_apex_distances_m` and
+  `transition_distance_scales` × `post_apex_distances_m.back()` — these parameters feed P3's
+  station layout and are NOT dead legacy values. Require `pre_apex_far <= detection_lookahead`.
 - Validate lateral slope, recomputed Cartesian curvature, curvature rate, obstacle clearance, and
   yaw-aware rectangular-footprint track-bound clearance before publishing. Keep corner projection
   on the candidate waypoint's local track branch to avoid nearby snake-track branch aliasing.
@@ -178,11 +183,12 @@
   the two nodes onto different track widths.
 - Separate commitment violations into hard physical collisions and soft uncertainty-envelope
   collisions. Both checks use the same unified physical clearance. Test hard collisions against
-  raw detector bounds and replan immediately; test soft collisions against uncertainty Guards.
-  Require the configured consecutive planning
-  cycles before acting on a soft-only collision, clearing the count as soon as the frozen path is
-  valid again. Never debounce track-bound, path-exhaustion, or geometry failures. Log the offending
-  obstacle ID, waypoint `s/d`, obstacle `s/d` bounds, and applied clearance.
+  raw detector bounds (with the retention reserve fraction) and replan immediately; test soft
+  collisions against uncertainty Guards. A soft-only collision NEVER replaces the frozen path
+  (retention band, 2026-08-12): `commitment_soft_violation_confirm_cycles` only paces the
+  diagnostic logging of a persistent soft violation, after which the count resets and the frozen
+  geometry is explicitly kept. Never debounce track-bound, path-exhaustion, or geometry failures.
+  Log the offending obstacle ID, waypoint `s/d`, obstacle `s/d` bounds, and applied clearance.
 - Append a speed-aware ordered global `d=0` tail after the spline merge. After geometric merge,
   publish a full global loop with `ot_line=raceline_global_handoff`. Continue that non-empty
   handoff path until `/state` has entered `STATE_AVOID` for the commitment and subsequently
@@ -202,26 +208,22 @@
   validating the current commitment against obstacles that lie before its merge until a validated
   chained path replaces it. A post-merge controller-tail obstacle must not make the current
   maneuver fail. Hand off to GLOBAL only after no unfinished blocking cluster remains.
-- **`p0_avoidance_candidates_enable=false` makes every P0-only planning call site dead.** That is
-  the operational default, so any logic that asks `planner_.plan()` for an AVOIDANCE answer is
-  answered "safe stop" unconditionally. Two consequences were found in simulation (2026-08-15):
-  (a) safe-stop release condition B reads a `planner_.plan()` result, so its
-  "hard-valid avoidance for the latched obstacle" input was structurally unproducible and a latch
-  became PERMANENT; the TEST_ACTIVE path now runs `probeP3SafeStopEscape()` while the latch holds
-  authority and feeds that candidate to the lifecycle (evaluation only -- the probe never
-  publishes, never touches the P3 lifecycle, and every other release gate is unchanged).
-  (b) `beginChainedManeuverIfNeeded()` and `tryEarlyChainedManeuver()` still ask only
-  `planner_.plan()`, so chaining to the NEXT cluster cannot produce a path in the P3-only
-  configuration -- the car coasts until the next obstacle enters `safe_stop_buffer_m` and then
-  safe-stops at a range where no lateral shift is physically possible. **(b) is NOT fixed.**
-  Before adding any new "can I plan from here?" call, route it through P3, not `planner_.plan()`.
-- **`p0_avoidance_candidates_enable` is controlled by the LAUNCH ARGUMENT, not the YAML.** The
-  launch parameter dict is applied after `params_file`, so the launch default silently overrides
-  `config/local_planning.yaml`. Changing the YAML alone does nothing (verified 2026-08-15: the
-  node still logged `P0 격자=미사용`). Both files now default to `true` and MUST be kept in sync.
-  The same trap applies to every other value the launch file re-declares (`p3_mode`,
-  `lockstep_mode`, the diagnostics toggles): always confirm the node's startup log line rather
-  than trusting the YAML.
+- **`plan()`'s only avoidance candidate generator is P3 (`generateP3Candidates`), 2026-08-15.**
+  The P0 quintic grid (`generateSideCandidates`/`buildCandidate`) and its
+  `p0_avoidance_candidates_enable` toggle were DELETED after on-track testing showed P3 passed
+  everywhere P0 did. Every "can I plan from here?" question — safe-stop release condition B,
+  `beginChainedManeuverIfNeeded()`, `tryEarlyChainedManeuver()`, and the safe-stop escape check
+  (`anyFeasibleCandidateFrom`) — now flows through that single generator, so "an escape exists"
+  and "plan() returns an avoidance" can no longer disagree. Do NOT reintroduce a second candidate
+  generator; the 2026-08-15 permanent safe-stop deadlock was exactly plan()-vs-escape-check
+  divergence. P3 candidates are still re-measured (`measureCandidate`) and exact-validated
+  (`validateCandidate`) by the same safety layer P0 used; P3 trace metrics are never trusted for
+  ranking or audit.
+- **A value the launch file re-declares overrides the YAML silently.** The launch parameter dict
+  is applied after `params_file`, so changing `config/local_planning.yaml` alone does nothing for
+  those keys (`p3_mode`, `lockstep_mode`, the diagnostics toggles; verified 2026-08-15). Always
+  confirm the node's startup log line rather than trusting the YAML, and keep launch defaults in
+  sync with the YAML.
 - Safe-stop release condition B requires the escape to target the latched obstacle ONLY while that
   obstacle is still present in the current `/static_obs` snapshot. Once it is gone (the car
   stopped just past it and it left the FOV) the identity test is a stale bookkeeping token, while
@@ -325,7 +327,7 @@
   Keep the hardcoded `operationalParameters()` in sync with `config/local_planning.yaml`;
   a silently different margin makes the harness answer a question nobody asked.
 - Safe-stop escape verification: `buildSafeStop` must decide the stop point with the **same**
-  candidate generator `plan()` uses (`generateSideCandidates`). If a second copy of that loop is
+  candidate generator `plan()` uses (`generateP3Candidates`). If a second copy of that loop is
   ever introduced, "avoidance is possible from the stop point" and the actual replan will drift
   apart and the trap comes back. Any change here needs the three regression cases in
   `test_raceline_spline.cpp` (`DensifiesShortSafeStopPrefixToMinimumPoints`,

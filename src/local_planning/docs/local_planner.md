@@ -12,12 +12,16 @@
 
 ### P3/M1 runtime mode
 
-- `OFF`: P3 evaluator와 maneuver lifecycle을 우회하고 기존 P0 결과만 발행합니다.
-- `SHADOW`: P0와 같은 ego/장애물/reference snapshot으로 P3/M1 및 exact validator를 실행하지만
-  `/local_planning/p3_shadow` 진단만 발행합니다. `/avoid_waypoints` ownership은 P0입니다.
-- `TEST_ACTIVE`: bounded IFAC integration smoke에서만 hard-valid P3/M1 또는 현재 geometry에 대해
-  재검증된 committed suffix가 `/avoid_waypoints`를 소유할 수 있습니다. 사용할 수 없으면 기존
-  P0가 `P0_BACKUP_ONLY`로 즉시 처리하고 safe-stop 의미도 그대로 유지합니다.
+- `OFF`: P3 M1 maneuver lifecycle을 우회하고 `plan()` 파이프라인 결과만 발행합니다.
+  (2026-08-15부터 `plan()`의 후보 생성기 자체가 P3이므로, OFF는 "P0 후보"가 아니라
+  "lifecycle 없는 P3 후보 + 기존 커밋/안전정지 관리"를 뜻합니다.)
+- `SHADOW`: 같은 ego/장애물/reference snapshot으로 P3/M1 및 exact validator를 실행하지만
+  `/local_planning/p3_shadow` 진단만 발행합니다. `/avoid_waypoints` ownership은 `plan()`
+  파이프라인입니다.
+- `TEST_ACTIVE`: hard-valid P3/M1 또는 현재 geometry에 대해 재검증된 committed suffix가
+  `/avoid_waypoints`를 소유할 수 있습니다. 사용할 수 없으면 `plan()` 파이프라인이
+  `P0_BACKUP_ONLY`(이름은 역사적 유래) 소유자로 즉시 처리하고 safe-stop 의미도 그대로
+  유지합니다.
 
 ### P0/P3 계층 구분 — "P0를 끈다"가 무엇을 뜻하는가 (2026-08-14)
 
@@ -27,25 +31,20 @@ P0(`RacelineSplinePlanner`)는 한 덩어리가 아니라 세 층이고, P3는 �
 |---|---|---|
 | ① 안전 계층 | `expandVisibleObstacles`(추종오차 LUT + `localization_reserve_m`), `validateCandidate`(회전 footprint + `wall_safety_margin_m`), `applyAvoidanceVelocityLimit`(gap 기반 속도 제한), `measureCandidate` | **P3가 직접 호출**. 없으면 P3가 동작하지 않음 |
 | ② 안전정지 | `buildSafeStop`(+정지점 탈출 검증), safe-stop 래치/lifecycle, margin slow pass, last-path brake, emergency hold | **P3에 대응물 없음**. 어느 모드에서나 P0 몫 |
-| ③ 회피 후보 생성 | `generateSideCandidates`/`buildCandidate`, quintic d-offset, target_d 5 × entry 4 × exit 3 × 2측 = 120후보 | P3와 **중복되는 유일한 부분** |
+| ③ 회피 후보 생성 | `generateP3Candidates` — `plan()` 내부에서 P3 analytic ladder를 호출 | **P3 자체** (2026-08-15부터 유일한 생성기) |
 
-따라서 `p0_avoidance_candidates_enable: false`가 끄는 것은 ③뿐입니다. ①②는 계속 삽니다 —
+2026-08-15부터 ③은 P3 하나뿐입니다. 과거의 P0 quintic 격자(target_d 5 × entry 4 × exit 3 ×
+2측 = 120후보 전수 대입)와 `p0_avoidance_candidates_enable` 토글은 삭제됐습니다 — 실차/시뮬
+비교에서 P0가 통과하는 모든 곳을 P3가 통과했고, 생성기가 둘이면 "탈출 가능" 판정과 실제
+재계획이 어긋나는 교착이 생기기 때문입니다(아래 2026-08-15 절 참고). ①②의
 추종오차 LUT·`localization_reserve_m`·`wall_safety_margin_m`·`safe_stop_buffer_m`·탈출 검증
 튜닝은 전부 그대로 유효합니다.
 
-**탐색 방식의 차이가 유일한 실질 차이입니다.** P0는 고정 격자를 전수 대입하므로 격자 밖의
-해를 못 찾습니다. P3는 스테이션별 통과 가능 d 구간을 교집합해 장애물 구간 전체에 걸쳐
+**탐색 방식**: P3는 스테이션별 통과 가능 d 구간을 교집합해 장애물 구간 전체에 걸쳐
 연결된 통로를 먼저 구하고(`connectedConstantRanges`) 그 안으로 해를 닫힌 형태로 풉니다 —
-통로가 존재하면 찾아냅니다. 순위 기준(`minimum_normalized_safety_slack` 사전식)은 동일합니다.
-
-**끄면 잃는 것**: P3의 M0는 구간 **전체**에 걸쳐 연결된 통로를 요구하므로 교집합이 비면
-후보가 0입니다. P0 격자는 그런 경우에도 가끔 해를 찾았습니다. 그래서 노드는 P3가 출력을
-못 낸 콜백을 누적해 3초 throttle WARN으로 보고합니다:
-`P3 출력 없음 → 안전정지(P0 격자 미사용) (누적 n/m 콜백)`. 이 숫자가 크면 되돌리는 것이
-정답입니다.
-
-**⚠️ `p3_mode`가 `OFF`/`SHADOW`면 P0가 실제 주행 담당이므로 이 플래그는 무시되고 강제로
-`true`가 됩니다**(노드가 ERROR 로그를 남깁니다). 그렇지 않으면 차가 모든 장애물에서 정지합니다.
+통로가 존재하면 찾아냅니다. 통로 교집합이 비면 후보가 0이고 곧바로 폴백 사다리(margin slow
+pass → safe stop)로 갑니다. 순위 기준(`minimum_normalized_safety_slack` 사전식)은 P0 시절과
+동일합니다.
 
 P3/M1은 authoritative nonempty `/static_obs` snapshot이 들어오면 즉시 candidate generation을
 수행합니다. P0가 이미 사용하던 `initial_observation_count`,
@@ -589,7 +588,7 @@ margin-pass 커밋은 의도적으로 마진 밴드 안을 지나므로 마진 �
 `safe_stop_escape_check_enable`이 켜져 있으면 정지점을 확정하기 전에 그 지점에서 `v=0`으로
 회피 경로가 생성되는지 확인합니다. 안 되면 **탈출 가능한 가장 늦은 지점**까지 물립니다.
 탈출 가능성은 정지점을 뒤로 물릴수록 단조 증가하므로(진입 거리가 길어짐) 선형 후퇴가 아니라
-이분탐색을 씁니다. 판정에는 `plan()`과 **같은 후보 생성 함수**(`generateSideCandidates`)를
+이분탐색을 씁니다. 판정에는 `plan()`과 **같은 후보 생성 함수**(`generateP3Candidates`)를
 쓰므로 "정지점에서 회피 가능"이라는 판정과 실제 재계획이 어긋날 수 없습니다.
 
 어느 지점에서도 불가능하면 원래 정지점을 유지하고(후퇴가 아무것도 사지 못하므로),
@@ -1076,57 +1075,36 @@ wall timer를 만들지 않고, 동일 header timestamp를 가진 `/static_obs`�
 이 모드는 장애물 GT나 scenario manifest를 구독하지 않습니다. 장애물 입력은 production과
 같이 detector의 `/static_obs`뿐이며 planner parameter와 핵심 경로 생성 알고리즘도 같습니다.
 전체 실행과 hash 검증 방법은 `tools/cmaes_tuning/docs/deterministic_lockstep_mode.md`에 있습니다.
-### P0 격자 비활성이 만든 P0 전용 경로 사각 (2026-08-15 시뮬 발견)
+### plan()의 후보 생성기를 P3로 통일 — P0 전용 경로 사각의 종결 (2026-08-15)
 
-`p0_avoidance_candidates_enable: false`가 운영 기본값이라 `planner_.plan()`은 **절대 회피를
-반환하지 않는다**(`raceline_spline_planner.cpp`의 조기 반환). 그런데 회피 여부를 `plan()`에게
-묻는 코드가 여러 곳 남아 있어, 그 경로들이 통째로 죽어 있었다. 실차 맵+장애물 6개 시뮬에서
-두 건이 드러났다.
+과거에는 `plan()`(P0 quintic 격자)과 P3 evaluator가 **서로 다른 후보 생성기**였고,
+`p0_avoidance_candidates_enable: false` 구성에서 `plan()`이 절대 회피를 반환하지 않아
+`plan()`에게 회피 여부를 묻는 모든 코드가 통째로 죽는 사각이 있었다. 실차 맵+장애물 6개
+시뮬에서 두 건이 실제로 드러났다:
 
-#### (a) 안전정지 영구 교착 — 수정함
+- **(a) 안전정지 영구 교착**: 해제 조건 B("래치된 장애물에 대한 hard-valid 회피")의 입력이
+  `plan()` 결과라 구조적으로 생성 불가 → 조건 A는 전진이 필요하고 전진은 래치가 막아
+  한 번 걸리면 영원히 정지 (시뮬 실측 2분+).
+- **(b) 연쇄 기동 실패**: `beginChainedManeuverIfNeeded()`/`tryEarlyChainedManeuver()`가
+  `plan()`만 물어 다음 클러스터 연쇄 계획이 항상 실패 → 다음 장애물이
+  `safe_stop_buffer_m` 안에 들어와서야 반응, 그 거리에선 회피가 물리적으로 불가능.
 
-안전정지 해제 조건 B("래치된 장애물에 대한 hard-valid 회피가 연속 확인됨")의 입력이
-`planner_.plan()` 결과였다. P0가 꺼져 있으면 이 입력은 **구조적으로 생성 불가**다. 남은
-해제 조건은 A(위험구간 통과)와 C(정지 상태 전방 클리어)뿐인데, A는 전진이 필요하고 전진은
-래치가 막으므로 **한 번 걸리면 영원히 안 풀린다**. 실제로 시뮬에서 차가 2분 넘게 정지했다.
+**해결(2026-08-15)**: P0 격자(`generateSideCandidates`/`buildCandidate`)와 토글을 삭제하고,
+`plan()`의 후보 생성기를 P3(`generateP3Candidates`)로 교체했다. 이제 회피 후보 생성기는
+**하나뿐**이고, `plan()`을 묻는 모든 경로 — 조건 B, 연쇄 기동, 안전정지 탈출 검증
+(`anyFeasibleCandidateFrom`) — 가 같은 생성기를 공유하므로 위 사각 자체가 성립하지 않는다.
+과거의 임시 배선(`probeP3SafeStopEscape()` 탐침)은 불필요해져 함께 제거됐다.
 
-두 가지를 고쳤다.
+조건 B의 "래치 장애물이 현재 스냅샷에 없으면 대상 일치를 요구하지 않는다" 완화는 생성기
+통일과 별개의 교착(장애물이 FOV를 벗어난 뒤 대상 일치가 영원히 불가능)을 막는 것이므로
+그대로 유지한다.
 
-1. **탈출 탐침 `probeP3SafeStopEscape()`**: 래치가 권한을 쥔 동안 스냅샷은 일부러 not-ready라
-   P3가 평가조차 되지 않는다. SHADOW 모드가 이미 같은 이유로 `safe_stop_authority`를 지우고
-   P3를 돌리는데, TEST_ACTIVE에는 그 배선이 없었다. 이제 래치 중에도 P3를 **평가만** 해서
-   해제 조건에 공급한다. 발행하지 않고, P3 lifecycle도 건드리지 않으며, 선택된 경로는 guarded
-   검증에 더해 **현재 raw 기하로 한 번 더** exact 검증한다. 연속 확인 횟수·FSM 선택 가능성 등
-   나머지 게이트는 그대로다.
+P3 후보는 발행 전 P0 시절과 동일한 안전 계층으로 재측정(`measureCandidate`)·exact
+검증(`validateCandidate`)된다. P3 trace의 자체 지표는 순위·감사에 쓰지 않는다.
 
-2. **래치 장애물이 사라진 경우**: 조건 B는 탈출 경로가 *래치된* 장애물을 대상으로 할 것을
-   요구한다. 이는 그 장애물이 아직 보일 때만 의미가 있다. 차가 그 장애물을 막 지나쳐 정지하면
-   장애물은 FOV를 벗어나 사라지고, 그 뒤로는 대상 일치가 영원히 불가능하다(시뮬 실측:
-   `래치 ID=[0] 대상일치=아니오`인 채 정지 유지). 이제 래치 장애물이 현재 스냅샷에 없으면
-   대상 일치를 요구하지 않는다 — 후보는 이미 현재 raw 기하 전체에 대해 검증됐으므로 그쪽이
-   더 강한 증거다.
-
-수정 후 시뮬에서 `Safe-stop released ... after 8 confirmations`로 해제되어 주행을 재개했다.
-
-#### (b) 연쇄 기동이 다음 장애물을 계획하지 못함 — **미수정**
-
-`beginChainedManeuverIfNeeded()`(L1241)와 `tryEarlyChainedManeuver()`(L2863)도 `planner_.plan()`만
-묻는다. 그래서 P3 단독 구성에서는 다음 클러스터로의 연쇄 계획이 **항상 실패**한다. 로그:
-
-```
-Next static maneuver is stabilized but not yet feasible from ego (ego_s=11.295 ...):
-  left: P0 avoidance candidates disabled (avoidance_candidates_enable=false);
-  right: P0 avoidance candidates disabled (avoidance_candidates_enable=false)
-```
-
-결과적으로 차는 다음 장애물을 향해 계획 없이 접근하다가, 그 장애물이 `safe_stop_buffer_m`
-안에 들어온 뒤에야 반응한다. 그 거리에서는 회피가 **물리적으로 불가능**하다 — 시뮬 사례에서
-자차 s=15.12, 장애물 s=16.30(패딩 후 진입 가용 0.76 m)에 0.72 m 횡이동이 필요해
-`maximum_lateral_slope`(0.8)와 full-lock 곡률을 동시에 초과했다. 안전정지 자체는 그 시점에서는
-올바른 판정이지만, 애초에 그 상황에 도달한 것이 문제다.
-
-⚠️ **이 두 지점을 P3로 라우팅하는 것이 남은 최우선 작업이다.** 그 전까지 P3 단독 구성은
-연속 장애물 구간에서 신뢰할 수 없다.
+**순위 의미 변화 주의**: P0 격자는 최소 clearance 지점 후보를 포함했지만, P3는 유효 창
+안에서 safety-slack 최대 지점을 고른다. 넓은 트랙에서는 선택된 `target_d`가 최소 clearance
+보다 훨씬 클 수 있다(성능·안전 트레이드오프는 순위 규칙이 동일하므로 변화 없음).
 
 ### P3 콜백 비용 정리 (2026-08-15)
 
