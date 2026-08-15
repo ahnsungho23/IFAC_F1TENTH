@@ -747,30 +747,7 @@ void ParticleFilter::motion_model(Eigen::MatrixXd &proposal_dist, const MotionCo
         // In high-speed curves, reduce noise to prevent particle divergence
         curve_factor = std::max(0.4, 1.0 - (speed * angular_speed / 10.0));
     }
-    // 🔴 2026-08-14: 이동량 비례 노이즈. 이전에는 noise_factor의 하한이 1.0이라 차가 완전히
-    // 서 있어도 매 사이클 노이즈가 100% 주입됐다. 40 Hz에서 정지 1초당 확산 폭이
-    // 위치 0.10*sqrt(40)=0.63 m, 각도 0.20 rad*sqrt(40)=72°였고, 이 트랙은 좌우 대칭 복도라
-    // 뒤집힌 가설도 스캔이 비슷하게 맞는다. 그래서 입자 일부가 반대 방향에 붙고 지배 모드가
-    // 바뀌는 순간 추정 포즈가 통째로 점프했다.
-    //   실측(run_0814_220956): 휠속 0.00·스캔 변화 0.004~0.005 m인데 포즈가
-    //   t=37.79 803 cm/167.6°, 41.26 137 cm, 43.84 214 cm, 46.46 207 cm, 48.51 108 cm 점프.
-    //   스캔이 그대로인데 포즈만 튀므로 센서·맵 문제가 아니다(맵은 MCL이 쓰는 파일과
-    //   동일 md5로 대조했고, 스캔이 맞는 포즈가 국소 탐색에서 잔차 0.05 m로 존재했다).
-    //
-    // 표준 오도메트리 모션 모델은 "움직인 만큼만" 불확실성을 더한다. 그 성질을 복원한다:
-    // 실제 이동량이 0에 수렴하면 확산도 0에 수렴하고, 정지 중 포즈는 스캔 우도만으로
-    // 고정된다. 기준값 0.02 m / 0.02 rad는 한 사이클(25 ms) 동안 사실상 정지로 볼 수 있는
-    // 크기다 — 0.02 m/25 ms = 0.8 m/s, 0.02 rad/25 ms = 0.8 rad/s.
-    // ⚠️ 하한 kStationaryNoiseFloor를 남긴다. 완전히 0으로 만들면 정지 중 입자 다양성이
-    //    소멸해 재수렴 능력을 잃는다(정지 중 누가 차를 옮기면 영영 못 따라간다).
-    constexpr double kMotionScaleReferenceM = 0.02;
-    constexpr double kMotionScaleReferenceRad = 0.02;
-    constexpr double kStationaryNoiseFloor = 0.05;
-    const double motion_scale = std::clamp(
-        std::abs(linear_displacement) / kMotionScaleReferenceM +
-        std::abs(delta_theta) / kMotionScaleReferenceRad,
-        kStationaryNoiseFloor, 1.0);
-    const double noise_factor = std::min(speed_factor * curve_factor, 2.0) * motion_scale;
+    const double noise_factor = std::min(speed_factor * curve_factor, 2.0);
 
     // Apply bicycle model kinematics
     for (int i = 0; i < MAX_PARTICLES; ++i)
