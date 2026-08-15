@@ -123,9 +123,6 @@ struct RacelineSplineParameters
   double minimum_target_offset_m{0.20};
   double maximum_target_offset_m{1.50};
   int target_d_candidate_count{5};
-  // Deprecated runtime-configuration compatibility value. Multi-candidate ranking uses its
-  // normalized safety-slack tolerance and does not use a weighted left/right score.
-  double side_tie_epsilon_m{0.02};
   double maximum_lateral_slope{0.65};
   double maximum_curvature_radpm{3.20};
   double maximum_curvature_rate_radpm2{20.0};
@@ -133,20 +130,6 @@ struct RacelineSplineParameters
   double safe_stop_buffer_m{0.40};
   double safe_stop_deceleration_mps2{2.5};
   int minimum_path_points{8};
-
-  // P0 회피 후보 생성(quintic 격자) 사용 여부. false면 plan()이 후보를 하나도 만들지 않고
-  // 곧바로 기존 폴백 사다리(margin slow pass -> safe stop)로 내려간다.
-  //
-  // 왜 있는가: P3(analytic corridor)가 주 플래너가 되면 P0 격자는 백업으로만 남는데,
-  // 회피 플래너가 둘이면 튜닝 대상과 디버깅 표면이 두 배가 된다. 이 플래그로 P0 격자만
-  // 끄면 P3 실패가 곧바로 안전정지로 이어져 동작이 하나로 정리된다.
-  //
-  // ⚠️ 이건 "P0를 없앤다"가 아니다. expandVisibleObstacles / validateCandidate /
-  //    applyAvoidanceVelocityLimit / measureCandidate(=안전 계층)와 buildSafeStop(=안전정지)은
-  //    P3가 딛고 서 있는 토대라 항상 살아 있다. 끄는 것은 회피 후보 생성 하나뿐이다.
-  // ⚠️ P3가 비활성(p3_mode=OFF)이거나 SHADOW(=P0가 실제 주행 담당)일 때 이 값을 false로
-  //    두면 차가 영영 회피하지 않는다. 노드가 그 조합을 강제로 true로 되돌린다.
-  bool avoidance_candidates_enable{true};
 
   // 안전정지 정지점 탈출 검증. safe_stop_buffer_m은 손으로 맞춘 상수라, 기하에 따라
   // "정지는 했는데 그 자리에서 회피 곡선을 만들 진입 거리가 없는" 영구 교착이 생긴다
@@ -424,6 +407,8 @@ private:
   bool outsideIsLeft(
     const EgoFrenetState & ego,
     const std::vector<ExpandedObstacle> & cluster) const;
+  // relaxed_clearance_gate=true는 strict 게이트의 전 후보가 exact validator에서 기각된 뒤의
+  // 2차 시도 전용: 최소 clearance target을 avoidance_minimum_speed_mps 기준 게이트로 낮춘다.
   bool computeSideTargetRange(
     const EgoFrenetState & ego,
     const std::vector<ExpandedObstacle> & cluster,
@@ -432,7 +417,8 @@ private:
     double & cluster_end,
     double & minimum_clearance_target_d,
     double & maximum_track_target_d,
-    std::string & reason) const;
+    std::string & reason,
+    bool relaxed_clearance_gate = false) const;
   bool targetFitsTrackBounds(
     const EgoFrenetState & ego,
     double cluster_start,
@@ -441,16 +427,6 @@ private:
     double target_d,
     std::string & reason,
     double * min_headroom = nullptr) const;
-  Candidate buildCandidate(
-    const EgoFrenetState & ego,
-    const std::vector<ExpandedObstacle> & visible,
-    bool go_left,
-    double entry_transition_scale,
-    double exit_transition_scale,
-    bool outside_is_left,
-    double cluster_start,
-    double cluster_end,
-    double target_d) const;
   void measureCandidate(
     const EgoFrenetState & ego,
     const std::vector<ExpandedObstacle> & visible,
@@ -458,23 +434,28 @@ private:
   FootprintTrackBoundSample measureFootprintTrackBound(
     const f110_msgs::msg::Wpnt & waypoint,
     std::size_t waypoint_index) const;
-  // plan()의 한쪽 방향 후보 생성. plan()과 안전정지 탈출 검증이 **같은 코드**로 후보를
-  // 만들어야 "정지점에서 회피 가능"이라는 판정이 실제 재계획과 일치한다. 두 벌로 나뉘면
-  // 조용히 어긋난다. 반환값은 이번 호출에서 생성된 feasible 후보 수.
+  // 이 패키지의 유일한 회피 후보 생성기 — P0 quintic 격자는 2026-08-15에 제거됐다
+  // (실차 시험에서 P0가 통과 가능한 모든 곳을 P3도 통과함이 확인됨). P3(analytic
+  // corridor)가 이 상태에서 만들어 낸 후보들을 Candidate로 변환해 append한다. plan()과
+  // 안전정지 탈출 검증이 **같은 코드**로 후보를 만들어야 "정지점에서 회피 가능"이라는
+  // 판정이 실제 재계획과 일치한다. 두 벌로 나뉘면 조용히 어긋난다. 안전 계층
+  // (expandVisibleObstacles / measureCandidate / validateCandidate)과 안전정지 사다리는
+  // 그대로이며, 여기서 만든 후보도 동일한 measureCandidate로 재측정한다.
+  // 반환값은 이번 호출에서 생성된 feasible 후보 수.
   // stop_on_first_feasible=true면 첫 통과 후보에서 즉시 멈춘다(탈출 가능성만 물을 때).
-  std::size_t generateSideCandidates(
+  std::size_t generateP3Candidates(
     const EgoFrenetState & ego,
+    const std::vector<f110_msgs::msg::Obstacle> & obstacles,
     const std::vector<ExpandedObstacle> & visible,
-    const std::vector<ExpandedObstacle> & cluster,
-    bool go_left,
-    bool outside_is_left,
+    const std::optional<bool> & preferred_left,
+    bool allow_side_switch,
     bool stop_on_first_feasible,
     std::vector<Candidate> & candidates,
-    std::string & side_reason,
-    std::size_t & generated_count) const;
+    std::string & reason) const;
   // 주어진 자차 상태에서 회피 경로가 하나라도 생성되는가. 경로는 만들지 않고 가능성만 본다.
   bool anyFeasibleCandidateFrom(
     const EgoFrenetState & ego,
+    const std::vector<f110_msgs::msg::Obstacle> & obstacles,
     const std::vector<ExpandedObstacle> & visible,
     const std::vector<ExpandedObstacle> & cluster) const;
   // 경로 점 수가 minimum_path_points에 못 미치면 최장 구간을 반복 이등분해 채운다.
@@ -509,7 +490,8 @@ private:
     double obstacle_reserve_scale = 1.0) const;
   P3ShadowPlanningContext buildP3ShadowPlanningContext(
     const EgoFrenetState & ego,
-    const std::vector<f110_msgs::msg::Obstacle> & obstacles) const;
+    const std::vector<f110_msgs::msg::Obstacle> & obstacles,
+    bool relaxed_clearance_gate = false) const;
   void finalizeP3ShadowPath(
     f110_msgs::msg::WpntArray & path,
     const EgoFrenetState & ego,

@@ -128,11 +128,14 @@ local_planner_node:
     # 횡여유 안에 LUT 예약이 들어갈 때까지만 감속합니다. 장애물 s 구간을 지나지 않는 waypoint는
     # 감속하지 않으므로 Q1/Q3(장애물 없음)와 넓은 간격의 회피는 속도 손실이 없습니다.
     # 이 하한 아래로는 기어가지 않고 candidate를 infeasible로 두어 safe-stop이 판단하게 합니다.
-    # 2.0인 이유: 규정 최소 간격(자유 폭 0.5 m)에서 통과에 필요한 예약이 0.10882 m인데,
-    # 2.5 m/s의 직선 예약은 0.11833 m로 9.5 mm 부족합니다. 2.0 m/s 예약은 0.10667 m로
-    # 안전계수 1.25를 유지한 채 들어갑니다. 이 하한은 좁은 간격을 실제로 지나는 waypoint에만
-    # 걸리므로 랩타임 영향은 해당 구간에 국한됩니다.
-    avoidance_minimum_speed_mps: 2.0
+    # 1.0인 이유 (2026-08-15, 종전 2.0): localization_reserve 0.06→0.12 인상 이후 LUT가
+    # 1.5 m/s 이상에서 사실상 평평(직선 0.325~0.33)해져, 2.0 바닥으로는 tube가 0.447 아래로
+    # 내려가지 못해 우측 여유 0.945 m인 map s=16.5 갭이 "어떤 속도로도 통과 불가"가 됐다
+    # (필요 폭 ≈0.95, run11에서 차가 장애물 면에서 5분 정지 실측). 1.0 m/s의 보간 예약은
+    # 0.283+0.12=0.403으로 필요 폭 ≈0.86이 되어 통과 가능하다. 이 하한은 strict 게이트가
+    # 전멸했을 때의 2차(relaxed) 시도와 gap 기반 속도 역산에만 쓰이므로, 넓은 갭의 속도는
+    # 변하지 않는다. 저속 LUT 행(v=0: 0.20)은 실측 보강 대상 — AGENTS.md 참고.
+    avoidance_minimum_speed_mps: 1.0
     # margin-only 클러스터(원본 상자 + 물리 클리어런스 0.158 m가 d=0에 닿지 않음, 예:
     # 헤어핀 라인 밖 장애물)는 라인 자체가 물리적으로 주행 가능하므로 회피 실패 시
     # 정지/zero-hold 대신 이 속도 상한으로 라인을 그대로 통과합니다. 0이면 비활성
@@ -237,10 +240,6 @@ local_planner_node:
     maximum_target_offset_m: 1.50
     # obstacle-clearance 최소 target과 track-bound 최대 target 사이의 균등 표본 수입니다.
     target_d_candidate_count: 5
-    # 이전 단일 후보 score 방식과의 설정 호환용입니다. 새 max-min safety-slack 순위에는
-    # 가중치나 좌우 score epsilon을 적용하지 않습니다.
-    side_tie_epsilon_m: 0.02
-
     # 이동된 글로벌 점의 기하학적 주행 가능성 검사입니다.
     maximum_lateral_slope: 0.8
     # f1tenth_control의 ±0.41 rad 조향 한계와 wheelbase 0.3302 m에 대응합니다.
@@ -373,21 +372,12 @@ local_planner_node:
     # an exact-hard-valid P3/M1 path or current-hard-valid committed suffix; the unchanged P0 path
     # remains BACKUP_ONLY.
     p3_mode: "TEST_ACTIVE"
-    # 🔴 false = 회피 플래너를 P3 하나로 정리 (2026-08-14 결정).
-    # P0의 quintic 격자(target_d 5 × entry 4 × exit 3 × 2측 = 120후보)를 만들지 않고,
-    # P3가 출력을 못 내면 곧바로 기존 폴백 사다리(margin slow pass → safe stop)로 간다.
-    #
-    # ⚠️ "P0를 없앤다"가 아니다. P3는 P0의 안전 계층을 직접 호출한다:
+    # 회피 후보 생성기는 P3(analytic corridor) 하나다 (2026-08-15, P0 quintic 격자 삭제).
+    # plan()과 안전정지 탈출 검증이 같은 P3 생성기를 쓰고, P3가 출력을 못 내면 곧바로
+    # 기존 폴백 사다리(margin slow pass → safe stop)로 간다.
+    # P3는 P0 시절의 안전 계층을 그대로 직접 호출한다:
     #    expandVisibleObstacles(추종오차 LUT + localization_reserve),
     #    validateCandidate(회전 footprint + wall_safety_margin),
     #    applyAvoidanceVelocityLimit(gap 기반 속도 제한), measureCandidate.
-    #    안전정지(buildSafeStop + 탈출 검증)도 어느 모드에서나 P0 몫이다.
-    #    끄는 것은 회피 후보 생성 하나뿐이며, 위 값들의 튜닝은 전부 그대로 살아 있다.
-    #
-    # 잃는 것: P3의 M0는 장애물 구간 전체에 걸쳐 연결된 통로(connectedConstantRanges)를
-    # 요구하므로 그 교집합이 비면 후보가 0이다. P0 격자는 그런 경우에도 가끔 해를 찾았다.
-    # 그 백업이 사라지므로, P3 실패 콜백 수를 노드가 3초 throttle WARN으로 누적 보고한다
-    # ("P3 출력 없음 → 안전정지(P0 격자 미사용) (누적 n/m 콜백)").
-    # 그 숫자가 크면 이 값을 true로 되돌리는 것이 정답이다.
-    p0_avoidance_candidates_enable: true
+    #    안전정지(buildSafeStop + 탈출 검증)도 그대로다. 위 튜닝 값은 전부 살아 있다.
     p3_diagnostics_topic: "/local_planning/p3_shadow"

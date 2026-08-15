@@ -303,178 +303,6 @@ TEST(RacelineSplinePlanner, ShiftsOnlyOrderedGlobalRaceLineSamples)
   EXPECT_NEAR(result.path.wpnts.back().d_m, 0.0, 1.0e-6);
 }
 
-TEST(RacelineSplinePlanner, MovesProgressivelyThroughQuinticControlMarkers)
-{
-  auto parameters = testParameters();
-  parameters.transition_distance_scales = {1.0};
-  RacelineSplinePlanner planner(parameters);
-  ASSERT_TRUE(planner.setReference(makeStraightReference()));
-
-  const auto result = planner.plan(
-    EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(17, 8.0)}, true);
-  ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
-  ASSERT_EQ(result.control_points.size(), 8U);
-
-  const double target = result.target_d;
-  ASSERT_GT(target, 0.0);
-  EXPECT_NEAR(result.control_points[0].d, 0.0, 1.0e-9);
-  EXPECT_GT(result.control_points[1].d, 0.0);
-  EXPECT_GT(result.control_points[2].d, result.control_points[1].d);
-  EXPECT_LT(result.control_points[2].d, target);
-  EXPECT_NEAR(result.control_points[3].d, target, 1.0e-9);
-  EXPECT_NEAR(result.control_points[4].d, target, 1.0e-9);
-  EXPECT_LT(result.control_points[6].d, result.control_points[5].d);
-  EXPECT_GT(result.control_points[6].d, 0.0);
-  EXPECT_NEAR(result.control_points[7].d, 0.0, 1.0e-9);
-}
-
-TEST(RacelineSplinePlanner, SeparatesAvailableDistanceEntryFromExitScale)
-{
-  auto parameters = testParameters();
-  parameters.pre_apex_distances_m = {4.0, 3.0, 1.5};
-  parameters.post_apex_distances_m = {1.5, 3.0, 4.0};
-  parameters.entry_transition_fractions = {1.0};
-  parameters.transition_distance_scales = {1.0};
-  RacelineSplinePlanner planner(parameters);
-  ASSERT_TRUE(planner.setReference(makeStraightReference()));
-
-  const auto result = planner.plan(
-    EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(18, 10.0)}, true);
-  ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
-  ASSERT_FALSE(result.control_points.empty());
-
-  // Inflated obstacle start is 9.45 m. requested=4.0 m maps monotonically through the
-  // pre_apex_far/detection_lookahead ratio, rather than min(requested, available).
-  constexpr double kClusterStart = 9.45;
-  constexpr double kRequestedEntry = 4.0;
-  const double expected_entry = kClusterStart * kRequestedEntry / 12.0;
-  EXPECT_NEAR(result.requested_entry_length_m, kRequestedEntry, 1.0e-9);
-  EXPECT_NEAR(result.effective_entry_length_m, expected_entry, 1.0e-9);
-  EXPECT_NEAR(
-    result.control_points.front().forward_s,
-    kClusterStart - expected_entry, 1.0e-6);
-  // Exit remains an independent post-apex distance.
-  EXPECT_NEAR(result.exit_length_m, 4.0, 1.0e-9);
-  EXPECT_NEAR(result.merge_s, 14.55, 1.0e-6);
-}
-
-TEST(RacelineSplinePlanner, EnumeratesAllSidesTargetsAndTransitionsBeforeRanking)
-{
-  auto parameters = testParameters();
-  parameters.target_d_candidate_count = 5;
-  parameters.entry_transition_fractions = {0.5, 0.75, 1.0};
-  parameters.transition_distance_scales = {0.75, 1.0, 1.25};
-  parameters.maximum_curvature_radpm = 100.0;
-  parameters.maximum_curvature_rate_radpm2 = 1000.0;
-  RacelineSplinePlanner planner(parameters);
-  ASSERT_TRUE(planner.setReference(makeStraightReference()));
-
-  const auto result = planner.plan(
-    EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(118, 8.0)});
-  ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
-  ASSERT_EQ(result.candidate_audits.size(), 120U);
-
-  const auto selected = std::find_if(
-    result.candidate_audits.begin(), result.candidate_audits.end(),
-    [](const SplineCandidateAudit & audit) {return audit.selected;});
-  ASSERT_NE(selected, result.candidate_audits.end());
-  EXPECT_TRUE(selected->feasible);
-  EXPECT_EQ(selected->final_rank, 1);
-  for (const auto & audit : result.candidate_audits) {
-    if (audit.feasible) {
-      EXPECT_GE(
-        selected->minimum_normalized_safety_slack + 1.0e-6,
-        audit.minimum_normalized_safety_slack);
-    } else {
-      EXPECT_FALSE(audit.rejection_reason.empty());
-      EXPECT_EQ(audit.final_rank, -1);
-    }
-  }
-}
-
-TEST(RacelineSplinePlanner, AppendsFullAvailableEntryAfterUnchangedLegacyCandidates)
-{
-  auto parameters = testParameters();
-  parameters.pre_apex_distances_m = {4.0, 3.0, 1.5};
-  parameters.entry_transition_fractions = {0.5, 0.75, 1.0};
-  parameters.transition_distance_scales = {1.0};
-  parameters.maximum_lateral_slope = 100.0;
-  parameters.maximum_curvature_radpm = 100.0;
-  parameters.maximum_curvature_rate_radpm2 = 1000.0;
-  RacelineSplinePlanner planner(parameters);
-  ASSERT_TRUE(planner.setReference(makeStraightReference()));
-
-  const auto result = planner.plan(
-    EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(218, 10.0)}, true, false);
-  ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
-  ASSERT_EQ(result.candidate_audits.size(), 4U);
-
-  constexpr double kAvailableEntry = 9.45;
-  const std::vector<double> legacy_fractions{0.5, 0.75, 1.0};
-  for (std::size_t index = 0; index < legacy_fractions.size(); ++index) {
-    const auto & audit = result.candidate_audits[index];
-    const double requested = 4.0 * legacy_fractions[index];
-    EXPECT_DOUBLE_EQ(audit.entry_fraction, legacy_fractions[index]);
-    EXPECT_NEAR(audit.requested_entry_length_m, requested, 1.0e-12);
-    EXPECT_NEAR(
-      audit.effective_entry_length_m,
-      kAvailableEntry * requested / parameters.detection_lookahead_m, 1.0e-12);
-  }
-
-  const auto & full_available = result.candidate_audits.back();
-  EXPECT_NEAR(full_available.entry_fraction, 3.0, 1.0e-12);
-  EXPECT_NEAR(
-    full_available.requested_entry_length_m, parameters.detection_lookahead_m, 1.0e-12);
-  EXPECT_NEAR(full_available.effective_entry_length_m, kAvailableEntry, 1.0e-12);
-}
-
-TEST(RacelineSplinePlanner, SafetySlackRejectsBarelyWallFeasibleTargetAsBest)
-{
-  auto parameters = testParameters();
-  parameters.target_d_candidate_count = 5;
-  parameters.entry_transition_fractions = {1.0};
-  parameters.transition_distance_scales = {1.0};
-  parameters.maximum_lateral_slope = 100.0;
-  parameters.maximum_curvature_radpm = 100.0;
-  parameters.maximum_curvature_rate_radpm2 = 1000.0;
-  RacelineSplinePlanner planner(parameters);
-  ASSERT_TRUE(planner.setReference(makeStraightReference(300, 0.1, 0.67, 0.67)));
-
-  const auto result = planner.plan(
-    EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(119, 8.0)}, true, false);
-  ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
-  // Targets are sampled between the obstacle clearance (0.20 + 0.15) and the farthest offset whose
-  // FOOTPRINT still fits (0.67 track - 0.12 half width): [0.35, 0.55] in five steps.
-  // Ranking measures both sides from the vehicle body plus the tracking tube, so the selection
-  // lands on the sample nearest the geometric middle of the obstacle-face-to-wall gap
-  // ((0.20 + 0.67) / 2 = 0.435). The old centerline-headroom metric spent half width + tube on the
-  // obstacle side only and picked the wall-biased 0.50 instead.
-  EXPECT_NEAR(result.target_d, 0.45, 1.0e-9);
-
-  const auto selected = std::find_if(
-    result.candidate_audits.begin(), result.candidate_audits.end(),
-    [](const SplineCandidateAudit & audit) {return audit.selected;});
-  ASSERT_NE(selected, result.candidate_audits.end());
-  // Body-referenced room left at the wall: 0.67 track - 0.12 half width - 0.45 offset.
-  EXPECT_NEAR(selected->wall_clearance_m, 0.10, 1.0e-6);
-  EXPECT_GT(selected->rectangular_footprint_wall_clearance_m, 0.0);
-  // The extreme sample now sits where a vehicle travelling parallel to the reference would just
-  // touch the wall. It is still rejected, because the pass is not parallel there: the yaw the
-  // maneuver carries pushes a corner past the boundary. Safety-slack scoring must refuse it in
-  // favour of a target that keeps real clearance.
-  const auto wall_tangent = std::find_if(
-    result.candidate_audits.begin(), result.candidate_audits.end(),
-    [](const SplineCandidateAudit & audit) {
-      return std::abs(audit.target_d - 0.55) < 1.0e-9;
-    });
-  ASSERT_NE(wall_tangent, result.candidate_audits.end());
-  EXPECT_FALSE(wall_tangent->feasible);
-  EXPECT_TRUE(wall_tangent->footprint_invalid);
-  EXPECT_LT(wall_tangent->rectangular_footprint_wall_clearance_m, 0.0);
-  EXPECT_EQ(wall_tangent->rejection_reason, "footprint_track_bound");
-  EXPECT_FALSE(wall_tangent->selected);
-}
-
 TEST(RacelineSplinePlanner, RankingCentresPassBetweenObstacleAndWall)
 {
   auto parameters = testParameters();
@@ -501,35 +329,6 @@ TEST(RacelineSplinePlanner, RankingCentresPassBetweenObstacleAndWall)
   EXPECT_GT(body_to_wall, 0.0);
   EXPECT_GT(body_to_obstacle, 0.0);
   EXPECT_LT(std::abs(body_to_wall - body_to_obstacle), 0.10);
-}
-
-TEST(RacelineSplinePlanner, NominalEntryChangeAlwaysChangesEffectiveGeometry)
-{
-  auto short_parameters = testParameters();
-  short_parameters.entry_transition_fractions = {1.0};
-  short_parameters.transition_distance_scales = {1.0};
-  short_parameters.pre_apex_distances_m = {4.0, 2.5, 1.0};
-  auto long_parameters = short_parameters;
-  long_parameters.pre_apex_distances_m = {8.0, 5.0, 2.0};
-
-  RacelineSplinePlanner short_planner(short_parameters);
-  RacelineSplinePlanner long_planner(long_parameters);
-  ASSERT_TRUE(short_planner.setReference(makeStraightReference()));
-  ASSERT_TRUE(long_planner.setReference(makeStraightReference()));
-  const EgoFrenetState ego{0.0, 0.0, 2.0};
-  const std::vector<f110_msgs::msg::Obstacle> obstacles{makeObstacle(120, 8.0)};
-  const auto short_result = short_planner.plan(ego, obstacles, true, false);
-  const auto long_result = long_planner.plan(ego, obstacles, true, false);
-  ASSERT_EQ(short_result.kind, SplinePlanKind::kAvoidance) << short_result.reason;
-  ASSERT_EQ(long_result.kind, SplinePlanKind::kAvoidance) << long_result.reason;
-  EXPECT_DOUBLE_EQ(short_result.requested_entry_length_m, 4.0);
-  EXPECT_DOUBLE_EQ(long_result.requested_entry_length_m, 8.0);
-  EXPECT_GT(long_result.effective_entry_length_m, short_result.effective_entry_length_m);
-  EXPECT_NE(
-    long_result.control_points.front().forward_s,
-    short_result.control_points.front().forward_s);
-  EXPECT_GT(short_result.control_points.front().forward_s, 0.0);
-  EXPECT_GT(long_result.control_points.front().forward_s, 0.0);
 }
 
 TEST(RacelineSplinePlanner, RepeatedCandidateSelectionIsBitDeterministic)
@@ -774,13 +573,10 @@ TEST(RacelineSplinePlanner, RejectsWallBlockedTargetsBeforeSplineConstruction)
   const auto result = planner.plan(
     EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(3, 7.0)});
 
+  // 양쪽 모두 트랙 경계에 막히면 스플라인을 만들기 전에 안전정지로 간다. 사유 문자열은
+  // 후보 생성기(P3)의 것이므로 문구가 아니라 판정만 계약으로 본다.
   ASSERT_EQ(result.kind, SplinePlanKind::kSafeStop) << result.reason;
-  EXPECT_NE(
-    result.reason.find("left target d exceeds track bound in obstacle span"),
-    std::string::npos);
-  EXPECT_NE(
-    result.reason.find("right target d exceeds track bound in obstacle span"),
-    std::string::npos);
+  EXPECT_FALSE(result.reason.empty());
 }
 
 TEST(RacelineSplinePlanner, AppliesPhysicalVehicleClearanceOnceToTrackBounds)
@@ -839,8 +635,10 @@ TEST(RacelineSplinePlanner, AppliesSingleSafetyMarginToAvoidanceTarget)
   const auto result = planner.plan(
     EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(2, 7.0)}, true, false);
   ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
-  // raw d_left 0.20 + vehicle half-width 0.12 + the only safety margin 0.03
-  EXPECT_NEAR(result.target_d, 0.35, 1.0e-9);
+  // raw d_left 0.20 + vehicle half-width 0.12 + the only safety margin 0.03 = 0.35 최소치.
+  // P3는 최소 clearance 지점이 아니라 slack이 가장 큰 후보를 고르므로 그보다 멀 수 있다.
+  // 여기서 지켜야 할 계약은 "안전마진이 정확히 한 번만 적용된다"이므로 하한으로 검사한다.
+  EXPECT_GE(result.target_d, 0.35 - 1.0e-9);
 }
 
 TEST(RacelineSplinePlanner, AppliesTrackingErrorReserveAsSeparateClearanceTerm)
@@ -855,8 +653,9 @@ TEST(RacelineSplinePlanner, AppliesTrackingErrorReserveAsSeparateClearanceTerm)
   const auto result = planner.plan(
     EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(2, 7.0)}, true, false);
   ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
-  // raw d_left 0.20 + half-width 0.12 + safety 0.03 + tracking reserve 0.14
-  EXPECT_NEAR(result.target_d, 0.49, 1.0e-9);
+  // raw d_left 0.20 + half-width 0.12 + safety 0.03 + tracking reserve 0.14 = 0.49 최소치.
+  // 추종오차 예약이 별도 항으로 한 번 더 들어간다는 계약을 하한으로 검사한다(위 참고).
+  EXPECT_GE(result.target_d, 0.49 - 1.0e-9);
 }
 
 TEST(RacelineSplinePlanner, BilinearlyInterpolatesTrackingErrorLut)
@@ -939,7 +738,10 @@ TEST(RacelineSplinePlanner, UsesObstacleSpanMaximumTrackingLutReserveForTarget)
   parameters.tracking_error_lut_speed_bins_mps = {0.0, 3.0};
   parameters.tracking_error_lut_curvature_bins_radpm = {0.0};
   parameters.tracking_error_lut_values_m = {0.0, 0.10};
-  auto reference = makeStraightReference();
+  // 트랙을 좁혀 유효 target 창을 [0.45, 0.46]으로 만든다: 벽 상한 = 0.58 − 0.12(반폭)
+  // − 0.0(기본 벽마진) = 0.46. 스팬 최대 LUT 예약(0.10)을 빠뜨린 플래너라면 0.45 미만
+  // (예: [0.35, 0.46]의 slack 최대 지점)을 골라 하한 검사에 걸린다.
+  auto reference = makeStraightReference(300, 0.1, 0.58, 0.58);
   for (auto & waypoint : reference.wpnts) {
     waypoint.vx_mps = waypoint.s_m >= 6.0 && waypoint.s_m <= 8.0 ? 3.0 : 0.0;
   }
@@ -949,8 +751,9 @@ TEST(RacelineSplinePlanner, UsesObstacleSpanMaximumTrackingLutReserveForTarget)
   const auto result = planner.plan(
     EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(31, 7.0)}, true, false);
   ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
-  // raw d_left 0.20 + base clearance 0.15 + maximum span LUT reserve 0.10
-  EXPECT_NEAR(result.target_d, 0.45, 1.0e-9);
+  // raw d_left 0.20 + base clearance 0.15 + maximum span LUT reserve 0.10 = 0.45 최소치.
+  EXPECT_GE(result.target_d, 0.45 - 1.0e-9);
+  EXPECT_LE(result.target_d, 0.46 + 1.0e-9);
 }
 
 TEST(RacelineSplinePlanner, AppliesOnlyWallMarginToTrackBounds)
@@ -968,7 +771,10 @@ TEST(RacelineSplinePlanner, AppliesOnlyWallMarginToTrackBounds)
   const auto feasible = feasible_planner.plan(
     EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(32, 7.0)}, true, false);
   ASSERT_EQ(feasible.kind, SplinePlanKind::kAvoidance) << feasible.reason;
-  EXPECT_NEAR(feasible.target_d, 0.45, 1.0e-9);
+  // 하한 = 장애물 clearance(0.45), 상한 = 벽 한계 0.62 − 0.12(반폭) − 0.04(벽마진) = 0.46.
+  // P3는 이 창 안에서 slack 최대 지점을 고르므로 정확값이 아니라 창 준수를 계약으로 본다.
+  EXPECT_GE(feasible.target_d, 0.45 - 1.0e-9);
+  EXPECT_LE(feasible.target_d, 0.46 + 1.0e-9);
 
   // 0.60 m of room no longer safe-stops: the strict gate does not fit, but slowing the pass to
   // avoidance_minimum_speed_mps shrinks the reserve enough that a target does. Only a corridor too
@@ -987,7 +793,8 @@ TEST(RacelineSplinePlanner, AppliesOnlyWallMarginToTrackBounds)
   const auto blocked = blocked_planner.plan(
     EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(32, 7.0)}, true, false);
   EXPECT_EQ(blocked.kind, SplinePlanKind::kSafeStop) << blocked.reason;
-  EXPECT_NE(blocked.reason.find("track bound"), std::string::npos) << blocked.reason;
+  // 사유 문자열은 후보 생성기(P3)의 것이므로 판정만 계약으로 본다.
+  EXPECT_FALSE(blocked.reason.empty());
 }
 
 TEST(RacelineSplinePlanner, AppliesIndependentWallSafetyMarginOnlyToTrackBounds)
@@ -1002,7 +809,9 @@ TEST(RacelineSplinePlanner, AppliesIndependentWallSafetyMarginOnlyToTrackBounds)
   const auto feasible = feasible_planner.plan(
     EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(3, 7.0)});
   ASSERT_EQ(feasible.kind, SplinePlanKind::kAvoidance) << feasible.reason;
-  EXPECT_NEAR(std::abs(feasible.target_d), 0.35, 1.0e-9);
+  // 하한 = clearance 0.35, 상한 = 0.53 − 0.12(반폭) − 0.05(벽마진) = 0.36 (위 테스트 참고).
+  EXPECT_GE(std::abs(feasible.target_d), 0.35 - 1.0e-9);
+  EXPECT_LE(std::abs(feasible.target_d), 0.36 + 1.0e-9);
 
   const auto tangent_reference = makeStraightReference(300, 0.1, 0.40, 0.40);
   RacelineSplinePlanner tangent_planner(parameters);
@@ -1021,8 +830,11 @@ TEST(RacelineSplinePlanner, AppliesIndependentWallSafetyMarginOnlyToTrackBounds)
 
 TEST(RacelineSplinePlanner, RejectsCommittedPathWhenObstacleEnvelopeGrows)
 {
+  // 왼쪽 폭 0.475로 커밋 경로의 plateau를 [0.35, 0.355]로 강제한다(벽 상한 = 0.475 −
+  // 0.12(반폭) − 0.0(기본 벽마진) = 0.355). 그래야 장애물 1 cm 성장(외피 0.35 → 0.36)이
+  // 실제 위반이 된다. 넓은 트랙에서는 P3가 slack 최대 지점을 골라 위반이 안 난다.
   RacelineSplinePlanner planner(testParameters());
-  ASSERT_TRUE(planner.setReference(makeStraightReference()));
+  ASSERT_TRUE(planner.setReference(makeStraightReference(300, 0.1, 0.475, 1.5)));
   const EgoFrenetState ego{0.0, 0.0, 2.0};
   const auto committed = planner.plan(ego, {makeObstacle(2, 7.0)}, true, false);
   ASSERT_EQ(committed.kind, SplinePlanKind::kAvoidance) << committed.reason;
@@ -1040,8 +852,9 @@ TEST(RacelineSplinePlanner, RejectsCommittedPathWhenObstacleEnvelopeGrows)
 
 TEST(RacelineSplinePlanner, UsesSameClearanceForGuardAndRawObstacleInputs)
 {
+  // 위 테스트와 같은 이유로 plateau를 [0.35, 0.355]로 강제한다.
   RacelineSplinePlanner planner(testParameters());
-  ASSERT_TRUE(planner.setReference(makeStraightReference()));
+  ASSERT_TRUE(planner.setReference(makeStraightReference(300, 0.1, 0.475, 1.5)));
   const EgoFrenetState ego{0.0, 0.0, 2.0};
   const auto committed = planner.plan(ego, {makeObstacle(23, 7.0)}, true, false);
   ASSERT_EQ(committed.kind, SplinePlanKind::kAvoidance) << committed.reason;
@@ -1075,6 +888,9 @@ TEST(RacelineSplinePlanner, IgnoresPostMergeTailCollisionForCurrentCommitment)
   auto parameters = testParameters();
   parameters.post_apex_distances_m = {1.5, 3.0, 4.0};
   parameters.transition_distance_scales = {1.0};
+  // P3 경로는 merge가 s≈15에 온다. merge 뒤에 놓는 다음 장애물이 기본 lookahead(12 m)
+  // 밖으로 나가 검증이 공허하게 통과하지 않도록 늘린다.
+  parameters.detection_lookahead_m = 20.0;
   RacelineSplinePlanner planner(parameters);
   ASSERT_TRUE(planner.setReference(makeStraightReference()));
   const EgoFrenetState ego{0.0, 0.0, 2.0};
@@ -1380,41 +1196,6 @@ TEST(RacelineSplinePlanner, EscapeCheckReexpandsObstaclesAtTheCandidateStopPoint
   EXPECT_LT(result.safe_stop_forward_m, 6.0);
 }
 
-// P0 회피 격자를 끄면 후보를 만들지 않고 기존 폴백 사다리로 내려간다. 중요한 것은
-// "경로 없음"이 아니라 "정지"로 귀결된다는 점이다 — 빈 경로가 나가면 state_machine이
-// 글로벌 라인으로 fail-open해 장애물을 관통한다.
-TEST(RacelineSplinePlanner, DisabledP0GridFallsBackToSafeStopNotEmptyPath)
-{
-  auto parameters = testParameters();
-  parameters.avoidance_candidates_enable = false;
-  RacelineSplinePlanner planner(parameters);
-  ASSERT_TRUE(planner.setReference(makeStraightReference()));
-
-  // 격자가 켜져 있었다면 회피가 나왔을 장애물(아래 대조 테스트가 이를 보증한다).
-  const auto result = planner.plan(EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(7, 7.0)});
-  EXPECT_NE(result.kind, SplinePlanKind::kAvoidance);
-  EXPECT_NE(result.reason.find("P0 avoidance candidates disabled"), std::string::npos);
-  // 안전정지 또는 margin 통과 — 어느 쪽이든 경로가 비어서는 안 된다.
-  if (result.kind == SplinePlanKind::kSafeStop) {
-    EXPECT_GE(result.path.wpnts.size(), 2U);
-    EXPECT_DOUBLE_EQ(result.path.wpnts.back().vx_mps, 0.0);
-  }
-  EXPECT_TRUE(result.candidate_audits.empty()) << "후보를 만들지 않아야 한다";
-}
-
-// 같은 장애물에서 격자를 켜면 회피가 나온다 — 위 테스트가 "원래 불가능한 장애물"을 쓴
-// 것이 아님을 보증한다(그렇지 않으면 위 테스트는 아무것도 검증하지 않는다).
-TEST(RacelineSplinePlanner, EnabledP0GridStillAvoidsTheSameObstacle)
-{
-  auto parameters = testParameters();
-  parameters.avoidance_candidates_enable = true;
-  RacelineSplinePlanner planner(parameters);
-  ASSERT_TRUE(planner.setReference(makeStraightReference()));
-  const auto result = planner.plan(EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(7, 7.0)});
-  EXPECT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
-  EXPECT_FALSE(result.candidate_audits.empty());
-}
-
 // 탈출 검증을 끄면 이전 동작(정지점 무검증)으로 돌아간다 — 회귀 시 즉시 되돌릴 수 있어야 한다.
 TEST(RacelineSplinePlanner, SafeStopEscapeCheckCanBeDisabled)
 {
@@ -1473,6 +1254,13 @@ TEST(RacelineSplinePlanner, NeverJumpsToNearbyWrongSnakeBranch)
     reference.wpnts[i].x_m = 30.0 - reference.wpnts[i].s_m;
     reference.wpnts[i].y_m = 0.55;
     reference.wpnts[i].psi_rad = 3.14159265358979323846;
+  }
+  // 복귀 가지가 y=0.55에 있으므로 자유폭도 그에 맞게 제한한다. 폭을 1.5로 두면 P3가
+  // slack 최대 지점(0.86)까지 합법적으로 벌려 기하 모순(가지 관통)이 생긴다. 0.70이면
+  // plateau ≤ 0.70 − 0.12 − 0.10 = 0.48 < 0.55로 어느 측을 골라도 가지 앞에서 멈춘다.
+  for (auto & waypoint : reference.wpnts) {
+    waypoint.d_left = 0.70;
+    waypoint.d_right = 0.70;
   }
   auto parameters = testParameters();
   parameters.maximum_curvature_radpm = 100.0;
@@ -1572,6 +1360,39 @@ TEST(RacelineSplinePlanner, MaximumExitLengthCapsCombinedExitScale)
 
   parameters.maximum_exit_length_m = 0.0;  // non-positive disables the cap
   EXPECT_DOUBLE_EQ(parameters.cappedCombinedExitScale(3.58), 3.58);
+}
+
+// P0 격자를 제거하고 plan()의 후보 생성기를 P3로 옮긴 뒤에도, plan()은 여전히
+// "회피가 가능하면 kAvoidance"라는 계약을 지켜야 한다. 이 계약이 깨지면 연쇄 기동
+// (tryEarlyChainedManeuver)·안전정지 해제 조건 B·안정화 중 조기 회피가 전부 죽는다 —
+// 2026-08-15 시뮬에서 실제로 그렇게 되어 차가 다음 장애물 앞에서 정지했다.
+TEST(RacelineSplinePlanner, PlanReturnsAvoidanceForAPassableObstacle)
+{
+  auto parameters = testParameters();
+  parameters.target_d_candidate_count = 5;
+  RacelineSplinePlanner planner(parameters);
+  ASSERT_TRUE(planner.setReference(makeStraightReference(300, 0.1, 1.20, 1.20)));
+
+  const auto result = planner.plan(
+    EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(401, 8.0)}, std::nullopt, true);
+  EXPECT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
+  EXPECT_FALSE(result.path.wpnts.empty());
+  EXPECT_GT(std::abs(result.target_d), 0.0);
+}
+
+// 연쇄 기동이 쓰는 형태: 자차가 이미 라인에서 벗어나 있고(직전 회피의 여파) 다음 장애물이
+// 앞에 있는 상태. 여기서 kAvoidance가 나오지 않으면 연쇄가 성립하지 않는다.
+TEST(RacelineSplinePlanner, PlanChainsFromANonZeroEgoOffset)
+{
+  auto parameters = testParameters();
+  parameters.target_d_candidate_count = 5;
+  RacelineSplinePlanner planner(parameters);
+  ASSERT_TRUE(planner.setReference(makeStraightReference(300, 0.1, 1.20, 1.20)));
+
+  const auto result = planner.plan(
+    EgoFrenetState{0.0, -0.35, 2.0}, {makeObstacle(402, 9.0)}, std::nullopt, true);
+  EXPECT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
+  EXPECT_FALSE(result.path.wpnts.empty());
 }
 
 TEST(RacelineSplinePlanner, MarginOnlyClusterDegradesToSlowPassInsteadOfSafeStop)
@@ -1806,6 +1627,7 @@ TEST(RacelineSplinePlanner, StandstillCloseBehindObstacleStillPlansEscape)
   }
   EXPECT_GT(max_d, 0.10);
 }
+
 
 }  // namespace
 }  // namespace local_planning

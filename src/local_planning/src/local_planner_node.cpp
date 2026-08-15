@@ -343,7 +343,7 @@ void LocalPlannerNode::initializeParameters()
     "avoidance_velocity_limit_lateral_accel_mps2",
     std::vector<double>{7.0, 7.0, 7.0, 7.0, 7.0, 7.0, 6.5, 6.5, 6.5, 6.5});
   planner_parameters_.avoidance_minimum_speed_mps =
-    declare_parameter<double>("avoidance_minimum_speed_mps", 2.0);
+    declare_parameter<double>("avoidance_minimum_speed_mps", 1.0);
   planner_parameters_.margin_pass_speed_cap_mps =
     declare_parameter<double>("margin_pass_speed_cap_mps", 2.0);
   planner_parameters_.approach_feasibility_decel_mps2 =
@@ -386,8 +386,6 @@ void LocalPlannerNode::initializeParameters()
     declare_parameter<double>("maximum_target_offset_m", 1.50);
   planner_parameters_.target_d_candidate_count =
     declare_parameter<int>("target_d_candidate_count", 5);
-  planner_parameters_.side_tie_epsilon_m =
-    declare_parameter<double>("side_tie_epsilon_m", 0.02);
   planner_parameters_.maximum_lateral_slope =
     declare_parameter<double>("maximum_lateral_slope", 0.65);
   planner_parameters_.maximum_curvature_radpm =
@@ -477,27 +475,11 @@ void LocalPlannerNode::initializeParameters()
     throw std::invalid_argument("p3_mode must be OFF, SHADOW, or TEST_ACTIVE");
   }
 
-  // P0 회피 격자 사용 여부. 회피 플래너를 P3 하나로 정리하려면 이것을 false로 둔다.
-  // 끄더라도 안전 계층(expandVisibleObstacles/validateCandidate/applyAvoidanceVelocityLimit)과
-  // 안전정지(buildSafeStop)는 P3의 토대라 그대로 살아 있다 — 끄는 것은 후보 생성뿐이다.
-  planner_parameters_.avoidance_candidates_enable =
-    declare_parameter<bool>("p0_avoidance_candidates_enable", true);
-  if (!planner_parameters_.avoidance_candidates_enable &&
-    p3_mode_ != P3RuntimeMode::kTestActive)
-  {
-    // OFF/SHADOW에서는 P0가 실제 주행을 담당한다. 그 상태로 격자를 끄면 차가 영영
-    // 회피하지 않고 모든 장애물에서 정지한다. 조용히 그렇게 두지 않는다.
-    RCLCPP_ERROR(
-      get_logger(),
-      "p0_avoidance_candidates_enable=false는 p3_mode=TEST_ACTIVE에서만 의미가 있다 "
-      "(현재 %s — 이 모드에서는 P0가 주행 담당). 강제로 true로 되돌린다.",
-      p3RuntimeModeName(p3_mode_));
-    planner_parameters_.avoidance_candidates_enable = true;
-  }
+  // 회피 후보 생성기는 P3 하나뿐이다(2026-08-15에 P0 quintic 격자 제거). P0의 안전 계층과
+  // 안전정지 사다리는 P3의 토대라 그대로 살아 있다.
   RCLCPP_INFO(
-    get_logger(), "회피 플래너: P3=%s, P0 격자=%s",
-    p3RuntimeModeName(p3_mode_),
-    planner_parameters_.avoidance_candidates_enable ? "사용" : "미사용(P3 단독)");
+    get_logger(), "회피 플래너: P3=%s (유일한 후보 생성기, P0 격자 없음)",
+    p3RuntimeModeName(p3_mode_));
 
   const bool control_points_valid =
     planner_parameters_.pre_apex_distances_m.size() == 3U &&
@@ -584,8 +566,6 @@ void LocalPlannerNode::initializeParameters()
     guard_parameters_.minimum_lateral_inflation_m < 0.0 ||
     guard_parameters_.maximum_lateral_inflation_m <
     guard_parameters_.minimum_lateral_inflation_m ||
-    !std::isfinite(planner_parameters_.side_tie_epsilon_m) ||
-    planner_parameters_.side_tie_epsilon_m < 0.0 ||
     planner_parameters_.target_d_candidate_count <= 0 ||
     !std::isfinite(planner_parameters_.detection_lookahead_m) ||
     planner_parameters_.detection_lookahead_m <= 0.0 ||
@@ -695,7 +675,6 @@ void LocalPlannerNode::onGlobalWaypoints(
       ++global_reference_generation_;
       p3_maneuver_lifecycle_.reset();
       resetP3SelectionEnvelope();
-      clearP3CompletionHandoff();
     }
     RCLCPP_ERROR(get_logger(), "Rejected /global_waypoints: %s", error.c_str());
     return;
@@ -708,7 +687,6 @@ void LocalPlannerNode::onGlobalWaypoints(
     ++global_reference_generation_;
     p3_maneuver_lifecycle_.reset();
     resetP3SelectionEnvelope();
-    clearP3CompletionHandoff();
   }
   RCLCPP_INFO(
     get_logger(), "Loaded %zu ordered global race-line waypoints (track %.2f m).",
@@ -761,7 +739,6 @@ void LocalPlannerNode::onObstacles(const f110_msgs::msg::ObstacleArray::SharedPt
     ++p3_source_epoch_;
     p3_maneuver_lifecycle_.reset();
     resetP3SelectionEnvelope();
-    clearP3CompletionHandoff();
     RCLCPP_WARN(
       get_logger(),
       "P3 source epoch advanced after obstacle source-stamp regression: %" PRId64
@@ -855,11 +832,6 @@ void LocalPlannerNode::onState(const f110_msgs::msg::StateMachine::SharedPtr mes
     current_state_ == f110_msgs::msg::StateMachine::STATE_AVOID)
   {
     avoid_state_observed_ = true;
-  }
-  if (p3_completion_handoff_.has_value() &&
-    current_state_ == f110_msgs::msg::StateMachine::STATE_AVOID)
-  {
-    p3_completion_handoff_->avoid_state_observed = true;
   }
 }
 
@@ -1698,7 +1670,7 @@ SafeStopCycleDecision LocalPlannerNode::evaluateSafeStopLifecycle(
   // requiring the escape to target it makes condition B unsatisfiable, and condition A cannot
   // fire either because clearing the danger range by safe_stop_buffer_m needs forward motion the
   // latch is preventing. That combination is a PERMANENT deadlock, reproducible within ~20 s of
-  // driving and independent of p0_avoidance_candidates_enable (sim 2026-08-15: latched on
+  // driving regardless of which candidate generator is active (sim 2026-08-15: latched on
   // obstacle 0, a valid avoidance for obstacle 1 existed every cycle, car stopped indefinitely).
   // The replanned result is hard-valid against the current geometry before it reaches here, so
   // when the latched obstacle is no longer present that validated path is the stronger evidence
@@ -1937,11 +1909,11 @@ P3CallbackSnapshot LocalPlannerNode::captureP3CallbackSnapshot()
     ++p3_source_epoch_;
     p3_maneuver_lifecycle_.reset();
     resetP3SelectionEnvelope();
-    clearP3CompletionHandoff();
+    snapshot.source_stamp_regressed = true;
     RCLCPP_WARN(
       get_logger(),
       "P3 source epoch advanced after Frenet source-stamp regression: %" PRId64
-      " -> %" PRId64,
+      " -> %" PRId64 " — skipping this planning cycle (holding previous output)",
       last_p3_frenet_source_stamp_ns_, snapshot.frenet_source_stamp_ns);
   }
   if (snapshot.has_odometry) {
@@ -2187,71 +2159,6 @@ RacelineSplineResult LocalPlannerNode::makeP3ActiveResult(
   return result;
 }
 
-bool LocalPlannerNode::armP3CompletionHandoff(
-  const P3CallbackSnapshot & snapshot,
-  const P3ManeuverLifecycleDecision & decision)
-{
-  if (!decision.complete || !decision.completion_handoff_available ||
-    decision.completion_handoff_path.wpnts.empty() || snapshot.maneuver.source_stale ||
-    snapshot.maneuver.safe_stop_authority)
-  {
-    clearP3CompletionHandoff();
-    return false;
-  }
-  P3CompletionHandoffRecord record;
-  record.frozen_tail = decision.completion_handoff_path;
-  record.obstacle_ids = decision.obstacle_ids;
-  record.go_left = decision.go_left;
-  record.source_epoch = snapshot.maneuver.source_epoch;
-  record.global_reference_generation = snapshot.maneuver.global_reference_generation;
-  record.original_candidate_identity = decision.original_candidate_identity;
-  record.original_path_digest = decision.original_path_digest;
-  record.tail_path_digest = decision.completion_handoff_path_digest;
-  record.avoid_state_observed = has_state_ &&
-    current_state_ == f110_msgs::msg::StateMachine::STATE_AVOID;
-  p3_completion_handoff_ = std::move(record);
-  return true;
-}
-
-void LocalPlannerNode::clearP3CompletionHandoff()
-{
-  p3_completion_handoff_.reset();
-}
-
-bool LocalPlannerNode::p3CompletionHandoffHasDistinctBlockingCluster(
-  const P3ShadowResult & evaluation) const
-{
-  if (!p3_completion_handoff_.has_value()) {
-    return false;
-  }
-  const std::set<int> completed_ids(
-    p3_completion_handoff_->obstacle_ids.begin(),
-    p3_completion_handoff_->obstacle_ids.end());
-  return std::any_of(
-    evaluation.cluster_obstacle_ids.begin(), evaluation.cluster_obstacle_ids.end(),
-    [&completed_ids](int id) {return completed_ids.count(id) == 0U;});
-}
-
-RacelineSplineResult LocalPlannerNode::makeP3CompletionHandoffResult() const
-{
-  RacelineSplineResult result;
-  if (!p3_completion_handoff_.has_value()) {
-    result.reason = "P3 completion handoff is not active";
-    return result;
-  }
-  result.kind = SplinePlanKind::kAvoidance;
-  result.path = p3_completion_handoff_->frozen_tail;
-  result.go_left = p3_completion_handoff_->go_left;
-  result.obstacle_ids = p3_completion_handoff_->obstacle_ids;
-  result.obstacle_id = result.obstacle_ids.empty() ? -1 : result.obstacle_ids.front();
-  if (!result.path.wpnts.empty()) {
-    result.merge_s = result.path.wpnts.back().s_m;
-    result.target_d = result.path.wpnts.front().d_m;
-  }
-  result.reason = "P3_COMPLETION_HANDOFF_IMMUTABLE_POST_OBSTACLE_TAIL";
-  return result;
-}
-
 void LocalPlannerNode::publishP3CycleDiagnostic(
   const P3CallbackSnapshot & snapshot,
   const P3ShadowResult & evaluation,
@@ -2384,26 +2291,6 @@ void LocalPlannerNode::publishP3CycleDiagnostic(
        << jsonEscape(lifecycle.completion_handoff_path_digest) << "\""
        << ",\"completion_handoff_decision_point_count\":"
        << lifecycle.completion_handoff_path.wpnts.size()
-       << ",\"completion_handoff_active\":"
-       << (p3_completion_handoff_.has_value() ? "true" : "false")
-       << ",\"completion_handoff_original_candidate_identity\":\""
-       << jsonEscape(
-    p3_completion_handoff_.has_value() ?
-    p3_completion_handoff_->original_candidate_identity : "NONE") << "\""
-       << ",\"completion_handoff_original_path_digest\":\""
-       << jsonEscape(
-    p3_completion_handoff_.has_value() ?
-    p3_completion_handoff_->original_path_digest : "NONE") << "\""
-       << ",\"completion_handoff_tail_path_digest\":\""
-       << jsonEscape(
-    p3_completion_handoff_.has_value() ?
-    p3_completion_handoff_->tail_path_digest : "NONE") << "\""
-       << ",\"completion_handoff_point_count\":"
-       << (p3_completion_handoff_.has_value() ?
-  p3_completion_handoff_->frozen_tail.wpnts.size() : 0U)
-       << ",\"completion_handoff_avoid_state_observed\":"
-       << (p3_completion_handoff_.has_value() &&
-  p3_completion_handoff_->avoid_state_observed ? "true" : "false")
        << ",\"production_selected_path_family\":\""
        << jsonEscape(last_selected_path_family_) << "\""
        << ",\"production_selected_path_digest\":\""
@@ -2430,6 +2317,11 @@ void LocalPlannerNode::onPlanningTimer()
   }
 
   const P3CallbackSnapshot snapshot = captureP3CallbackSnapshot();
+  if (snapshot.source_stamp_regressed) {
+    // 역행 샘플로는 계획하지 않는다(스냅샷 구조체 주석 참고). 상태 리셋은 capture에서 이미
+    // 끝났고, 다음 콜백(25 ms 뒤)이 일관된 샘플로 신선하게 재선택한다.
+    return;
+  }
   if (p3_mode_ == P3RuntimeMode::kShadow) {
     current_path_owner_ = "P0";
     runP0PlanningCycle(&snapshot);
@@ -2486,7 +2378,6 @@ void LocalPlannerNode::onPlanningTimer()
   const P3ShadowResult & evaluation = *evaluation_storage;
   if (lifecycle.has_output && lifecycle.suffix_hard_valid) {
     // A fresh/continuing valid maneuver always has authority over an older completed tail.
-    clearP3CompletionHandoff();
     current_path_owner_ = lifecycle.fresh_selected ? "P3_M1" : "P3_COMMITTED_SUFFIX";
     publishResult(makeP3ActiveResult(lifecycle));
     publishP3CycleDiagnostic(
@@ -2509,7 +2400,6 @@ void LocalPlannerNode::onPlanningTimer()
     // re-enters buildNextManeuverInput while ego is still inside its padded span: the chained
     // cluster then starts at ego, the stop prefix is empty, and the safe-stop latch stalls the
     // car inside its own latched danger region (both v2 scenarios, .regression_check2).
-    clearP3CompletionHandoff();
     std::set<int> completed = completed_obstacle_ids_;
     completed.insert(lifecycle.obstacle_ids.begin(), lifecycle.obstacle_ids.end());
     clearCommitment();
@@ -2627,8 +2517,7 @@ void LocalPlannerNode::onPlanningTimer()
     ++p3_backup_fallback_count_;
     RCLCPP_WARN_THROTTLE(
       get_logger(), *get_clock(), 3000,
-      "P3 출력 없음 → %s (누적 %" PRIu64 "/%" PRIu64 " 콜백). 이유: %s",
-      planner_parameters_.avoidance_candidates_enable ? "P0 격자 백업" : "안전정지(P0 격자 미사용)",
+      "P3 출력 없음 → 안전정지 (누적 %" PRIu64 "/%" PRIu64 " 콜백). 이유: %s",
       p3_backup_fallback_count_, p3_callback_sequence_,
       lifecycle.reason.empty() ? evaluation.failure_classification.c_str() :
       lifecycle.reason.c_str());

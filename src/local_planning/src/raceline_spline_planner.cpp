@@ -784,7 +784,8 @@ bool RacelineSplinePlanner::computeSideTargetRange(
   double & cluster_end,
   double & minimum_clearance_target_d,
   double & maximum_track_target_d,
-  std::string & reason) const
+  std::string & reason,
+  bool relaxed_clearance_gate) const
 {
   if (cluster.empty()) {
     reason = "empty obstacle cluster";
@@ -805,6 +806,13 @@ bool RacelineSplinePlanner::computeSideTargetRange(
     relaxed_clearance_target_d = go_left ?
       std::max(relaxed_clearance_target_d, obstacle.relaxed_d_left) :
       std::min(relaxed_clearance_target_d, obstacle.relaxed_d_right);
+  }
+  if (relaxed_clearance_gate) {
+    // 2차 시도 전용(evaluateP3Shadow 참고): strict 게이트의 전 후보가 exact validator에서
+    // 기각된 뒤에만 들어온다. 감속 통과가 필요로 하는 게이트로 최소 target을 낮춰 "느리지만
+    // 가능한" 통로를 고려 대상에 넣는다. 수용 기준(정확 검증·속도 상한 역산)은 그대로이므로
+    // 고려 범위만 넓어질 뿐 수용이 넓어지지는 않는다.
+    minimum_clearance_target_d = relaxed_clearance_target_d;
   }
   if (go_left) {
     minimum_clearance_target_d = std::max(
@@ -893,7 +901,8 @@ bool RacelineSplinePlanner::computeSideTargetRange(
 
 P3ShadowPlanningContext RacelineSplinePlanner::buildP3ShadowPlanningContext(
   const EgoFrenetState & ego,
-  const std::vector<f110_msgs::msg::Obstacle> & obstacles) const
+  const std::vector<f110_msgs::msg::Obstacle> & obstacles,
+  bool relaxed_clearance_gate) const
 {
   P3ShadowPlanningContext context;
   const auto visible = expandVisibleObstacles(ego, obstacles);
@@ -910,15 +919,18 @@ P3ShadowPlanningContext RacelineSplinePlanner::buildP3ShadowPlanningContext(
   }
   context.visible.reserve(visible.size());
   for (const auto & obstacle : visible) {
+    // relaxed 모드에서는 코리도의 스테이션별 통과 가능 구간도 감속 게이트 외피로 계산해야
+    // 한다 — 도메인 끝점만 낮추면 코리도 교집합이 레이스 속도 외피로 다시 닫아 버린다.
     context.visible.push_back({
         obstacle.id, obstacle.start, obstacle.end, obstacle.center,
-        obstacle.d_right, obstacle.d_left});
+        relaxed_clearance_gate ? obstacle.relaxed_d_right : obstacle.d_right,
+        relaxed_clearance_gate ? obstacle.relaxed_d_left : obstacle.d_left});
   }
   const auto fill_side = [&](bool go_left, P3ShadowSideDomain & side) {
       side.go_left = go_left;
       side.valid = computeSideTargetRange(
         ego, cluster, go_left, side.cluster_start, side.cluster_end,
-        side.minimum_target, side.maximum_target, side.reason);
+        side.minimum_target, side.maximum_target, side.reason, relaxed_clearance_gate);
     };
   fill_side(false, context.right);
   fill_side(true, context.left);
@@ -1317,186 +1329,6 @@ RacelineSplineResult RacelineSplinePlanner::buildCommittedPathStop(
   result.merge_s = result.path.wpnts.back().s_m;
   result.reason = "braking on the remaining committed geometry before a collision";
   return result;
-}
-
-RacelineSplinePlanner::Candidate RacelineSplinePlanner::buildCandidate(
-  const EgoFrenetState & ego,
-  const std::vector<ExpandedObstacle> & visible,
-  bool go_left,
-  double entry_transition_scale,
-  double exit_transition_scale,
-  bool outside_is_left,
-  double cluster_start,
-  double cluster_end,
-  double target_d) const
-{
-  Candidate candidate;
-  candidate.go_left = go_left;
-  candidate.target_d = target_d;
-  candidate.entry_transition_scale = entry_transition_scale;
-  candidate.exit_transition_scale = exit_transition_scale;
-
-  // outside_line_transition_scale is exit-only. Entry uses its own available-distance-aware
-  // parameter family so one nominal value can no longer be saturated on entry and sensitive on
-  // exit at the same time.
-  if (go_left == outside_is_left) {
-    exit_transition_scale *= parameters_.outside_line_transition_scale;
-  }
-  // Cap the absolute exit length: the slack ranking otherwise always selects the longest exit
-  // and the avoidance path keeps owning the lap far past the obstacle before merging.
-  exit_transition_scale = parameters_.cappedCombinedExitScale(exit_transition_scale);
-  candidate.effective_entry_transition_scale = entry_transition_scale;
-  candidate.effective_exit_transition_scale = exit_transition_scale;
-
-  std::vector<double> knot_s;
-  std::vector<double> knot_d;
-  auto append_knot = [&](double forward_s, double d) {
-      if (!knot_s.empty() && forward_s <= knot_s.back() + 1.0e-3) {
-        if (forward_s > knot_s.back() - 1.0e-3) {
-          knot_d.back() = d;
-        }
-        return;
-      }
-      knot_s.push_back(forward_s);
-      knot_d.push_back(d);
-    };
-
-  const double nominal_pre_far = parameters_.pre_apex_distances_m[0];
-  const double requested_entry_length = nominal_pre_far * entry_transition_scale;
-  const double post_near = parameters_.post_apex_distances_m[0] * exit_transition_scale;
-  const double post_middle = parameters_.post_apex_distances_m[1] * exit_transition_scale;
-  const double post_far = parameters_.post_apex_distances_m[2] * exit_transition_scale;
-
-  if (!(cluster_start > kEpsilon)) {
-    candidate.reason = "blocking obstacle has no positive quintic entry distance";
-    return candidate;
-  }
-  if (!(requested_entry_length > kEpsilon)) {
-    candidate.reason = "requested quintic entry length is not positive";
-    return candidate;
-  }
-  // Parameterize entry directly by the actually available ego-to-cluster distance. The nominal
-  // pre-apex value is a fraction of detection lookahead, and the separate entry candidate scales
-  // that fraction. Within the declared domain this is strictly monotone and has no ego clamp.
-  const double available_entry_length = cluster_start;
-  const double effective_entry_fraction =
-    requested_entry_length / parameters_.detection_lookahead_m;
-  if (!(effective_entry_fraction > kEpsilon) || effective_entry_fraction > 1.0 + kEpsilon) {
-    candidate.reason =
-      "requested entry fraction must be within the available-distance interval";
-    return candidate;
-  }
-  const double entry_length = available_entry_length * effective_entry_fraction;
-  const double entry_start = cluster_start - entry_length;
-  const double pre_middle = entry_length *
-    parameters_.pre_apex_distances_m[1] / nominal_pre_far;
-  const double pre_near = entry_length *
-    parameters_.pre_apex_distances_m[2] / nominal_pre_far;
-  candidate.requested_entry_length_m = requested_entry_length;
-  candidate.effective_entry_length_m = entry_length;
-  candidate.exit_length_m = post_far;
-  candidate.effective_entry_transition_scale = effective_entry_fraction;
-  if (!(entry_length > kEpsilon) || !(post_far > kEpsilon)) {
-    candidate.reason = "quintic transition length is not positive";
-    return candidate;
-  }
-  const double exit_end = cluster_end + post_far;
-  const auto entry_offset = [&](double forward_s) {
-      return quinticBlend(
-        ego.d, target_d, (forward_s - entry_start) / entry_length);
-    };
-  const auto exit_offset = [&](double forward_s) {
-      return quinticBlend(
-        target_d, 0.0, (forward_s - cluster_end) / post_far);
-    };
-  const auto profile_offset = [&](double forward_s) {
-      if (forward_s <= entry_start) {
-        return ego.d;
-      }
-      if (forward_s < cluster_start) {
-        return entry_offset(forward_s);
-      }
-      if (forward_s <= cluster_end) {
-        return target_d;
-      }
-      if (forward_s < exit_end) {
-        return exit_offset(forward_s);
-      }
-      return 0.0;
-    };
-
-  // Keep the familiar pre/apex/post marker layout, but sample each marker from the actual
-  // quintic profile instead of pinning all pre/post points to d=0. This makes the intended
-  // progressive lateral motion directly visible in RViz.
-  append_knot(entry_start, ego.d);
-  for (const double distance : {pre_middle, pre_near}) {
-    const double forward_s = cluster_start - distance;
-    if (forward_s > entry_start + kEpsilon && forward_s < cluster_start - kEpsilon) {
-      append_knot(forward_s, entry_offset(forward_s));
-    }
-  }
-  append_knot(cluster_start, target_d);
-  if (cluster_end > cluster_start + 0.05) {
-    append_knot(cluster_end, target_d);
-  }
-  for (const double distance : {post_near, post_middle}) {
-    const double forward_s = cluster_end + distance;
-    if (forward_s > cluster_end + kEpsilon && forward_s < exit_end - kEpsilon) {
-      append_knot(forward_s, exit_offset(forward_s));
-    }
-  }
-  append_knot(exit_end, 0.0);
-  for (std::size_t i = 0; i < knot_s.size(); ++i) {
-    candidate.control_points.push_back({knot_s[i], knot_d[i]});
-  }
-
-  const double spline_end = exit_end;
-  // 고속에서 고정 2m tail은 state-machine handoff가 끝나기 전에 소진된다. 회피를 계획한
-  // 순간의 ego 속도를 기준으로 최소 시간만큼 global d=0 구간을 확보하되, 저속에서는 기존
-  // 거리 하한을 유지한다. 이 tail은 회피 형상을 바꾸지 않고 동일 ordered race-line 표본을
-  // 뒤에 더 붙이는 것뿐이다.
-  const double post_merge_tail = std::max(
-    parameters_.post_merge_lookahead_m,
-    std::abs(ego.speed) * parameters_.post_merge_min_time_sec);
-  const double path_end = spline_end + post_merge_tail;
-  const double clip_min = std::min({0.0, ego.d, target_d});
-  const double clip_max = std::max({0.0, ego.d, target_d});
-  const std::size_t first_index = nextReferenceIndex(ego.s);
-  candidate.path.header = reference_.header;
-  candidate.path.wpnts.reserve(reference_.wpnts.size());
-  for (std::size_t k = 0; k < reference_.wpnts.size(); ++k) {
-    const std::size_t index = (first_index + k) % reference_.wpnts.size();
-    const auto & global = reference_.wpnts[index];
-    const double forward_s = forwardDistance(ego.s, global.s_m);
-    if (forward_s > path_end + kEpsilon) {
-      break;
-    }
-    auto waypoint = global;
-    waypoint.id = static_cast<int32_t>(candidate.path.wpnts.size());
-    waypoint.d_m = clamp(profile_offset(forward_s), clip_min, clip_max);
-    waypoint.x_m = global.x_m - waypoint.d_m * std::sin(global.psi_rad);
-    waypoint.y_m = global.y_m + waypoint.d_m * std::cos(global.psi_rad);
-    candidate.path.wpnts.push_back(waypoint);
-  }
-  if (candidate.path.wpnts.size() < static_cast<std::size_t>(parameters_.minimum_path_points)) {
-    candidate.reason = "spline segment has too few global race-line samples";
-    return candidate;
-  }
-
-  updateGeometryAndAcceleration(candidate.path);
-  applyAvoidanceVelocityLimit(candidate.path, ego, visible);
-  updateGeometryAndAcceleration(candidate.path);
-  candidate.target_d = target_d;
-  measureCandidate(ego, visible, candidate);
-  if (!validateCandidate(ego, candidate.path, visible, candidate.reason)) {
-    return candidate;
-  }
-
-  candidate.valid = true;
-  // merge_s는 발행 세그먼트 끝이 아니라 d-offset spline이 실제로 d=0에 복귀하는 지점이다.
-  // tail 길이를 늘려도 합류 완료 판정 시점이 뒤로 밀리지 않아야 한다.
-  candidate.merge_s = wrapS(ego.s + spline_end);
-  return candidate;
 }
 
 void RacelineSplinePlanner::measureCandidate(
@@ -2134,87 +1966,98 @@ bool RacelineSplinePlanner::validatePath(
   return true;
 }
 
-std::size_t RacelineSplinePlanner::generateSideCandidates(
+std::size_t RacelineSplinePlanner::generateP3Candidates(
   const EgoFrenetState & ego,
+  const std::vector<f110_msgs::msg::Obstacle> & obstacles,
   const std::vector<ExpandedObstacle> & visible,
-  const std::vector<ExpandedObstacle> & cluster,
-  bool go_left,
-  bool outside_is_left,
+  const std::optional<bool> & preferred_left,
+  bool allow_side_switch,
   bool stop_on_first_feasible,
   std::vector<Candidate> & candidates,
-  std::string & side_reason,
-  std::size_t & generated_count) const
+  std::string & reason) const
 {
-  generated_count = 0U;
-  double cluster_start = 0.0;
-  double cluster_end = 0.0;
-  double minimum_target = 0.0;
-  double maximum_target = 0.0;
-  if (!computeSideTargetRange(
-      ego, cluster, go_left, cluster_start, cluster_end,
-      minimum_target, maximum_target, side_reason))
-  {
+  // 이 패키지의 유일한 회피 후보 생성기. 후보 생성은 여기 한 곳에만 두어야 한다 —
+  // 안전정지 탈출 검증(anyFeasibleCandidateFrom)이 같은 함수를 쓰므로 "정지점에서 회피
+  // 가능"이라는 판정과 실제 재계획이 어긋날 수 없다. 두 번째 사본이 생기면 그 덫이 돌아온다.
+  const P3ShadowResult p3 = evaluateP3Shadow(ego, obstacles, 0, 0U, 0U, "PLAN");
+  if (!p3.invoked) {
+    reason = p3.failure_classification.empty() ? "P3 not invoked" : p3.failure_classification;
     return 0U;
   }
-
-  const int requested_count = std::max(1, parameters_.target_d_candidate_count);
-  const bool collapsed_range = std::abs(maximum_target - minimum_target) <= kEpsilon;
-  const int sample_count = collapsed_range ? 1 : requested_count;
-  std::vector<double> entry_scales = parameters_.entry_transition_fractions;
-  // Keep every configured legacy entry candidate in its original order, then add one
-  // production candidate whose effective entry length consumes the complete distance from
-  // ego to the expanded cluster. This is intentionally derived from existing geometry and is
-  // not a tunable parameter.
-  entry_scales.push_back(
-    parameters_.detection_lookahead_m / parameters_.pre_apex_distances_m[0]);
-  std::size_t side_feasible_count = 0U;
-  for (int target_index = 0; target_index < sample_count; ++target_index) {
-    const double ratio = sample_count == 1 ? 0.0 :
-      static_cast<double>(target_index) / static_cast<double>(sample_count - 1);
-    const double target_d = minimum_target + ratio * (maximum_target - minimum_target);
-    for (const double entry_fraction : entry_scales) {
-      for (const double exit_scale : parameters_.transition_distance_scales) {
-        Candidate candidate = buildCandidate(
-          ego, visible, go_left, entry_fraction, exit_scale, outside_is_left,
-          cluster_start, cluster_end, target_d);
-        candidate.audit_index = candidates.size();
-        side_reason = candidate.reason;
-        ++generated_count;
-        const bool valid = candidate.valid;
-        if (valid) {
-          ++side_feasible_count;
-        }
-        candidates.push_back(std::move(candidate));
-        if (valid && stop_on_first_feasible) {
-          return side_feasible_count;
+  std::size_t feasible = 0U;
+  std::size_t considered = 0U;
+  for (const auto & trace : p3.candidates) {
+    // 측 잠금: 커밋된 측이 있고 전환이 금지된 상태면 그 측 후보만 본다.
+    if (preferred_left.has_value() && !allow_side_switch &&
+      trace.go_left != preferred_left.value())
+    {
+      continue;
+    }
+    if (trace.path.wpnts.size() < static_cast<std::size_t>(parameters_.minimum_path_points)) {
+      continue;
+    }
+    ++considered;
+    Candidate candidate;
+    candidate.go_left = trace.go_left;
+    candidate.target_d = trace.d_target;
+    candidate.path = trace.path;
+    candidate.audit_index = trace.generation_index;
+    candidate.entry_transition_scale = trace.entry_scale;
+    candidate.exit_transition_scale = trace.exit_scale;
+    candidate.effective_exit_transition_scale = trace.exit_scale;
+    // P3 trace의 지표를 그대로 믿지 않고 P0와 동일한 안전 계층으로 재측정한다. 순위·감사·
+    // 하류 필드가 전부 같은 출처에서 나오도록 하기 위함이다.
+    measureCandidate(ego, visible, candidate);
+    std::string validation_reason;
+    candidate.valid = validateCandidate(ego, candidate.path, visible, validation_reason);
+    candidate.reason = candidate.valid ? std::string() :
+      (validation_reason.empty() ? trace.rejection_reason : validation_reason);
+    if (candidate.valid) {
+      // merge_s는 발행 세그먼트 끝이 아니라 d-offset이 실제로 d=0으로 복귀하는 지점이다.
+      // 뒤에서부터 |d|가 tolerance를 넘는 마지막 점을 찾고 그 다음 점을 합류점으로 쓴다.
+      std::size_t last_offset = 0U;
+      for (std::size_t i = 0U; i < candidate.path.wpnts.size(); ++i) {
+        if (std::abs(candidate.path.wpnts[i].d_m) > 1.0e-3) {
+          last_offset = i;
         }
       }
+      const std::size_t merge_index =
+        std::min(last_offset + 1U, candidate.path.wpnts.size() - 1U);
+      candidate.merge_s = candidate.path.wpnts[merge_index].s_m;
+      ++feasible;
+    }
+    const bool candidate_valid = candidate.valid;
+    candidates.push_back(std::move(candidate));
+    if (candidate_valid && stop_on_first_feasible) {
+      return feasible;
     }
   }
-  return side_feasible_count;
+  if (feasible == 0U) {
+    reason = considered == 0U ?
+      (p3.failure_classification.empty() ? "no P3 candidate on the permitted side" :
+      p3.failure_classification) :
+      std::to_string(considered) + " P3 candidates rejected by the exact validator";
+  } else {
+    reason = std::to_string(feasible) + "/" + std::to_string(considered) +
+      " P3 candidates feasible";
+  }
+  return feasible;
 }
 
 bool RacelineSplinePlanner::anyFeasibleCandidateFrom(
   const EgoFrenetState & ego,
+  const std::vector<f110_msgs::msg::Obstacle> & obstacles,
   const std::vector<ExpandedObstacle> & visible,
   const std::vector<ExpandedObstacle> & cluster) const
 {
   if (cluster.empty()) {
     return true;   // 막는 것이 없으면 굳이 정지할 이유도 없다
   }
-  const bool outside_is_left = outsideIsLeft(ego, cluster);
   std::vector<Candidate> candidates;
   std::string reason;
-  std::size_t generated = 0U;
-  for (const bool go_left : {true, false}) {
-    if (generateSideCandidates(
-        ego, visible, cluster, go_left, outside_is_left, true,
-        candidates, reason, generated) > 0U)
-    {
-      return true;
-    }
-  }
-  return false;
+  // plan()과 반드시 같은 생성기를 쓴다(위 generateP3Candidates 주석 참고).
+  return generateP3Candidates(
+    ego, obstacles, visible, std::nullopt, true, true, candidates, reason) > 0U;
 }
 
 void RacelineSplinePlanner::densifyPath(
@@ -2293,7 +2136,8 @@ RacelineSplineResult RacelineSplinePlanner::buildSafeStop(
         //    반드시 절대 s를 담은 원본으로 정지점 기준 재확장해야 한다.
         const auto at_stop_visible = expandVisibleObstacles(at_stop, raw_obstacles);
         const auto at_stop_cluster = nearestCluster(at_stop_visible);
-        return anyFeasibleCandidateFrom(at_stop, at_stop_visible, at_stop_cluster);
+        return anyFeasibleCandidateFrom(
+          at_stop, raw_obstacles, at_stop_visible, at_stop_cluster);
       };
 
     // 탈출 가능성은 정지점을 **뒤로 물릴수록**(=forward가 작을수록) 단조 증가한다:
@@ -2478,44 +2322,15 @@ RacelineSplineResult RacelineSplinePlanner::plan(
   bool left_evaluated = false;
   bool right_evaluated = false;
 
-  const auto evaluate_side = [&](bool go_left) {
-      if (go_left) {
-        left_evaluated = true;
-      } else {
-        right_evaluated = true;
-      }
-      std::string & side_reason = go_left ? left_reason : right_reason;
-      // 후보 생성은 generateSideCandidates 한 곳에만 둔다. 안전정지 탈출 검증
-      // (anyFeasibleCandidateFrom)이 같은 함수를 쓰므로, "정지점에서 회피 가능"이라는
-      // 판정과 실제 재계획이 어긋날 수 없다.
-      std::size_t side_candidate_count = 0U;
-      const std::size_t side_feasible_count = generateSideCandidates(
-        ego, visible, cluster, go_left, outside_is_left, false,
-        candidates, side_reason, side_candidate_count);
-      if (side_feasible_count == 0U) {
-        side_reason = std::to_string(side_candidate_count) +
-          " generated candidates rejected; last: " + side_reason;
-      } else {
-        side_reason = std::to_string(side_feasible_count) + "/" +
-          std::to_string(side_candidate_count) + " generated candidates feasible";
-      }
-    };
-
-  if (!parameters_.avoidance_candidates_enable) {
-    // P0 격자 비활성 — 후보를 만들지 않고 기존 폴백 사다리(margin slow pass -> safe stop)로
-    // 내려간다. 안전 계층과 안전정지는 그대로 살아 있으므로 "경로 없음"이 아니라
-    // "정지"로 귀결된다.
-    left_reason = "P0 avoidance candidates disabled (avoidance_candidates_enable=false)";
-    right_reason = left_reason;
-  } else if (!preferred_left.has_value()) {
-    evaluate_side(true);
-    evaluate_side(false);
-  } else {
-    evaluate_side(preferred_left.value());
-    if (allow_side_switch) {
-      evaluate_side(!preferred_left.value());
-    }
-  }
+  // 회피 후보 생성은 P3(analytic corridor) 한 곳뿐이다. P0 quintic 격자는 2026-08-15에
+  // 제거됐다: 실차 시험에서 P0가 통과 가능한 모든 지점을 P3도 통과했고, 두 생성기를 함께
+  // 두면 "어느 쪽이 답했는가"에 따라 연쇄 기동·안전정지 해제가 갈라진다.
+  std::string p3_reason;
+  (void)generateP3Candidates(
+    ego, obstacles, visible, preferred_left, allow_side_switch, false,
+    candidates, p3_reason);
+  left_reason = p3_reason;
+  right_reason = p3_reason;
 
   std::vector<std::size_t> feasible_order;
   feasible_order.reserve(candidates.size());

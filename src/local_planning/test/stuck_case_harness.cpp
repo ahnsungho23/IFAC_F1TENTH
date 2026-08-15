@@ -125,7 +125,7 @@ RacelineSplineParameters operationalParameters()
   {0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0};
   p.avoidance_velocity_limit_lateral_accel_mps2 =
   {7.0, 7.0, 7.0, 7.0, 7.0, 7.0, 6.5, 6.5, 6.5, 6.5};
-  p.avoidance_minimum_speed_mps = 2.0;
+  p.avoidance_minimum_speed_mps = 1.0;
   p.margin_pass_speed_cap_mps = 2.0;
   p.approach_feasibility_decel_mps2 = 2.0;
   p.commitment_retention_reserve_fraction = 0.5;

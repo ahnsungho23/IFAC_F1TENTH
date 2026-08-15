@@ -60,19 +60,12 @@ struct P3CallbackSnapshot
   rclcpp::Time odometry_receipt_time{0, 0, RCL_ROS_TIME};
   P3ManeuverSnapshot maneuver;
   std::int64_t frenet_source_stamp_ns{0};
-};
-
-struct P3CompletionHandoffRecord
-{
-  f110_msgs::msg::WpntArray frozen_tail;
-  std::vector<int> obstacle_ids;
-  bool go_left{false};
-  std::uint64_t source_epoch{0U};
-  std::uint64_t global_reference_generation{0U};
-  std::string original_candidate_identity{"NONE"};
-  std::string original_path_digest{"NONE"};
-  std::string tail_path_digest{"NONE"};
-  bool avoid_state_observed{false};
+  // Frenet 소스 스탬프가 직전 콜백보다 과거로 후퇴한 콜백. 상태(epoch/lifecycle/envelope)는
+  // 이미 리셋됐지만 이 샘플 자체가 의심스러우므로, 이 사이클은 계획을 건너뛰고 직전 출력을
+  // 유지해야 한다. 2026-08-15 run9: 리셋 직후 같은 콜백이 오염된 상태로 계획을 강행해
+  // "no collision-free stop prefix" 비상 홀드를 래치했고(정상 기하에서 plan()은 회피를
+  // 반환함이 하네스로 입증됨), 그 래치는 해제 조건이 영영 충족되지 않아 영구 정지가 됐다.
+  bool source_stamp_regressed{false};
 };
 
 class LocalPlannerNode : public rclcpp::Node
@@ -106,13 +99,6 @@ private:
     const std::function<const P3ShadowResult &()> & evaluate);
   RacelineSplineResult makeP3ActiveResult(
     const P3ManeuverLifecycleDecision & decision) const;
-  bool armP3CompletionHandoff(
-    const P3CallbackSnapshot & snapshot,
-    const P3ManeuverLifecycleDecision & decision);
-  void clearP3CompletionHandoff();
-  bool p3CompletionHandoffHasDistinctBlockingCluster(
-    const P3ShadowResult & evaluation) const;
-  RacelineSplineResult makeP3CompletionHandoffResult() const;
   void publishP3CycleDiagnostic(
     const P3CallbackSnapshot & snapshot,
     const P3ShadowResult & evaluation,
@@ -206,7 +192,6 @@ private:
   ObstacleGuardParameters guard_parameters_;
   RacelineSplinePlanner planner_;
   P3ManeuverLifecycle p3_maneuver_lifecycle_;
-  std::optional<P3CompletionHandoffRecord> p3_completion_handoff_;
   f110_msgs::msg::WpntArray global_waypoints_;
   std::vector<f110_msgs::msg::Obstacle> static_obstacles_;
   nav_msgs::msg::Odometry latest_odometry_;

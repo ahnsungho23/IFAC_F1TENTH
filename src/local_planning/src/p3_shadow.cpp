@@ -18,6 +18,8 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <iomanip>
 #include <limits>
@@ -59,7 +61,8 @@ public:
     std::int64_t snapshot_source_stamp_ns,
     std::uint64_t snapshot_epoch,
     std::uint64_t global_reference_generation,
-    const std::string & p0_failure_reason) const
+    const std::string & p0_failure_reason,
+    bool relaxed_clearance_gate = false) const
   {
     P3ShadowResult result;
     result.enabled = true;
@@ -82,7 +85,7 @@ public:
     }
 
     const P3ShadowPlanningContext context = planner_.buildP3ShadowPlanningContext(
-      ego, obstacles);
+      ego, obstacles, relaxed_clearance_gate);
     if (!context.valid) {
       result.failure_classification = context.reason.empty() ?
         "NO_BLOCKING_CLUSTER" : context.reason;
@@ -1776,9 +1779,37 @@ P3ShadowResult RacelineSplinePlanner::evaluateP3Shadow(
   std::uint64_t global_reference_generation,
   const std::string & p0_failure_reason) const
 {
-  return P3ShadowEvaluator(*this).run(
+  const P3ShadowEvaluator evaluator(*this);
+  P3ShadowResult strict = evaluator.run(
     ego, obstacles, snapshot_source_stamp_ns, snapshot_epoch,
     global_reference_generation, p0_failure_reason);
+  if (strict.would_recover || !strict.invoked || strict.cluster_obstacle_ids.empty()) {
+    return strict;
+  }
+  // strict(레이스 속도 예약) 게이트가 후보를 하나도 통과시키지 못했다. localization_reserve
+  // 인상(0.06→0.12, 2026-08-15) 이후 strict 최소 target이 벽 캡 바로 앞까지 밀려 후보 전체가
+  // footprint 검사에서 죽는 구간이 실측됐다(map s=16.5: 우측 여유 0.945 m에서 전멸). 기존
+  // 감속-게이트 재시도는 "strict가 트랙에 안 들어갈 때"만 발동해 이 경우를 놓친다. 여기서
+  // avoidance_minimum_speed_mps 게이트로 고려 범위만 넓혀 한 번 더 돈다 — 수용 기준(정확
+  // 검증, gap 기반 속도 상한)은 동일하므로 "느리지만 가능한" 통로만 추가로 살아난다.
+  P3ShadowResult relaxed = evaluator.run(
+    ego, obstacles, snapshot_source_stamp_ns, snapshot_epoch,
+    global_reference_generation, p0_failure_reason, true);
+  if (std::getenv("P3_DEBUG_RELAXED") != nullptr) {
+    std::fprintf(stderr, "[RELAXED] recover=%d fail=%s candidates=%zu\n",
+      relaxed.would_recover ? 1 : 0, relaxed.failure_classification.c_str(),
+      relaxed.candidates.size());
+    for (const auto & trace : relaxed.candidates) {
+      std::fprintf(stderr, "[RELAXED]  gen=%zu left=%d target=%.3f hard=%d rej=%s\n",
+        trace.generation_index, trace.go_left ? 1 : 0, trace.d_target,
+        trace.hard_valid ? 1 : 0, trace.rejection_reason.c_str());
+    }
+  }
+  if (relaxed.would_recover) {
+    relaxed.selected_source += "+RELAXED_CLEARANCE_GATE";
+    return relaxed;
+  }
+  return strict;
 }
 
 }  // namespace local_planning

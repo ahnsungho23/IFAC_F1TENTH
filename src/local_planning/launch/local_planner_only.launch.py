@@ -61,15 +61,6 @@ def generate_launch_description():
             'lockstep_mode', default_value='false',
             description='CMA-only deterministic event-driven execution'),
         DeclareLaunchArgument(
-            'p0_avoidance_candidates_enable', default_value='true',
-            description=(
-                '⚠️ 이 기본값이 config/local_planning.yaml의 같은 값을 덮어쓴다 '
-                '(launch 파라미터가 params_file 뒤에 적용됨). 둘을 반드시 같이 바꿀 것 — '
-                'YAML만 바꾸면 조용히 무시된다. '
-                'P0 quintic 회피 격자 사용 여부. false면 P3(analytic corridor)가 유일한 회피 '
-                '플래너가 되고 P3 실패는 곧바로 안전정지로 간다. 안전 계층과 안전정지는 P3의 '
-                '토대라 어느 쪽이든 살아 있다. p3_mode=TEST_ACTIVE에서만 유효하다.')),
-        DeclareLaunchArgument(
             'p3_mode', default_value='TEST_ACTIVE',
             description='Production P3/M1 mode: OFF, SHADOW, or bounded TEST_ACTIVE'),
         DeclareLaunchArgument(
@@ -96,8 +87,6 @@ def generate_launch_description():
                     LaunchConfiguration('lockstep_mode'), value_type=bool),
                 'p3_mode': ParameterValue(
                     LaunchConfiguration('p3_mode'), value_type=str),
-                'p0_avoidance_candidates_enable': ParameterValue(
-                    LaunchConfiguration('p0_avoidance_candidates_enable'), value_type=bool),
                 'p3_diagnostics_topic': LaunchConfiguration('p3_diagnostics_topic'),
             },
         ]
