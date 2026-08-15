@@ -199,11 +199,13 @@ extent로 박스 모서리 간격을 계산하고, 같은 레이어 안에서 �
 - 병합 dynamic 객체 중 에고 전방에서 가장 가까운 하나를 `/opp_obs`로 발행한다.
 - 선택된 상대차의 Frenet 횡영역이 ego 차체 폭과 안전 여유로 만든 corridor에 겹치고,
   현재 또는 등속 상대속도 예측 후면 간격이 `interference_distance_m` 이내이면
-  `is_interfering=true`로 설정한다.
+  `is_interfering=true`로 진입한다. 같은 ID를 추종하는 동안에는
+  `interference_distance_m * (1 + interference_distance_margin_ratio)`까지 true를 유지한다.
+  기본 진입은 5.0 m, 해제는 5.5 m인 Schmitt trigger이며 제어 목표는 5.0 m다.
 - `/static_obs/markers`는 최종 `/static_obs`의 Frenet 경계를 파란 테두리로 표시한다.
 - `/opp_obs/markers`는 최종 `/opp_obs`의 Frenet 경계를 빨간 테두리로 표시한다.
-- 마커는 `s_start/s_end/d_right/d_left`에서 직접 만들어지므로 local planner 입력과 같은
-  영역을 나타낸다.
+- 마커는 `s_start/s_end/d_right/d_left`에서 직접 만들지만 provisional 객체도 포함한다.
+  `/confirmed_static_obs`만 받는 local planner 입력은 이 마커의 confirmed 부분집합이다.
 
 세 ObstacleArray 토픽은 장애물이 없는 scan에서도 빈 배열로 발행된다. 단 `/opp_obs`(와 그 마커)는
 ego odometry timestamp가 `meas_motion_timeout`보다 오래되면 전방 순위를 신뢰할 수 없으므로 해당
@@ -314,7 +316,7 @@ motion(yaw_used=... fresh=... ref_vs=... ref_vd=...)
 | 수명 | `ttl_dynamic`, `ttl_static`, `confirm_frames_near`, `confirm_frames_far`, `extent_shrink_alpha`, `envelope_stability_tolerance_m`, `envelope_stability_frames`, `static_publish_requires_visible` | track 유지와 발행 확정(연속 매칭 프레임 수, 측정 거리에 따라 near→far 선형 보간, 미매칭 프레임에서 리셋), envelope extent 완화(1.0=기존 덮어쓰기), 정적 레이어 발행 안정성 게이트(측정 중심+envelope가 tolerance 이내로 frames회 연속 안정이고 미매칭 프레임에서 리셋될 때만 /static_obs 발행), prediction-only ghost 발행 억제(기본 true). `ttl_static=25`는 약 250 Hz 입력에서 약 0.1초의 정적 track 검출 공백을 허용 |
 | 분류 | `classifier_mode`, `dyn_vel_enter/exit`, `static_confirm_frames`, `dynamic_confirm_frames`, `dyn_velocity_mahalanobis_gate`, `dyn_max_abs_yaw_rate`, `static_ref_gate` | provisional/static/dynamic 판정 |
 | 레이어 병합 | `layer_merge_enable`, `layer_merge_gap_s/d` | tracking 후 같은 레이어 객체 병합 |
-| 상대차 간섭 | `interference_check_enable`, `interference_distance_m`, `interference_time_horizon_sec`, `interference_min_closing_speed_mps`, `interference_lateral_margin_m`, `interference_ego_half_width_m`, `interference_ego_front_offset_m` | ego corridor 횡겹침과 현재/예측 후면 간격으로 `is_interfering` 판정 |
+| 상대차 간섭 | `interference_check_enable`, `interference_distance_m`, `interference_distance_margin_ratio`, `interference_time_horizon_sec`, `interference_min_closing_speed_mps`, `interference_lateral_margin_m`, `interference_ego_half_width_m`, `interference_ego_front_offset_m` | ego corridor 횡겹침과 현재/예측 후면 간격으로 `is_interfering` 판정. 기본 5.0 m 진입, 같은 ID는 5.5 m에서 해제 |
 | 진단 | `diagnostics_enable`, `diagnostics_period_sec` | 누적 perception INFO 로그 활성화와 주기 |
 
 ## 6. 빌드

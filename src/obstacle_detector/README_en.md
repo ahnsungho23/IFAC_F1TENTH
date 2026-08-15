@@ -36,7 +36,8 @@ waypoints, or publish driving state.
 - Layer 2 publishes every provisional or confirmed non-map stationary object on `/static_obs`.
 - `/confirmed_static_obs` publishes the confirmed-static subset for persistent map consumers.
 - Layer 3 publishes at most one nearest-ahead confirmed dynamic object on `/opp_obs`, annotated
-  with `is_interfering` from the ego-corridor and current/predicted-gap check.
+  with `is_interfering` from the ego-corridor and current/predicted-gap check. It enters at the
+  default 5.0 m target and keeps the same opponent latched through the +10% release limit of 5.5 m.
 
 All three layer views use `f110_msgs/msg/ObstacleArray` and are published on every scan, including
 empty arrays.
@@ -58,7 +59,8 @@ default (`static_publish_requires_visible=true`).
 
 `/static_obs/markers` and `/opp_obs/markers` convert the final arrays'
 `s_start/s_end/d_right/d_left` envelopes back into map-frame boundary lines. The static marker
-topic therefore mirrors the exact geometry consumed by the local planner. Predicted-only objects
+topic includes provisional objects and is therefore a superset of the `/confirmed_static_obs`
+geometry consumed by the local planner. Predicted-only objects
 remain visible with lower alpha.
 
 The pre-tracking fragment merge keeps small scan fragments temporarily and joins them only when

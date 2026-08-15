@@ -137,7 +137,7 @@ class ObstacleDetectorNode : public rclcpp::Node
     int selectOpponent(const std::vector<MergedObstacle> &dynamic_objs) const;
     // Decide whether the selected opponent overlaps the ego corridor and is close enough now or
     // within the configured constant-velocity horizon to interfere with ego driving.
-    bool isOpponentInterfering(const f110_msgs::msg::Obstacle &opponent) const;
+    bool isOpponentInterfering(const f110_msgs::msg::Obstacle &opponent);
     void updateDiagnostics(const ScanProcessingStats &scan_stats,
                            const TrackerUpdateStats *tracker_stats,
                            double measurement_yaw_rate, bool yaw_rate_fresh);
@@ -197,6 +197,7 @@ class ObstacleDetectorNode : public rclcpp::Node
     double diagnostics_period_sec_;
     bool interference_check_enable_;
     double interference_distance_m_;
+    double interference_distance_margin_ratio_;
     double interference_time_horizon_sec_;
     double interference_min_closing_speed_mps_;
     double interference_lateral_margin_m_;
@@ -220,6 +221,8 @@ class ObstacleDetectorNode : public rclcpp::Node
     double ego_d_{0.0};
     double ego_vs_{0.0};
     double ego_s_stamp_{-1.0};  // odometry stamp of the last ego_s_ update (freshness check)
+    bool opponent_interference_latched_{false};
+    int opponent_interference_id_{-1};
     // Continuity state for the ego projection: ego_s_ anchors the viewing-window gate, so it
     // must come from convertTracked() (windowed + hysteresis), not the stateless full search —
     // a stateless ego fix can branch-flip at the hairpin and anchor the gate on the wrong leg.

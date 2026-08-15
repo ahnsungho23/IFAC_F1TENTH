@@ -81,7 +81,7 @@ ObstacleDetectorNode::ObstacleDetectorNode(const rclcpp::NodeOptions &options)
         "static_obs=%s, confirmed_static_obs=%s, opp_obs=%s, "
         "cluster_merge=%s[dist=%.2f, min_frag=%d], "
         "layer_merge=%s[gap_s=%.2f, gap_d=%.2f], mahalanobis=%s[gate=%.2f], "
-        "diagnostics=%s[period=%.2fs])",
+        "interference=%.2fm[+%.0f%%], diagnostics=%s[period=%.2fs])",
         scan_topic_.c_str(), global_wpnts_topic_.c_str(), use_map_filter_ ? "on" : "off",
         static_cast<int>(tracker_params_.classifier_mode), static_obs_topic_.c_str(),
         confirmed_static_obs_topic_.c_str(), opp_obs_topic_.c_str(),
@@ -89,7 +89,8 @@ ObstacleDetectorNode::ObstacleDetectorNode(const rclcpp::NodeOptions &options)
         cluster_merge_min_fragment_points_, layer_merge_enable_ ? "on" : "off",
         layer_merge_gap_s_, layer_merge_gap_d_,
         tracker_params_.assoc_use_mahalanobis ? "on" : "off",
-        tracker_params_.assoc_mahalanobis_gate, diagnostics_enable_ ? "on" : "off",
+        tracker_params_.assoc_mahalanobis_gate, interference_distance_m_,
+        100.0 * interference_distance_margin_ratio_, diagnostics_enable_ ? "on" : "off",
         diagnostics_period_sec_);
 }
 
@@ -156,7 +157,8 @@ void ObstacleDetectorNode::declareParameters()
     this->declare_parameter<bool>("diagnostics_enable", true);
     this->declare_parameter<double>("diagnostics_period_sec", 1.0);
     this->declare_parameter<bool>("interference_check_enable", true);
-    this->declare_parameter<double>("interference_distance_m", 6.0);
+    this->declare_parameter<double>("interference_distance_m", 5.0);
+    this->declare_parameter<double>("interference_distance_margin_ratio", 0.10);
     this->declare_parameter<double>("interference_time_horizon_sec", 2.0);
     this->declare_parameter<double>("interference_min_closing_speed_mps", 0.2);
     this->declare_parameter<double>("interference_lateral_margin_m", 0.10);
@@ -262,6 +264,8 @@ void ObstacleDetectorNode::loadParameters()
         this->get_parameter("interference_check_enable").as_bool();
     interference_distance_m_ =
         std::max(0.0, this->get_parameter("interference_distance_m").as_double());
+    interference_distance_margin_ratio_ = std::clamp(
+        this->get_parameter("interference_distance_margin_ratio").as_double(), 0.0, 1.0);
     interference_time_horizon_sec_ =
         std::max(0.0, this->get_parameter("interference_time_horizon_sec").as_double());
     interference_min_closing_speed_mps_ =
@@ -929,11 +933,13 @@ int ObstacleDetectorNode::selectOpponent(const std::vector<MergedObstacle> &dyna
 }
 
 bool ObstacleDetectorNode::isOpponentInterfering(
-    const f110_msgs::msg::Obstacle &opponent) const
+    const f110_msgs::msg::Obstacle &opponent)
 {
     const double track_length = frenet_.raceline_length();
     if (!interference_check_enable_ || ego_s_ < 0.0 || !(track_length > 0.0))
     {
+        opponent_interference_latched_ = false;
+        opponent_interference_id_ = -1;
         return false;
     }
 
@@ -944,6 +950,8 @@ bool ObstacleDetectorNode::isOpponentInterfering(
     }
     if (center_ahead <= 0.0 || center_ahead >= 0.5 * track_length)
     {
+        opponent_interference_latched_ = false;
+        opponent_interference_id_ = -1;
         return false;
     }
 
@@ -973,7 +981,16 @@ bool ObstacleDetectorNode::isOpponentInterfering(
     const double predicted_closure = closing_speed >= interference_min_closing_speed_mps_ ?
         closing_speed * interference_time_horizon_sec_ : 0.0;
     const double predicted_gap = rear_gap - predicted_closure;
-    return lateral_overlap && predicted_gap <= interference_distance_m_;
+    const double interference_upper_bound =
+        interference_distance_m_ * (1.0 + interference_distance_margin_ratio_);
+    const bool same_latched_opponent =
+        opponent_interference_latched_ && opponent_interference_id_ == opponent.id;
+    const double distance_threshold =
+        same_latched_opponent ? interference_upper_bound : interference_distance_m_;
+    const bool interfering = lateral_overlap && predicted_gap <= distance_threshold;
+    opponent_interference_latched_ = interfering;
+    opponent_interference_id_ = interfering ? opponent.id : -1;
+    return interfering;
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -1284,6 +1301,11 @@ void ObstacleDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
         auto opponent = dynamic_objs[opp].ob;
         opponent.is_interfering = isOpponentInterfering(opponent);
         opp_arr.obstacles.push_back(std::move(opponent));
+    }
+    else
+    {
+        opponent_interference_latched_ = false;
+        opponent_interference_id_ = -1;
     }
     if (ego_s_fresh)
     {

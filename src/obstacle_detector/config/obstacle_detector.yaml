@@ -107,7 +107,8 @@ obstacle_detector:
     # 거리 이내이면 obstacle.is_interfering=true로 발행합니다. 이 값은 CRUISE 상태 전이용이며
     # 검출·추적·동적 분류 자체에는 영향을 주지 않습니다.
     interference_check_enable: true
-    interference_distance_m: 6.0              # 현재/예측 상대차 후면까지 위험 간격 [m]
+    interference_distance_m: 5.0              # 크루즈 목표 상대차 후면 간격 [m]
+    interference_distance_margin_ratio: 0.10  # +10%인 5.5 m까지 간섭 유지
     interference_time_horizon_sec: 2.0         # 현재 상대속도 등속 예측 시간 [s]
     interference_min_closing_speed_mps: 0.2    # 이보다 작은 접근 속도는 예측 closure에서 제외
     interference_lateral_margin_m: 0.10        # ego 차폭 밖 추가 횡 안전 여유 [m]

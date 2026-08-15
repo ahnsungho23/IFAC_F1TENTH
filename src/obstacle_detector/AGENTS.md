@@ -89,7 +89,9 @@ Keep the scan-driven pipeline ordered as follows:
     `/confirmed_static_obs`, and at most one nearest-ahead dynamic object on `/opp_obs`. Annotate
     that opponent with `is_interfering=true` only when its lateral envelope overlaps the ego
     corridor and its current or constant-velocity-predicted rear gap is within the configured
-    interference distance.
+    interference distance. Latch that same opponent until its gap exceeds the distance plus
+    `interference_distance_margin_ratio`. The controller target stays at
+    `interference_distance_m`; this Schmitt trigger prevents state chatter around that target.
 14. Build the two RViz MarkerArrays from those final published arrays' Frenet bounds. Include
     predicted-only obstacles (possible in the dynamic layer; static ghosts are withheld while
     `static_publish_requires_visible` is true) and distinguish them with lower alpha.
