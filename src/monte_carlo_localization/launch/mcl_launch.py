@@ -87,7 +87,6 @@ def _map_server_actions(map_server_node, lifecycle_manager_node):
     a map_server provided elsewhere).
     """
     def _decide(context):
-        from launch.actions import ExecuteProcess
         mode = LaunchConfiguration('start_map_server').perform(context).strip().lower()
         if mode == 'false':
             return [LogInfo(msg='[MCL Launch] start_map_server:=false -> not starting map_server '
@@ -96,19 +95,7 @@ def _map_server_actions(map_server_node, lifecycle_manager_node):
             return [LogInfo(msg="[MCL Launch] 'particle_filter_map_server' already running in this "
                                 'ROS_DOMAIN_ID -> reusing it; NOT starting a duplicate '
                                 'map_server/lifecycle_manager.')]
-
-        # Check if nav2_lifecycle_manager package exists
-        try:
-            from ament_index_python.packages import get_package_share_directory
-            get_package_share_directory('nav2_lifecycle_manager')
-            return [map_server_node, lifecycle_manager_node]
-        except Exception:
-            # Fallback: launch map_server and configure/activate via CLI commands
-            activate_cmd = ExecuteProcess(
-                cmd=['bash', '-c', 'sleep 1.0; ros2 lifecycle set /particle_filter_map_server configure; sleep 0.5; ros2 lifecycle set /particle_filter_map_server activate'],
-                output='screen'
-            )
-            return [map_server_node, activate_cmd]
+        return [map_server_node, lifecycle_manager_node]
     return OpaqueFunction(function=_decide)
 
 

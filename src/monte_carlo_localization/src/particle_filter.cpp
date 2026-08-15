@@ -39,11 +39,6 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
     this->declare_parameter("smoothing_alpha_gain", 0.4);
     this->declare_parameter("smoothing_alpha_max", 0.8);
 
-    // ESS Resampling & Cluster Pose parameters (T5, T6)
-    this->declare_parameter("ess_threshold", 0.5);
-    this->declare_parameter("cluster_radius", 0.5);
-    this->declare_parameter("cluster_yaw_thres", 0.5);
-
     // Pose fusion EKF (odom 예측 + MCL 보정) — 헤더 주석 참고
     this->declare_parameter("use_pose_ekf", true);
     this->declare_parameter("ekf_trans_error_rate", 0.003);
@@ -128,10 +123,6 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
     SMOOTHING_ALPHA_GAIN = this->get_parameter("smoothing_alpha_gain").as_double();
     SMOOTHING_ALPHA_MAX = this->get_parameter("smoothing_alpha_max").as_double();
 
-    ESS_THRESHOLD = this->get_parameter("ess_threshold").as_double();
-    CLUSTER_RADIUS = this->get_parameter("cluster_radius").as_double();
-    CLUSTER_YAW_THRES = this->get_parameter("cluster_yaw_thres").as_double();
-
     USE_POSE_EKF = this->get_parameter("use_pose_ekf").as_bool();
     EKF_TRANS_ERROR_RATE = this->get_parameter("ekf_trans_error_rate").as_double();
     EKF_TRANS_FLOOR_MPS = this->get_parameter("ekf_trans_floor_mps").as_double();
@@ -194,10 +185,6 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
     auto_init_from_waypoints_ = this->get_parameter("auto_init_from_waypoints").as_bool();
     auto_init_done_ = false;
 
-    // Callback groups initialization for multi-threading (T3)
-    update_cb_group_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
-    map_viz_cb_group_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
-
     // State initialization
     MAX_RANGE_PX = 0;
     iters_ = 0;
@@ -216,10 +203,6 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
     has_new_lidar_data_ = false;
     last_lidar_time_ = rclcpp::Time(0);
     mcl_processing_time_ = 0.0;
-    was_resampled_in_last_step_ = true;
-    bimodality_ratio_ = 0.0;
-    last_publish_gap_ms_ = 0.0;
-    last_pose_pub_stamp_ = rclcpp::Time(0);
     
     // Odometry tracking
     odom_pose_ = Eigen::Vector3d::Zero();
@@ -273,9 +256,6 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
         odom_pub_ = this->create_publisher<nav_msgs::msg::Odometry>("/pf/pose/odom", 1);
     }
 
-    // Health publisher (T4)
-    health_pub_ = this->create_publisher<std_msgs::msg::String>("/pf/health", 1);
-
     // Map publisher
     map_pub_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>("/map", rclcpp::QoS(1).transient_local());
 
@@ -284,38 +264,26 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
     tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
     tf_listener_ = std::make_unique<tf2_ros::TransformListener>(*tf_buffer_);
 
-    // Subscription options with Callback Groups
-    rclcpp::SubscriptionOptions update_sub_opts;
-    update_sub_opts.callback_group = update_cb_group_;
-
-    rclcpp::SubscriptionOptions map_viz_sub_opts;
-    map_viz_sub_opts.callback_group = map_viz_cb_group_;
-
-    // Subscribers with callback group wiring (T3)
+    // Subscribers
     laser_sub_ = this->create_subscription<sensor_msgs::msg::LaserScan>(
         this->get_parameter("scan_topic").as_string(), 1,
-        std::bind(&ParticleFilter::lidarCB, this, std::placeholders::_1),
-        update_sub_opts);
+        std::bind(&ParticleFilter::lidarCB, this, std::placeholders::_1));
 
     odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
         this->get_parameter("odom_topic").as_string(), 1,
-        std::bind(&ParticleFilter::odomCB, this, std::placeholders::_1),
-        update_sub_opts);
+        std::bind(&ParticleFilter::odomCB, this, std::placeholders::_1));
 
     pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
-        "/initialpose", 1, std::bind(&ParticleFilter::clicked_pose, this, std::placeholders::_1),
-        map_viz_sub_opts);
+        "/initialpose", 1, std::bind(&ParticleFilter::clicked_pose, this, std::placeholders::_1));
 
     click_sub_ = this->create_subscription<geometry_msgs::msg::PointStamped>(
-        "/clicked_point", 1, std::bind(&ParticleFilter::clicked_point, this, std::placeholders::_1),
-        map_viz_sub_opts);
+        "/clicked_point", 1, std::bind(&ParticleFilter::clicked_point, this, std::placeholders::_1));
 
     if (auto_init_from_waypoints_)
     {
         waypoints_sub_ = this->create_subscription<f110_msgs::msg::WpntArray>(
             "/global_waypoints", rclcpp::QoS(1).transient_local(),
-            std::bind(&ParticleFilter::waypointsCB, this, std::placeholders::_1),
-            map_viz_sub_opts);
+            std::bind(&ParticleFilter::waypointsCB, this, std::placeholders::_1));
     }
 
     // Map service client
@@ -323,43 +291,22 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
 
     // Load map
     get_omap();
-
-    if (auto_init_done_ || pose_initialized_from_rviz_)
-    {
-        RCLCPP_INFO(this->get_logger(),
-            "초기 포즈가 이미 설정됨 — 글로벌 랜덤 초기화를 건너뛴다 "
-            "(waypoints=%d, rviz=%d)",
-            static_cast<int>(auto_init_done_), static_cast<int>(pose_initialized_from_rviz_));
-    }
-    else
-    {
-        initialize_global();
-    }
+    initialize_global();
 
     // Update timer - use slower frequency during startup to reduce resource contention
     double startup_frequency = std::min(TIMER_FREQUENCY, 15.0);  // Cap at 15Hz during startup
     int timer_interval_ms = static_cast<int>(1000.0 / startup_frequency);
-
     update_timer_ = this->create_wall_timer(
         std::chrono::milliseconds(timer_interval_ms),
-        std::bind(&ParticleFilter::timer_update, this),
-        update_cb_group_
+        std::bind(&ParticleFilter::timer_update, this)
     );
     startup_timer_interval_ = timer_interval_ms;
     full_timer_interval_ = static_cast<int>(1000.0 / TIMER_FREQUENCY);
 
-    // Map publisher timer - 2000 ms (0.5 Hz) (T2)
+    // Map publisher timer
     map_timer_ = this->create_wall_timer(
-        std::chrono::milliseconds(2000),
-        std::bind(&ParticleFilter::publish_map_periodically, this),
-        map_viz_cb_group_
-    );
-
-    // Health monitoring timer - 1000 ms (1 Hz) (T4)
-    health_timer_ = this->create_wall_timer(
-        std::chrono::milliseconds(1000),
-        std::bind(&ParticleFilter::publish_health, this),
-        map_viz_cb_group_
+        std::chrono::milliseconds(200),
+        std::bind(&ParticleFilter::publish_map_periodically, this)
     );
 
 
@@ -784,30 +731,7 @@ void ParticleFilter::motion_model(Eigen::MatrixXd &proposal_dist, const MotionCo
         // In high-speed curves, reduce noise to prevent particle divergence
         curve_factor = std::max(0.4, 1.0 - (speed * angular_speed / 10.0));
     }
-    // 🔴 2026-08-14: 이동량 비례 노이즈. 이전에는 noise_factor의 하한이 1.0이라 차가 완전히
-    // 서 있어도 매 사이클 노이즈가 100% 주입됐다. 40 Hz에서 정지 1초당 확산 폭이
-    // 위치 0.10*sqrt(40)=0.63 m, 각도 0.20 rad*sqrt(40)=72°였고, 이 트랙은 좌우 대칭 복도라
-    // 뒤집힌 가설도 스캔이 비슷하게 맞는다. 그래서 입자 일부가 반대 방향에 붙고 지배 모드가
-    // 바뀌는 순간 추정 포즈가 통째로 점프했다.
-    //   실측(run_0814_220956): 휠속 0.00·스캔 변화 0.004~0.005 m인데 포즈가
-    //   t=37.79 803 cm/167.6°, 41.26 137 cm, 43.84 214 cm, 46.46 207 cm, 48.51 108 cm 점프.
-    //   스캔이 그대로인데 포즈만 튀므로 센서·맵 문제가 아니다(맵은 MCL이 쓰는 파일과
-    //   동일 md5로 대조했고, 스캔이 맞는 포즈가 국소 탐색에서 잔차 0.05 m로 존재했다).
-    //
-    // 표준 오도메트리 모션 모델은 "움직인 만큼만" 불확실성을 더한다. 그 성질을 복원한다:
-    // 실제 이동량이 0에 수렴하면 확산도 0에 수렴하고, 정지 중 포즈는 스캔 우도만으로
-    // 고정된다. 기준값 0.02 m / 0.02 rad는 한 사이클(25 ms) 동안 사실상 정지로 볼 수 있는
-    // 크기다 — 0.02 m/25 ms = 0.8 m/s, 0.02 rad/25 ms = 0.8 rad/s.
-    // ⚠️ 하한 kStationaryNoiseFloor를 남긴다. 완전히 0으로 만들면 정지 중 입자 다양성이
-    //    소멸해 재수렴 능력을 잃는다(정지 중 누가 차를 옮기면 영영 못 따라간다).
-    constexpr double kMotionScaleReferenceM = 0.02;
-    constexpr double kMotionScaleReferenceRad = 0.02;
-    constexpr double kStationaryNoiseFloor = 0.05;
-    const double motion_scale = std::clamp(
-        std::abs(linear_displacement) / kMotionScaleReferenceM +
-        std::abs(delta_theta) / kMotionScaleReferenceRad,
-        kStationaryNoiseFloor, 1.0);
-    const double noise_factor = std::min(speed_factor * curve_factor, 2.0) * motion_scale;
+    const double noise_factor = std::min(speed_factor * curve_factor, 2.0);
 
     // Apply bicycle model kinematics
     for (int i = 0; i < MAX_PARTICLES; ++i)
@@ -1025,12 +949,7 @@ void ParticleFilter::calculate_particle_weights(const std::vector<float> &obs, i
             }
         }
 
-        double sensor_w = std::pow(weight, squash_factor);
-        if (was_resampled_in_last_step_) {
-            weights[i] = sensor_w;
-        } else {
-            weights[i] *= sensor_w;
-        }
+        weights[i] = std::pow(weight, squash_factor);
     }
 }
 
@@ -1106,11 +1025,11 @@ float ParticleFilter::cast_ray(double x, double y, double angle)
 /**
  * @brief Main Monte Carlo Localization algorithm implementation
  *
- * Implements the complete MCL cycle with ESS gate resampling (T5):
- * 1. Motion model prediction with adaptive noise
- * 2. Sensor model likelihood evaluation (with weight accumulation)
- * 3. ESS calculation and gate checking
- * 4. Conditional multinomial resampling when ESS ratio < ESS_THRESHOLD
+ * Implements the complete MCL cycle:
+ * 1. Particle resampling based on previous weights
+ * 2. Motion model prediction with adaptive noise
+ * 3. Sensor model likelihood evaluation
+ * 4. Weight normalization with diversity monitoring
  * 5. Emergency recovery for high-speed scenarios
  *
  * @param motion_cmd Motion command for particle prediction
@@ -1120,79 +1039,66 @@ void ParticleFilter::MCL(const MotionCommand &motion_cmd, const std::vector<floa
 {
     auto mcl_start = std::chrono::high_resolution_clock::now();
     
-    // 1. Motion prediction
+    // 1. Multinomial resampling - using pre-allocated memory
+    auto resample_start = std::chrono::high_resolution_clock::now();
+    std::discrete_distribution<int> particle_dist(weights_.begin(), weights_.end());
+
+    for (int i = 0; i < MAX_PARTICLES; ++i)
+    {
+        int idx = particle_dist(rng_);
+        proposal_distribution_.row(i) = particles_.row(idx);
+    }
+    auto resample_end = std::chrono::high_resolution_clock::now();
+    timing_stats_.resampling_time += std::chrono::duration<double, std::milli>(resample_end - resample_start).count();
+
+    // 2. Motion prediction
     auto motion_start = std::chrono::high_resolution_clock::now();
-    motion_model(particles_, motion_cmd);
+    motion_model(proposal_distribution_, motion_cmd);
     auto motion_end = std::chrono::high_resolution_clock::now();
     timing_stats_.motion_model_time += std::chrono::duration<double, std::milli>(motion_end - motion_start).count();
 
-    // 2. Sensor likelihood evaluation (updates/accumulates weights_)
-    sensor_model(particles_, observation, weights_);
+    // 3. Sensor likelihood evaluation
+    sensor_model(proposal_distribution_, observation, weights_);
 
-    // 3. Weight normalization with particle diversity check
+    // 4. Weight normalization with particle diversity check
     double sum_weights = std::accumulate(weights_.begin(), weights_.end(), 0.0);
-    if (sum_weights > 0.0)
+    if (sum_weights > 0)
     {
         for (double &w : weights_)
         {
             w /= sum_weights;
         }
-    }
-    else
-    {
-        std::fill(weights_.begin(), weights_.end(), 1.0 / MAX_PARTICLES);
-    }
 
-    // Calculate Effective Sample Size (ESS)
-    double effective_particles = 0.0;
-    for (const double &w : weights_) {
-        effective_particles += w * w;
-    }
-    effective_particles = (effective_particles > 0.0) ? (1.0 / effective_particles) : 1.0;
-    ess_ratio_ = effective_particles / MAX_PARTICLES;   // 스캔 품질 연동 R 및 헬스 출력용
-
-    // 4. ESS Gate Resampling (T5)
-    bool should_resample = (ess_ratio_ < ESS_THRESHOLD) || (fast_convergence_mode_ && fast_convergence_remaining_ > 0);
-
-    if (should_resample)
-    {
-        auto resample_start = std::chrono::high_resolution_clock::now();
-        std::discrete_distribution<int> particle_dist(weights_.begin(), weights_.end());
-
-        for (int i = 0; i < MAX_PARTICLES; ++i)
-        {
-            int idx = particle_dist(rng_);
-            proposal_distribution_.row(i) = particles_.row(idx);
+        // Check effective sample size for high-speed recovery
+        double effective_particles = 0.0;
+        for (const double &w : weights_) {
+            effective_particles += w * w;
         }
+        effective_particles = 1.0 / effective_particles;
+        ess_ratio_ = effective_particles / MAX_PARTICLES;   // 스캔 품질 연동 R 입력용으로 보존
 
-        particles_.swap(proposal_distribution_);
-        std::fill(weights_.begin(), weights_.end(), 1.0 / MAX_PARTICLES);
-        was_resampled_in_last_step_ = true;
+        // Emergency recovery: inject random particles during high-speed maneuvers if diversity is too low
+        if (effective_particles < MAX_PARTICLES * 0.15 && std::abs(current_velocity_) > 4.0) {
+            // Replace 10% of particles with random samples around current estimate
+            int recovery_count = MAX_PARTICLES / 10;
+            Eigen::Vector3d current_pose = expected_pose();
 
-        auto resample_end = std::chrono::high_resolution_clock::now();
-        timing_stats_.resampling_time += std::chrono::duration<double, std::milli>(resample_end - resample_start).count();
-    }
-    else
-    {
-        was_resampled_in_last_step_ = false;
-    }
-
-    // 5. Emergency recovery: inject random particles during high-speed maneuvers if diversity is too low
-    if (effective_particles < MAX_PARTICLES * 0.15 && std::abs(current_velocity_) > 4.0) {
-        int recovery_count = MAX_PARTICLES / 10;
-        Eigen::Vector3d current_pose = expected_pose();
-
-        std::uniform_int_distribution<int> particle_idx_dist(0, MAX_PARTICLES - 1);
-        for (int i = 0; i < recovery_count; ++i) {
-            int idx = particle_idx_dist(rng_);
-            particles_(idx, 0) = current_pose[0] + normal_dist_(rng_) * 1.0;
-            particles_(idx, 1) = current_pose[1] + normal_dist_(rng_) * 1.0;
-            particles_(idx, 2) = current_pose[2] + normal_dist_(rng_) * 0.5;
-            particles_(idx, 2) = utils::geometry::normalize_angle(particles_(idx, 2));
-            weights_[idx] = 1.0 / MAX_PARTICLES;
+            std::uniform_int_distribution<int> particle_idx_dist(0, MAX_PARTICLES - 1);
+            for (int i = 0; i < recovery_count; ++i) {
+                int idx = particle_idx_dist(rng_);
+                // Add particles around current pose with moderate spread
+                proposal_distribution_(idx, 0) = current_pose[0] + normal_dist_(rng_) * 1.0;
+                proposal_distribution_(idx, 1) = current_pose[1] + normal_dist_(rng_) * 1.0;
+                proposal_distribution_(idx, 2) = current_pose[2] + normal_dist_(rng_) * 0.5;
+                proposal_distribution_(idx, 2) = utils::geometry::normalize_angle(proposal_distribution_(idx, 2));
+                weights_[idx] = 1.0 / MAX_PARTICLES;
+            }
         }
     }
 
+    // 5. Update particle set - using efficient swap
+    particles_.swap(proposal_distribution_);
+    
     auto mcl_end = std::chrono::high_resolution_clock::now();
     timing_stats_.total_mcl_time += std::chrono::duration<double, std::milli>(mcl_end - mcl_start).count();
     timing_stats_.measurement_count++;
@@ -1200,62 +1106,23 @@ void ParticleFilter::MCL(const MotionCommand &motion_cmd, const std::vector<floa
 
 Eigen::Vector3d ParticleFilter::expected_pose()
 {
-    if (MAX_PARTICLES <= 0 || weights_.empty()) {
-        return Eigen::Vector3d::Zero();
+    Eigen::Vector3d pose = Eigen::Vector3d::Zero();
+    double sum_sin = 0.0, sum_cos = 0.0;
+    
+    // Weighted mean for x, y
+    for (int i = 0; i < MAX_PARTICLES; ++i)
+    {
+        pose[0] += weights_[i] * particles_(i, 0);  // x
+        pose[1] += weights_[i] * particles_(i, 1);  // y
+        
+        // Circular mean for angles
+        sum_sin += weights_[i] * std::sin(particles_(i, 2));
+        sum_cos += weights_[i] * std::cos(particles_(i, 2));
     }
-
-    // 1. 최고 가중치 파티클 (Highest Weight Particle) 탐색 (T6)
-    int max_idx = 0;
-    double max_weight = -1.0;
-    for (int i = 0; i < MAX_PARTICLES; ++i) {
-        if (weights_[i] > max_weight) {
-            max_weight = weights_[i];
-            max_idx = i;
-        }
-    }
-
-    const double ref_x = particles_(max_idx, 0);
-    const double ref_y = particles_(max_idx, 1);
-    const double ref_theta = particles_(max_idx, 2);
-
-    // 2. Primary Cluster (최고 가중치 주변 반경 CLUSTER_RADIUS, 각도 CLUSTER_YAW_THRES) 가중 평균
-    double cluster_weight_sum = 0.0;
-    double sum_x = 0.0;
-    double sum_y = 0.0;
-    double sum_sin = 0.0;
-    double sum_cos = 0.0;
-
-    for (int i = 0; i < MAX_PARTICLES; ++i) {
-        double dx = particles_(i, 0) - ref_x;
-        double dy = particles_(i, 1) - ref_y;
-        double dist = std::hypot(dx, dy);
-        double dtheta = std::abs(utils::geometry::normalize_angle(particles_(i, 2) - ref_theta));
-
-        if (dist <= CLUSTER_RADIUS && dtheta <= CLUSTER_YAW_THRES) {
-            const double w = weights_[i];
-            cluster_weight_sum += w;
-            sum_x += w * particles_(i, 0);
-            sum_y += w * particles_(i, 1);
-            sum_sin += w * std::sin(particles_(i, 2));
-            sum_cos += w * std::cos(particles_(i, 2));
-        }
-    }
-
-    // 3. 다봉성 지표 (Primary Cluster 외 파티클 가중치 합 비율)
-    bimodality_ratio_ = std::clamp(1.0 - cluster_weight_sum, 0.0, 1.0);
-
-    // 4. Primary Cluster 가중 평균 포즈 결정
-    Eigen::Vector3d pose;
-    if (cluster_weight_sum > 1e-9) {
-        pose[0] = sum_x / cluster_weight_sum;
-        pose[1] = sum_y / cluster_weight_sum;
-        pose[2] = std::atan2(sum_sin, sum_cos);
-    } else {
-        pose[0] = ref_x;
-        pose[1] = ref_y;
-        pose[2] = ref_theta;
-    }
-
+    
+    // Final angle calculation
+    pose[2] = std::atan2(sum_sin, sum_cos);
+    
     return pose;
 }
 
@@ -1569,8 +1436,7 @@ void ParticleFilter::timer_update()
                 update_timer_.reset();
                 update_timer_ = this->create_wall_timer(
                     std::chrono::milliseconds(full_timer_interval_),
-                    std::bind(&ParticleFilter::timer_update, this),
-                    update_cb_group_
+                    std::bind(&ParticleFilter::timer_update, this)
                 );
                 RCLCPP_INFO(this->get_logger(), "Timer frequency increased to %.1f Hz", TIMER_FREQUENCY);
             }
@@ -1850,13 +1716,6 @@ void ParticleFilter::publish_tf(const Eigen::Vector3d &pose, const rclcpp::Time 
         odom.twist.twist.linear.x = current_velocity_;
         odom_pub_->publish(odom);
     }
-
-    // 직전 발행 시각 기반 포즈 공백 (ms) 기록
-    rclcpp::Time pub_now = this->get_clock()->now();
-    if (last_pose_pub_stamp_.nanoseconds() != 0) {
-        last_publish_gap_ms_ = (pub_now - last_pose_pub_stamp_).seconds() * 1000.0;
-    }
-    last_pose_pub_stamp_ = pub_now;
 }
 
 
@@ -2062,63 +1921,6 @@ Eigen::Vector3d ParticleFilter::apply_tf_offset(const Eigen::Vector3d& pose_in_l
     return base_link_pose;
 }
 
-// ================================================================================================
-// HEALTH MONITORING (T4)
-// ================================================================================================
-void ParticleFilter::publish_health()
-{
-    if (!health_pub_)
-        return;
-
-    std::lock_guard<std::mutex> lock(state_lock_);
-
-    // 1. 입자 상태 통계 계산 (위치 및 헤딩 표준편차)
-    Eigen::Vector3d mean_p = expected_pose();
-    double var_x = 0.0, var_y = 0.0, var_th = 0.0;
-    double sum_w = 0.0;
-
-    for (int i = 0; i < MAX_PARTICLES; ++i) {
-        double w = weights_[i];
-        sum_w += w;
-        double dx = particles_(i, 0) - mean_p[0];
-        double dy = particles_(i, 1) - mean_p[1];
-        double dth = utils::geometry::normalize_angle(particles_(i, 2) - mean_p[2]);
-
-        var_x += w * dx * dx;
-        var_y += w * dy * dy;
-        var_th += w * dth * dth;
-    }
-
-    if (sum_w > 0.0) {
-        var_x /= sum_w;
-        var_y /= sum_w;
-        var_th /= sum_w;
-    }
-
-    double sigma_x = std::sqrt(std::max(0.0, var_x));
-    double sigma_y = std::sqrt(std::max(0.0, var_y));
-    double sigma_pos = std::hypot(sigma_x, sigma_y);
-    double sigma_theta_deg = std::sqrt(std::max(0.0, var_th)) * 180.0 / M_PI;
-
-    // 2. 타이밍 정보 (평균 MCL 주기 타임 ms)
-    double p50_ms = timing_stats_.total_mcl_time;
-    if (timing_stats_.measurement_count > 0) {
-        p50_ms /= timing_stats_.measurement_count;
-    }
-
-    // 3. JSON 규격 메시지 생성 및 발행
-    char buf[512];
-    std::snprintf(buf, sizeof(buf),
-        "{\"cycle_p50_ms\":%.2f,\"last_gap_ms\":%.1f,\"ess_ratio\":%.3f,"
-        "\"sigma_pos_m\":%.3f,\"sigma_yaw_deg\":%.2f,\"bimodality\":%.3f,\"outlier_ratio\":%.3f}",
-        p50_ms, last_publish_gap_ms_, ess_ratio_,
-        sigma_pos, sigma_theta_deg, bimodality_ratio_, outlier_fraction_);
-
-    std_msgs::msg::String health_msg;
-    health_msg.data = buf;
-    health_pub_->publish(health_msg);
-}
-
 
 } // namespace particle_filter_cpp
 
@@ -2128,13 +1930,7 @@ void ParticleFilter::publish_health()
 int main(int argc, char *argv[])
 {
     rclcpp::init(argc, argv);
-    
-    // MultiThreadedExecutor 적용으로 40 Hz MCL 루프와 Map/Viz 타이머 직렬 블로킹 예방 (T3)
-    rclcpp::executors::MultiThreadedExecutor executor;
-    auto node = std::make_shared<particle_filter_cpp::ParticleFilter>();
-    executor.add_node(node);
-    executor.spin();
-
+    rclcpp::spin(std::make_shared<particle_filter_cpp::ParticleFilter>());
     rclcpp::shutdown();
     return 0;
 }
