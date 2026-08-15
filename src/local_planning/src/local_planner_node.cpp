@@ -736,6 +736,21 @@ void LocalPlannerNode::onObstacles(const f110_msgs::msg::ObstacleArray::SharedPt
   if (p3_mode_ != P3RuntimeMode::kOff && has_obstacles_message_ &&
     incoming_source_stamp_ns < latest_obstacle_source_stamp_ns_)
   {
+    // 미세 역행(재발행/전송 순서 뒤섞임 수준)은 소스 재시작이 아니라 그냥 늦게 도착한
+    // 옛 메시지다. epoch 리셋은 라이프사이클·선택 봉투를 전부 버리므로, 250 Hz 재발행
+    // 시뮬처럼 3 ms 역행이 초당 수십 번 오면 플래너가 영구 마비된다 (2026-08-15 run24
+    // 실측). 옛 메시지는 버리고 최신 상태를 유지한다. 큰 역행(소스 재시작·백 루프)만
+    // 기존대로 epoch를 올린다.
+    constexpr std::int64_t kSourceRestartRegressionNs = 500000000;  // 0.5 s
+    if (latest_obstacle_source_stamp_ns_ - incoming_source_stamp_ns <
+      kSourceRestartRegressionNs)
+    {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 5000,
+        "Out-of-order /static_obs dropped (%" PRId64 " ns behind latest)",
+        latest_obstacle_source_stamp_ns_ - incoming_source_stamp_ns);
+      return;
+    }
     ++p3_source_epoch_;
     p3_maneuver_lifecycle_.reset();
     resetP3SelectionEnvelope();
@@ -804,6 +819,17 @@ void LocalPlannerNode::onFrenetOdometry(const nav_msgs::msg::Odometry::SharedPtr
   }
   {
     std::lock_guard<std::mutex> lock(odometry_mutex_);
+    // 미세 역행 샘플(재발행 순서 뒤섞임)은 버려 저장값을 단조롭게 유지한다 — 저장값이
+    // 뒤로 가면 캡처 단계의 소스-스탬프 역행 감지가 epoch 리셋/사이클 스킵을 일으킨다
+    // (onObstacles의 동일 처리 참고). 큰 역행(소스 재시작)은 통과시켜 기존 감지에 맡긴다.
+    constexpr std::int64_t kSourceRestartRegressionNs = 500000000;  // 0.5 s
+    const std::int64_t incoming_ns = stampNs(message->header.stamp);
+    const std::int64_t latest_ns = stampNs(latest_odometry_.header.stamp);
+    if (has_odometry_ && incoming_ns < latest_ns &&
+      latest_ns - incoming_ns < kSourceRestartRegressionNs)
+    {
+      return;
+    }
     latest_odometry_ = *message;
     last_odometry_time_ = lockstep_mode_ ? rclcpp::Time(message->header.stamp) : now();
     has_odometry_ = true;
@@ -1792,8 +1818,16 @@ void LocalPlannerNode::handleSafeStopLatch(const EgoFrenetState & ego)
     has_commitment_ && committed_result_.kind == SplinePlanKind::kAvoidance &&
     !committed_result_.margin_pass ?
     std::optional<bool>(committed_result_.go_left) : std::nullopt;
+  // 횡진입 측 잠금은 주행 중 위빙을 막는 장치다. 안전정지 래치로 차가 서 있으면 위빙
+  // 위험이 없으므로 잠금을 풀어 반대측 탈출을 허용한다 — 이것이 없으면 "우측 진입 중
+  // 커밋 기각 → 래치 → 우측만 재계획 허용 → P3의 유효한 좌측 탈출을 영영 못 봄"이라는
+  // 영구 정지가 된다 (2026-08-15 run23 실측: locked_side=R로 kNoSafePath 반복).
+  const double stopped_speed_threshold =
+    planner_parameters_.safe_stop_deceleration_mps2 *
+    static_cast<double>(planning_period_ms_) / 1000.0;
+  const bool vehicle_stopped = std::abs(ego.speed) <= stopped_speed_threshold;
   const bool allow_side_switch =
-    !locked_side.has_value() ||
+    !locked_side.has_value() || vehicle_stopped ||
     (!commitmentSideLocked(ego) && !pre_engagement_side_switched_);
   RacelineSplineResult result = planner_.plan(
     ego, planning_obstacles, locked_side, allow_side_switch);
