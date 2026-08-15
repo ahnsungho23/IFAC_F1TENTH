@@ -81,14 +81,8 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
     this->declare_parameter("scan_topic", "/scan");
     this->declare_parameter("odom_topic", "/odom");
     this->declare_parameter("publish_odom", true);
-    // 발행 전방 외삽(2026-08-14): /pf/pose/odom의 위치를 진행방향으로 v×이 시간만큼 밀어
-    // 발행한다. 0 = 비활성. 근거: 무장애물 백 5개(2.0~5.0 m/s, 591프레임) 스캔-벽 잔차
-    // 분해에서 출력 병진이 실제보다 ~90 ms 지연(요는 지연 0)으로 확정 — 코너에서 v×κ로
-    // 벽 방향 오차에 투영돼 코너 p95 0.101/최악 0.158을 만들었고, 90 ms 외삽만으로 코너
-    // p95 0.000/최악 0.050이 된다. 필터 내부는 불변, 발행 직전 마지막 단계만 보정.
-    this->declare_parameter("publish_extrapolation_sec", 0.0);
     this->declare_parameter("viz", true);
-    this->declare_parameter("timer_frequency", 30.0);  // YAML 없이 단독 기동필 때도 30Hz (sim/real 통일)
+    this->declare_parameter("timer_frequency", 100.0);
     
     // Performance
     this->declare_parameter("use_parallel_raycasting", true);
@@ -162,8 +156,6 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
 
     // ROS interface
     PUBLISH_ODOM = this->get_parameter("publish_odom").as_bool();
-    PUBLISH_EXTRAPOLATION_SEC =
-        std::clamp(this->get_parameter("publish_extrapolation_sec").as_double(), 0.0, 0.15);
     DO_VIZ = this->get_parameter("viz").as_bool();
     TIMER_FREQUENCY = this->get_parameter("timer_frequency").as_double();
 
@@ -322,46 +314,20 @@ void ParticleFilter::get_omap()
 {
     RCLCPP_INFO(this->get_logger(), "Requesting map from map server...");
 
-    nav_msgs::msg::OccupancyGrid received_map;
-    bool map_valid = false;
-    while (rclcpp::ok() && !map_valid)
+    while (!map_client_->wait_for_service(std::chrono::seconds(1)))
     {
-        while (!map_client_->wait_for_service(std::chrono::seconds(1)))
-        {
-            if (!rclcpp::ok())
-                return;
-            RCLCPP_INFO(this->get_logger(), "Get map service not available, waiting...");
-        }
-
-        auto request = std::make_shared<nav_msgs::srv::GetMap::Request>();
-        auto future = map_client_->async_send_request(request);
-
-        if (rclcpp::spin_until_future_complete(this->get_node_base_interface(), future) !=
-            rclcpp::FutureReturnCode::SUCCESS)
-        {
-            RCLCPP_ERROR(this->get_logger(), "Failed to get map from map server");
+        if (!rclcpp::ok())
             return;
-        }
-
-        received_map = future.get()->map;
-        // A lifecycle map_server that has not reached ACTIVE yet answers GetMap with a
-        // default-constructed empty map (resolution 0, no cells). Initializing from it poisons
-        // every downstream computation and aborts later on an Eigen assertion, so treat an
-        // empty answer as "server not ready yet" and ask again.
-        map_valid = received_map.info.resolution > 0.0F &&
-            received_map.info.width > 0U && received_map.info.height > 0U &&
-            received_map.data.size() ==
-            static_cast<std::size_t>(received_map.info.width) * received_map.info.height;
-        if (!map_valid)
-        {
-            RCLCPP_WARN(this->get_logger(),
-                "Map server answered with an empty map (lifecycle not ACTIVE yet?); retrying...");
-            rclcpp::sleep_for(std::chrono::seconds(1));
-        }
+        RCLCPP_INFO(this->get_logger(), "Get map service not available, waiting...");
     }
-    if (map_valid)
+
+    auto request = std::make_shared<nav_msgs::srv::GetMap::Request>();
+    auto future = map_client_->async_send_request(request);
+
+    if (rclcpp::spin_until_future_complete(this->get_node_base_interface(), future) ==
+        rclcpp::FutureReturnCode::SUCCESS)
     {
-        map_msg_ = std::make_shared<nav_msgs::msg::OccupancyGrid>(received_map);
+        map_msg_ = std::make_shared<nav_msgs::msg::OccupancyGrid>(future.get()->map);
         map_resolution_ = map_msg_->info.resolution;
         map_origin_ = Eigen::Vector3d(map_msg_->info.origin.position.x, map_msg_->info.origin.position.y,
                                       utils::geometry::quaternion_to_yaw(map_msg_->info.origin.orientation));
@@ -395,6 +361,10 @@ void ParticleFilter::get_omap()
 
         // Generate sensor model lookup table
         precompute_sensor_model();
+    }
+    else
+    {
+        RCLCPP_ERROR(this->get_logger(), "Failed to get map from map server");
     }
 }
 
@@ -1700,18 +1670,8 @@ void ParticleFilter::publish_tf(const Eigen::Vector3d &pose, const rclcpp::Time 
         odom.header.stamp = (stamp.nanoseconds() != 0) ? stamp : this->get_clock()->now();
         odom.header.frame_id = MAP_FRAME;
         odom.child_frame_id = BASE_FRAME;
-        // 병진 전방 외삽 (publish_extrapolation_sec, 0=off): 파이프라인 지연 보상.
-        // 부호 있는 v라 후진도 올바른 방향으로 밀린다. 요(헤딩)는 실측상 지연이 없어
-        // 건드리지 않는다. 필터/TF/EKF 상태는 불변 — 이 메시지의 위치만 민다.
-        double px = base_link_pose[0];
-        double py = base_link_pose[1];
-        if (PUBLISH_EXTRAPOLATION_SEC > 0.0)
-        {
-            px += current_velocity_ * PUBLISH_EXTRAPOLATION_SEC * std::cos(base_link_pose[2]);
-            py += current_velocity_ * PUBLISH_EXTRAPOLATION_SEC * std::sin(base_link_pose[2]);
-        }
-        odom.pose.pose.position.x = px;
-        odom.pose.pose.position.y = py;
+        odom.pose.pose.position.x = base_link_pose[0];
+        odom.pose.pose.position.y = base_link_pose[1];
         odom.pose.pose.orientation = utils::geometry::yaw_to_quaternion(pose[2]);
         odom.twist.twist.linear.x = current_velocity_;
         odom_pub_->publish(odom);

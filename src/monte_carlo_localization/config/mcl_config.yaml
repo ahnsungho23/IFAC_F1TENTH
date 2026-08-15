@@ -35,9 +35,9 @@ particle_filter:
     # 구 실차값 0.05는 저속(α≈0.05)에서 τ≈0.63 s — "MCL이 늦게 따라온다"의 주범이라
     # 0.3(τ≈77 ms)으로 상향 (2026-07-29). 지터가 늘면 0.2까지 낮춰볼 것.
     # 시뮬은 mcl_launch.py가 0.5로 오버라이드(모션 모델 튜닝과 한 세트).
-    smoothing_alpha: 0.15
+    smoothing_alpha: 0.2
     smoothing_velocity_full_mps: 3.0   # 이 속도 이상에서 속도 적응 보정이 최대
-    smoothing_alpha_gain: 0.28          # 최대 속도에서 base에 더해지는 폭 (0.3→0.7)
+    smoothing_alpha_gain: 0.4          # 최대 속도에서 base에 더해지는 폭 (0.3→0.7)
     smoothing_alpha_max: 0.8           # 유효 alpha 상한
 
     # ── Pose fusion EKF (odom 예측 + MCL 보정, 2026-07-29) ─────────────────────
@@ -104,15 +104,8 @@ particle_filter:
     scan_topic: "/scan"                # LaserScan input topic
     odom_topic: "/odom"                # Odometry input topic
     publish_odom: true                 # Publish pose as odometry message
-    # 발행 전방 외삽 [s]: /pf/pose/odom 위치를 진행방향으로 v×이 값만큼 밀어 발행 (0=off).
-    # 2026-08-14 실측: 출력 병진이 실제보다 ~90 ms 지연 (스캔 나이 + 연산 + 타이머 양자화 +
-    # VESC odom 직렬 지연 합). 코너에서 v×κ로 벽 방향 오차에 투영 — 90 ms 보정 시 코너 p95
-    # 0.101→0.000, 최악 코너 0.144→0.050, 직선 부작용 없음 (무장애물 백 5개 591프레임).
-    # 요는 지연이 없어 위치만 민다. 코드가 [0, 0.15]로 클램프. 재는 법: scratchpad
-    # mcl_decompose.py류 스캔-벽 잔차의 v×τ 스윕 최소점.
-    publish_extrapolation_sec: 0.09
     viz: true                          # Enable particle visualization
-    timer_frequency: 40.0              # MCL update frequency (Hz) - increased for simulation
+    timer_frequency: 20.0              # MCL update frequency (Hz) - increased for simulation
     
     # === TF FRAME NAMES ===
     map_frame: "map"                   # Global reference frame

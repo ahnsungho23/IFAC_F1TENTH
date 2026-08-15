@@ -95,12 +95,8 @@ particle_filter:
     scan_topic: "/scan"                # LaserScan input topic
     odom_topic: "/odom"                # Odometry input topic
     publish_odom: true                 # Publish pose as odometry message
-    # 발행 전방 외삽 [s] — 시뮬은 0 고정. 실차 90 ms 지연은 하드웨어 파이프라인(직렬 odom,
-    # 스캔 나이) 몫이라 시뮬엔 해당 없고, CMA 락스텝 결정론(비트 재현)이 이 값 0에 의존한다.
-    # 실차 값·근거는 mcl_config.yaml 참고.
-    publish_extrapolation_sec: 0.0
     viz: true                          # Enable particle visualization
-    timer_frequency: 30.0              # MCL update frequency (Hz) — sim/real 통일 30Hz
+    timer_frequency: 30.0              # MCL update frequency (Hz) - increased for simulation
     
     # === TF FRAME NAMES ===
     map_frame: "map"                   # Global reference frame
