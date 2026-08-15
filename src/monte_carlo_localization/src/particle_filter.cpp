@@ -81,12 +81,6 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
     this->declare_parameter("scan_topic", "/scan");
     this->declare_parameter("odom_topic", "/odom");
     this->declare_parameter("publish_odom", true);
-    // 발행 전방 외삽(2026-08-14): /pf/pose/odom의 위치를 진행방향으로 v×이 시간만큼 밀어
-    // 발행한다. 0 = 비활성. 근거: 무장애물 백 5개(2.0~5.0 m/s, 591프레임) 스캔-벽 잔차
-    // 분해에서 출력 병진이 실제보다 ~90 ms 지연(요는 지연 0)으로 확정 — 코너에서 v×κ로
-    // 벽 방향 오차에 투영돼 코너 p95 0.101/최악 0.158을 만들었고, 90 ms 외삽만으로 코너
-    // p95 0.000/최악 0.050이 된다. 필터 내부는 불변, 발행 직전 마지막 단계만 보정.
-    this->declare_parameter("publish_extrapolation_sec", 0.0);
     this->declare_parameter("viz", true);
     this->declare_parameter("timer_frequency", 100.0);
     
@@ -162,8 +156,6 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
 
     // ROS interface
     PUBLISH_ODOM = this->get_parameter("publish_odom").as_bool();
-    PUBLISH_EXTRAPOLATION_SEC =
-        std::clamp(this->get_parameter("publish_extrapolation_sec").as_double(), 0.0, 0.15);
     DO_VIZ = this->get_parameter("viz").as_bool();
     TIMER_FREQUENCY = this->get_parameter("timer_frequency").as_double();
 
@@ -291,23 +283,7 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
 
     // Load map
     get_omap();
-    // ⚠️ get_omap()은 map_server 응답을 기다리며 스핀한다. 그 사이 transient_local인
-    // /global_waypoints 콜백이 먼저 도착해 시작 포즈로 파티클을 이미 좁게 초기화할 수 있고,
-    // 그때 무조건 initialize_global()을 부르면 **정답 포즈를 랜덤 분산으로 덮어써** MCL이
-    // 끝내 수렴하지 못한다(2026-08-14: 시뮬 통합 검증 7회 중 4회가 이 경합으로 오차
-    // 4.2~12.7 m에 고정. 성공 런은 "글로벌 초기화 → 웨이포인트 초기화" 순서, 실패 런은
-    // 그 반대였다). 이미 초기화됐으면 건너뛴다.
-    if (auto_init_done_ || pose_initialized_from_rviz_)
-    {
-        RCLCPP_INFO(this->get_logger(),
-            "초기 포즈가 이미 설정됨 — 글로벌 랜덤 초기화를 건너뛴다 "
-            "(waypoints=%d, rviz=%d)",
-            static_cast<int>(auto_init_done_), static_cast<int>(pose_initialized_from_rviz_));
-    }
-    else
-    {
-        initialize_global();
-    }
+    initialize_global();
 
     // Update timer - use slower frequency during startup to reduce resource contention
     double startup_frequency = std::min(TIMER_FREQUENCY, 15.0);  // Cap at 15Hz during startup
@@ -1716,18 +1692,8 @@ void ParticleFilter::publish_tf(const Eigen::Vector3d &pose, const rclcpp::Time 
         odom.header.stamp = (stamp.nanoseconds() != 0) ? stamp : this->get_clock()->now();
         odom.header.frame_id = MAP_FRAME;
         odom.child_frame_id = BASE_FRAME;
-        // 병진 전방 외삽 (publish_extrapolation_sec, 0=off): 파이프라인 지연 보상.
-        // 부호 있는 v라 후진도 올바른 방향으로 밀린다. 요(헤딩)는 실측상 지연이 없어
-        // 건드리지 않는다. 필터/TF/EKF 상태는 불변 — 이 메시지의 위치만 민다.
-        double px = base_link_pose[0];
-        double py = base_link_pose[1];
-        if (PUBLISH_EXTRAPOLATION_SEC > 0.0)
-        {
-            px += current_velocity_ * PUBLISH_EXTRAPOLATION_SEC * std::cos(base_link_pose[2]);
-            py += current_velocity_ * PUBLISH_EXTRAPOLATION_SEC * std::sin(base_link_pose[2]);
-        }
-        odom.pose.pose.position.x = px;
-        odom.pose.pose.position.y = py;
+        odom.pose.pose.position.x = base_link_pose[0];
+        odom.pose.pose.position.y = base_link_pose[1];
         odom.pose.pose.orientation = utils::geometry::yaw_to_quaternion(pose[2]);
         odom.twist.twist.linear.x = current_velocity_;
         odom_pub_->publish(odom);

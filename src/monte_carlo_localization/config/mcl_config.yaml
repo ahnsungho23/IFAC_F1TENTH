@@ -104,13 +104,6 @@ particle_filter:
     scan_topic: "/scan"                # LaserScan input topic
     odom_topic: "/odom"                # Odometry input topic
     publish_odom: true                 # Publish pose as odometry message
-    # 발행 전방 외삽 [s]: /pf/pose/odom 위치를 진행방향으로 v×이 값만큼 밀어 발행 (0=off).
-    # 2026-08-14 실측: 출력 병진이 실제보다 ~90 ms 지연 (스캔 나이 + 연산 + 타이머 양자화 +
-    # VESC odom 직렬 지연 합). 코너에서 v×κ로 벽 방향 오차에 투영 — 90 ms 보정 시 코너 p95
-    # 0.101→0.000, 최악 코너 0.144→0.050, 직선 부작용 없음 (무장애물 백 5개 591프레임).
-    # 요는 지연이 없어 위치만 민다. 코드가 [0, 0.15]로 클램프. 재는 법: scratchpad
-    # mcl_decompose.py류 스캔-벽 잔차의 v×τ 스윕 최소점.
-    publish_extrapolation_sec: 0.09
     viz: true                          # Enable particle visualization
     timer_frequency: 40.0              # MCL update frequency (Hz) - increased for simulation
     

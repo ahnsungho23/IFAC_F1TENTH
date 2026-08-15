@@ -129,7 +129,7 @@ RacelineSplineParameters operationalParameters()
   p.margin_pass_speed_cap_mps = 2.0;
   p.approach_feasibility_decel_mps2 = 2.0;
   p.commitment_retention_reserve_fraction = 0.5;
-  p.localization_reserve_m = 0.06;
+  p.localization_reserve_m = 0.12;
   p.wall_safety_margin_m = 0.10;
   p.fallback_track_half_width_m = 1.50;
   p.pre_apex_distances_m = {11.442, 7.628, 3.814};
