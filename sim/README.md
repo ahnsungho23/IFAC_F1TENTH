@@ -15,8 +15,28 @@ Terminator 한 창에 분할 화면으로 한 번에 띄우는 스크립트 모�
 ~/2026_IFAC/sim/open_sim.sh --opp
 ```
 
-이 저장소는 상대차 `/opp_drive` 발행 노드를 포함하지 않습니다. 2-agent 시뮬레이션에서는
-f1sim_C 또는 별도 외부 노드가 `/opp_drive`를 발행해야 하며, `--opp`는 검출기만 추가합니다.
+`open_sim.sh --opp`는 검출기만 추가하므로 별도 `/opp_drive` 발행자가 필요합니다. 저장소의
+`opponent_simulator`를 함께 실행하려면 아래 전용 크루즈 실행기를 사용합니다.
+
+## 2대 크루즈 시나리오
+
+`launch_cruise.zsh`는 에고 차량의 전체 IFAC 스택과 별도로 `opponent_simulator`를 실행한다.
+상대차는 `/centerline_waypoints`를 Pure Pursuit로 추종하며 `/opp_drive`만 발행하므로 에고
+`/drive`와 충돌하지 않는다.
+
+```bash
+# 기본 맵
+~/Desktop/launch_cruise.zsh
+
+# 상대차 속도 배율 변경
+~/Desktop/launch_cruise.zsh --speed 0.7
+
+# 장애물 GUI 사용
+~/Desktop/launch_cruise.zsh --gui
+```
+
+`open_sim.sh --opp`는 검출기만 추가하는 일반 레이아웃이고, 상대차 자동 주행까지 포함하려면
+위의 전용 크루즈 실행기를 사용한다.
 
 Terminator가 없으면 먼저 설치합니다: `sudo apt install terminator`
 

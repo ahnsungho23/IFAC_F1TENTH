@@ -274,6 +274,10 @@ if [[ "$MODE" == "tab0" ]]; then
     CMAKE_BUILD_PARALLEL_LEVEL="$BUILD_WORKERS" colcon build --symlink-install --parallel-workers "$BUILD_WORKERS" || exec zsh
   fi
   source_stack || exec zsh
+  ros2 pkg prefix opponent_simulator >/dev/null 2>&1 || {
+    fail "opponent_simulator가 빌드되지 않았습니다. --no-build 없이 다시 실행하세요."
+    exec zsh
+  }
   validate_runtime || exec zsh
 
   if [[ "$CRUISE_RVIZ" == "true" ]] && ! command -v xacro >/dev/null 2>&1; then
