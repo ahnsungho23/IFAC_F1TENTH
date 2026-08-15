@@ -1362,6 +1362,13 @@ bool LocalPlannerNode::commitmentSideLocked(const EgoFrenetState & ego) const
   if (!has_commitment_ || committed_result_.kind != SplinePlanKind::kAvoidance) {
     return false;
   }
+  // margin slow pass(d=0 경로)의 go_left는 임의값이다 — 라인을 그대로 달리는 경로에는
+  // "측"이 없다. 이것이 잠금을 만들면, 장애물이 뒤늦게 라인을 막았을 때 재계획이 그 임의
+  // 측에만 갇혀 가능한 반대측 회피를 영원히 못 본다 (run15 실측: 우측 창 0.17 m가 유효한데
+  // 임의 "left" 잠금 때문에 해제 조건 B가 영구 false — 분 단위 크립 정체의 원인).
+  if (committed_result_.margin_pass) {
+    return false;
+  }
   const bool lateral_engaged = committed_result_.go_left ?
     ego.d >= commitment_lock_lateral_threshold_m_ :
     ego.d <= -commitment_lock_lateral_threshold_m_;
@@ -1782,7 +1789,8 @@ void LocalPlannerNode::handleSafeStopLatch(const EgoFrenetState & ego)
     buildCurrentManeuverInput(ego) :
     buildGuardedObstacles(buildInitialStabilizationInput());
   const std::optional<bool> locked_side =
-    has_commitment_ && committed_result_.kind == SplinePlanKind::kAvoidance ?
+    has_commitment_ && committed_result_.kind == SplinePlanKind::kAvoidance &&
+    !committed_result_.margin_pass ?
     std::optional<bool>(committed_result_.go_left) : std::nullopt;
   const bool allow_side_switch =
     !locked_side.has_value() ||
@@ -1790,6 +1798,12 @@ void LocalPlannerNode::handleSafeStopLatch(const EgoFrenetState & ego)
   RacelineSplineResult result = planner_.plan(
     ego, planning_obstacles, locked_side, allow_side_switch);
   const bool replanned_safe_stop = result.kind == SplinePlanKind::kSafeStop;
+  RCLCPP_WARN_THROTTLE(
+    get_logger(), *get_clock(), 3000,
+    "LATCH_REPLAN kind=%d locked_side=%s allow_switch=%d obstacles=%zu reason=%s",
+    static_cast<int>(result.kind),
+    locked_side.has_value() ? (locked_side.value() ? "L" : "R") : "-",
+    allow_side_switch ? 1 : 0, planning_obstacles.size(), result.reason.c_str());
   if (replanned_safe_stop) {
     latchSafeStop(std::move(result), ego, planning_obstacles);
   }
@@ -2793,7 +2807,8 @@ void LocalPlannerNode::runP0PlanningCycle(const P3CallbackSnapshot * snapshot)
   }
 
   const std::optional<bool> preferred_side =
-    has_commitment_ && committed_result_.kind == SplinePlanKind::kAvoidance ?
+    has_commitment_ && committed_result_.kind == SplinePlanKind::kAvoidance &&
+    !committed_result_.margin_pass ?
     std::optional<bool>(committed_result_.go_left) : std::nullopt;
   const bool allow_side_switch =
     !preferred_side.has_value() ||

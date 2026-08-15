@@ -2005,25 +2005,41 @@ std::size_t RacelineSplinePlanner::generateP3Candidates(
     candidate.entry_transition_scale = trace.entry_scale;
     candidate.exit_transition_scale = trace.exit_scale;
     candidate.effective_exit_transition_scale = trace.exit_scale;
+    // merge_s는 발행 세그먼트 끝이 아니라 d-offset이 실제로 d=0으로 복귀하는 지점이다.
+    // 뒤에서부터 |d|가 tolerance를 넘는 마지막 점을 찾고 그 다음 점을 합류점으로 쓴다.
+    std::size_t last_offset = 0U;
+    for (std::size_t i = 0U; i < candidate.path.wpnts.size(); ++i) {
+      if (std::abs(candidate.path.wpnts[i].d_m) > 1.0e-3) {
+        last_offset = i;
+      }
+    }
+    const std::size_t merge_index =
+      std::min(last_offset + 1U, candidate.path.wpnts.size() - 1U);
+    candidate.merge_s = candidate.path.wpnts[merge_index].s_m;
     // P3 trace의 지표를 그대로 믿지 않고 P0와 동일한 안전 계층으로 재측정한다. 순위·감사·
     // 하류 필드가 전부 같은 출처에서 나오도록 하기 위함이다.
+    //
+    // 장애물 충돌 검사는 이번 기동이 책임지는 범위(클러스터 끝 + post_merge_lookahead)
+    // 까지만 본다 (AGENTS.md: "A post-merge controller-tail obstacle must not make the
+    // current maneuver fail" — 커밋 경로 재검증이 merge horizon으로 지키는 원칙과 동일).
+    // 그 너머의 다음 장애물은 연쇄 기동과 안전정지 사다리의 몫이다: long exit은 설계상
+    // 뒤따르는 장애물 위로 오프셋을 끌고 가고, 연쇄 재계획이 도착 전에 경로를 교체한다
+    // (AGENTS의 maximum_exit_length 비활성 사유 참고). 이 horizon이 없으면 라인 위
+    // 장애물(예: map s=40.6)이 lookahead 안에 있는 동안 앞선 장애물(s=31.6)의 모든 회피
+    // 후보가 12 m 밖 꼬리 충돌로 전멸해 kNoSafePath→영구 크립이 된다 (2026-08-15 run18
+    // 실측). 트랙 경계·기하 검사는 horizon과 무관하게 경로 전체에 적용된다.
     measureCandidate(ego, visible, candidate);
     std::string validation_reason;
-    candidate.valid = validateCandidate(ego, candidate.path, visible, validation_reason);
+    const std::optional<double> collision_horizon =
+      std::isfinite(p3.cluster_end_forward_m) ?
+      std::optional<double>(
+      p3.cluster_end_forward_m + parameters_.post_merge_lookahead_m) :
+      std::nullopt;
+    candidate.valid = validateCandidate(
+      ego, candidate.path, visible, validation_reason, 0U, 0U, nullptr, collision_horizon);
     candidate.reason = candidate.valid ? std::string() :
       (validation_reason.empty() ? trace.rejection_reason : validation_reason);
     if (candidate.valid) {
-      // merge_s는 발행 세그먼트 끝이 아니라 d-offset이 실제로 d=0으로 복귀하는 지점이다.
-      // 뒤에서부터 |d|가 tolerance를 넘는 마지막 점을 찾고 그 다음 점을 합류점으로 쓴다.
-      std::size_t last_offset = 0U;
-      for (std::size_t i = 0U; i < candidate.path.wpnts.size(); ++i) {
-        if (std::abs(candidate.path.wpnts[i].d_m) > 1.0e-3) {
-          last_offset = i;
-        }
-      }
-      const std::size_t merge_index =
-        std::min(last_offset + 1U, candidate.path.wpnts.size() - 1U);
-      candidate.merge_s = candidate.path.wpnts[merge_index].s_m;
       ++feasible;
     }
     const bool candidate_valid = candidate.valid;

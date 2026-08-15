@@ -194,10 +194,29 @@ int main(int argc, char ** argv)
   obstacle.size = obstacle.d_left - obstacle.d_right;
   obstacle.is_static = true;
 
-  for (int i = 0; i < repeat - 1; ++i) {
-    (void)planner.plan(ego, {obstacle});
+  std::vector<f110_msgs::msg::Obstacle> obstacles{obstacle};
+  // 추가 장애물: HARNESS_OBS2="s0,s1,dr,dl" (노드는 시야 내 모든 장애물을 함께 계획한다 —
+  // 단일 장애물 재현이 노드와 다르게 성공할 때 여기부터 의심할 것)
+  if (const char * extra = std::getenv("HARNESS_OBS2")) {
+    f110_msgs::msg::Obstacle second = obstacle;
+    second.id = 2;
+    if (std::sscanf(
+        extra, "%lf,%lf,%lf,%lf",
+        &second.s_start, &second.s_end, &second.d_right, &second.d_left) == 4)
+    {
+      second.s_center = 0.5 * (second.s_start + second.s_end);
+      second.d_center = 0.5 * (second.d_right + second.d_left);
+      second.size = second.d_left - second.d_right;
+      obstacles.push_back(second);
+      std::printf(
+        "obs2 s=[%.2f,%.2f] d=[%+.2f,%+.2f]\n",
+        second.s_start, second.s_end, second.d_right, second.d_left);
+    }
   }
-  const auto result = planner.plan(ego, {obstacle});
+  for (int i = 0; i < repeat - 1; ++i) {
+    (void)planner.plan(ego, obstacles);
+  }
+  const auto result = planner.plan(ego, obstacles);
   const char * kind = "?";
   switch (result.kind) {
     case SplinePlanKind::kAvoidance: kind = "kAvoidance"; break;
