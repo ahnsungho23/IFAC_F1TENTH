@@ -40,7 +40,7 @@ public:
     maximum_speed_ = std::max(0.0, get_parameter("maximum_speed").as_double());
     trailing_mode_distance_ =
       declare_parameter<bool>("trailing_mode_distance", true);
-    trailing_gap_ = std::max(0.0, declare_parameter<double>("trailing_gap", 1.5));
+    trailing_gap_ = std::max(0.0, declare_parameter<double>("trailing_gap", 5.0));
     minimum_gap_ = std::max(0.0, declare_parameter<double>("minimum_gap", 0.8));
     ego_front_offset_ = std::max(0.0, declare_parameter<double>("ego_front_offset", 0.25));
     opponent_timeout_ = std::max(0.01, declare_parameter<double>("opponent_timeout", 0.15));
@@ -291,7 +291,7 @@ private:
   double publish_rate_hz_{50.0};
   double maximum_speed_{12.0};
   bool trailing_mode_distance_{true};
-  double trailing_gap_{1.5};
+  double trailing_gap_{5.0};
   double minimum_gap_{0.8};
   double ego_front_offset_{0.25};
   double opponent_timeout_{0.15};

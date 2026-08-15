@@ -11,7 +11,7 @@ cruise_controller_node:
     # crazy_controller의 trailing 파라미터 명명과 기본값을 계승한다.
     # true: trailing_gap을 고정 거리[m]로 사용, false: 시간 간격[s]으로 사용한다.
     trailing_mode_distance: true
-    trailing_gap: 1.5
+    trailing_gap: 5.0
     minimum_gap: 0.8
     trailing_p_gain: 1.0
     trailing_i_gain: 0.0
