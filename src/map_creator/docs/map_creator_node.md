@@ -21,12 +21,21 @@ IDLE ──(lap_count ≥ trigger, 원장 freeze)──▶ 판정+페인팅+저�
 어느 단계든 실패 → ABORTED (기존 라인 유지, 로컬 회피가 계속 커버)
 ```
 
-1. **원장(ledger)**: `/adaptive_obstacle_map`의 persistent `is_static` 장애물을 메시지에 이미
-   계산된 Frenet 중심의 wrap-aware 거리(`|Δs|<match_max_ds_m`,
-   `|Δd|<match_max_dd_m`)로 매칭합니다. map_creator는 Cartesian→Frenet 변환을 수행하지
-   않습니다. 입력 배열은 authoritative 전체 스냅샷으로 처리하므로 매칭되는 기하가 배열에서
-   사라진 시점부터만 `removal_miss_laps`를 계산하며, 토픽이 조용한 것만으로는 장애물을
-   제거하지 않습니다. 별도 재확인은 하지 않고 persistent 항목을 그대로 freeze합니다.
+1. **P0 투영 + 원장(ledger)**: `/adaptive_obstacle_map`은 Cartesian AABB만 싣습니다
+   (static_obstacle_map은 Frenet 기준선을 소유하지 않음 — 해당 패키지 문서 계약).
+   map_creator가 최초 `/global_waypoints`(불변 P0)로 만든 CLCS 변환기
+   (`global_planning::ClcsFrenetConverter`)로 각 AABB를 직접 투영해
+   `s_center/d_center/s_start/s_end/d_left/d_right`를 채웁니다. 투영은 중심 1점만 전역
+   투영하고 꼭짓점 4개는 중심 tangent 좌표계로 회전시키므로(obstacle_detector의
+   `aabb_frenet_projector`와 같은 구성) 꼭짓점이 인접 branch로 튀지 않습니다.
+   **한 장애물이라도 투영에 실패하면 스냅샷 전체를 거부**하고 원장을 갱신하지 않습니다
+   (개별 skip은 "소실"로 오역되어 `removal_miss_laps` 오삭제를 유발). 빈 배열은 정상
+   스냅샷입니다. 원장은 투영된 Frenet 중심의 wrap-aware 거리(`|Δs|<match_max_ds_m`,
+   `|Δd|<match_max_dd_m`)로 매칭하며, 매칭 기하가 배열에서 사라진 시점부터만
+   `removal_miss_laps`를 계산합니다(토픽 침묵·투영 실패는 소실이 아님).
+   별도 재확인은 하지 않고 persistent 항목을 그대로 freeze합니다.
+   모든 s/d가 항상 P0 기준이므로 스왑으로 `/global_waypoints`가 바뀌어도(검출기는 새
+   라인으로 CLCS를 재구축) 원장 매칭·소실 판정은 일관됩니다.
 2. **판정**: map_creator 전용 튜닝 파라미터(`decision.*`)로 만든 플래너 인스턴스에서
    ego = (장애물 s − 12 m, d=0, v=해당 waypoint 속도)로 평가. 좌 통과 → 오른쪽을 막음,
    우 통과 → 왼쪽을 막음, safe_stop → 해당 장애물은 **베이크하지 않음**(양쪽을 막으면
@@ -54,30 +63,44 @@ IDLE ──(lap_count ≥ trigger, 원장 freeze)──▶ 판정+페인팅+저�
    성공하면 `true`로 복원한다. `kArmed`(생성 검증 통과) 시점에는 절대 내리지
    않는다 — 스왑 전까지는 장애물을 통과하는 옛 라인 위라 회피가 계속 필요하다.
    파라미터 서비스 미준비 시 tick마다 재시도하며, 거부되면 로그만 남긴다.
+8. **제어 속도 상한 전송**: 같은 트리거(스왑 성공 직후)로 control 노드
+   (`control_node_name`)의 `max_speed` 파라미터를 `swap_max_speed_mps`(기본 7.0)로
+   내린다. baseline rollback 스왑에서는 `rollback_max_speed_mps`(>0일 때만)를 보내
+   복원한다. control_map_node는 max_speed에 한해 런타임 파라미터 변경을 수용한다
+   (그 외 파라미터는 기존대로 생성자 1회 읽기). 전송 실패·미준비 시 AVOID 게이트와
+   같은 tick 재시도 경로를 쓴다.
 
 ## 3. 구독·발행·서비스
 
 | 방향 | 이름 | 타입 | 용도 |
 | --- | --- | --- | --- |
-| 구독 | `/adaptive_obstacle_map` | `f110_msgs/ObstacleArray` | persistent confirmed 장애물 원장 |
-| 구독 | `/global_waypoints` | `f110_msgs/WpntArray` | 판정 기준선 (최초 1회 = 불변 P0) |
+| 구독 | `/adaptive_obstacle_map` | `f110_msgs/ObstacleArray` | persistent confirmed 장애물 (Cartesian AABB 계약, Frenet은 노드가 P0로 투영) |
+| 구독 | `/global_waypoints` | `f110_msgs/WpntArray` | 판정·투영 기준선 (최초 1회 = 불변 P0, adapter+CLCS 원자 캡처) |
 | 구독 | `/lap_count` | `std_msgs/Int32` | 트리거·스왑 랩 경계 |
 | 발행 | `/map_creator/status` | `std_msgs/String` | 단계·결과 |
 | 클라이언트 | `/global_planning/reload_waypoints` | `std_srvs/Trigger` | 원자 스왑/롤백 |
 | 클라이언트 | `state_machine_node/set_parameters` | `rcl_interfaces/SetParameters` | 스왑 성공 후 AVOID 게이트 갱신 |
+| 클라이언트 | `control_map_node/set_parameters` | `rcl_interfaces/SetParameters` | 스왑 성공 후 max_speed 상한 전송 (`swap_max_speed_mps`) |
 
 ## 4. 주요 파라미터 (`config/map_creator.yaml`)
 
 | 파라미터 | 기본값 | 설명 |
 | --- | ---: | --- |
 | `trigger_lap_count` | 2 | freeze 트리거 랩 (랩2 완주 = 1→2) |
-| `match_max_ds_m` | 1.0 | 입력에 이미 계산된 Frenet s의 wrap-aware 매칭 상한 |
-| `match_max_dd_m` | 0.3 | 입력에 이미 계산된 Frenet d의 매칭 상한 |
+| `match_max_ds_m` | 1.0 | P0 투영 Frenet s의 wrap-aware 매칭 상한 |
+| `match_max_dd_m` | 0.3 | P0 투영 Frenet d의 매칭 상한 |
+| `reference_alignment_tolerance_m` | 0.05 | P0 캡처 게이트: CLCS(기하 호길이) vs painter(s_m 보간)의 트랙길이·s 정합 허용치 |
+| `max_obstacle_projection_d_m` | 2.0 | 장애물 중심 투영 \|d\| 상한 (branch/이상치 거부, CLCS max_projection_distance에도 적용) |
 | `ego_lookback_m` | 12.0 | 판정 ego 위치 (최대 entry 11.43 m 절단 방지) |
 | `decision.*` | (스냅샷) | 좌/우 판정 파라미터 전체 — 미제시 항목은 배포 local_planning 값 |
 | `base_map_yaml` | `src/monte_carlo_localization/maps/map.yaml` | 페인팅할 원본 ROS map YAML |
 | `output_map_name` | obstacle_map | 저장·생성·리로드가 공유하는 디렉터리 이름 |
+| `initial_morph_kernel` | 1 | 1차 패스 morph_kernel 오버라이드 (≤0 = gui_params 값). 1이면 open/close 무효화로 페인팅 형상 보존 — 코너 케이스 이음새 κ 폭주 방지 |
+| `retry_morph_kernel` | 1 | 재시도 패스 morph_kernel 오버라이드 (≤0 = gui_params 값) |
 | `reseed_on_startup` | true | 시작 시 obstacle_map을 baseline 사본으로 재시딩 |
+| `control_node_name` | control_map_node | 스왑 후 max_speed를 보낼 control 노드 이름 |
+| `swap_max_speed_mps` | 7.0 | 장애물 라인 스왑 성공 직후 control max_speed 상한 [m/s] (≤0 = 미전송) |
+| `rollback_max_speed_mps` | 0.0 | baseline rollback 스왑 시 복원 값 [m/s] (≤0 = 미전송, 스왑 값 유지) |
 | `min_obstacle_clearance_after_m` | 0.42 | 새 라인↔장애물 최소 이격 (로컬 침묵 조건) |
 | `initial_smooth_sigma` | 4.1 | 1차 생성 smooth_sigma |
 | `retry_safety_width` | 0.4 | 게이트 실패 시에도 유지하는 safety_width |

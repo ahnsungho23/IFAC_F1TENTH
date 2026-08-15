@@ -13,11 +13,27 @@ map_creator_node:
     disable_avoid_after_swap: true
     state_machine_node_name: "state_machine_node"
 
+    # ---- post-swap control speed cap ----
+    # 장애물 회피 라인 스왑 성공 직후 control 노드의 max_speed를 런타임으로 내립니다
+    # (avoid 게이트와 같은 트리거·재시도 경로). <=0 이면 해당 전이에는 전송하지 않음.
+    # rollback_max_speed_mps: baseline rollback 스왑 시 복원 값 (0 = 미전송, 스왑 값 유지).
+    control_node_name: "control_map_node"
+    swap_max_speed_mps: 7.0
+    rollback_max_speed_mps: 0.0
+
     # ---- trigger / ledger ----
     trigger_lap_count: 2          # freeze at the lap-2 finish (lap_count 1 -> 2)
-    match_max_ds_m: 1.0           # 입력 메시지의 Frenet s 기준 wrap-aware 기하 매칭
-    match_max_dd_m: 0.3           # 입력 메시지의 Frenet d 기준 기하 매칭
+    match_max_ds_m: 1.0           # P0 투영 Frenet s 기준 wrap-aware 기하 매칭
+    match_max_dd_m: 0.3           # P0 투영 Frenet d 기준 기하 매칭
     removal_miss_laps: 2          # authoritative snapshot에서 사라진 뒤 rollback hysteresis
+
+    # ---- P0 projection (Cartesian AABB -> P0 Frenet) ----
+    # /adaptive_obstacle_map 은 Cartesian AABB만 싣는다(Frenet 필드 미기입,
+    # static_obstacle_map 문서 계약). map_creator가 불변 기준선 P0의 CLCS로
+    # 직접 투영하며, 한 장애물이라도 투영에 실패하면 스냅샷 전체를 거부한다
+    # (원장 오삭제 방지 fail-closed).
+    reference_alignment_tolerance_m: 0.05  # CLCS(기하 호길이) vs painter(s_m 보간) 정합 게이트
+    max_obstacle_projection_d_m: 2.0       # 중심 투영 |d| 상한 (branch/이상치 거부, 트랙 반폭보다 여유)
 
     # ---- side decision (full snapshot; MAP_CREATOR_PROPOSAL 4) ----
     # These are map_creator's OWN tuned values and intentionally differ from the
@@ -62,10 +78,17 @@ map_creator_node:
     reseed_on_startup: true       # start every session from the baseline copy
     python_executable: "python3"
     generation_timeout_sec: 120.0
-    initial_smooth_sigma: 4.1     # first generation pass
+    initial_smooth_sigma: 2.0     # first generation pass
     retry_safety_width: 0.4       # keep the same safety width; retry changes smoothing only
-    retry_smooth_sigma: 2.5       # retry generation pass
+    retry_smooth_sigma: 4.1       # retry generation pass
+    # 패스별 morph_kernel 오버라이드 (<=0 이면 gui_params 값 사용).
+    # 1 = free-mask open/close가 항등 연산이 되어 페인팅 형상이 보존됨.
+    # 실측(2026-08-15, 코너 장애물): kernel 5는 스퍼 침식으로 이음새 kappa 60~97
+    # 폭주 → 게이트 실패, kernel 1은 max|kappa| 0.54로 전 게이트 통과.
+    # 대신 장애물 이격 3.69 -> 0.34 m로 타이트해짐 (clearance 게이트로 감시).
+    initial_morph_kernel: 1       # first generation pass
+    retry_morph_kernel: 1         # retry generation pass
 
     # ---- regeneration / swap validation ----
-    min_obstacle_clearance_after_m: 0.42   # local-planner silence clearance
+    min_obstacle_clearance_after_m: 0.0   # local-planner silence clearance
     max_swap_deferral_laps: 3

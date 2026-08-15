@@ -24,7 +24,7 @@ f110_msgs::msg::Obstacle makeObstacle(int id, double s, double d, bool is_static
 
 }  // namespace
 
-TEST(ObstacleLedger, MatchesRepeatedObservationsBySuppliedFrenetGeometry)
+TEST(ObstacleLedger, MatchesRepeatedObservationsByProjectedFrenetGeometry)
 {
   map_creator::ObstacleLedger ledger;
   ledger.setMatchThresholds(1.0, 0.3);

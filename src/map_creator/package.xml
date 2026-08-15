@@ -17,6 +17,8 @@
   <depend>std_srvs</depend>
   <depend>f110_msgs</depend>
   <depend>local_planning</depend>
+  <!-- CLCS Frenet converter library (exported by global_planning as export_global_planning) -->
+  <depend>global_planning</depend>
   <depend>libopencv-dev</depend>
   <depend>yaml-cpp</depend>
   <depend>nlohmann-json-dev</depend>

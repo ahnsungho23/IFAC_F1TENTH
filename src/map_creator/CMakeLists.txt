@@ -15,6 +15,7 @@ find_package(std_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(f110_msgs REQUIRED)
 find_package(local_planning REQUIRED)   # exports local_planning::raceline_planner
+find_package(global_planning REQUIRED)  # exports the CLCS Frenet converter library
 find_package(OpenCV REQUIRED COMPONENTS core imgcodecs imgproc)
 find_package(yaml-cpp REQUIRED)
 find_package(nlohmann_json REQUIRED)
@@ -27,10 +28,12 @@ add_library(map_creator_core STATIC
   src/side_planner_adapter.cpp
   src/map_painter.cpp
   src/regeneration_manager.cpp
+  src/frenet_aabb.cpp
 )
 ament_target_dependencies(map_creator_core
   std_msgs
   f110_msgs
+  global_planning
 )
 target_link_libraries(map_creator_core
   local_planning::raceline_planner
@@ -76,6 +79,12 @@ if(BUILD_TESTING)
   if(TARGET test_map_painter)
     ament_target_dependencies(test_map_painter f110_msgs)
     target_link_libraries(test_map_painter map_creator_core)
+  endif()
+
+  ament_add_gtest(test_frenet_aabb test/test_frenet_aabb.cpp)
+  if(TARGET test_frenet_aabb)
+    ament_target_dependencies(test_frenet_aabb global_planning)
+    target_link_libraries(test_frenet_aabb map_creator_core)
   endif()
 endif()
 

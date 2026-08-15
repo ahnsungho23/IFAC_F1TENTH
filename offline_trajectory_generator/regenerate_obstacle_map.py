@@ -77,6 +77,9 @@ def main() -> int:
                              "clearance gate failed)")
     parser.add_argument("--smooth-sigma", type=float, default=None,
                         help="override gui_params smooth_sigma for a retry pass")
+    parser.add_argument("--morph-kernel", type=int, default=None,
+                        help="override gui_params morph_kernel (1 makes the free-mask "
+                             "open/close cleanup an identity so painted shapes stay intact)")
     parser.add_argument("--preview-png", action="store_true",
                         help="also write obstacle_debug_overlay.png (painted map + "
                              "centerline + regenerated raceline) for quick inspection")
@@ -94,6 +97,8 @@ def main() -> int:
         values["safety_width"] = float(args.safety_width)
     if args.smooth_sigma is not None:
         values["smooth_sigma"] = float(args.smooth_sigma)
+    if args.morph_kernel is not None:
+        values["morph_kernel"] = int(args.morph_kernel)
     gen_args = make_namespace(values)
 
     started = time.time()

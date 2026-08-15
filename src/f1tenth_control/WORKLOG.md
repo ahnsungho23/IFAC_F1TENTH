@@ -1843,3 +1843,19 @@ guard(F1), GapFollower 장애물 회피 폴백+failsafe(D1/D2 — 호출부만 �
 타겟은 유지). 유지: dt 클램프, 경로 신선도 중재+글로벌 폴백, 곡률 사전감속, max_speed,
 속도 램프, 조향 클램프/rate limit, engage 게이트, 런치 킥, yaw_rate_gain.
 `colcon build --packages-select f1tenth_control` 통과, 노드 기동 확인.
+
+---
+
+## 2026-08-15 — max_speed 런타임 파라미터 수용 (map_creator 스왑 연동)
+
+adaptive global path 파이프라인(map_creator)이 장애물 회피 글로벌 라인 스왑에 성공하면
+control의 직선 속도 캡을 즉시 내릴 수 있도록, `control_map_node`에 `max_speed` 한정
+런타임 파라미터 콜백을 추가했다 (`add_on_set_parameters_callback`, 양의 유한 double만
+수락, 그 외 파라미터는 기존 1회-읽기 유지).
+
+- 발신 측: `map_creator_node`가 reload 성공 콜백에서 AsyncParametersClient로
+  `max_speed = swap_max_speed_mps`(map_creator.yaml, 기본 7.0)를 전송. baseline rollback
+  스왑 시 `rollback_max_speed_mps`(>0일 때만) 복원. 서비스 미준비 시 10 Hz tick 재시도
+  (allow_avoid_transition 게이트와 동일 경로).
+- 참고: 현 트랙(플래너 프로파일 최대 ~6.16 m/s)에서는 7.0 캡이 실효 없음 — 프로파일
+  상한을 올리거나 긴 직선 트랙에서 의미가 생기는 예방적 상한이다.

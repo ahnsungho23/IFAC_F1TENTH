@@ -156,26 +156,46 @@ bool MapPainter::paintObstacle(
   const std::vector<std::vector<cv::Point>> polys{polygon};
   cv::fillPoly(working_, polys, cv::Scalar(0));
 
-  // Obstacle body: sampled left edge forward + right edge backward.
-  std::vector<cv::Point> body;
-  body.reserve(static_cast<std::size_t>(2 * n_samples));
-  for (int pass = 0; pass < 2; ++pass) {
-    const double edge_d = (pass == 0) ? obstacle.d_left : obstacle.d_right;
-    for (int i = 0; i < n_samples; ++i) {
-      const int idx = (pass == 0) ? i : (n_samples - 1 - i);
-      const double s =
-        obstacle.s_start + span * static_cast<double>(idx) / static_cast<double>(n_samples - 1);
-      double x = 0.0, y = 0.0, yaw = 0.0;
-      to_cart(s, edge_d, x, y, yaw);
-      cv::Point px;
-      if (worldToPixel(x, y, px)) {
-        body.push_back(px);
-      }
+  // Obstacle body. The Cartesian AABB is exact (no Frenet round trip that can
+  // underestimate extents on curves), so prefer it; fall back to the sampled
+  // Frenet edges when the AABB has no Cartesian data or leaves the image.
+  bool body_painted = false;
+  if (obstacle.has_cartesian) {
+    const double corner_x[4] = {obstacle.x_min, obstacle.x_max, obstacle.x_max, obstacle.x_min};
+    const double corner_y[4] = {obstacle.y_min, obstacle.y_min, obstacle.y_max, obstacle.y_max};
+    std::vector<cv::Point> rect(4);
+    bool inside = true;
+    for (int i = 0; i < 4 && inside; ++i) {
+      inside = worldToPixel(corner_x[i], corner_y[i], rect[static_cast<std::size_t>(i)]);
+    }
+    if (inside) {
+      const std::vector<std::vector<cv::Point>> rect_polys{rect};
+      cv::fillPoly(working_, rect_polys, cv::Scalar(0));
+      body_painted = true;
     }
   }
-  if (body.size() >= 3U) {
-    const std::vector<std::vector<cv::Point>> body_polys{body};
-    cv::fillPoly(working_, body_polys, cv::Scalar(0));
+  if (!body_painted) {
+    // Sampled left edge forward + right edge backward.
+    std::vector<cv::Point> body;
+    body.reserve(static_cast<std::size_t>(2 * n_samples));
+    for (int pass = 0; pass < 2; ++pass) {
+      const double edge_d = (pass == 0) ? obstacle.d_left : obstacle.d_right;
+      for (int i = 0; i < n_samples; ++i) {
+        const int idx = (pass == 0) ? i : (n_samples - 1 - i);
+        const double s =
+          obstacle.s_start + span * static_cast<double>(idx) / static_cast<double>(n_samples - 1);
+        double x = 0.0, y = 0.0, yaw = 0.0;
+        to_cart(s, edge_d, x, y, yaw);
+        cv::Point px;
+        if (worldToPixel(x, y, px)) {
+          body.push_back(px);
+        }
+      }
+    }
+    if (body.size() >= 3U) {
+      const std::vector<std::vector<cv::Point>> body_polys{body};
+      cv::fillPoly(working_, body_polys, cv::Scalar(0));
+    }
   }
   return true;
 }

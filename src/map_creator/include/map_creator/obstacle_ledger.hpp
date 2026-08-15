@@ -23,8 +23,9 @@ struct LedgerEntry
 };
 
 // Lap-scoped static obstacle ledger: accumulates /adaptive_obstacle_map snapshots during
-// lap 1 and matches repeated entries by the supplied Frenet geometry. This class never
-// performs Cartesian-to-Frenet conversion. ROS-free (message structs only).
+// lap 1 and matches repeated entries by their P0-projected Frenet geometry (the node
+// projects each Cartesian AABB onto the immutable P0 reference before updateSnapshot;
+// this class itself performs no conversion). ROS-free (message structs only).
 class ObstacleLedger
 {
 public:

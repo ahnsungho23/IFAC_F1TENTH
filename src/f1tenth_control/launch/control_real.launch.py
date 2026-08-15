@@ -45,7 +45,7 @@ def generate_launch_description():
     #    최고속 레버는 base_max_accel(아래)과 제동 권한이다.
     max_speed_arg = DeclareLaunchArgument(
         'max_speed',
-        default_value='8.0',
+        default_value='5.0',
         description='control_map_node 직선 최대 속도 [m/s]'
     )
 

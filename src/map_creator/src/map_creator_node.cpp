@@ -4,8 +4,9 @@
 // map_creator_node: lap-transition obstacle_map pipeline
 // (learning_adaptive_globalpath/MAP_CREATOR_PROPOSAL.md).
 //
-// Laps 1-2: consume the persistent confirmed-static snapshot
-// (/adaptive_obstacle_map) into a ledger.
+// Laps 1-2: project the persistent confirmed-static snapshot
+// (/adaptive_obstacle_map, Cartesian AABB contract) onto the immutable P0
+// reference (CLCS) and consume it into a ledger, all-or-nothing per snapshot.
 // At the lap 2 -> 3 transition: freeze -> per-obstacle left/right decision via
 // the SHARED RacelineSplinePlanner::plan (map_creator's own
 // tuned parameter snapshot) -> paint the NON-chosen side to the wall on a copy
@@ -39,6 +40,9 @@
 #include "f110_msgs/msg/obstacle_array.hpp"
 #include "f110_msgs/msg/wpnt_array.hpp"
 
+#include "global_planning/clcs_frenet_converter.hpp"
+
+#include "map_creator/frenet_aabb.hpp"
 #include "map_creator/map_painter.hpp"
 #include "map_creator/obstacle_ledger.hpp"
 #include "map_creator/regeneration_manager.hpp"
@@ -88,6 +92,12 @@ public:
       state_machine_param_client_ = std::make_shared<rclcpp::AsyncParametersClient>(
         this, state_machine_node_name_);
     }
+    if (!control_node_name_.empty() &&
+      (swap_max_speed_mps_ > 0.0 || rollback_max_speed_mps_ > 0.0))
+    {
+      control_param_client_ = std::make_shared<rclcpp::AsyncParametersClient>(
+        this, control_node_name_);
+    }
 
     timer_ = create_wall_timer(
       std::chrono::milliseconds(100), std::bind(&MapCreatorNode::tick, this));
@@ -107,6 +117,11 @@ private:
       "reload_service", "/global_planning/reload_waypoints");
     declare_parameter<bool>("disable_avoid_after_swap", true);
     declare_parameter<std::string>("state_machine_node_name", "state_machine_node");
+    // Post-swap control speed cap: send max_speed to the control node right
+    // after a successful obstacle-line swap. <= 0 disables the send.
+    declare_parameter<std::string>("control_node_name", "control_map_node");
+    declare_parameter<double>("swap_max_speed_mps", 0.0);
+    declare_parameter<double>("rollback_max_speed_mps", 0.0);
 
     declare_parameter<int>("trigger_lap_count", 2);
     declare_parameter<double>("match_max_ds_m", 1.0);
@@ -114,6 +129,11 @@ private:
     declare_parameter<int>("removal_miss_laps", 2);
 
     declare_parameter<double>("ego_lookback_m", 12.0);
+
+    // P0 projection: /adaptive_obstacle_map carries Cartesian AABBs only; this
+    // node projects them onto the immutable P0 reference itself.
+    declare_parameter<double>("reference_alignment_tolerance_m", 0.05);
+    declare_parameter<double>("max_obstacle_projection_d_m", 2.0);
 
     // Side-decision parameter snapshot. Unlisted planner parameters keep the
     // deployed local_planning.yaml values as C++ defaults here.
@@ -156,6 +176,9 @@ private:
     declare_parameter<double>("initial_smooth_sigma", 4.1);
     declare_parameter<double>("retry_safety_width", 0.4);
     declare_parameter<double>("retry_smooth_sigma", 2.5);
+    // Per-pass morph_kernel override; <= 0 keeps the gui_params value.
+    declare_parameter<int>("initial_morph_kernel", 0);
+    declare_parameter<int>("retry_morph_kernel", 0);
 
     declare_parameter<double>("min_obstacle_clearance_after_m", 0.42);
     declare_parameter<int>("max_swap_deferral_laps", 3);
@@ -169,6 +192,9 @@ private:
     reload_service_ = get_parameter("reload_service").as_string();
     disable_avoid_after_swap_ = get_parameter("disable_avoid_after_swap").as_bool();
     state_machine_node_name_ = get_parameter("state_machine_node_name").as_string();
+    control_node_name_ = get_parameter("control_node_name").as_string();
+    swap_max_speed_mps_ = get_parameter("swap_max_speed_mps").as_double();
+    rollback_max_speed_mps_ = get_parameter("rollback_max_speed_mps").as_double();
 
     trigger_lap_count_ = static_cast<int>(get_parameter("trigger_lap_count").as_int());
     ledger_.setMatchThresholds(
@@ -177,6 +203,10 @@ private:
     removal_miss_laps_ = static_cast<int>(get_parameter("removal_miss_laps").as_int());
 
     ego_lookback_m_ = get_parameter("ego_lookback_m").as_double();
+    reference_alignment_tolerance_m_ =
+      get_parameter("reference_alignment_tolerance_m").as_double();
+    max_obstacle_projection_d_m_ =
+      get_parameter("max_obstacle_projection_d_m").as_double();
 
     decision_params_.transition_distance_scales =
       get_parameter("decision.transition_distance_scales").as_double_array();
@@ -224,6 +254,10 @@ private:
     initial_smooth_sigma_ = get_parameter("initial_smooth_sigma").as_double();
     retry_safety_width_ = get_parameter("retry_safety_width").as_double();
     retry_smooth_sigma_ = get_parameter("retry_smooth_sigma").as_double();
+    initial_morph_kernel_ =
+      static_cast<int>(get_parameter("initial_morph_kernel").as_int());
+    retry_morph_kernel_ =
+      static_cast<int>(get_parameter("retry_morph_kernel").as_int());
 
     min_clearance_after_ = get_parameter("min_obstacle_clearance_after_m").as_double();
     max_swap_deferral_laps_ =
@@ -251,17 +285,61 @@ private:
     if (adapter_) {
       return;  // immutable baseline: the FIRST published line is the reference P0
     }
+    // Atomic capture: adapter (side decision + painting) and CLCS (obstacle
+    // projection) must both come from this message or neither may be kept.
     auto adapter = std::make_unique<SidePlannerAdapter>(decision_params_);
     std::string error;
     if (!adapter->setReference(*msg, &error)) {
       RCLCPP_WARN(get_logger(), "reference rejected: %s", error.c_str());
       return;
     }
+
+    std::vector<global_planning::ReferenceWaypoint> ref;
+    ref.reserve(msg->wpnts.size());
+    for (const auto & w : msg->wpnts) {
+      ref.push_back({w.x_m, w.y_m, w.s_m});
+    }
+    global_planning::ClcsFrenetConfig cfg;  // closed_loop=true defaults
+    if (max_obstacle_projection_d_m_ > 0.0) {
+      cfg.max_projection_distance = max_obstacle_projection_d_m_;
+    }
+    global_planning::ClcsFrenetConverter::Ptr clcs;
+    try {
+      clcs = global_planning::ClcsFrenetConverter::create(ref, cfg, 1U);
+    } catch (const std::exception & e) {
+      // The latched line republishes identical data every 2 s, so a build
+      // failure is deterministic: abort instead of silently retrying forever.
+      abort(std::string("P0 CLCS build failed: ") + e.what());
+      return;
+    }
+    // CLCS s is geometric arc length; the painter interpolates by waypoint s_m
+    // and infers the loop closure from the median spacing. Refuse to mix the
+    // two frames when they disagree beyond tolerance.
+    const double clcs_length = clcs->stats().track_length;
+    const double s_max_error = clcs->stats().waypoint_s_max_error;
+    const double length_diff = std::abs(clcs_length - adapter->trackLength());
+    if (s_max_error > reference_alignment_tolerance_m_ ||
+      length_diff > reference_alignment_tolerance_m_)
+    {
+      std::ostringstream why;
+      why << "P0 reference frames disagree: waypoint_s_max_error=" << s_max_error
+          << " m, |clcs_len - painter_len|=" << length_diff
+          << " m, tolerance=" << reference_alignment_tolerance_m_ << " m";
+      abort(why.str());
+      return;
+    }
+
     adapter_ = std::move(adapter);
-    ledger_.setTrackLength(adapter_->trackLength());
+    clcs_ = std::move(clcs);
+    reference_frame_id_ = msg->header.frame_id;
+    ledger_.setTrackLength(clcs_length);
     RCLCPP_INFO(get_logger(),
-      "baseline reference captured (%zu wpnts, track %.2f m)",
-      msg->wpnts.size(), adapter_->trackLength());
+      "baseline reference captured (%zu wpnts, track %.2f m, s alignment %.4f mm)",
+      msg->wpnts.size(), clcs_length, s_max_error * 1000.0);
+    if (pending_obs_) {
+      const auto pending = std::move(pending_obs_);
+      ingestObstacles(*pending);
+    }
   }
 
   void lapCallback(const std_msgs::msg::Int32::SharedPtr msg)
@@ -271,7 +349,68 @@ private:
 
   void obstaclesCallback(const f110_msgs::msg::ObstacleArray::SharedPtr msg)
   {
-    ledger_.updateSnapshot(msg->obstacles, lap_count_);
+    if (!clcs_) {
+      pending_obs_ = msg;  // latched arrival order vs /global_waypoints is undefined
+      return;
+    }
+    ingestObstacles(*msg);
+  }
+
+  // All-or-nothing: /adaptive_obstacle_map is an authoritative full snapshot,
+  // so one bad element must invalidate the whole message. Dropping only the
+  // failed obstacle would read as a real disappearance and start the removal
+  // hysteresis (ledger contract: transport silence is not absence — and
+  // neither is a projection failure). An empty array is a valid snapshot.
+  void ingestObstacles(const f110_msgs::msg::ObstacleArray & msg)
+  {
+    if (!reference_frame_id_.empty() && !msg.header.frame_id.empty() &&
+      msg.header.frame_id != reference_frame_id_)
+    {
+      rejectSnapshot(
+        "frame mismatch: snapshot '" + msg.header.frame_id +
+        "' vs P0 '" + reference_frame_id_ + "'");
+      return;
+    }
+    std::vector<f110_msgs::msg::Obstacle> projected;
+    projected.reserve(msg.obstacles.size());
+    for (const auto & ob : msg.obstacles) {
+      if (!ob.is_static) {
+        continue;  // reclassified-dynamic entries leave the static contract
+      }
+      if (!ob.has_cartesian) {
+        rejectSnapshot(
+          "obstacle id=" + std::to_string(ob.id) + " has no Cartesian AABB");
+        return;
+      }
+      const auto bounds = projectCartesianAabb(
+        *clcs_, ob.x_min, ob.x_max, ob.y_min, ob.y_max,
+        max_obstacle_projection_d_m_);
+      if (!bounds) {
+        rejectSnapshot(
+          "obstacle id=" + std::to_string(ob.id) +
+          " P0 projection failed (degenerate AABB, invalid conversion, or |d| > " +
+          std::to_string(max_obstacle_projection_d_m_) + " m)");
+        return;
+      }
+      auto out = ob;
+      out.s_center = bounds->s_center;
+      out.d_center = bounds->d_center;
+      out.s_start = bounds->s_start;
+      out.s_end = bounds->s_end;
+      out.d_left = bounds->d_left;
+      out.d_right = bounds->d_right;
+      projected.push_back(out);
+    }
+    snapshot_rejected_ = false;
+    ledger_.updateSnapshot(projected, lap_count_);
+  }
+
+  void rejectSnapshot(const std::string & why)
+  {
+    snapshot_rejected_ = true;
+    RCLCPP_WARN(get_logger(), "obstacle snapshot rejected (ledger unchanged): %s",
+      why.c_str());
+    publishStatus("snapshot rejected: " + why);
   }
 
   // ---------------------------------------------------------------- pipeline
@@ -419,7 +558,8 @@ private:
 
   std::string buildDriverCommand(
     const std::optional<double> & safety_width,
-    const std::optional<double> & smooth_sigma) const
+    const std::optional<double> & smooth_sigma,
+    const int morph_kernel) const
   {
     std::ostringstream cmd;
     cmd << "timeout " << static_cast<int>(generation_timeout_sec_) << " "
@@ -436,15 +576,19 @@ private:
     if (smooth_sigma.has_value()) {
       cmd << " --smooth-sigma " << *smooth_sigma;
     }
+    if (morph_kernel > 0) {
+      cmd << " --morph-kernel " << morph_kernel;
+    }
     cmd << " >> " << outputDir() << "/regen_log.txt 2>&1";
     return cmd.str();
   }
 
   void startGeneration(
     const std::optional<double> & safety_width,
-    const std::optional<double> & smooth_sigma)
+    const std::optional<double> & smooth_sigma,
+    const int morph_kernel)
   {
-    if (!regen_.start(buildDriverCommand(safety_width, smooth_sigma))) {
+    if (!regen_.start(buildDriverCommand(safety_width, smooth_sigma, morph_kernel))) {
       abort("generation already in flight");
       return;
     }
@@ -474,6 +618,10 @@ private:
           // so the GLOBAL->AVOID entry gate is no longer needed. A baseline
           // rollback swap (frozen_ empty) restores the gate instead.
           scheduleAvoidGate(frozen_.empty());
+          // Same trigger for the control speed cap: cap on the obstacle line,
+          // optionally restore on baseline rollback.
+          scheduleControlMaxSpeed(
+            frozen_.empty() ? rollback_max_speed_mps_ : swap_max_speed_mps_);
         } else {
           abort("reload rejected: " + response->message);
         }
@@ -565,13 +713,59 @@ private:
       });
   }
 
+  // -------------------------------------------- control max_speed cap update
+  void scheduleControlMaxSpeed(double speed_mps)
+  {
+    if (!control_param_client_ || speed_mps <= 0.0) {
+      return;  // disabled for this transition
+    }
+    pending_control_max_speed_ = speed_mps;
+    trySendControlMaxSpeed();
+  }
+
+  void trySendControlMaxSpeed()
+  {
+    if (!pending_control_max_speed_.has_value() || !control_param_client_) {
+      return;
+    }
+    if (!control_param_client_->service_is_ready()) {
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
+        "control '%s' parameter service not ready; retrying max_speed update",
+        control_node_name_.c_str());
+      return;
+    }
+    const double speed = *pending_control_max_speed_;
+    pending_control_max_speed_.reset();
+    control_param_client_->set_parameters(
+      {rclcpp::Parameter("max_speed", speed)},
+      [this, speed](
+        std::shared_future<std::vector<rcl_interfaces::msg::SetParametersResult>> future) {
+        for (const auto & result : future.get()) {
+          if (!result.successful) {
+            RCLCPP_ERROR(get_logger(),
+              "max_speed=%.2f rejected by control: %s", speed, result.reason.c_str());
+            publishStatus("control max_speed update rejected");
+            return;
+          }
+        }
+        RCLCPP_INFO(get_logger(), "control max_speed set to %.2f m/s", speed);
+        publishStatus("control max_speed " + std::to_string(speed));
+      });
+  }
+
   // ---------------------------------------------------------------- FSM tick
   void tick()
   {
     trySendAvoidGate();
+    trySendControlMaxSpeed();
     switch (stage_) {
       case Stage::kIdle:
         if (!fired_ && adapter_ && lap_count_ >= trigger_lap_count_) {
+          if (snapshot_rejected_) {
+            abort("trigger lap reached but the last obstacle snapshot was "
+              "rejected (projection failure); refusing to freeze a stale ledger");
+            break;
+          }
           fired_ = true;
           frozen_ = ledger_.snapshot();
           baked_decisions_.clear();
@@ -584,7 +778,7 @@ private:
             lap_count_, frozen_.size());
           if (runDecisionAndPaint()) {
             retried_ = false;
-            startGeneration(std::nullopt, initial_smooth_sigma_);
+            startGeneration(std::nullopt, initial_smooth_sigma_, initial_morph_kernel_);
           }
         }
         break;
@@ -602,7 +796,7 @@ private:
             RCLCPP_WARN(get_logger(),
               "generation gates failed; retrying with safety_width=%.2f, smooth_sigma=%.2f",
               retry_safety_width_, retry_smooth_sigma_);
-            startGeneration(retry_safety_width_, retry_smooth_sigma_);
+            startGeneration(retry_safety_width_, retry_smooth_sigma_, retry_morph_kernel_);
           } else {
             abort("generation failed (exit code " + std::to_string(code) +
               "), see " + outputDir() + "/regen_log.txt");
@@ -649,7 +843,7 @@ private:
               "obstacle set changed: regenerating with %zu obstacle(s)", frozen_.size());
             if (runDecisionAndPaint()) {
               retried_ = false;
-              startGeneration(std::nullopt, initial_smooth_sigma_);
+              startGeneration(std::nullopt, initial_smooth_sigma_, initial_morph_kernel_);
             }
           }
         }
@@ -666,9 +860,14 @@ private:
   std::string reload_service_;
   bool disable_avoid_after_swap_{true};
   std::string state_machine_node_name_;
+  std::string control_node_name_;
+  double swap_max_speed_mps_{0.0};
+  double rollback_max_speed_mps_{0.0};
   int trigger_lap_count_{2};
   int removal_miss_laps_{2};
   double ego_lookback_m_{12.0};
+  double reference_alignment_tolerance_m_{0.05};
+  double max_obstacle_projection_d_m_{2.0};
   local_planning::RacelineSplineParameters decision_params_;
   std::string base_map_yaml_;
   MapPainterConfig painter_config_;
@@ -679,11 +878,17 @@ private:
   double initial_smooth_sigma_{4.1};
   double retry_safety_width_{0.4};
   double retry_smooth_sigma_{2.5};
+  int initial_morph_kernel_{0};
+  int retry_morph_kernel_{0};
   double min_clearance_after_{0.42};
   int max_swap_deferral_laps_{3};
 
   ObstacleLedger ledger_;
   std::unique_ptr<SidePlannerAdapter> adapter_;
+  global_planning::ClcsFrenetConverter::Ptr clcs_;
+  std::string reference_frame_id_;
+  f110_msgs::msg::ObstacleArray::SharedPtr pending_obs_;
+  bool snapshot_rejected_{false};
   std::unique_ptr<MapPainter> painter_;
   RegenerationManager regen_;
 
@@ -705,6 +910,8 @@ private:
   rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr reload_client_;
   rclcpp::AsyncParametersClient::SharedPtr state_machine_param_client_;
   std::optional<bool> pending_avoid_gate_;
+  rclcpp::AsyncParametersClient::SharedPtr control_param_client_;
+  std::optional<double> pending_control_max_speed_;
   rclcpp::TimerBase::SharedPtr timer_;
 };
 
