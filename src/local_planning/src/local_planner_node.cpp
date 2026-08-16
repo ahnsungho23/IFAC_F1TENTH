@@ -23,6 +23,7 @@
 #include <iomanip>
 #include <limits>
 #include <memory>
+#include <numeric>
 #include <sstream>
 #include <stdexcept>
 #include <utility>
@@ -436,6 +437,12 @@ void LocalPlannerNode::initializeParameters()
     declare_parameter<double>("uncertainty_min_lateral_inflation_m", 0.0);
   guard_parameters_.maximum_lateral_inflation_m =
     declare_parameter<double>("uncertainty_max_lateral_inflation_m", 0.0);
+  guard_parameters_.measured_lateral_inflation_floor_m =
+    declare_parameter<double>("uncertainty_measured_lateral_floor_m", 0.02);
+  face_observation_window_size_ = static_cast<std::size_t>(
+    std::max<int>(2, declare_parameter<int>("uncertainty_face_window_samples", 40)));
+  face_observation_min_samples_ = static_cast<std::size_t>(
+    std::max<int>(2, declare_parameter<int>("uncertainty_face_min_samples", 12)));
   commitment_lock_lateral_threshold_m_ =
     declare_parameter<double>("commitment_lock_lateral_threshold_m", 0.10);
   commitment_lock_longitudinal_m_ =
@@ -775,6 +782,7 @@ void LocalPlannerNode::onObstacles(const f110_msgs::msg::ObstacleArray::SharedPt
       latest_obstacle_source_stamp_ns_, incoming_source_stamp_ns);
   }
   static_obstacles_ = std::move(accepted_obstacles);
+  updateFaceObservationWindows();
   has_obstacles_message_ = true;
   last_obstacles_time_ = lockstep_mode_ ? rclcpp::Time(message->header.stamp) : now();
   ++obstacles_message_sequence_;
@@ -979,6 +987,53 @@ LocalPlannerNode::buildInitialStabilizationInput() const
   return result;
 }
 
+void LocalPlannerNode::updateFaceObservationWindows()
+{
+  for (const auto & obstacle : static_obstacles_) {
+    auto & window = face_observation_windows_[obstacle.id];
+    window.right.push_back(std::min(obstacle.d_right, obstacle.d_left));
+    window.left.push_back(std::max(obstacle.d_right, obstacle.d_left));
+    while (window.right.size() > face_observation_window_size_) {
+      window.right.pop_front();
+      window.left.pop_front();
+    }
+  }
+  // Drop histories for IDs that are no longer reported so a recycled ID cannot inherit another
+  // object's face statistics.
+  for (auto it = face_observation_windows_.begin(); it != face_observation_windows_.end(); ) {
+    const bool present = std::any_of(
+      static_obstacles_.begin(), static_obstacles_.end(),
+      [&it](const auto & candidate) {return candidate.id == it->first;});
+    it = present ? std::next(it) : face_observation_windows_.erase(it);
+  }
+}
+
+ObstacleFaceUncertainty LocalPlannerNode::faceUncertaintyFor(int obstacle_id) const
+{
+  ObstacleFaceUncertainty faces;
+  const auto entry = face_observation_windows_.find(obstacle_id);
+  if (entry == face_observation_windows_.end()) {
+    return faces;
+  }
+  const auto sample_sigma = [this](const std::deque<double> & samples) {
+      if (samples.size() < face_observation_min_samples_) {
+        return -1.0;
+      }
+      const double mean =
+        std::accumulate(samples.begin(), samples.end(), 0.0) /
+        static_cast<double>(samples.size());
+      double sum_squares = 0.0;
+      for (const double sample : samples) {
+        const double deviation = sample - mean;
+        sum_squares += deviation * deviation;
+      }
+      return std::sqrt(sum_squares / static_cast<double>(samples.size() - 1U));
+    };
+  faces.sigma_right_m = sample_sigma(entry->second.right);
+  faces.sigma_left_m = sample_sigma(entry->second.left);
+  return faces;
+}
+
 std::vector<f110_msgs::msg::Obstacle> LocalPlannerNode::buildGuardedObstacles(
   const std::vector<f110_msgs::msg::Obstacle> & obstacles) const
 {
@@ -986,7 +1041,9 @@ std::vector<f110_msgs::msg::Obstacle> LocalPlannerNode::buildGuardedObstacles(
   guarded.reserve(obstacles.size());
   for (const auto & obstacle : obstacles) {
     guarded.push_back(
-      buildUncertaintyGuard(obstacle, planner_.trackLength(), guard_parameters_));
+      buildUncertaintyGuard(
+        obstacle, planner_.trackLength(), guard_parameters_,
+        faceUncertaintyFor(obstacle.id)));
   }
   return guarded;
 }

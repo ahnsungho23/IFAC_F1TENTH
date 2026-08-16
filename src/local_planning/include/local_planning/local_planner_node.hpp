@@ -16,6 +16,7 @@
 #define LOCAL_PLANNING__LOCAL_PLANNER_NODE_HPP_
 
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <map>
 #include <mutex>
@@ -263,6 +264,24 @@ private:
   std::map<int, int> next_observation_counts_;
   std::map<int, f110_msgs::msg::Obstacle> committed_obstacle_guards_;
   std::set<int> completed_obstacle_ids_;
+
+  // 동일 ID 장애물의 최근 관측 창(면별). 가드 팽창을 상수가 아니라 이 면이 실제로 얼마나
+  // 흔들렸는지로 정하기 위한 것이다 — 근거는 ObstacleFaceUncertainty 주석 참조.
+  //
+  // 창(window)인 이유: 박스는 접근하면서 정당하게 자란다(14:30 백, 장애물 2의 라인 쪽 면이
+  // 7 m에서 -0.156, 6 m 안쪽에서 -0.278로 수렴). 전체 이력 분산은 그 성장을 영원히 기억해
+  // 수렴한 뒤에도 크게 남는다. 최근 창은 성장 중에는 크고 수렴 후에는 작아져, "지금 이 면을
+  // 얼마나 믿을 수 있나"를 그대로 나타낸다.
+  struct FaceObservationWindow
+  {
+    std::deque<double> right;
+    std::deque<double> left;
+  };
+  std::map<int, FaceObservationWindow> face_observation_windows_;
+  std::size_t face_observation_window_size_{40};
+  std::size_t face_observation_min_samples_{12};
+  void updateFaceObservationWindows();
+  ObstacleFaceUncertainty faceUncertaintyFor(int obstacle_id) const;
 
   bool require_obstacles_message_{true};
   double obstacle_stale_timeout_sec_{0.75};

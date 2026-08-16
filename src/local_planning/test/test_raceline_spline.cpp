@@ -393,6 +393,70 @@ TEST(RacelineSplinePlanner, PrefersExitThatClearsTheFollowingObstacle)
 // 이라고 적어서는 안 된다. 종전에는 left_evaluated/right_evaluated가 죽은 변수라 양측을
 // 모두 평가하고 양측 다 실패한 경우에도 항상 "alternate side locked"가 찍혔고, 실제 사유
 // (NO_VALID_SIDE_DOMAIN 등)는 뒤에 붙어 로그에서 잘려나갔다 (2026-08-16 14:18 백 오진).
+// 2026-08-16 14:30 백의 s=12.28 영구 정지를 그 판정 지점에서 재현한다.
+//
+// 상황: 장애물 2가 s=15.6~16.1, d=[-0.28,+0.33]. 우측 회랑 -1.12 → 실여유 0.84 m.
+// 시뮬 파라미터로 필요폭은 장애물면 0.393 + 벽 0.243 = 0.637 m이므로 물리적으로 통과
+// 가능하다. 그런데 가드가 양면에 상수 0.14를 물리자 후보 14개가 전부 탈락하고 차가
+// 멈춰 사람이 꺼내야 했다. 면별 실측(라인 쪽 σ=0.007 → 3σ=0.021)이면 통과한다.
+//
+// 이 테스트가 잡는 성질: 조용한 면의 팽창이 상수로 되돌아가면 즉시 깨진다.
+RacelineSplineParameters fieldParameters()
+{
+  RacelineSplineParameters parameters;
+  parameters.detection_lookahead_m = 15.0;
+  parameters.obstacle_longitudinal_padding_m = 0.4149924657737441;
+  parameters.vehicle_half_width_m = 0.1435;
+  parameters.vehicle_length_m = 0.56;
+  parameters.safety_margin_m = 0.014789254299520768;
+  parameters.tracking_error_lut_speed_bins_mps = {0.0, 1.5, 3.0, 4.5, 6.5};
+  parameters.tracking_error_lut_curvature_bins_radpm = {0.0, 0.2, 0.5, 0.9, 1.316266519079011};
+  parameters.tracking_error_lut_values_m = {                       // 시뮬 실측표
+    0.115, 0.115, 0.115, 0.125, 0.125,
+    0.175, 0.245, 0.280, 0.280, 0.280,
+    0.175, 0.245, 0.280, 0.280, 0.280,
+    0.185, 0.245, 0.280, 0.280, 0.280,
+    0.185, 0.245, 0.280, 0.280, 0.280};
+  parameters.avoidance_velocity_limit_speed_bins_mps =
+  {0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0};
+  parameters.avoidance_velocity_limit_lateral_accel_mps2 =
+  {7.0, 7.0, 7.0, 7.0, 7.0, 7.0, 6.5, 6.5, 6.5, 6.5};
+  parameters.avoidance_minimum_speed_mps = 1.0;
+  parameters.localization_reserve_m = 0.06;
+  parameters.wall_safety_margin_m = 0.10;
+  parameters.maximum_target_offset_m = 1.50;
+  parameters.target_d_candidate_count = 5;
+  parameters.maximum_lateral_slope = 0.8;
+  parameters.maximum_curvature_radpm = 1.316266519079011;
+  parameters.maximum_curvature_rate_radpm2 = 20.0;
+  return parameters;
+}
+
+TEST(RacelineSplinePlanner, MeasuredQuietFaceInflationKeepsTheEightyCentimetreGapPassable)
+{
+  RacelineSplinePlanner planner(fieldParameters());
+  // 균일 회랑에서 우측 통과 밴드 = W - 0.9165 - 팽창 (0.9165 = 장애물면 0.393 + 벽 0.2435
+  // + 박스 0.28). 실트랙(우측 1.15→1.075로 변동)의 임계는 하니스로 실측했고 팽창 0.07
+  // 통과 / 0.10 실패였다. 여기서는 임계를 확실히 사이에 두도록 W=1.02를 쓴다:
+  //   실측 팽창 0.021 → 밴드 +0.083 (통과)
+  //   상수 팽창 0.14  → 밴드 -0.037 (불가)
+  // 실트랙 증명은 stuck_case_harness가 담당한다 — 균일 회랑은 스팬 안 폭 변동을 못 담는다.
+  ASSERT_TRUE(planner.setReference(makeStraightReference(300, 0.1, 0.78, 1.02)));
+  const EgoFrenetState ego{0.0, -0.019, 2.794};
+
+  // 면별 실측 팽창: 라인 쪽 3σ=0.021, 반대쪽 3σ=0.132.
+  const auto measured = planner.plan(
+    ego, {makeObstacle(2, 6.25, -0.28 - 0.021, 0.33 + 0.132)});
+  EXPECT_EQ(measured.kind, SplinePlanKind::kAvoidance)
+    << "실여유 0.84 m 간격이 계획 불가가 됐다: " << measured.reason;
+
+  // 종전 상수 경로(양면 0.14)로는 같은 간격에서 회피가 성립하지 않는다 — 그것이 정지였다.
+  const auto constant = planner.plan(
+    ego, {makeObstacle(2, 6.25, -0.28 - 0.14, 0.33 + 0.14)});
+  EXPECT_NE(constant.kind, SplinePlanKind::kAvoidance)
+    << "회귀 대조군이 성립하지 않는다 — 이 테스트는 상수 복귀를 잡지 못한다";
+}
+
 TEST(RacelineSplinePlanner, SafeStopReasonReportsTheActualRejectionNotAPhantomSideLock)
 {
   auto parameters = testParameters();
