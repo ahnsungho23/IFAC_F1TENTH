@@ -383,11 +383,18 @@ TEST(P3ProductionParity, SelectedPathIsTheFastestFeasibleOne)
 // 그래서 성공 케이스를 **서로 다른 두 배치**에서 가져온다:
 //   passing_mixed    2026-08-16 17:02 백 (장애물 s=2.6/8.3/22.5/23.1/23.5/26.7/32.7/37.4)
 //   layoutB_passing  2026-08-17 00:10 백 (장애물 s=9.9/13.1/23.5/24.3/30.9/34.7/36.4)
-// 앞으로의 수리는 두 배치를 동시에 만족해야 한다.
-TEST(P3ProductionParity, PassingScenariosKeepRecoveringOnBothLayouts)
+//   layoutC_passing  2026-08-17 00:34 백 (장애물 s=13.2/18.5/23.5/24.4/31.0/34.7/36.4)
+//
+// ⚠️ 랩 경계(s가 트랙 길이 근처, 43.44 m) 프레임은 백에서 성공(NONE)인데 오프라인 재현에서
+// 실패한다 — 배치 B의 s=36.40, 배치 C의 s=38.66에서 두 번 확인했다. 재현되지 않는 프레임을
+// 안전망에 두면 엉뚱한 이유로 실패하므로 제외했다. wrap 구간의 온·오프라인 차이는 별도
+// 확인이 필요하며, 그 자체가 잠재적 결함일 수 있다.
+// 앞으로의 수리는 **세 배치를 동시에** 만족해야 한다.
+TEST(P3ProductionParity, PassingScenariosKeepRecoveringOnEveryLayout)
 {
   for (const auto & entry : {std::make_pair("passing_mixed", 4U),
-      std::make_pair("layoutB_passing", 5U)})
+      std::make_pair("layoutB_passing", 5U),
+      std::make_pair("layoutC_passing", 4U)})
   {
     const auto stream = readStream(scenarioPath(entry.first));
     const auto recovers = recoversPerFrame(stream);
@@ -416,6 +423,27 @@ TEST(P3ProductionParity, LayoutBReplanFailureIsStillReproduced)
 
 // 후보를 늘리는 방향의 변경은 "없던 해를 억지로 만들어내는" 쪽으로 틀어지기 쉽다.
 // 물리적으로 통과 불가능한 배치에서는 계속 실패해야 한다.
+// 배치 C에서 지배적으로 드러난 실패: 자차가 옆으로 깊이 나가 있을 때 재계획이 후보를
+// 하나도 만들지 못한다(BOUNDARY_HANDOFF_UNRESOLVED).
+//
+// 2026-08-17 00:34 백 실측 — 자차 횡오프셋별 이 판정의 비율:
+//   |d| < 0.45   6/102
+//   |d| >= 0.45  7/40    (3배)
+// 그 배치는 obs7(31.0)·obs8(34.7)·obs9(36.4)가 5.4 m에 몰려 있어 차가 깊은 오프셋에 오래
+// 머물고, 그 결과 s≈32~34에서 8.5~10 s씩 갇혔다(랩타임 23.17 s).
+//
+// 아직 고치지 않았으므로 실패가 정상이다. 고쳐지면 회복 케이스로 옮길 것.
+TEST(P3ProductionParity, DeepLateralOffsetReplanIsStillUnsolved)
+{
+  const auto stream = readStream(scenarioPath("layoutC_failing"));
+  const auto recovers = recoversPerFrame(stream);
+  ASSERT_EQ(recovers.size(), 3U);
+  for (std::size_t index = 0; index < recovers.size(); ++index) {
+    EXPECT_FALSE(recovers[index])
+      << "layoutC_failing frame " << index << ": 이미 고쳐졌다면 회복 케이스로 옮길 것";
+  }
+}
+
 TEST(P3ProductionParity, GeometricallyImpossibleGapStaysImpossible)
 {
   const auto stream = readStream(scenarioPath("passing_mixed"));
