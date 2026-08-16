@@ -152,6 +152,24 @@ RacelineSplineParameters operationalParameters()
   return p;
 }
 
+// 시뮬(gym+MCL) 오버레이 — config/local_planning_sim.yaml과 같은 두 값만 바꾼다.
+// HARNESS_SIM=1일 때만 적용한다. 기본값이 항상 운영값인 이유: 시뮬 백을 진단하면서 하니스가
+// 운영 마진으로 답하면 "실차에서는 못 지나간다"를 "시뮬에서 못 지나갔다"로 오독하게 되고,
+// 반대로 기본을 시뮬로 두면 운영 진단이 조용히 통과해버린다. 어느 쪽인지 배너로 찍는다.
+//
+// ⚠️ 대입 대상 이름이 p가 아니라 sim인 것은 의도적이다 — test_params_match_yaml.py는
+// `p.<name> = <number>;`만 운영 YAML과 대조하므로, 여기 값이 그 검사에 섞이면 안 된다.
+void applySimulationOverlay(RacelineSplineParameters & sim)
+{
+  sim.tracking_error_lut_values_m = {
+    0.115, 0.115, 0.115, 0.125, 0.125,
+    0.175, 0.245, 0.280, 0.280, 0.280,
+    0.175, 0.245, 0.280, 0.280, 0.280,
+    0.185, 0.245, 0.280, 0.280, 0.280,
+    0.185, 0.245, 0.280, 0.280, 0.280};
+  sim.localization_reserve_m = 0.06;
+}
+
 }  // namespace
 
 int main(int argc, char ** argv)
@@ -163,6 +181,15 @@ int main(int argc, char ** argv)
   }
   const auto reference = loadReference(argv[1]);
   auto parameters = operationalParameters();
+  const char * sim_env = std::getenv("HARNESS_SIM");
+  const bool simulation = sim_env != nullptr && std::string(sim_env) == "1";
+  if (simulation) {
+    applySimulationOverlay(parameters);
+  }
+  std::printf(
+    "파라미터: %s (LUT[1.5m/s,직선]=%.3f, localization_reserve=%.3f)\n",
+    simulation ? "시뮬 오버레이 local_planning_sim.yaml" : "운영 local_planning.yaml",
+    parameters.tracking_error_lut_values_m[5], parameters.localization_reserve_m);
   // 선택 인자 9: localization_reserve_m 오버라이드 (MCL 수리 전/후 비교용)
   if (argc >= 10) {
     parameters.localization_reserve_m = std::atof(argv[9]);
