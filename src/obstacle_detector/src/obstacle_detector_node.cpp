@@ -261,6 +261,11 @@ void ObstacleDetectorNode::declareParameters()
     this->declare_parameter<double>("envelope_stability_tolerance_m", 0.10);
     this->declare_parameter<int>("envelope_stability_frames", 2);
     this->declare_parameter<bool>("static_publish_requires_visible", true);
+    this->declare_parameter<bool>("static_hold_freespace_refute_enable", true);
+    this->declare_parameter<int>("static_hold_freespace_refute_frames", 3);
+    this->declare_parameter<int>("static_hold_freespace_refute_min_beams", 3);
+    this->declare_parameter<double>("static_hold_freespace_refute_margin_m", 0.15);
+    this->declare_parameter<double>("static_hold_freespace_refute_box_shrink_m", 0.05);
 }
 
 void ObstacleDetectorNode::loadParameters()
@@ -442,7 +447,19 @@ void ObstacleDetectorNode::loadParameters()
             this->get_parameter("envelope_stability_frames").as_int()));
     static_publish_requires_visible_ =
         this->get_parameter("static_publish_requires_visible").as_bool();
-
+    freespace_refute_enable_ =
+        this->get_parameter("static_hold_freespace_refute_enable").as_bool();
+    tracker_params_.static_hold_freespace_refute_frames =
+        std::max(0, static_cast<int>(
+            this->get_parameter("static_hold_freespace_refute_frames").as_int()));
+    freespace_refute_min_beams_ =
+        std::max(1, static_cast<int>(
+            this->get_parameter("static_hold_freespace_refute_min_beams").as_int()));
+    freespace_refute_margin_m_ =
+        std::max(0.0, this->get_parameter("static_hold_freespace_refute_margin_m").as_double());
+    freespace_refute_box_shrink_m_ =
+        std::max(0.0,
+                 this->get_parameter("static_hold_freespace_refute_box_shrink_m").as_double());
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -676,6 +693,83 @@ bool ObstacleDetectorNode::lookupScanToMap(const std_msgs::msg::Header &scan_hea
     ty = tf.transform.translation.y;
     yaw = yawFromQuat(tf.transform.rotation);
     return true;
+}
+
+// ------------------------------------------------------------------------------------------------
+// Free-space refutation of a held (unmeasured) confirmed-static envelope
+// ------------------------------------------------------------------------------------------------
+bool ObstacleDetectorNode::scanRefutesHeldEnvelope(
+    const Track &track, const sensor_msgs::msg::LaserScan &scan,
+    double tx, double ty, double yaw) const
+{
+    // 마지막 실측 map AABB의 코어(각 면을 shrink만큼 안으로)를 통과하는 광선만 본다. 실제
+    // 물체는 AABB를 꽉 채우지 않으므로 모서리 근처를 스치는 빔은 물체가 있어도 지나갈 수
+    // 있다. 코어를 요구하면 그런 빔은 애초에 세지 않는다.
+    const double shrink = freespace_refute_box_shrink_m_;
+    const double x_min = track.x_min_map + shrink;
+    const double x_max = track.x_max_map - shrink;
+    const double y_min = track.y_min_map + shrink;
+    const double y_max = track.y_max_map - shrink;
+    if (!std::isfinite(x_min) || !std::isfinite(x_max) || !std::isfinite(y_min) ||
+        !std::isfinite(y_max) || x_max <= x_min || y_max <= y_min)
+    {
+        return false;
+    }
+
+    int refuting_beams = 0;
+    for (std::size_t i = 0; i < scan.ranges.size(); ++i)
+    {
+        const double r = scan.ranges[i];
+        // 무반사(inf)는 자유공간의 증거로 쓰지 않는다 — 흡수면·최대거리 초과도 같은 값이다.
+        if (!std::isfinite(r) || r < scan.range_min || r >= max_range_)
+        {
+            continue;
+        }
+        const double ang = yaw + scan.angle_min + static_cast<double>(i) * scan.angle_increment;
+        const double ux = std::cos(ang);
+        const double uy = std::sin(ang);
+
+        // Slab 교차: 광선이 코어 상자를 실제로 관통하는 구간 [t_enter, t_exit]을 구한다.
+        double t_enter = 0.0;
+        double t_exit = std::numeric_limits<double>::infinity();
+        bool intersects = true;
+        const double origin[2] = {tx, ty};
+        const double direction[2] = {ux, uy};
+        const double slab_min[2] = {x_min, y_min};
+        const double slab_max[2] = {x_max, y_max};
+        for (int axis = 0; axis < 2 && intersects; ++axis)
+        {
+            if (std::abs(direction[axis]) < 1.0e-9)
+            {
+                intersects = origin[axis] >= slab_min[axis] && origin[axis] <= slab_max[axis];
+                continue;
+            }
+            const double inverse = 1.0 / direction[axis];
+            double near_t = (slab_min[axis] - origin[axis]) * inverse;
+            double far_t = (slab_max[axis] - origin[axis]) * inverse;
+            if (near_t > far_t)
+            {
+                std::swap(near_t, far_t);
+            }
+            t_enter = std::max(t_enter, near_t);
+            t_exit = std::min(t_exit, far_t);
+            intersects = t_enter <= t_exit;
+        }
+        if (!intersects || !(t_exit > 0.0))
+        {
+            continue;
+        }
+        // 상자 뒤쪽 면을 margin 이상 지난 곳에서 되돌아온 반사만 "관통했다"고 인정한다.
+        if (r > t_exit + freespace_refute_margin_m_)
+        {
+            ++refuting_beams;
+            if (refuting_beams >= freespace_refute_min_beams_)
+            {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -1435,8 +1529,17 @@ void ObstacleDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
     const bool ego_motion_transient =
         dynamic_vote_ego_accel_suppress_mps2_ > 0.0 &&
         ego_motion_transient_until_ >= 0.0 && stamp <= ego_motion_transient_until_;
+    // 홀드 중인 confirmed static track에 대해서만 호출된다(트래커가 그렇게 게이트한다).
+    // 스캔 기하를 아는 쪽은 node뿐이므로 반증 판정을 여기서 주입한다.
+    ObstacleTracker::FreeSpaceRefuter free_space_refuter;
+    if (freespace_refute_enable_ && tracker_params_.static_hold_freespace_refute_frames > 0)
+    {
+        free_space_refuter = [this, msg, tx, ty, yaw](const Track &track) {
+            return scanRefutesHeldEnvelope(track, *msg, tx, ty, yaw);
+        };
+    }
     tracker_.update(detections, stamp, measurement_yaw_rate, yaw_rate_fresh,
-                    ego_motion_transient);
+                    ego_motion_transient, free_space_refuter);
     logMotionDebug();
     stats.scans_processed = 1;
     updateDiagnostics(stats, &tracker_.lastStats(), measurement_yaw_rate, yaw_rate_fresh);

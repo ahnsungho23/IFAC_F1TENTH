@@ -125,6 +125,15 @@ class ObstacleDetectorNode : public rclcpp::Node
     std::vector<std::vector<ScanPoint>> clusterScan(const sensor_msgs::msg::LaserScan &scan,
                                                     double tx, double ty, double yaw,
                                                     ScanProcessingStats &stats) const;
+    // Free-space refutation of one held track's last measured map AABB against the current scan.
+    // A beam refutes only when it traverses the box's shrunk core and returns from something at
+    // least `static_hold_freespace_refute_margin_m` beyond the far face: that is a return from
+    // BEHIND the box, which is possible only if the box's space is empty. A beam that stops short
+    // (the object itself, or whatever occludes it) proves nothing, and no-return beams are never
+    // counted because a dark or out-of-range surface produces the same reading. Requires
+    // `static_hold_freespace_refute_min_beams` such beams so a single edge grazing cannot refute.
+    bool scanRefutesHeldEnvelope(const Track &track, const sensor_msgs::msg::LaserScan &scan,
+                                 double tx, double ty, double yaw) const;
     // Rejoin small scan fragments before one Detection/Track is created. The AABB gap is only a
     // broad-phase check: at least one real point pair must also be within the configured distance,
     // and the merged AABB must remain no larger than max_obs_size.
@@ -207,6 +216,10 @@ class ObstacleDetectorNode : public rclcpp::Node
     // Withhold prediction-only static tracks. The tracker may retain them for ID continuity, but
     // they are not authoritative current obstacle geometry for local planning.
     bool static_publish_requires_visible_{true};
+    bool freespace_refute_enable_{true};
+    int freespace_refute_min_beams_{3};
+    double freespace_refute_margin_m_{0.15};
+    double freespace_refute_box_shrink_m_{0.05};
     bool motion_debug_enable_;
     double motion_debug_period_sec_;
     bool replay_diagnostics_enable_;

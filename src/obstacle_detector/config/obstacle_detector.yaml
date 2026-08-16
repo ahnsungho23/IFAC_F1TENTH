@@ -148,6 +148,23 @@ obstacle_detector:
     # 발행합니다. true였을 때는 차폐 1프레임에도 장애물이 토픽에서 사라져 플래너가
     # blocking↔clear를 반복(zero-hold 정지, 커밋 무효화)했습니다.
     static_publish_requires_visible: false
+    # static_lost_hold_sec의 근거는 "안 보이면 차폐된 것이고, 맵 고정 물체는 차폐 중에도
+    # 그대로다"입니다. 그런데 스캔이 그 상자를 **관통해서** 더 먼 곳의 반사를 받고 있으면
+    # 그 공간이 비었다는 적극적 증거이고, 홀드는 뻔히 보이는 자리에 유령을 5초간 살려두는
+    # 장치가 됩니다(플래너는 그동안 계속 회피하고 state_machine은 AVOID를 유지).
+    # 반증 조건(전부 만족해야 1프레임 인정):
+    #   - 광선이 마지막 실측 map AABB를 box_shrink_m만큼 줄인 **코어**를 관통할 것
+    #     (실제 물체는 AABB를 꽉 채우지 않으므로 모서리를 스치는 빔은 세지 않음)
+    #   - 그 광선의 **유한한** 반사거리가 코어 뒤쪽 면보다 margin_m 이상 멀 것
+    #     (무반사 inf는 흡수면·최대거리 초과와 구분되지 않으므로 증거로 쓰지 않음)
+    #   - 그런 빔이 min_beams개 이상일 것
+    # 이 조건이 frames 스캔 연속으로 성립하면 track을 즉시 회수합니다. 차폐(빔이 상자 앞에서
+    # 멈춤)나 벽 필터로 포인트가 지워진 경우는 관통 증거가 없으므로 홀드가 그대로 유지됩니다.
+    static_hold_freespace_refute_enable: true
+    static_hold_freespace_refute_frames: 3      # 연속 반증 스캔 수 (0이면 반증 비활성)
+    static_hold_freespace_refute_min_beams: 3   # 한 스캔에서 필요한 관통 빔 수
+    static_hold_freespace_refute_margin_m: 0.15 # 뒤쪽 면을 이만큼 지나야 관통으로 인정 [m]
+    static_hold_freespace_refute_box_shrink_m: 0.05  # 코어 상자 축소량 (각 면) [m]
 
     # === MAP-FRAME MOTION CLASSIFICATION ===
     # 기존 Frenet KF/association은 유지하고, 각 track에 분류 전용 map-frame CV KF

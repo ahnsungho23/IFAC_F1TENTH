@@ -726,6 +726,78 @@ TEST(ObstacleTrackerLifetime, ConfirmedStaticTrackHeldThroughOcclusionForHoldSec
     EXPECT_TRUE(tracker.tracks().empty());
 }
 
+TEST(ObstacleTrackerLifetime, FreeSpaceRefutationRetiresHeldEnvelopeAfterConsecutiveScans)
+{
+    TrackerParams params = testParams();
+    params.ttl_static = 3;
+    params.static_lost_hold_sec = 5.0;
+    params.static_hold_freespace_refute_frames = 3;
+    ObstacleTracker tracker;
+    tracker.configure(params, nullptr);
+
+    for (int i = 0; i < 4; ++i)
+    {
+        tracker.update({makeDetection(10.0)}, 0.1 * i);
+    }
+    ASSERT_EQ(tracker.tracks().size(), 1U);
+    ASSERT_EQ(tracker.tracks().front().track_status, TrackStatus::Confirmed);
+
+    // Two refuted scans are not enough: a single stray beam through the envelope must not retire a
+    // map-fixed object, and the streak resets the moment the scan stops seeing through it.
+    const auto refute = [](const Track &) { return true; };
+    const auto no_evidence = [](const Track &) { return false; };
+    double stamp = 0.4;
+    for (int i = 0; i < 2; ++i)
+    {
+        tracker.update({}, stamp, 0.0, true, false, refute);
+        stamp += 0.1;
+        ASSERT_EQ(tracker.tracks().size(), 1U) << "retired before the refutation streak (" << i
+                                               << ")";
+    }
+    tracker.update({}, stamp, 0.0, true, false, no_evidence);
+    stamp += 0.1;
+    ASSERT_EQ(tracker.tracks().size(), 1U);
+    EXPECT_EQ(tracker.tracks().front().freespace_refute_streak, 0);
+
+    for (int i = 0; i < 2; ++i)
+    {
+        tracker.update({}, stamp, 0.0, true, false, refute);
+        stamp += 0.1;
+        ASSERT_EQ(tracker.tracks().size(), 1U);
+    }
+    tracker.update({}, stamp, 0.0, true, false, refute);
+    EXPECT_TRUE(tracker.tracks().empty())
+        << "a held envelope survived " << params.static_hold_freespace_refute_frames
+        << " consecutive scans that saw straight through it";
+}
+
+TEST(ObstacleTrackerLifetime, OcclusionHoldSurvivesWithoutFreeSpaceEvidence)
+{
+    // Same hold window and refuter wiring as the retirement test; only the evidence differs. The
+    // hold must still cover a plain occlusion, otherwise the refutation would have silently
+    // replaced static_lost_hold_sec instead of bounding it.
+    TrackerParams params = testParams();
+    params.ttl_static = 3;
+    params.static_lost_hold_sec = 5.0;
+    params.static_hold_freespace_refute_frames = 3;
+    ObstacleTracker tracker;
+    tracker.configure(params, nullptr);
+
+    for (int i = 0; i < 4; ++i)
+    {
+        tracker.update({makeDetection(10.0)}, 0.1 * i);
+    }
+    ASSERT_EQ(tracker.tracks().size(), 1U);
+
+    double stamp = 0.4;
+    for (int i = 0; i < 10; ++i)
+    {
+        tracker.update({}, stamp, 0.0, true, false, [](const Track &) { return false; });
+        stamp += 0.1;
+    }
+    EXPECT_EQ(tracker.tracks().size(), 1U);
+}
+
 TEST(ObstacleTrackerLifetime, TranslatingUnknownTrackIsNotHeldAsMapFixedObject)
 {
     TrackerParams params = testParams();

@@ -339,6 +339,24 @@ record/replay 원인 분석용 출력일 뿐 planner 입력이 아니다. 일반
    false`와 함께 마지막 실측 기하(맵 AABB 포함)로 `/static_obs`·`/confirmed_static_obs`에 계속
    발행한다. hold가 끝나면 기존 frame-TTL retire와 dormant 물리 ID 기억(30 s)으로 복귀한다.
    0.0이면 기존 동작 그대로다.
+   **hold의 자유공간 반증(2026-08-16)**: hold의 근거는 "안 보이면 차폐됐다"인데, 스캔이 그
+   상자를 관통해 더 먼 곳에서 반사를 받고 있으면 그 전제가 깨진다. 반증이 없으면 한 번
+   `CONFIRMED`+`STATIC`까지 올라간 유령이 뻔히 보이는 자리에서 5초간 계속 발행되고, 그동안
+   local planner는 계속 회피하며 state machine은 `STATE_AVOID`를 유지한다. 그래서 hold 대상
+   track에 한해 매 스캔 다음을 검사한다.
+   - 광선이 마지막 실측 map AABB를 각 면 `static_hold_freespace_refute_box_shrink_m`만큼 줄인
+     **코어**를 관통하는가 (실제 물체는 AABB를 꽉 채우지 않으므로 모서리를 스치는 빔은 제외)
+   - 그 광선의 반사거리가 **유한**하고 코어 뒤쪽 면보다
+     `static_hold_freespace_refute_margin_m` 이상 먼가 (무반사 `inf`는 흡수면·최대거리 초과와
+     구분되지 않으므로 절대 증거로 쓰지 않는다)
+   - 그런 빔이 `static_hold_freespace_refute_min_beams`개 이상인가
+
+   이 조건이 `static_hold_freespace_refute_frames` 스캔 연속으로 성립하면 track을 즉시
+   회수한다(`ttl = 0`). 실측이 한 번이라도 들어오거나 반증에 실패한 스캔이 끼면 streak은
+   0으로 돌아간다. 차폐(빔이 상자 앞에서 멈춤)와 벽 필터로 포인트가 지워진 경우는 관통
+   증거가 없으므로 기존 hold가 그대로 유지된다. 스캔 기하는 node만 가지므로 판정은
+   `scanRefutesHeldEnvelope()`에 있고, tracker는 `update()`의 `FreeSpaceRefuter` 콜백으로만
+   호출한다. `static_hold_freespace_refute_enable: false` 또는 `frames: 0`이면 종전 동작이다.
    **hold 중 Kalman 동결**: 관측이 없는 동안 CV 모델을 계속 예측하면 잡음 섞인 속도 추정이
    수 초 적분되어 상태가 표류하고 공분산이 폭증한다 — 재검출이 기존 track에 연계되지 못해
    좀비 중복 track이 생기고, 발행된 `s_var/d_var`가 하류 uncertainty guard에서 10 cm 조각을
@@ -389,6 +407,7 @@ record/replay 원인 분석용 출력일 뿐 planner 입력이 아니다. 일반
 | 추적 | `meas_var_s/d`, `process_var_vs/vd`, `assoc_gate`, `aggro_multi`, `assoc_use_mahalanobis`, `assoc_mahalanobis_gate` | Kalman 1차 association |
 | 물리 객체 ID 연속성 | `physical_id_reassociation_enable`, `physical_id_reassociation_gap_s/d/map`, `physical_id_memory_sec` | 안정 실측 anchor와 Frenet/map AABB 기반 track 폐기 뒤 ID 재식별 |
 | 수명 | `ttl_dynamic`, `ttl_static`, `static_lost_hold_sec`, `min_hits_confirm`, `confirmation_window`, `extent_shrink_alpha`, `envelope_stability_tolerance_m`, `envelope_stability_frames`, `static_publish_requires_visible` | 3-of-5 존재 확인, track/ID 유지, CONFIRMED STATIC 차폐 hold(초 단위), extent 완화와 연속 실측 기반 정적 레이어 gate |
+| 수명(반증) | `static_hold_freespace_refute_enable`, `static_hold_freespace_refute_frames`, `static_hold_freespace_refute_min_beams`, `static_hold_freespace_refute_margin_m`, `static_hold_freespace_refute_box_shrink_m` | 홀드 중인 envelope를 관통하는 빔이 연속 관측되면 즉시 회수(유령 5초 유지 방지) |
 | 분류 | `motion_classification.dynamic_chi2_threshold`, `static_chi2_threshold`, `dynamic_vote_*`, `static_vote_*` | map 속도의 통계적 evidence와 최근 voting |
 | 위치 지속성 | `motion_classification.position_history_size`, `static_min_observations`, `static_max_position_rms`, `dynamic_to_static_*` | STATIC 진입과 보수적인 DYNAMIC→STATIC 복귀 |
 | 병진 확인 | `motion_classification.translation_corroboration_enable`, `translation_window_sec`, `translation_history_max_samples`, `dynamic_min_translation_m` | 부분 노출로 자라는 AABB를 이동으로 오판하지 않도록 dynamic vote에 실제 병진 증거를 요구 |

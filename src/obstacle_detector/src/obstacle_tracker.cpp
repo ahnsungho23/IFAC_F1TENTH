@@ -841,7 +841,8 @@ void ObstacleTracker::classify(Track &t, bool measurement_received) const
 
 void ObstacleTracker::update(
     const std::vector<Detection> &detections, double stamp,
-    double ego_yaw_rate, bool yaw_rate_fresh, bool ego_motion_transient)
+    double ego_yaw_rate, bool yaw_rate_fresh, bool ego_motion_transient,
+    const FreeSpaceRefuter &free_space_refuter)
 {
     // Retained in the public call signature for source compatibility. Map-frame classification no
     // longer needs an ego-yaw gate because scan points have already been transformed into map.
@@ -1076,6 +1077,7 @@ void ObstacleTracker::update(
                 t.physical_identity_eligible = true;
             }
             captureStableIdentityAnchor(t, det);
+            t.freespace_refute_streak = 0;
             t.ttl = t.is_static ? p_.ttl_static : p_.ttl_dynamic;
         }
         else
@@ -1087,16 +1089,45 @@ void ObstacleTracker::update(
             // static_lost_hold_sec (scan-stamp time, rate independent). Everything else keeps the
             // original frame-TTL retirement, and the stability streak still resets because a
             // prediction-only frame breaks consecutive-scan evidence.
-            const bool hold_lost_static =
+            const bool hold_candidate =
                 holdEligibleWhileUnmeasured(t) &&
                 t.time_since_last_measurement < p_.static_lost_hold_sec;
-            if (hold_lost_static)
+            // 홀드의 근거는 "안 보이니까 차폐됐다"이다. 그런데 그 상자를 관통해 더 먼 곳에서
+            // 되돌아온 빔이 있으면 그 공간이 비었다는 적극적 증거이고, 홀드는 뻔히 보이는
+            // 자리에 유령을 살려두는 것이 된다. 관통 증거가 연속 N 스캔 쌓이면 즉시 retire한다
+            // (반증 자체는 스캔 기하를 가진 node가 제공한다).
+            bool freespace_refuted = false;
+            if (hold_candidate && free_space_refuter &&
+                p_.static_hold_freespace_refute_frames > 0)
+            {
+                if (free_space_refuter(t))
+                {
+                    ++t.freespace_refute_streak;
+                }
+                else
+                {
+                    t.freespace_refute_streak = 0;
+                }
+                freespace_refuted =
+                    t.freespace_refute_streak >= p_.static_hold_freespace_refute_frames;
+            }
+            else
+            {
+                t.freespace_refute_streak = 0;
+            }
+            if (hold_candidate && !freespace_refuted)
             {
                 t.ttl = std::max(t.ttl, 1);
             }
             else
             {
                 t.envelope_stable_streak = 0;
+            }
+            if (freespace_refuted)
+            {
+                // 홀드 없는 track의 frame-TTL 잔여분까지 기다리지 않는다. 반증은 "거기 없다"는
+                // 직접 증거이므로 이번 스캔에서 회수한다.
+                t.ttl = 0;
             }
             updateTrackStatus(t, false);
             classify(t, false);

@@ -157,6 +157,26 @@ published Frenet bounds instead of reprojecting the Cartesian metadata.
   the dropout. Reverting either half reintroduces the 2026-08-12 21:11 planner failures
   (per-lap zero-hold stops at the hairpin, 80 path rebuilds in 91 s). The dynamic layer keeps
   the visible-only Cartesian rule.
+- **The hold is bounded by free-space refutation** (2026-08-16): the hold's justification is
+  "unobserved means occluded". That premise fails whenever the scan sees THROUGH the held box,
+  and without a refutation a ghost that once reached `Confirmed`+`Static` keeps being published
+  for the full `static_lost_hold_sec` in plain view — the planner avoids it and the FSM stays in
+  `STATE_AVOID` for that entire window. `ObstacleTracker::update()` therefore takes a
+  `FreeSpaceRefuter`, consulted ONLY for tracks that are already hold-eligible and unmeasured
+  this scan, and retires the track (`ttl = 0`) after
+  `static_hold_freespace_refute_frames` consecutive refuted scans. Any measurement, and any scan
+  that fails to refute, resets `freespace_refute_streak`. Only the node owns scan geometry, so
+  the predicate lives in `scanRefutesHeldEnvelope()`; the tracker must never reach for a scan.
+  A beam counts as refuting only when it traverses the last measured map AABB shrunk by
+  `static_hold_freespace_refute_box_shrink_m` on every face AND returns a FINITE range at least
+  `static_hold_freespace_refute_margin_m` beyond the far face, and at least
+  `static_hold_freespace_refute_min_beams` such beams are required. Keep all three conditions:
+  the core shrink stops beams grazing an AABB corner the real object never filled, the finite
+  requirement stops a dark or out-of-range surface (a no-return reads identically) from erasing a
+  real obstacle, and the beam count stops a single stray return. Occlusion and wall-filtered
+  points produce no pass-through evidence at all, so the hold they exist for is untouched. Tests:
+  `FreeSpaceRefutationRetiresHeldEnvelopeAfterConsecutiveScans` and
+  `OcclusionHoldSurvivesWithoutFreeSpaceEvidence`.
 - **The hold requires map-fixed EVIDENCE, not merely "not Dynamic"** (2026-08-15): both hold sites
   ask `holdEligibleWhileUnmeasured()`, the single authority; never re-inline the predicate. A
   `Confirmed` track qualifies when `motion_status == Static`, or -- while still `Unknown` -- only
