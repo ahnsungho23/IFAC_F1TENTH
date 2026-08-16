@@ -645,6 +645,37 @@ private:
     return states.branches[0] + "__" + states.branches[1] + "__" + states.branches[2];
   }
 
+  // Which wall an entry-scale rejection hit, so the bisection knows which way to move.
+  //
+  // 진입 램프 길이는 entry에 비례하므로(stationsFor), 두 실패군은 서로 반대 방향을 가리킨다.
+  //   램프가 짧아서 나는 실패 — 곡률·곡률변화율·횡기울기 초과 → 더 긴 램프가 필요
+  //   램프가 길어서 일찍 시작해 나는 실패 — 트랙 경계·발자국 침범 → 더 짧은 램프가 필요
+  // 장애물 충돌·진입 불연속 등은 exit이나 목표 오프셋에서 오므로 방향을 알려주지 않는다.
+  // 그때는 kUnknown을 돌려주고 이분법을 중단한다 — 잘못된 방향으로 계속 좁히느니
+  // 종전과 동일하게 실패하는 편이 안전하다.
+  enum class EntrySteer
+  {
+    kUnknown,
+    kNeedsLongerRamp,
+    kNeedsShorterRamp,
+  };
+
+  static EntrySteer classifyEntrySteer(const std::string & rejection_reason)
+  {
+    if (rejection_reason.find("maximum_curvature_radpm") != std::string::npos ||
+      rejection_reason.find("maximum_curvature_rate_radpm2") != std::string::npos ||
+      rejection_reason.find("maximum_lateral_slope") != std::string::npos)
+    {
+      return EntrySteer::kNeedsLongerRamp;
+    }
+    if (rejection_reason.find("footprint_track_bound") != std::string::npos ||
+      rejection_reason.find("track bounds") != std::string::npos)
+    {
+      return EntrySteer::kNeedsShorterRamp;
+    }
+    return EntrySteer::kUnknown;
+  }
+
   static bool strictPositiveSegments(
     const std::array<double, 5> & stations, double & minimum_length)
   {
@@ -1761,7 +1792,6 @@ private:
     }
 
     const auto all_entries = entryScales();
-    const std::vector<double> entries{all_entries.front(), all_entries.back()};
     const auto all_exits = exitScales(ego, cluster_end, go_left, outside_is_left);
     const std::array<double, 3> exit_ratios{0.015625, 0.5, 1.0};
     std::vector<double> exits;
@@ -1771,67 +1801,151 @@ private:
     exits = uniqueSorted(std::move(exits));
 
     std::size_t generation = 0U;
-    for (const double entry : uniqueSorted(entries)) {
-      for (const double exit : exits) {
-        const double entry_length = cluster_start *
-          parameters_.pre_apex_distances_m.front() * entry /
-          parameters_.detection_lookahead_m;
-        const double effective_exit = parameters_.cappedCombinedExitScale(
-          exit *
-          (go_left == outside_is_left ? parameters_.outside_line_transition_scale : 1.0));
-        const double exit_length = parameters_.post_apex_distances_m.back() * effective_exit;
-        const std::array<double, 5> stations{
-          cluster_start - entry_length,
-          cluster_start,
-          0.5 * (cluster_start + cluster_end),
-          cluster_end,
-          cluster_end + exit_length};
-        if (result.probe.station < stations.front() - kEpsilon ||
-          result.probe.station > stations.back() + kEpsilon)
-        {
-          continue;
-        }
-        const auto root_start = Clock::now();
-        const RootSolve roots = solvePosition(
-          stations, ego.d, target, result.probe.station, result.probe.desired, lower, upper);
-        result.runtime_root_solver_us += elapsedUs(root_start);
-        result.raw_root_count += roots.algebraic.raw_roots.size();
-        result.finite_root_count += roots.finite.size();
-        result.branch_root_count += roots.branch.size();
-        result.bounded_root_count += roots.bounded.size();
-        result.accepted_root_count += roots.accepted.size();
+    bool cap_exceeded = false;
+    // Build every candidate for one entry scale over the given exit set, and report which wall the
+    // rejections hit so the caller can steer. Returns kUnknown when nothing conclusive was seen.
+    const auto offer_entry =
+      [&](double entry, const std::vector<double> & exit_set) -> EntrySteer {
+        EntrySteer steer = EntrySteer::kUnknown;
+        for (const double exit : exit_set) {
+          const double entry_length = cluster_start *
+            parameters_.pre_apex_distances_m.front() * entry /
+            parameters_.detection_lookahead_m;
+          const double effective_exit = parameters_.cappedCombinedExitScale(
+            exit *
+            (go_left == outside_is_left ? parameters_.outside_line_transition_scale : 1.0));
+          const double exit_length = parameters_.post_apex_distances_m.back() * effective_exit;
+          const std::array<double, 5> stations{
+            cluster_start - entry_length,
+            cluster_start,
+            0.5 * (cluster_start + cluster_end),
+            cluster_end,
+            cluster_end + exit_length};
+          if (result.probe.station < stations.front() - kEpsilon ||
+            result.probe.station > stations.back() + kEpsilon)
+          {
+            continue;
+          }
+          const auto root_start = Clock::now();
+          const RootSolve roots = solvePosition(
+            stations, ego.d, target, result.probe.station, result.probe.desired, lower, upper);
+          result.runtime_root_solver_us += elapsedUs(root_start);
+          result.raw_root_count += roots.algebraic.raw_roots.size();
+          result.finite_root_count += roots.finite.size();
+          result.branch_root_count += roots.branch.size();
+          result.bounded_root_count += roots.bounded.size();
+          result.accepted_root_count += roots.accepted.size();
 
-        for (const double root : roots.accepted) {
-          if (result.candidates.size() >= kFrozenCandidateCap) {
-            result.failure = "CANDIDATE_CAP_EXCEEDED";
-            return result;
-          }
-          ++result.validator_calls;
-          auto trace = buildCandidate(
-            ego, obstacles, go_left, outside_is_left, target, root, entry, exit, stations,
-            generation++, result.runtime_reconstruction_us,
-            result.runtime_hard_validation_us);
-          trace.mapping_source = "FROZEN_V1";
-          trace.candidate_template = "FROZEN_V1_CURVATURE_CONTINUITY";
-          trace.source_cell = "ACTIVE_OUTER";
-          trace.component_id = result.corridor.branch_id;
-          const std::string side = go_left ? "LEFT" : "RIGHT";
-          trace.candidate_identity = "M0_V1_" + side + "_" + trace.path_digest;
-          trace.logical_identity = "M0_V1_" + side;
-          const std::size_t index = result.candidates.size();
-          if (trace.hard_valid) {
-            ++result.hard_valid_count;
-            if (!result.best_index.has_value() ||
-              betterFeasible(trace, result.candidates[*result.best_index]))
-            {
-              result.best_index = index;
+          for (const double root : roots.accepted) {
+            if (result.candidates.size() >= kFrozenCandidateCap) {
+              result.failure = "CANDIDATE_CAP_EXCEEDED";
+              cap_exceeded = true;
+              return steer;
             }
-          } else {
-            result.failure = "P3_CANDIDATE_HARD_INVALID";
+            ++result.validator_calls;
+            auto trace = buildCandidate(
+              ego, obstacles, go_left, outside_is_left, target, root, entry, exit, stations,
+              generation++, result.runtime_reconstruction_us,
+              result.runtime_hard_validation_us);
+            trace.mapping_source = "FROZEN_V1";
+            trace.candidate_template = "FROZEN_V1_CURVATURE_CONTINUITY";
+            trace.source_cell = "ACTIVE_OUTER";
+            trace.component_id = result.corridor.branch_id;
+            const std::string side = go_left ? "LEFT" : "RIGHT";
+            trace.candidate_identity = "M0_V1_" + side + "_" + trace.path_digest;
+            trace.logical_identity = "M0_V1_" + side;
+            const std::size_t index = result.candidates.size();
+            if (trace.hard_valid) {
+              ++result.hard_valid_count;
+              if (!result.best_index.has_value() ||
+                betterFeasible(trace, result.candidates[*result.best_index]))
+              {
+                result.best_index = index;
+              }
+            } else {
+              result.failure = "P3_CANDIDATE_HARD_INVALID";
+              if (steer == EntrySteer::kUnknown) {
+                steer = classifyEntrySteer(trace.rejection_reason);
+              }
+            }
+            result.candidates.push_back(std::move(trace));
           }
-          result.candidates.push_back(std::move(trace));
+        }
+        return steer;
+      };
+
+    const double entry_short = all_entries.front();
+    const double entry_long = all_entries.back();
+    const EntrySteer short_steer = offer_entry(entry_short, exits);
+    const EntrySteer long_steer = cap_exceeded ?
+      EntrySteer::kUnknown : offer_entry(entry_long, exits);
+
+    // 🔴 2026-08-17: 진입 눈금을 상수 집합에서 뽑지 않고 제약에서 찾는다.
+    //
+    // 종전에는 entryScales()가 돌려주는 눈금 중 **양 끝만** 썼다
+    // (entries{all_entries.front(), all_entries.back()}). 그래서 YAML의 중간값
+    // (entry_transition_fractions의 0.75, 1.00)은 한 번도 시도되지 않았다.
+    //
+    // 실해 — 2026-08-17 01:05 백, 매 랩 같은 자리에서 9.9 s 정지 (안전망 pinch_failure):
+    //   entry=0.5146(front)  peakK=1.976  곡률 초과 (한계 1.316)
+    //   entry=1.311 (back)   peakK=0.808  곡률 OK, 그러나 회랑 병목 침범
+    //   ── 실현 구간 [0.75, 1.05]가 두 눈금 사이에 통째로 끼어 건너뛰어졌다 ──
+    // 통과 가능한 갭인데 후보가 0개가 되어 안전정지가 걸렸고, 안전정지는 스스로 해제
+    // 조건(유효 회피 8사이클)을 막아 사람이 차를 옮겨야 풀렸다.
+    //
+    // 두 제약은 entry에 대해 서로 **반대 방향으로 단조**다. 이것은 관측이 아니라
+    // stationsFor의 구조에서 따라온다:
+    //   entry ↑ → entry_length ↑ → 램프가 길어져 곡률 ↓, 동시에 시작점(stations[0])이
+    //             자차 쪽으로 당겨져 좁은 구간을 더 깊이 지난다
+    // 따라서 실현 집합은 항상 하나의 구간이고, 기각 사유가 어느 벽인지 알려주므로
+    // 이분법의 신탁은 공짜다. 눈금을 더 촘촘히 박는 대신 구간을 직접 찾는다 —
+    // 새 상수도, 새 튜닝값도 없다.
+    //
+    // 고정 눈금이 이미 해를 냈으면 이 경로는 돌지 않는다(평소 비용 0). 탐색 중에는
+    // exit을 하나로 고정한다 — 위 실측처럼 진입 쪽 기각은 exit과 무관하게 같으므로
+    // exit을 3개로 늘리면 후보 예산만 3배로 쓴다. 구간을 찾은 뒤에 exit을 펼친다.
+    if (!cap_exceeded && !result.best_index.has_value() &&
+      short_steer == EntrySteer::kNeedsLongerRamp &&
+      long_steer == EntrySteer::kNeedsShorterRamp &&
+      entry_long > entry_short + kEpsilon)
+    {
+      const std::vector<double> probe_exits{exits.front()};
+      double lower_entry = entry_short;
+      double upper_entry = entry_long;
+      while (!cap_exceeded && !result.best_index.has_value() &&
+        result.candidates.size() + exits.size() <= kFrozenCandidateCap)
+      {
+        const double middle_entry = 0.5 * (lower_entry + upper_entry);
+        if (!(upper_entry - lower_entry > kEpsilon)) {
+          break;
+        }
+        const EntrySteer steer = offer_entry(middle_entry, probe_exits);
+        if (steer == EntrySteer::kNeedsLongerRamp) {
+          lower_entry = middle_entry;
+        } else if (steer == EntrySteer::kNeedsShorterRamp) {
+          upper_entry = middle_entry;
+        } else {
+          break;   // 진입 눈금과 무관한 기각이면 이분법의 전제가 깨진다.
         }
       }
+      // 구간을 찾았으면 그 눈금에서 exit을 펼쳐 나머지 후보를 준다. 못 찾았으면
+      // 아무것도 추가하지 않고 종전과 동일하게 실패한다.
+      if (!cap_exceeded && result.best_index.has_value()) {
+        const double solved_entry =
+          result.candidates[*result.best_index].entry_scale;
+        std::vector<double> remaining;
+        for (const double exit : exits) {
+          if (std::abs(exit - probe_exits.front()) > kEpsilon) {
+            remaining.push_back(exit);
+          }
+        }
+        if (!remaining.empty()) {
+          (void)offer_entry(solved_entry, remaining);
+        }
+      }
+    }
+    if (cap_exceeded) {
+      return result;
     }
     if (result.accepted_root_count == 0U) {
       result.failure = result.raw_root_count == 0U ? "NO_ALGEBRAIC_ROOT" :

@@ -236,12 +236,12 @@ std::vector<bool> recoversPerFrame(const Stream & stream)
     if (std::getenv("P3_PARITY_DUMP") != nullptr) {
       printf(
         "DUMP %s ego s=%.3f d=%+.4f v=%.2f | clus[%.3f,%.3f] Rc[%.3f,%.3f] Lc[%.3f,%.3f] "
-        "ctx=%zu cand=%zu segrej=%zu | R[%+.4f,%+.4f] L[%+.4f,%+.4f] | %s\n",
+        "ctx=%zu cand=%zu(trace %zu) segrej=%zu | R[%+.4f,%+.4f] L[%+.4f,%+.4f] | %s\n",
         stream.scenario.c_str(), frame.ego.s, frame.ego.d, frame.ego.speed,
         result.cluster_start_forward_m, result.cluster_end_forward_m,
         result.right_domain.cluster_start, result.right_domain.cluster_end,
         result.left_domain.cluster_start, result.left_domain.cluster_end,
-        result.m1_context_count, result.m1_candidate_count,
+        result.m1_context_count, result.m1_candidate_count, result.candidates.size(),
         result.m1_positive_segment_rejection_count,
         result.right_domain.minimum_target, result.right_domain.maximum_target,
         result.left_domain.minimum_target, result.left_domain.maximum_target,
@@ -249,10 +249,11 @@ std::vector<bool> recoversPerFrame(const Stream & stream)
       for (const auto & candidate : result.candidates) {
         printf(
           "     %2zu %s d_target=%+.4f d_mid=%+.4f entry=%.3f exit=%.3f %s "
-          "| obs=%d at s=%.3f d=%+.4f | %s\n",
+          "peakK=%.3f slope=%.3f | at s=%.3f d=%+.4f | %s\n",
           candidate.generation_index, candidate.go_left ? "L" : "R", candidate.d_target,
           candidate.d_mid, candidate.entry_scale, candidate.exit_scale,
-          candidate.hard_valid ? "OK" : "XX", candidate.validation.failure_obstacle_id,
+          candidate.hard_valid ? "OK" : "XX", candidate.peak_curvature_radpm,
+          candidate.peak_lateral_slope,
           candidate.validation.failure_waypoint_s, candidate.validation.failure_waypoint_d,
           candidate.rejection_reason.c_str());
       }
@@ -412,18 +413,21 @@ TEST(P3ProductionParity, PassingScenariosKeepRecoveringOnEveryLayout)
   }
 }
 
-// 배치 B에서 새로 드러난 실패. 2026-08-17 00:10 백에서 랩마다 s≈21에서 재계획이 전멸해
+// 배치 B에서 드러난 실패. 2026-08-17 00:10 백에서 랩마다 s≈21에서 재계획이 전멸해
 // 안전정지로 떨어졌고, 그 뒤 해제되면서 실행 불가능한 회피를 커밋해 s≈23.85에서 obs4에
-// 충돌했다(2회). 아직 고치지 않았으므로 실패가 정상이며, 고쳐지면 이 테스트를 회복
-// 케이스로 옮길 것.
-TEST(P3ProductionParity, LayoutBReplanFailureIsStillReproduced)
+// 충돌했다(2회).
+//
+// 2026-08-17 수리 완료 — 진입 눈금 이분법으로 3프레임 전부 회복한다. 배치 B의 재계획
+// 전멸도 pinch_failure와 **같은 원인**이었다(고정 눈금 0.5146은 곡률 초과, 1.311은 회랑
+// 침범, 실현 구간은 그 사이). 이분법이 entry=0.913을 찾는다.
+TEST(P3ProductionParity, LayoutBReplanRecovers)
 {
   const auto stream = readStream(scenarioPath("layoutB_failing"));
   const auto recovers = recoversPerFrame(stream);
   ASSERT_EQ(recovers.size(), 3U);
   for (std::size_t index = 0; index < recovers.size(); ++index) {
-    EXPECT_FALSE(recovers[index])
-      << "layoutB_failing frame " << index << ": 이미 고쳐졌다면 회복 케이스로 옮길 것";
+    EXPECT_TRUE(recovers[index])
+      << "layoutB_failing frame " << index << ": 되던 회피가 안 된다(회귀)";
   }
 }
 
@@ -467,7 +471,7 @@ TEST(P3ProductionParity, ReplanBesideAClusterIsStillUnsolved)
 // 안정화되어(끊김 50회 → 5회) 그 우연한 탈출구가 사라졌고 9.9 s 정지했다.
 //
 //   pinch_success  s=22.60  v=1.99  cluster_start=1.02  → 성공
-//   pinch_failure  s=20.88  v=3.28  cluster_start=2.77  → 실패
+//   pinch_failure  s=20.88  v=3.28  cluster_start=2.77  → 수리 전 실패 / 수리 후 성공
 //
 // 두 램프의 절대 위치·길이는 사실상 같다(22.60~23.62 L=1.02 / 22.56~23.65 L=1.09).
 // 그런데도 갈리는 이유를 이 두 스트림으로 고정한다.
@@ -477,11 +481,13 @@ TEST(P3ProductionParity, SamePinchGeometryAtTwoDistances)
   ASSERT_EQ(success.size(), 1U);
   EXPECT_TRUE(success[0]) << "가까이서 되던 회피가 안 된다(회귀)";
 
+  // 2026-08-17 수리 완료 — 진입 눈금 이분법(evaluateSide)으로 두 프레임 모두 회복한다.
+  // 이분법이 2스텝 만에 entry=0.913을 찾는다(고정 눈금은 0.5146과 1.311뿐이었다).
   const auto failure = recoversPerFrame(readStream(scenarioPath("pinch_failure")));
   ASSERT_EQ(failure.size(), 2U);
   for (std::size_t index = 0; index < failure.size(); ++index) {
-    EXPECT_FALSE(failure[index])
-      << "pinch_failure frame " << index << ": 고쳐졌다면 회복 케이스로 옮길 것";
+    EXPECT_TRUE(failure[index])
+      << "pinch_failure frame " << index << ": 되던 회피가 안 된다(회귀)";
   }
 }
 
