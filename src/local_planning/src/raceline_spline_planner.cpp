@@ -1644,6 +1644,40 @@ void RacelineSplinePlanner::applyAvoidanceVelocityLimit(
   const EgoFrenetState & ego,
   const std::vector<ExpandedObstacle> & visible) const
 {
+  // 클러스터 hull (2026-08-16): 한 물리 상자가 스캔에 두 조각으로 갈라져 들어오면, 조각
+  // 사이 s-틈의 waypoint는 어떤 장애물 스팬에도 덮이지 않아 캡 없이 라인 속도로 남는다.
+  // 결과는 스팬 안 1.1 ↔ 5.8 m/s 빗살 프로파일 — 컨트롤러가 옆 통과 내내 급가감속 펄스를
+  // 받는다 (2026-08-16 13:52 백 실측: s=15.3~16.6에서 1.07→5.70→1.37→6.29). 그래서
+  // nearestCluster와 같은 간격 규칙(obstacle_cluster_gap_m)으로 hull을 만들고, 틈에 놓인
+  // waypoint는 그 클러스터 모든 멤버에 대한 side room의 최솟값으로 캡한다. side room
+  // 계산은 멤버별 면 기준 그대로라, 반대편에 떨어진 멤버(유령 벽 등)는 room이 커서
+  // 제한하지 않는다 — hull이 d까지 합집합하는 것이 아니다.
+  struct CapCluster
+  {
+    double start{0.0};
+    double end{0.0};
+    std::size_t first{0U};
+    std::size_t last{0U};   // inclusive
+  };
+  std::vector<CapCluster> cap_clusters;
+  for (std::size_t index = 0U; index < visible.size(); ++index) {
+    const auto & obstacle = visible[index];
+    if (!cap_clusters.empty() &&
+      obstacle.start <= cap_clusters.back().end + parameters_.obstacle_cluster_gap_m)
+    {
+      cap_clusters.back().end = std::max(cap_clusters.back().end, obstacle.end);
+      cap_clusters.back().last = index;
+    } else {
+      cap_clusters.push_back({obstacle.start, obstacle.end, index, index});
+    }
+  }
+  const auto reserve_against = [this](const f110_msgs::msg::Wpnt & waypoint,
+    const ExpandedObstacle & obstacle) {
+      const double side_room = (waypoint.d_m <= obstacle.raw_d_right) ?
+        obstacle.raw_d_right - waypoint.d_m :
+        (waypoint.d_m >= obstacle.raw_d_left ? waypoint.d_m - obstacle.raw_d_left : 0.0);
+      return side_room - parameters_.obstacleBaseClearance();
+    };
   for (auto & waypoint : path.wpnts) {
     double speed = parameters_.limitedAvoidanceSpeed(
       std::max(0.0, waypoint.vx_mps), waypoint.kappa_radpm);
@@ -1653,15 +1687,24 @@ void RacelineSplinePlanner::applyAvoidanceVelocityLimit(
     // this waypoint may afford is whatever remains once the base clearance is paid.
     const double forward_s = forwardDistance(ego.s, waypoint.s_m);
     double admissible_reserve = std::numeric_limits<double>::infinity();
+    bool covered = false;
     for (const auto & obstacle : visible) {
       if (forward_s < obstacle.start || forward_s > obstacle.end) {
         continue;
       }
-      const double side_room = (waypoint.d_m <= obstacle.raw_d_right) ?
-        obstacle.raw_d_right - waypoint.d_m :
-        (waypoint.d_m >= obstacle.raw_d_left ? waypoint.d_m - obstacle.raw_d_left : 0.0);
-      admissible_reserve = std::min(
-        admissible_reserve, side_room - parameters_.obstacleBaseClearance());
+      covered = true;
+      admissible_reserve = std::min(admissible_reserve, reserve_against(waypoint, obstacle));
+    }
+    if (!covered) {
+      for (const auto & cluster : cap_clusters) {
+        if (forward_s < cluster.start || forward_s > cluster.end) {
+          continue;
+        }
+        for (std::size_t index = cluster.first; index <= cluster.last; ++index) {
+          admissible_reserve = std::min(
+            admissible_reserve, reserve_against(waypoint, visible[index]));
+        }
+      }
     }
     speed = parameters_.gapLimitedAvoidanceSpeed(
       speed, waypoint.kappa_radpm, admissible_reserve);

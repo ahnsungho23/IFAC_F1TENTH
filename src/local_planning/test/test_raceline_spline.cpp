@@ -386,6 +386,54 @@ TEST(RacelineSplinePlanner, PrefersExitThatClearsTheFollowingObstacle)
 // 접근 램프의 적응 기울기 (2026-08-16): 여유 있는 접근은 base(2.0)를 그대로 쓰고, 가용
 // 거리가 부족한 스팬만 max(3.5)까지 필요한 만큼 가팔라진다. 고정 상향은 여유 있는
 // 장애물까지 늦고 세게 제동하게 만들므로 금지 — 이 테스트가 두 성질을 함께 고정한다.
+// 한 물리 상자가 두 조각으로 갈라져 관측될 때, 조각 사이 s-틈의 waypoint도 클러스터
+// hull 캡을 받아야 한다. 틈이 캡 없이 라인 속도로 남으면 스팬 안에서 1.1↔5.8 빗살
+// 프로파일이 나와 옆 통과 내내 급가감속 펄스가 생긴다 (2026-08-16 13:52 백 실측).
+TEST(RacelineSplinePlanner, GapCapBridgesFragmentGapsInsideOneCluster)
+{
+  auto parameters = testParameters();
+  parameters.target_d_candidate_count = 5;
+  parameters.tracking_error_lut_speed_bins_mps = {1.0, 5.0};
+  parameters.tracking_error_lut_curvature_bins_radpm = {0.0};
+  parameters.tracking_error_lut_values_m = {0.05, 0.50};
+  RacelineSplinePlanner planner(parameters);
+  auto reference = makeStraightReference(300, 0.25, 1.20, 0.75);
+  for (auto & waypoint : reference.wpnts) {
+    waypoint.vx_mps = 5.0;
+  }
+  ASSERT_TRUE(planner.setReference(reference));
+
+  // 같은 면(d)을 가진 두 조각. 가장자리 간격 1.5 m — 확장 패딩(0.415×2)을 빼도
+  // 0.67 m의 비커버 틈이 남고, 클러스터 규칙(gap 0.8)으로는 한 클러스터다.
+  auto fragment_a = makeObstacle(10, 10.00, -0.10, 0.45);
+  fragment_a.s_start = 9.90;
+  fragment_a.s_end = 10.10;
+  auto fragment_b = makeObstacle(11, 11.70, -0.10, 0.45);
+  fragment_b.s_start = 11.60;
+  fragment_b.s_end = 11.80;
+
+  const EgoFrenetState ego{0.0, 0.0, 3.0};
+  const auto result = planner.plan(ego, {fragment_a, fragment_b});
+  ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
+
+  // hull(첫 조각 시작 ~ 둘째 조각 끝) 안의 모든 waypoint는 스팬 내부와 같은 수준으로
+  // 캡돼야 한다. 수리 전에는 틈 waypoint가 라인 속도(5.0)로 남았다.
+  double span_cap = 0.0;
+  double gap_max = 0.0;
+  for (const auto & waypoint : result.path.wpnts) {
+    const double forward = planner.forwardDistance(ego.s, waypoint.s_m);
+    if (forward >= 9.90 - 0.5 && forward <= 11.00 + 0.5) {
+      span_cap = std::max(span_cap, 0.0);
+    }
+    if (forward > 10.60 && forward < 11.15) {   // 확장 스팬 사이 비커버 틈
+      gap_max = std::max(gap_max, waypoint.vx_mps);
+    }
+  }
+  ASSERT_GT(gap_max, 0.0) << "no waypoint landed in the fragment gap; spacing broke";
+  EXPECT_LT(gap_max, 3.0)
+    << "fragment-gap waypoint kept raceline speed (sawtooth): " << gap_max;
+}
+
 TEST(RacelineSplinePlanner, ApproachRampSteepensOnlyWhenGeometryRequiresIt)
 {
   auto parameters = testParameters();
