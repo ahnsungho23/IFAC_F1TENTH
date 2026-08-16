@@ -375,14 +375,42 @@ TEST(P3ProductionParity, SelectedPathIsTheFastestFeasibleOne)
   }
 }
 
-TEST(P3ProductionParity, PassingScenariosKeepRecovering)
+// 🔴 배치 과적합 방지 (2026-08-17). 시나리오가 한 배치에서만 나오면, 그 배치에만 맞춘
+// 변경이 그대로 통과한다. 실제로 전이 형상 파라미터(pre_apex_distances_m 등)는 "FINALS
+// 3장애물 맵"에서 CMA-ES로 뽑은 값이고, 배치를 바꾼 2026-08-17 00:10 백에서 충돌 3건과
+// 정지 다수가 나왔다.
+//
+// 그래서 성공 케이스를 **서로 다른 두 배치**에서 가져온다:
+//   passing_mixed    2026-08-16 17:02 백 (장애물 s=2.6/8.3/22.5/23.1/23.5/26.7/32.7/37.4)
+//   layoutB_passing  2026-08-17 00:10 백 (장애물 s=9.9/13.1/23.5/24.3/30.9/34.7/36.4)
+// 앞으로의 수리는 두 배치를 동시에 만족해야 한다.
+TEST(P3ProductionParity, PassingScenariosKeepRecoveringOnBothLayouts)
 {
-  const auto stream = readStream(scenarioPath("passing_mixed"));
+  for (const auto & entry : {std::make_pair("passing_mixed", 4U),
+      std::make_pair("layoutB_passing", 5U)})
+  {
+    const auto stream = readStream(scenarioPath(entry.first));
+    const auto recovers = recoversPerFrame(stream);
+    ASSERT_EQ(recovers.size(), entry.second) << entry.first;
+    for (std::size_t index = 0; index < recovers.size(); ++index) {
+      EXPECT_TRUE(recovers[index])
+        << entry.first << " frame " << index << ": 되던 회피가 안 된다(회귀)";
+    }
+  }
+}
+
+// 배치 B에서 새로 드러난 실패. 2026-08-17 00:10 백에서 랩마다 s≈21에서 재계획이 전멸해
+// 안전정지로 떨어졌고, 그 뒤 해제되면서 실행 불가능한 회피를 커밋해 s≈23.85에서 obs4에
+// 충돌했다(2회). 아직 고치지 않았으므로 실패가 정상이며, 고쳐지면 이 테스트를 회복
+// 케이스로 옮길 것.
+TEST(P3ProductionParity, LayoutBReplanFailureIsStillReproduced)
+{
+  const auto stream = readStream(scenarioPath("layoutB_failing"));
   const auto recovers = recoversPerFrame(stream);
-  ASSERT_EQ(recovers.size(), 4U);
+  ASSERT_EQ(recovers.size(), 3U);
   for (std::size_t index = 0; index < recovers.size(); ++index) {
-    EXPECT_TRUE(recovers[index])
-      << "passing_mixed frame " << index << ": 되던 회피가 안 된다(회귀)";
+    EXPECT_FALSE(recovers[index])
+      << "layoutB_failing frame " << index << ": 이미 고쳐졌다면 회복 케이스로 옮길 것";
   }
 }
 
