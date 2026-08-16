@@ -235,8 +235,14 @@ std::vector<bool> recoversPerFrame(const Stream & stream)
     recovers.push_back(result.would_recover);
     if (std::getenv("P3_PARITY_DUMP") != nullptr) {
       printf(
-        "DUMP %s ego s=%.3f d=%+.4f v=%.2f | R[%+.4f,%+.4f] L[%+.4f,%+.4f] | %s\n",
+        "DUMP %s ego s=%.3f d=%+.4f v=%.2f | clus[%.3f,%.3f] Rc[%.3f,%.3f] Lc[%.3f,%.3f] "
+        "ctx=%zu cand=%zu segrej=%zu | R[%+.4f,%+.4f] L[%+.4f,%+.4f] | %s\n",
         stream.scenario.c_str(), frame.ego.s, frame.ego.d, frame.ego.speed,
+        result.cluster_start_forward_m, result.cluster_end_forward_m,
+        result.right_domain.cluster_start, result.right_domain.cluster_end,
+        result.left_domain.cluster_start, result.left_domain.cluster_end,
+        result.m1_context_count, result.m1_candidate_count,
+        result.m1_positive_segment_rejection_count,
         result.right_domain.minimum_target, result.right_domain.maximum_target,
         result.left_domain.minimum_target, result.left_domain.maximum_target,
         result.failure_classification.c_str());
@@ -423,17 +429,27 @@ TEST(P3ProductionParity, LayoutBReplanFailureIsStillReproduced)
 
 // 후보를 늘리는 방향의 변경은 "없던 해를 억지로 만들어내는" 쪽으로 틀어지기 쉽다.
 // 물리적으로 통과 불가능한 배치에서는 계속 실패해야 한다.
-// 배치 C에서 지배적으로 드러난 실패: 자차가 옆으로 깊이 나가 있을 때 재계획이 후보를
-// 하나도 만들지 못한다(BOUNDARY_HANDOFF_UNRESOLVED).
+// 배치 C에서 드러난 실패: BOUNDARY_HANDOFF_UNRESOLVED.
 //
-// 2026-08-17 00:34 백 실측 — 자차 횡오프셋별 이 판정의 비율:
-//   |d| < 0.45   6/102
-//   |d| >= 0.45  7/40    (3배)
-// 그 배치는 obs7(31.0)·obs8(34.7)·obs9(36.4)가 5.4 m에 몰려 있어 차가 깊은 오프셋에 오래
-// 머물고, 그 결과 s≈32~34에서 8.5~10 s씩 갇혔다(랩타임 23.17 s).
+// 🔴 진단 정정 (2026-08-17). 처음에는 "자차가 옆으로 깊이 나가 있을 때"로 봤다. 그 상관은
+// 있었지만(|d|>=0.45에서 3배) **혼동 변수**였다 — 회피 중이라 옆으로 나가 있었을 뿐이다.
+// 실제 조건은 `cluster_start_forward_m < 0`, 즉 자차가 이미 클러스터 앞단을 지나 옆에
+// 나란히 있는 상태다. 00:34 백 전수 대조:
+//   cluster_start <  0   13건 → BOUNDARY_HANDOFF 13건 (100%)
+//   cluster_start >= 0  129건 → BOUNDARY_HANDOFF  0건 (  0%)
+//
+// 메커니즘 (p3_shadow.cpp stationsFor):
+//   entry_length = cluster_start * pre_apex_distances_m.front() * entry / detection_lookahead_m
+// cluster_start가 음수면 entry_length도 음수가 되어 첫 구간 길이가 음수가 되고,
+// strictPositiveSegments가 모든 M1 후보를 기각한다(segrej=4, cand=0).
+//
+// ⚠️ 이 13건은 **전부 v>=2.9 m/s의 주행 중 과도 상태**이고 정지와 무관하다(저속 0건).
+// 그 백의 정지 7건은 전혀 다른 원인이다 — 안전정지 래치이며, 그 방아쇠 3건은 진입 불연속
+// 검사의 오탐이었다(RacelineSplinePlanner.NormalTrackingErrorOverATinyBaselineIsNotADiscontinuity
+// 참조). 즉 이 테스트가 고정하는 것은 랩타임 손실이 아니라 기하 구성의 결함이다.
 //
 // 아직 고치지 않았으므로 실패가 정상이다. 고쳐지면 회복 케이스로 옮길 것.
-TEST(P3ProductionParity, DeepLateralOffsetReplanIsStillUnsolved)
+TEST(P3ProductionParity, ReplanBesideAClusterIsStillUnsolved)
 {
   const auto stream = readStream(scenarioPath("layoutC_failing"));
   const auto recovers = recoversPerFrame(stream);

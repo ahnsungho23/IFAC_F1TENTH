@@ -490,6 +490,62 @@ TEST(RacelineSplinePlanner, PathDiscontinuousFromEgoIsRejected)
   EXPECT_TRUE(planner.validatePath(ego, path, {}, &ok_reason)) << ok_reason;
 }
 
+// 🔴 2026-08-17 00:34 백 회귀 — 위 검사가 기울기 **단독**이었을 때의 오탐.
+//
+// 기준점은 자차보다 엄밀히 앞선 최근접 waypoint이고, 자차 s는 두 샘플 사이 아무 데나 있다.
+// 그래서 그 전방거리는 샘플 간격 아래로 얼마든지 작아지고, 기울기 |Δd|/전방거리 는 경로
+// 기하가 아니라 **추종오차를 0에 가까운 수로 나눈 값**이 되어 발산한다.
+//
+// 실해: 정상 추종 중 9회 무효화 → 그 중 3회가 0.3~0.5 s 뒤 안전정지 영구 정지(8.9 s 1건,
+// 사람이 pose를 옮겨야 풀렸다). 정지 점유율 11%(00:10) → 53%(00:34).
+//
+// 판정은 간격을 **추종 예산**(trackingErrorReserve, localization_reserve_m 포함)과 먼저
+// 비교하고, 예산을 넘으면서 기울기도 한계를 넘을 때만 불연속으로 본다.
+TEST(RacelineSplinePlanner, NormalTrackingErrorOverATinyBaselineIsNotADiscontinuity)
+{
+  auto parameters = fieldParameters();
+  const double budget = parameters.trackingErrorReserve(3.0, 0.0);
+  ASSERT_GT(budget, 0.05) << "추종 예산이 0이면 이 검사는 의미가 없다";
+  RacelineSplinePlanner planner(parameters);
+  const auto reference = makeStraightReference(300, 0.25, 1.20, 1.20);
+  ASSERT_TRUE(planner.setReference(reference));
+
+  // 00:34 백 t=22.70 의 상태. 경로를 정상 추종 중이고 자차는 예산 안에서 옆으로 벗어나 있다.
+  const EgoFrenetState ego{5.0, 0.212, 2.96};
+  const double tracking_error = 0.5 * budget;
+  f110_msgs::msg::WpntArray path;
+  path.header = reference.header;
+  for (std::size_t index = 0; index < 20U; ++index) {
+    f110_msgs::msg::Wpnt waypoint;
+    waypoint.id = static_cast<std::int32_t>(index);
+    // 첫 점이 자차 **0.01 m** 앞에 온다 — 기울기는 발산하지만 간격은 추종오차 그대로다.
+    waypoint.s_m = 5.01 + 0.25 * static_cast<double>(index);
+    waypoint.d_m = ego.d + tracking_error;
+    waypoint.x_m = waypoint.s_m;
+    waypoint.y_m = waypoint.d_m;
+    waypoint.vx_mps = 3.0;
+    path.wpnts.push_back(waypoint);
+  }
+  ASSERT_GT(tracking_error / 0.01, parameters.maximum_lateral_slope)
+    << "이 배치에서 기울기가 한계를 넘지 않으면 회귀를 재현하지 못한다";
+  std::string reason;
+  EXPECT_TRUE(planner.validatePath(ego, path, {}, &reason))
+    << "정상 추종오차가 불연속으로 기각됐다: " << reason;
+
+  // 예산을 넘는 간격이라도 도달할 거리가 충분하면 정상이다 (판정의 나머지 절반).
+  for (std::size_t index = 0; index < path.wpnts.size(); ++index) {
+    path.wpnts[index].s_m = 7.00 + 0.25 * static_cast<double>(index);
+    path.wpnts[index].d_m = ego.d + 0.45;
+    path.wpnts[index].x_m = path.wpnts[index].s_m;
+    path.wpnts[index].y_m = path.wpnts[index].d_m;
+  }
+  ASSERT_GT(0.45, budget);
+  ASSERT_LT(0.45 / 2.0, parameters.maximum_lateral_slope);
+  std::string reachable_reason;
+  EXPECT_TRUE(planner.validatePath(ego, path, {}, &reachable_reason))
+    << "2 m 앞의 0.45 m 이동은 기울기 0.225로 도달 가능한데 기각됐다: " << reachable_reason;
+}
+
 TEST(RacelineSplinePlanner, EveryDropInThePublishedProfileIsActuallyBrakeable)
 {
   auto parameters = fieldParameters();

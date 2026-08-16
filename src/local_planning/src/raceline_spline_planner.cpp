@@ -2036,15 +2036,27 @@ bool RacelineSplinePlanner::validateCandidate(
   // 밀려(d: +0.04 → -0.14) s=23.85에서 장애물에 박았다.
   //
   // 같은 검사가 buildCommittedPathStop에는 이미 있었다(정지 접두부용). 회피 경로에만
-  // 없었던 것이므로 여기로 옮겨 모든 후보가 통과하게 한다. 새 상수는 없다 —
-  // maximum_lateral_slope를 그대로 쓴다.
-  // 기준은 **자차 앞 가장 가까운 waypoint**다. path.wpnts[start_index]를 쓰면, 이미 커밋한
-  // 경로를 자차가 전진한 뒤 재검증할 때 자차보다 뒤에 있는 첫 점과 비교하게 되어 정상
-  // 상황을 기각한다(회귀 테스트 RejectsCommittedPathWhenObstacleEnvelopeGrows).
+  // 없었던 것이므로 여기로 옮겨 모든 후보가 통과하게 한다.
+  //
+  // 🔴 2026-08-17 수정 — 기울기 **단독** 판정은 회귀였다.
+  // 기준점을 "자차보다 엄밀히 앞선 최근접 waypoint"로 잡으면 그 전방거리가 경로 샘플
+  // 간격 아래로 얼마든지 작아진다(자차 s는 두 샘플 사이 아무 데나 있다). 그러면
+  //   기울기 = |Δd| / entry_forward
+  // 는 경로 기하가 아니라 **추종오차를 0에 가까운 수로 나눈 값**이 되어 발산한다.
+  // 00:34 백에서 정상 추종 중 9회 무효화됐고, 그 중 3회가 곧바로(0.3~0.5 s 뒤) 안전정지
+  // 영구 정지로 이어졌다(8.9 s 1건 포함 — 사람이 pose를 옮겨야 풀렸다). 정지 점유율이
+  // 00:10의 11%에서 53%로 뛰었다.
+  //
+  // 경로 **내부**의 급한 횡변화는 아래 quintic d-offset 검사가 이미 담당한다. 이 검사가
+  // 추가로 담당하는 것은 "경로가 자차가 있는 곳에서 시작하는가" 하나뿐이므로, 먼저
+  // 간격 자체를 이 플래너가 이미 들고 있는 **추종 예산**과 비교한다:
+  //   trackingErrorReserve(v, kappa)  — localization_reserve_m를 바닥으로 포함
+  // 예산 안의 간격은 정상 추종오차다. 예산을 넘더라도 도달할 거리가 충분하면(기울기가
+  // 한계 이하) 정상이다. **둘 다** 어긋날 때만 불연속이다. 새 상수는 없다.
+  //
+  // 실해 사례는 그대로 걸린다: 간격 0.447 m > 예산(약 0.14~0.20 m)이고 기울기 2.3 > 0.8.
+  // 오탐은 사라진다: 추종오차 간격은 예산 안이므로 분모가 아무리 작아도 통과한다.
   {
-    // 자차보다 **엄밀히 앞선** 최근접 점. 자차와 같은 s에 있는 점은 기준이 될 수 없다 —
-    // 커밋 경로를 추종하는 중에는 그 점의 d와 자차 d가 조금 다른 것이 정상이고, 그것을
-    // "제자리 횡점프"로 보면 정상 재검증이 기각된다.
     std::size_t entry_index = path.wpnts.size();
     double entry_forward = std::numeric_limits<double>::infinity();
     for (std::size_t index = start_index; index < path.wpnts.size(); ++index) {
@@ -2057,9 +2069,12 @@ bool RacelineSplinePlanner::validateCandidate(
     if (entry_index < path.wpnts.size() && entry_forward <= 0.5 * track_length_) {
       const auto & entry = path.wpnts[entry_index];
       const double entry_lateral = std::abs(entry.d_m - ego.d);
+      const double tracking_budget_m =
+        parameters_.trackingErrorReserve(ego.speed, entry.kappa_radpm);
+      const bool beyond_tracking_budget = entry_lateral > tracking_budget_m;
       const bool excessive_entry_slope =
         entry_lateral / entry_forward > parameters_.maximum_lateral_slope;
-      if (excessive_entry_slope) {
+      if (beyond_tracking_budget && excessive_entry_slope) {
         return reject(
           PathValidationFailureKind::kGeometry,
           "path entry is discontinuous from the current ego d", entry_index, &entry);
