@@ -7,7 +7,7 @@
 
 - `/static_obs`: 존재가 확정된 motion `UNKNOWN` 또는 `STATIC` 장애물
 - `/confirmed_static_obs`: 존재와 정지 상태가 모두 확정된 `STATIC` 장애물
-- `/opp_obs`: 에고 전방의 가장 가까운 동적 상대차 최대 1개
+- `/opp_obs`: 에고 전방의 가장 가까운 동적 상대차 최대 1개와 `is_interfering` 간섭 판정
 
 이 패키지는 검출만 담당한다. 경로 계획, 회피·추월 waypoint, 주행 상태 결정은 다른 패키지의 책임이다.
 
@@ -239,6 +239,9 @@ extent로 박스 모서리 간격을 계산하고, 같은 레이어 안에서 �
 - 모든 병합 static 객체를 `/static_obs`로 발행한다.
 - 그중 confirmed static만 다시 병합해 `/confirmed_static_obs`로 발행한다.
 - 병합 dynamic 객체 중 에고 전방에서 가장 가까운 하나를 `/opp_obs`로 발행한다.
+- 선택된 상대차의 Frenet 횡영역이 ego corridor와 겹치고 현재 또는 등속 예측 후면 간격이
+  `interference_distance_m` 이내이면 `is_interfering=true`로 설정한다. 같은 ID의 간섭 상태는
+  `interference_distance_m * (1 + interference_distance_margin_ratio)`까지 유지한다.
 - `/static_obs/markers`는 최종 `/static_obs`의 Frenet 경계를 파란 테두리로 표시한다.
 - `/opp_obs/markers`는 최종 `/opp_obs`의 Frenet 경계를 빨간 테두리로 표시한다.
 - 마커는 `s_start/s_end/d_right/d_left`에서 직접 만들어지므로 local planner 입력과 같은
@@ -414,6 +417,7 @@ record/replay 원인 분석용 출력일 뿐 planner 입력이 아니다. 일반
 | ego 가속 transient 억제 | `motion_classification.dynamic_vote_ego_accel_suppress_mps2`, `dynamic_vote_suppress_hold_sec`, `ego_accel_smoothing_sec` | 급제동·런치킥의 위치추정 jitter 구간에서 dynamic vote만 보류 (0.0이면 비활성) |
 | 분류 수치 안정성 | `motion_classification.covariance_regularization_epsilon`, `minimum_velocity_covariance`, `static_score_forgetting_factor` | 속도 공분산 regularization과 confidence decay |
 | 레이어 병합 | `layer_merge_enable`, `layer_merge_gap_s/d` | tracking 후 같은 레이어 객체 병합 |
+| 상대차 간섭 | `interference_check_enable`, `interference_distance_m`, `interference_distance_margin_ratio`, `interference_time_horizon_sec`, `interference_min_closing_speed_mps`, `interference_lateral_margin_m`, `interference_ego_half_width_m`, `interference_ego_front_offset_m` | ego corridor 횡겹침과 현재/예측 후면 간격으로 `is_interfering` 판정. 기본 1.0 m 진입, 같은 ID는 1.2 m에서 해제 |
 | 진단 | `diagnostics_enable`, `diagnostics_period_sec`, `motion_classification.debug_enable`, `debug_period_sec` | 누적 perception 로그와 track별 motion debug 로그 |
 | Replay 진단 | `replay_diagnostics_enable=false`, `replay_diagnostics_topic` | tuning 전용 scan별 detector 상태 JSON |
 | Lockstep | `lockstep_mode=false`, `lockstep_scan_offset_x_m=0.275` | CMA 전용 동일 timestamp scan/GT odom 결합 |

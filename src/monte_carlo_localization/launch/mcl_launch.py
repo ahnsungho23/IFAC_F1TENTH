@@ -55,7 +55,10 @@ def _node_running_in_domain(target_name, settle_sec=1.5):
     probe = None
     try:
         if not rclpy.ok():
-            rclpy.init()
+            # This probe runs inside `ros2 launch`, whose process argv still contains
+            # launch arguments such as `mod:=sim`. They are not ROS remap rules for
+            # this temporary node, so do not let rclpy parse the parent process argv.
+            rclpy.init(args=[])
             started_here = True
         probe = rclpy.create_node('mcl_map_server_probe_%d' % os.getpid())
         deadline = time.monotonic() + settle_sec

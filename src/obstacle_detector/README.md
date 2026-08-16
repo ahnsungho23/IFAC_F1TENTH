@@ -37,7 +37,9 @@
 - Confirmed Layer 2: 위치 지속성과 속도 통계 voting으로 확정된 `STATIC`만
   `/confirmed_static_obs`에 별도로 발행한다. 장기 저장
   노드는 이 토픽을 사용하며 기존 `/static_obs` 계약은 바뀌지 않는다.
-- Layer 3: 확정 동적 물체 중 에고 전방에서 가장 가까운 하나를 `/opp_obs`로 발행한다.
+- Layer 3: 확정 동적 물체 중 에고 전방에서 가장 가까운 하나를 `/opp_obs`로 발행하고,
+  ego corridor와 현재/예측 후면 간격으로 계산한 `is_interfering` 값을 제공한다. 기본값은
+  1.0 m에서 진입하고 같은 ID를 추종하는 동안 20% 여유를 적용해 1.2 m에서 해제한다.
 
 세 장애물 레이어 view는 `f110_msgs/msg/ObstacleArray`이며 매 scan마다 발행된다. 해당 view가
 비어 있으면 빈 배열을 발행한다.

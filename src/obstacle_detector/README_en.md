@@ -33,7 +33,9 @@ waypoints, or publish driving state.
 - Layer 1 removes walls and known map structure and is not published.
 - Layer 2 publishes every existence-confirmed Unknown or Static object on `/static_obs`.
 - `/confirmed_static_obs` publishes only existence-confirmed Static objects.
-- Layer 3 publishes at most one nearest-ahead confirmed dynamic object on `/opp_obs`.
+- Layer 3 publishes at most one nearest-ahead confirmed dynamic object on `/opp_obs`, including an
+  `is_interfering` decision based on ego-corridor overlap and current/predicted rear gap. The
+  operational defaults enter at 1.0 m and release the same opponent ID at 1.2 m.
 
 All three layer views use `f110_msgs/msg/ObstacleArray` and are published on every scan, including
 empty arrays.

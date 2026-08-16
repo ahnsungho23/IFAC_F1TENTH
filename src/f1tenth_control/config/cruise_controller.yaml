@@ -1,0 +1,32 @@
+cruise_controller_node:
+  ros__parameters:
+    opponent_topic: "/opp_obs"
+    ego_frenet_topic: "/car_state/frenet/odom"
+    global_waypoints_topic: "/global_waypoints"
+    speed_limit_topic: "/cruise_speed_limit"
+    gap_data_topic: "/cruise/gap_data"
+    state_topic: "/state"
+    publish_rate_hz: 50.0
+
+    # crazy_controller의 trailing 파라미터 명명과 기본값을 계승한다.
+    # true: trailing_gap을 고정 거리[m]로 사용, false: 시간 간격[s]으로 사용한다.
+    trailing_mode_distance: true
+    trailing_gap: 5.0
+    minimum_gap: 0.8
+    trailing_p_gain: 1.0
+    trailing_i_gain: 0.0
+    trailing_d_gain: 0.2
+    integral_limit: 2.0
+    allow_accel_trailing: true
+
+    maximum_speed: 12.0
+    emergency_stop_distance: 0.45
+    relative_deceleration: 2.5
+    ego_front_offset: 0.25
+    uncertainty_sigma: 2.0
+
+    opponent_timeout: 0.15
+    ego_timeout: 0.20
+    state_timeout: 0.30
+    clear_confirm_sec: 0.50
+    blind_trailing_speed: 1.5

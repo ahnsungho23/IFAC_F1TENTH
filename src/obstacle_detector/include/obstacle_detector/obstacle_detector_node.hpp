@@ -147,6 +147,9 @@ class ObstacleDetectorNode : public rclcpp::Node
     // The opponent among the merged dynamic objects: nearest ahead of ego (ego_s_ < 0 falls back
     // to lowest positional uncertainty). Returns -1 when the layer is empty.
     int selectOpponent(const std::vector<MergedObstacle> &dynamic_objs) const;
+    // Check whether the selected opponent overlaps the ego corridor and is within the current or
+    // constant-velocity predicted longitudinal safety distance.
+    bool isOpponentInterfering(const f110_msgs::msg::Obstacle &opponent);
     void updateDiagnostics(const ScanProcessingStats &scan_stats,
                            const TrackerUpdateStats *tracker_stats,
                            double measurement_yaw_rate, bool yaw_rate_fresh);
@@ -212,6 +215,14 @@ class ObstacleDetectorNode : public rclcpp::Node
     bool publish_markers_;
     bool diagnostics_enable_;
     double diagnostics_period_sec_;
+    bool interference_check_enable_;
+    double interference_distance_m_;
+    double interference_distance_margin_ratio_;
+    double interference_time_horizon_sec_;
+    double interference_min_closing_speed_mps_;
+    double interference_lateral_margin_m_;
+    double interference_ego_half_width_m_;
+    double interference_ego_front_offset_m_;
     // Withhold prediction-only static tracks. The tracker may retain them for ID continuity, but
     // they are not authoritative current obstacle geometry for local planning.
     bool static_publish_requires_visible_{true};
@@ -241,7 +252,11 @@ class ObstacleDetectorNode : public rclcpp::Node
     // 맵에서 선형 벽 성분을 추출해 빔 단위 Layer-1 판정을 O(1)로 제공 (맵 수신 시 1회 빌드)
     WallDistanceFilter wall_filter_;
     double ego_s_{-1.0};   // ego arc-length; < 0 disables the ahead-preference until first proj
+    double ego_d_{0.0};
+    double ego_vs_{0.0};
     double ego_s_stamp_{-1.0};  // odometry stamp of the last ego_s_ update (freshness check)
+    bool opponent_interference_latched_{false};
+    int opponent_interference_id_{-1};
     global_planning::ClcsContinuityState ego_continuity_;
     double odom_yaw_rate_{0.0};
     double odom_motion_stamp_{-1.0};

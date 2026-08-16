@@ -192,6 +192,14 @@ void ObstacleDetectorNode::declareParameters()
     this->declare_parameter<bool>("publish_markers", true);
     this->declare_parameter<bool>("diagnostics_enable", true);
     this->declare_parameter<double>("diagnostics_period_sec", 1.0);
+    this->declare_parameter<bool>("interference_check_enable", true);
+    this->declare_parameter<double>("interference_distance_m", 1.0);
+    this->declare_parameter<double>("interference_distance_margin_ratio", 0.20);
+    this->declare_parameter<double>("interference_time_horizon_sec", 1.0);
+    this->declare_parameter<double>("interference_min_closing_speed_mps", 0.2);
+    this->declare_parameter<double>("interference_lateral_margin_m", 0.10);
+    this->declare_parameter<double>("interference_ego_half_width_m", 0.16);
+    this->declare_parameter<double>("interference_ego_front_offset_m", 0.25);
     this->declare_parameter<bool>("replay_diagnostics_enable", false);
     this->declare_parameter<std::string>(
         "replay_diagnostics_topic", "/cma_replay/detector_events");
@@ -328,6 +336,22 @@ void ObstacleDetectorNode::loadParameters()
     diagnostics_enable_ = this->get_parameter("diagnostics_enable").as_bool();
     diagnostics_period_sec_ =
         std::max(0.1, this->get_parameter("diagnostics_period_sec").as_double());
+    interference_check_enable_ =
+        this->get_parameter("interference_check_enable").as_bool();
+    interference_distance_m_ =
+        std::max(0.0, this->get_parameter("interference_distance_m").as_double());
+    interference_distance_margin_ratio_ = std::clamp(
+        this->get_parameter("interference_distance_margin_ratio").as_double(), 0.0, 1.0);
+    interference_time_horizon_sec_ =
+        std::max(0.0, this->get_parameter("interference_time_horizon_sec").as_double());
+    interference_min_closing_speed_mps_ =
+        std::max(0.0, this->get_parameter("interference_min_closing_speed_mps").as_double());
+    interference_lateral_margin_m_ =
+        std::max(0.0, this->get_parameter("interference_lateral_margin_m").as_double());
+    interference_ego_half_width_m_ =
+        std::max(0.0, this->get_parameter("interference_ego_half_width_m").as_double());
+    interference_ego_front_offset_m_ =
+        std::max(0.0, this->get_parameter("interference_ego_front_offset_m").as_double());
     replay_diagnostics_enable_ =
         this->get_parameter("replay_diagnostics_enable").as_bool();
     replay_diagnostics_topic_ =
@@ -519,7 +543,10 @@ void ObstacleDetectorNode::globalWpntsCallback(const f110_msgs::msg::WpntArray::
         active_reference_waypoints_ = std::move(next_reference_waypoints);
         tracker_.clear();  // old tracks live in the previous reference's s-domain
         ego_s_ = -1.0;  // wait for an odometry sample projected against the new CLCS reference
+        ego_d_ = 0.0;
         ego_s_stamp_ = -1.0;
+        opponent_interference_latched_ = false;
+        opponent_interference_id_ = -1;
         ego_continuity_ = global_planning::ClcsContinuityState{};
         RCLCPP_INFO_ONCE(this->get_logger(),
                          "CLCS converter built from %zu waypoints (track length %.2f m).",
@@ -583,6 +610,7 @@ void ObstacleDetectorNode::applyEgoOdometry(const nav_msgs::msg::Odometry & msg)
     const double speed_stamp = stampToSec(msg.header.stamp);
     if (std::isfinite(speed))
     {
+        ego_vs_ = speed;
         const double dt = speed_stamp - ego_last_speed_stamp_;
         if (std::isfinite(ego_last_speed_) && dt > 1.0e-4 && dt < 0.5)
         {
@@ -621,6 +649,7 @@ void ObstacleDetectorNode::applyEgoOdometry(const nav_msgs::msg::Odometry & msg)
     if (cr.valid)
     {
         ego_s_ = cr.s;
+        ego_d_ = cr.d;
         ego_s_stamp_ = stampToSec(msg.header.stamp);
         if (cr.reacquired)
         {
@@ -1217,6 +1246,68 @@ int ObstacleDetectorNode::selectOpponent(const std::vector<MergedObstacle> &dyna
     return best;
 }
 
+bool ObstacleDetectorNode::isOpponentInterfering(
+    const f110_msgs::msg::Obstacle &opponent)
+{
+    const double track_length = frenet_.raceline_length();
+    if (!interference_check_enable_ || ego_s_ < 0.0 || !(track_length > 0.0))
+    {
+        opponent_interference_latched_ = false;
+        opponent_interference_id_ = -1;
+        return false;
+    }
+
+    double center_ahead = frenet_.wrapDelta(opponent.s_center, ego_s_);
+    if (center_ahead < 0.0)
+    {
+        center_ahead += track_length;
+    }
+    if (center_ahead <= 0.0 || center_ahead >= 0.5 * track_length)
+    {
+        opponent_interference_latched_ = false;
+        opponent_interference_id_ = -1;
+        return false;
+    }
+
+    double longitudinal_span = frenet_.wrapDelta(opponent.s_end, opponent.s_start);
+    if (longitudinal_span < 0.0)
+    {
+        longitudinal_span += track_length;
+    }
+    if (longitudinal_span > 0.5 * track_length)
+    {
+        longitudinal_span = 0.0;
+    }
+    const double rear_gap = std::max(
+        0.0,
+        center_ahead - 0.5 * longitudinal_span - interference_ego_front_offset_m_);
+
+    const double corridor_half_width =
+        interference_ego_half_width_m_ + interference_lateral_margin_m_;
+    const double corridor_right = ego_d_ - corridor_half_width;
+    const double corridor_left = ego_d_ + corridor_half_width;
+    const double opponent_right = std::min(opponent.d_right, opponent.d_left);
+    const double opponent_left = std::max(opponent.d_right, opponent.d_left);
+    const bool lateral_overlap =
+        opponent_right <= corridor_left && opponent_left >= corridor_right;
+
+    const double closing_speed = ego_vs_ - opponent.vs;
+    const double predicted_closure =
+        closing_speed >= interference_min_closing_speed_mps_ ?
+        closing_speed * interference_time_horizon_sec_ : 0.0;
+    const double predicted_gap = rear_gap - predicted_closure;
+    const double exit_distance =
+        interference_distance_m_ * (1.0 + interference_distance_margin_ratio_);
+    const bool same_latched_opponent =
+        opponent_interference_latched_ && opponent_interference_id_ == opponent.id;
+    const double distance_threshold =
+        same_latched_opponent ? exit_distance : interference_distance_m_;
+    const bool interfering = lateral_overlap && predicted_gap <= distance_threshold;
+    opponent_interference_latched_ = interfering;
+    opponent_interference_id_ = interfering ? opponent.id : -1;
+    return interfering;
+}
+
 void ObstacleDetectorNode::logMotionDebug()
 {
     if (!motion_debug_enable_)
@@ -1619,7 +1710,19 @@ void ObstacleDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
     opp_arr.header.frame_id = map_frame_;
     if (opp >= 0)
     {
-        opp_arr.obstacles.push_back(dynamic_objs[opp].ob);
+        auto opponent = dynamic_objs[opp].ob;
+        opponent.is_interfering = ego_s_fresh && isOpponentInterfering(opponent);
+        if (!ego_s_fresh)
+        {
+            opponent_interference_latched_ = false;
+            opponent_interference_id_ = -1;
+        }
+        opp_arr.obstacles.push_back(std::move(opponent));
+    }
+    else
+    {
+        opponent_interference_latched_ = false;
+        opponent_interference_id_ = -1;
     }
     if (ego_s_fresh)
     {
