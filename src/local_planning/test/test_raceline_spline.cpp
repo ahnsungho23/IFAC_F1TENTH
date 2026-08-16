@@ -303,6 +303,150 @@ TEST(RacelineSplinePlanner, ShiftsOnlyOrderedGlobalRaceLineSamples)
   EXPECT_NEAR(result.path.wpnts.back().d_m, 0.0, 1.0e-6);
 }
 
+// 2026-08-16 시뮬 백(rosbag2_2026_08_16-08_50_21)의 실측 기하. 앞 장애물은 라인 왼쪽에
+// 치우쳐 있어 우측으로 피하는데, 8 m 뒤 장애물은 라인 위에 걸쳐 있다. exit 스케일이 길면
+// 복귀 램프가 오프셋을 유지한 채 뒤 장애물의 물리 엔벨로프를 지나가고, 그 경로는 커밋
+// 재검증과 매 사이클 충돌해 25 ms마다 같은 후보를 다시 고르는 무한 재계획이 된다
+// (실측: 랩당 hard collision 41회, s=28~30에서 완전 정지 랩당 2~4회).
+// 뒤 장애물을 건드리지 않는 exit이 존재하면 그쪽이 선택되어야 한다.
+TEST(RacelineSplinePlanner, PrefersExitThatClearsTheFollowingObstacle)
+{
+  auto parameters = testParameters();
+  parameters.target_d_candidate_count = 5;
+  parameters.entry_transition_fractions = {0.5, 0.75, 1.0};
+  // 짧은/중간/아주 긴 exit. 마지막 값이 운영 YAML의 3.699 자리이며, 이것이 뒤 장애물을
+  // 관통하는 후보를 만든다.
+  parameters.transition_distance_scales = {0.5, 0.7, 3.7};
+  RacelineSplinePlanner planner(parameters);
+  // 백의 s=28~42 구간 회랑(d_left 1.18~1.28, d_right 0.73~0.90) 중 좁은 쪽으로 고정한다.
+  ASSERT_TRUE(planner.setReference(makeStraightReference(300, 0.25, 1.20, 0.75)));
+
+  auto blocking = makeObstacle(10, 3.57, 0.14, 0.47);   // 백 id10: s=31.44~31.77
+  blocking.s_start = 3.40;
+  blocking.s_end = 3.73;
+  auto following = makeObstacle(0, 11.75, -0.18, 0.10);  // 백 id0: s=40.31~40.83, 라인 위
+  following.s_start = 11.50;
+  following.s_end = 12.00;
+
+  const EgoFrenetState ego{0.0, -0.136, 2.17};
+  const auto shadow = planner.evaluateP3Shadow(
+    ego, {blocking, following}, 100, 1U, 1U, "FOLLOWING_OBSTACLE_EXIT_TEST");
+  ASSERT_TRUE(shadow.invoked);
+  ASSERT_FALSE(shadow.candidates.empty());
+  ASSERT_NE(shadow.selected_path_digest, "NONE") << shadow.failure_classification;
+
+  // 상황이 실제로 재현됐는지부터 확인한다: 뒤 장애물을 관통하는 exit 후보가 존재해야
+  // 우선순위가 시험된다. 이게 0이면 테스트가 무의미하게 통과한다.
+  std::size_t reaching = 0U;
+  std::size_t clear_and_valid = 0U;
+  for (const auto & candidate : shadow.candidates) {
+    if (candidate.exit_reaches_next_obstacle) {
+      ++reaching;
+    } else if (candidate.hard_valid) {
+      ++clear_and_valid;
+    }
+  }
+  ASSERT_GT(reaching, 0U) << "no candidate carried its offset into the following obstacle; "
+    "the ranking preference is not being exercised";
+  ASSERT_GT(clear_and_valid, 0U) << "no clear alternative existed";
+
+  // 선택된 후보는 그 관통 후보가 아니어야 한다.
+  bool selected_found = false;
+  for (const auto & candidate : shadow.candidates) {
+    if (candidate.path_digest != shadow.selected_path_digest) {
+      continue;
+    }
+    selected_found = true;
+    EXPECT_FALSE(candidate.exit_reaches_next_obstacle)
+      << "selected an exit ramp that carries offset into the following obstacle while a clear "
+      "alternative existed";
+  }
+  EXPECT_TRUE(selected_found);
+
+  // plan()의 순위도 같은 계약을 따라야 한다 (P3와 P0가 갈리면 서로 다른 경로를 커밋한다).
+  const auto result = planner.plan(ego, {blocking, following});
+  ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
+  const double clearance = parameters.vehicle_half_width_m + parameters.safety_margin_m;
+  for (const auto & waypoint : result.path.wpnts) {
+    const double forward = planner.forwardDistance(ego.s, waypoint.s_m);
+    if (forward + 1.0e-9 < following.s_start || forward > following.s_end + 1.0e-9) {
+      continue;
+    }
+    if (std::abs(waypoint.d_m) <= 1.0e-3) {
+      break;   // 합류 뒤 글로벌 꼬리 — 이 기동의 기하가 아니다.
+    }
+    EXPECT_FALSE(
+      waypoint.d_m > following.d_right - clearance &&
+      waypoint.d_m < following.d_left + clearance)
+      << "plan() committed an exit ramp inside the following obstacle's envelope at forward="
+      << forward << " d=" << waypoint.d_m;
+  }
+}
+
+// 접근 제동 램프는 스팬마다 걸려야 한다. 예전에는 가장 가까운 스팬 하나만 대상이라, 두 번째
+// 장애물 앞에서 gap 캡이 그대로 계단으로 나타났다 (2026-08-16 백: 0.25 m 만에 4.62 → 1.00,
+// decel 2.0으로는 5.0 m가 필요한 감속을 요구).
+TEST(RacelineSplinePlanner, BrakingRampCoversEveryObstacleSpanNotOnlyTheNearest)
+{
+  auto parameters = testParameters();
+  parameters.target_d_candidate_count = 5;
+  parameters.approach_feasibility_decel_mps2 = 2.0;
+  // gap 기반 캡은 추종오차 tube가 속도에 따라 커질 때만 속도를 끌어내린다. 평평한
+  // fallback reserve로는 감속해도 tube가 그대로라 캡 자체가 동작하지 않는다.
+  parameters.tracking_error_lut_speed_bins_mps = {1.0, 5.0};
+  parameters.tracking_error_lut_curvature_bins_radpm = {0.0};
+  parameters.tracking_error_lut_values_m = {0.05, 0.50};
+  RacelineSplinePlanner planner(parameters);
+  auto reference = makeStraightReference(300, 0.25, 1.20, 0.75);
+  for (auto & waypoint : reference.wpnts) {
+    waypoint.vx_mps = 5.0;   // 캡이 실제로 속도를 끌어내리도록 여유를 준다.
+  }
+  ASSERT_TRUE(planner.setReference(reference));
+
+  // 두 장애물 모두 라인을 넘어 오른쪽까지 걸쳐 있어, 우측 통과 폭이 tube보다 좁다 —
+  // 그래야 gap 캡이 실제로 속도를 끌어내린다.
+  auto first = makeObstacle(10, 4.00, -0.10, 0.47);
+  first.s_start = 3.85;
+  first.s_end = 4.15;
+  auto second = makeObstacle(0, 11.00, -0.14, 0.45);
+  second.s_start = 10.85;
+  second.s_end = 11.15;
+
+  const EgoFrenetState ego{0.0, 0.0, 3.0};
+  const auto result = planner.plan(ego, {first, second});
+  ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
+
+  // 두 스팬 모두에서 캡이 실제로 걸렸는지 먼저 확인한다. 안 걸렸으면 테스트가 무의미하다.
+  const auto span_minimum = [&](double start, double end) {
+      double minimum = std::numeric_limits<double>::infinity();
+      for (const auto & waypoint : result.path.wpnts) {
+        const double forward = planner.forwardDistance(ego.s, waypoint.s_m);
+        if (forward >= start && forward <= end) {
+          minimum = std::min(minimum, waypoint.vx_mps);
+        }
+      }
+      return minimum;
+    };
+  ASSERT_LT(span_minimum(first.s_start, first.s_end), 5.0);
+  ASSERT_LT(span_minimum(second.s_start, second.s_end), 5.0);
+
+  // 어떤 연속 구간도 approach_feasibility_decel_mps2로 실현 불가능한 감속을 요구하면 안 된다.
+  for (std::size_t i = 1; i < result.path.wpnts.size(); ++i) {
+    const auto & previous = result.path.wpnts[i - 1U];
+    const auto & current = result.path.wpnts[i];
+    const double ds = planner.forwardDistance(previous.s_m, current.s_m);
+    if (!(ds > 1.0e-6) || current.vx_mps >= previous.vx_mps) {
+      continue;   // 가속 구간은 이 램프의 대상이 아니다.
+    }
+    const double required_decel =
+      (previous.vx_mps * previous.vx_mps - current.vx_mps * current.vx_mps) / (2.0 * ds);
+    EXPECT_LE(required_decel, parameters.approach_feasibility_decel_mps2 * 1.10)
+      << "unreachable deceleration step at forward="
+      << planner.forwardDistance(ego.s, current.s_m)
+      << " (" << previous.vx_mps << " -> " << current.vx_mps << " over " << ds << " m)";
+  }
+}
+
 TEST(RacelineSplinePlanner, RankingCentresPassBetweenObstacleAndWall)
 {
   auto parameters = testParameters();

@@ -319,8 +319,10 @@ local_planner_node:
     # 또는 정지 후 explicit corridor-clear 관측의 보조 debounce이며, empty array는 집계하지 않습니다.
     safe_stop_release_cycles: 8
     planning_period_ms: 25
-    # 기하 합류 후 전체 global loop를 회전해 발행합니다. state_machine은 ot_line의
-    # raceline_global_handoff 표식을 우선 사용하며, 이 비율은 기존 tail 판정 호환용입니다.
+    # 기하 합류 후 전체 global loop를 회전해 발행하며, 이 비율만큼의 마지막 구간 첫 점에
+    # ego를 놓습니다. state_machine의 enter_global_tail_ratio와 **같은 값이어야** 합니다 —
+    # FSM은 경로의 마지막 enter_global_tail_ratio 구간만 훑어 GLOBAL 복귀를 판정하므로,
+    # 이 배치가 복귀의 유일한 통로입니다(FSM은 ot_line 표식을 읽지 않습니다).
     state_handoff_tail_ratio: 0.10
     state_handoff_speed_cap_mps: 6.0
 
@@ -348,8 +350,14 @@ local_planner_node:
     commitment_lock_longitudinal_m: 0.50
 
     global_waypoints_topic: "/global_waypoints"
-    # obstacle_detector Layer 2 output. It contains provisional/confirmed static objects.
-    obstacles_topic: "/static_obs"
+    # obstacle_detector Layer 2의 confirmed-only 출력입니다 (2026-08-16 전환).
+    # /static_obs는 CONFIRMED+UNKNOWN provisional 객체까지 포함해, 정지 증거를 모으기 전의
+    # 벽 조각/산란 클러스터도 계획 입력이 됩니다. /confirmed_static_obs는 map-frame 위치
+    # 지속성(static_vote 10/15, static_max_position_rms 0.10 m, 최소 10관측)까지 통과한
+    # 객체만 싣습니다. track/ID는 동일하므로 initial_observation_count 등 ID 기반 계약은
+    # 그대로 유효합니다. 유령 회피를 줄이는 대신 실제 장애물 첫 반응이
+    # static_min_observations 만큼(250 Hz LiDAR 기준 ~40 ms) 늦어집니다.
+    obstacles_topic: "/confirmed_static_obs"
     frenet_odom_topic: "/car_state/frenet/odom"
     state_topic: "/state"
     ot_waypoints_topic: "/avoid_waypoints"

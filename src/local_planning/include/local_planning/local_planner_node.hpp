@@ -135,6 +135,9 @@ private:
     const EgoFrenetState & ego,
     std::vector<f110_msgs::msg::Obstacle> & next_obstacles);
   double remainingDistanceToMerge(const EgoFrenetState & ego) const;
+  // Obstacle-check range for re-validating the committed path. Identical definition to the one
+  // `generateP3Candidates` uses when selecting it; see the .cpp for why they must not diverge.
+  double maneuverCollisionHorizon(const EgoFrenetState & ego) const;
   bool beginChainedManeuverIfNeeded(
     const EgoFrenetState & ego,
     std::vector<f110_msgs::msg::Obstacle> & next_obstacles,
@@ -239,6 +242,12 @@ private:
   bool has_state_{false};
   bool initial_stabilization_active_{false};
   bool initial_prepare_published_{false};
+  // 직전 발행이 non-empty였는지. state_machine의 AVOID 진입은 "경로가 비어 있지 않다"
+  // 하나로 결정되므로(준비감속·안정화 중 조기회피 포함), 커밋이 없는 상태에서 트랙이
+  // 비었을 때 글로벌 핸드오프 루프로 되돌려줘야 하는지를 이 플래그로 판단한다.
+  // initial_prepare_published_만으로는 안정화 중 조기회피 분기가 그것을 false로 지워
+  // 핸드오프 구제 경로를 건너뛴다.
+  bool last_publication_non_empty_{false};
   bool initial_has_counted_sequence_{false};
   bool p3_selection_has_sequence_{false};
   rclcpp::Time p3_selection_start_{0, 0, RCL_ROS_TIME};
@@ -273,7 +282,7 @@ private:
   double commitment_lock_longitudinal_m_{0.50};
 
   std::string global_waypoints_topic_{"/global_waypoints"};
-  std::string obstacles_topic_{"/static_obs"};
+  std::string obstacles_topic_{"/confirmed_static_obs"};
   std::string frenet_odom_topic_{"/car_state/frenet/odom"};
   std::string state_topic_{"/state"};
   std::string ot_waypoints_topic_{"/avoid_waypoints"};

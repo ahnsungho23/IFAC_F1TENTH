@@ -440,9 +440,14 @@ void LocalPlannerNode::initializeParameters()
 
   global_waypoints_topic_ =
     declare_parameter<std::string>("global_waypoints_topic", "/global_waypoints");
+  // 기본 입력은 detector Layer 2의 confirmed-only 뷰다 (2026-08-16). /static_obs는
+  // CONFIRMED+UNKNOWN(정지 증거를 아직 못 모은 provisional 객체)까지 실어, 벽 조각·
+  // 산란 클러스터가 수십 ms만 살아도 플래너가 회피/정지 경로를 발행하고 state_machine이
+  // STATE_AVOID로 넘어간다. /confirmed_static_obs는 map-frame 위치 지속성(static vote
+  // 10/15, RMS<0.10 m)까지 통과한 객체만 싣는다. 같은 track/ID를 쓰므로 ID 계약은 동일하다.
   obstacles_topic_ =
     declare_parameter<std::string>(
-    "obstacles_topic", "/static_obs");
+    "obstacles_topic", "/confirmed_static_obs");
   frenet_odom_topic_ =
     declare_parameter<std::string>("frenet_odom_topic", "/car_state/frenet/odom");
   state_topic_ =
@@ -727,9 +732,9 @@ void LocalPlannerNode::onObstacles(const f110_msgs::msg::ObstacleArray::SharedPt
   if (!message->obstacles.empty() && accepted_obstacles.empty()) {
     RCLCPP_WARN_THROTTLE(
       get_logger(), *get_clock(), 2000,
-      "Every obstacle in a %zu-entry /static_obs array had invalid Frenet bounds; treating it as "
+      "Every obstacle in a %zu-entry %s array had invalid Frenet bounds; treating it as "
       "degraded perception and retaining the last valid snapshot.",
-      message->obstacles.size());
+      message->obstacles.size(), obstacles_topic_.c_str());
     return;
   }
   const std::int64_t incoming_source_stamp_ns = stampNs(message->header.stamp);
@@ -747,7 +752,8 @@ void LocalPlannerNode::onObstacles(const f110_msgs::msg::ObstacleArray::SharedPt
     {
       RCLCPP_WARN_THROTTLE(
         get_logger(), *get_clock(), 5000,
-        "Out-of-order /static_obs dropped (%" PRId64 " ns behind latest)",
+        "Out-of-order %s dropped (%" PRId64 " ns behind latest)",
+        obstacles_topic_.c_str(),
         latest_obstacle_source_stamp_ns_ - incoming_source_stamp_ns);
       return;
     }
@@ -1202,6 +1208,38 @@ double LocalPlannerNode::remainingDistanceToMerge(const EgoFrenetState & ego) co
     return 0.0;
   }
   return planned_distance - driven_distance;
+}
+
+double LocalPlannerNode::maneuverCollisionHorizon(const EgoFrenetState & ego) const
+{
+  // 커밋 경로를 재검증할 때 쓰는 장애물 검사 범위. 후보 선택(`generateP3Candidates`)과
+  // **같은 정의**여야 한다: 이 기동이 책임지는 클러스터 끝 + post_merge_lookahead.
+  //
+  // 예전에는 여기만 merge까지(remainingDistanceToMerge) 봤다. exit 램프가 길면 merge가
+  // 클러스터 끝보다 10 m 넘게 뒤에 놓이는데, 그 사이에 다음 장애물이 있으면 선택기는
+  // 통과시킨 경로를 재검증이 매번 기각한다. 2026-08-16 백에서 그 결과가 25 ms마다 같은
+  // 후보를 다시 고르는 무한 재계획이었다(랩당 hard collision 41회). 두 범위가 어긋나는 것은
+  // 더 엄격한 검사가 아니라 수렴하지 않는 루프다.
+  //
+  // 클러스터 끝은 이 커밋이 얼린 Guard들의 뒤쪽 경계로 잡는다 — Guard가 곧 이 기동이
+  // 피하기로 한 확장 엔벨로프다. Guard가 없으면(핸드오프 루프 등) 종전 merge 기준을
+  // 그대로 쓴다.
+  if (!has_commitment_ || committed_result_.kind != SplinePlanKind::kAvoidance ||
+    committed_obstacle_guards_.empty())
+  {
+    return remainingDistanceToMerge(ego);
+  }
+  double cluster_end_forward = 0.0;
+  for (const auto & entry : committed_obstacle_guards_) {
+    const double forward = planner_.forwardDistance(ego.s, entry.second.s_end);
+    if (forward > 0.5 * planner_.trackLength()) {
+      continue;   // 이미 지나친 Guard — 전방 범위에 기여하지 않는다.
+    }
+    cluster_end_forward = std::max(
+      cluster_end_forward,
+      forward + planner_parameters_.obstacle_longitudinal_padding_m);
+  }
+  return cluster_end_forward + planner_.postMergeLookaheadM();
 }
 
 bool LocalPlannerNode::activeManeuverObstacleCleared(const EgoFrenetState & ego) const
@@ -2700,9 +2738,15 @@ void LocalPlannerNode::runP0PlanningCycle(const P3CallbackSnapshot * snapshot)
     } else {
       auto preparation = planner_.buildPreparationStop(ego, planning_obstacles);
       if (preparation.kind == SplinePlanKind::kNoObstacle) {
-        const bool published_preparation = initial_prepare_published_;
+        // 준비감속뿐 아니라 "안정화 중 조기회피"도 non-empty 발행이며, 그것만으로
+        // state_machine은 STATE_AVOID로 넘어간다. 조기회피 분기가
+        // initial_prepare_published_를 false로 지우므로, 그 경우에도 핸드오프 루프로
+        // 돌려주려면 직전 발행이 non-empty였는지를 함께 봐야 한다. 빈 경로로 침묵하면
+        // FSM은 복귀 판정 자체를 실행하지 못해 AVOID에 영구 고정된다.
+        const bool published_guidance =
+          initial_prepare_published_ || last_publication_non_empty_;
         resetInitialStabilization();
-        if (published_preparation && activateGlobalHandoff(ego)) {
+        if (published_guidance && activateGlobalHandoff(ego)) {
           publishResult(committed_result_);
           return;
         }
@@ -2774,7 +2818,7 @@ void LocalPlannerNode::runP0PlanningCycle(const P3CallbackSnapshot * snapshot)
       "replanning.");
   }
   if (has_commitment_) {
-    const double collision_horizon = remainingDistanceToMerge(ego);
+    const double collision_horizon = maneuverCollisionHorizon(ego);
     const bool commitment_valid = planner_.validatePath(
       ego, committed_result_.path, planning_obstacles,
       &commitment_error, &commitment_failure, collision_horizon);
@@ -2890,6 +2934,25 @@ void LocalPlannerNode::runP0PlanningCycle(const P3CallbackSnapshot * snapshot)
     publishResult(safe_stop_result_);
     return;
   }
+  // 🔴 STATE_AVOID일 때 빈 경로를 내보내면 FSM은 영구히 AVOID에 갇힌다. state_machine의
+  // 복귀 판정(enter_to_global)은 "최신 /avoid_waypoints가 non-empty"를 전제로만 실행되고,
+  // 빈 메시지에는 어떤 타임아웃도 대안 경로도 없다. 유령 장애물(검출기의 provisional
+  // 객체·벽 조각)로 AVOID에 들어갔다가 그 장애물이 사라지는 흔한 경우가 정확히 여기다.
+  // 트랙이 실제로 비었음이 확인된 kNoObstacle에서만, 침묵 대신 ego에 앵커된 닫힌 글로벌
+  // 핸드오프 루프를 발행한다 — 그 루프는 tail이 ego에 놓이고 d=0이라 FSM의 tail/횡오차
+  // 게이트를 곧바로 만족시켜 정상 경로로 GLOBAL 복귀를 확정시킨다. GLOBAL이 확인되면
+  // 위쪽 handoff 릴리즈 분기가 커밋을 지우고 다시 빈 경로로 돌아간다.
+  if (result.kind == SplinePlanKind::kNoObstacle && has_state_ &&
+    current_state_ == f110_msgs::msg::StateMachine::STATE_AVOID &&
+    activateGlobalHandoff(ego))
+  {
+    RCLCPP_INFO_THROTTLE(
+      get_logger(), *get_clock(), 2000,
+      "No blocking obstacle remains while /state is still AVOID; publishing the closed global "
+      "handoff loop instead of an empty path so the FSM can confirm GLOBAL.");
+    publishResult(committed_result_);
+    return;
+  }
   clearCommitment();
   publishEmpty(result.reason);
 }
@@ -2956,6 +3019,7 @@ void LocalPlannerNode::publishResult(const RacelineSplineResult & result)
   output.last_switch_time = last_side_switch_time_;
   last_published_side_ = current_side;
   const std::int64_t publish_steady_ns = steadyNowNs();
+  last_publication_non_empty_ = !output.wpnts.empty();
   avoid_waypoints_pub_->publish(output);
 
   if (timing_diagnostics_enable_ && !timing_t1_published_ && !output.wpnts.empty()) {
@@ -3144,6 +3208,7 @@ void LocalPlannerNode::publishEmpty(const std::string & reason)
   output.header.frame_id = frame_id_;
   output.last_switch_time = last_side_switch_time_;
   output.ot_line = reason;
+  last_publication_non_empty_ = false;
   avoid_waypoints_pub_->publish(output);
 
   if (local_path_pub_->get_subscription_count() > 0U) {

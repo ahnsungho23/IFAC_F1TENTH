@@ -360,11 +360,17 @@ public:
   // `obstacle_reserve_scale` scales only the tracking-error reserve portion of the obstacle
   // clearance (the physical base clearance is never reduced); values < 1 form the committed-path
   // retention band. Fresh planning must always validate with the default full reserve.
+  // `collision_horizon` bounds the OBSTACLE check to this maneuver's responsibility range exactly
+  // as `generateP3Candidates` does at selection time; track-bound and geometry checks always cover
+  // the whole path. Selection and revalidation MUST pass the same horizon: an obstacle that lies
+  // inside one's range and outside the other's makes every cycle select a path the next cycle
+  // condemns, which is an unbreakable replan loop, not a safety check.
   P3ShadowPathEvaluation evaluateP3PathCurrent(
     const EgoFrenetState & ego,
     const f110_msgs::msg::WpntArray & path,
     const std::vector<f110_msgs::msg::Obstacle> & obstacles,
-    double obstacle_reserve_scale = 1.0) const;
+    double obstacle_reserve_scale = 1.0,
+    const std::optional<double> & collision_horizon = std::nullopt) const;
 
   bool validatePath(
     const EgoFrenetState & ego,
@@ -378,6 +384,13 @@ public:
   double commitmentRetentionReserveFraction() const
   {
     return parameters_.commitment_retention_reserve_fraction;
+  }
+
+  // Controller tail appended after the merge. It is also the single margin every maneuver-scope
+  // collision horizon adds to its cluster end, so selection and revalidation stay identical.
+  double postMergeLookaheadM() const
+  {
+    return parameters_.post_merge_lookahead_m;
   }
 
   void toCartesian(double s, double d, double & x, double & y, double & yaw) const;
@@ -500,7 +513,8 @@ private:
     const EgoFrenetState & ego,
     const f110_msgs::msg::WpntArray & path,
     const std::vector<f110_msgs::msg::Obstacle> & obstacles,
-    double obstacle_reserve_scale = 1.0) const;
+    double obstacle_reserve_scale = 1.0,
+    const std::optional<double> & collision_horizon = std::nullopt) const;
 
   RacelineSplineParameters parameters_;
   f110_msgs::msg::WpntArray reference_;

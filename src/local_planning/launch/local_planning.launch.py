@@ -16,7 +16,8 @@
 Start the full static-obstacle perception + local planning stack.
 
 Ownership note: local_planner_node itself subscribes to NO occupancy map. The reference map
-server started here exists solely for the obstacle_detector that produces /static_obs, so it is
+server started here exists solely for the obstacle_detector that produces /static_obs and
+/confirmed_static_obs (the planner consumes the confirmed-only one), so it is
 gated by the same start_obstacle_detector condition. With start_obstacle_detector:=false this
 launch reduces to local_planner_only.launch.py, which it includes for the planner node itself.
 """
@@ -65,7 +66,10 @@ def generate_launch_description():
     start_detector_arg = DeclareLaunchArgument(
         'start_obstacle_detector',
         default_value='true',
-        description='Start the obstacle_detector that publishes /static_obs',
+        description=(
+            'Start the obstacle_detector that publishes /static_obs and '
+            '/confirmed_static_obs (the planner input)'
+        ),
     )
     planning_map_topic_arg = DeclareLaunchArgument(
         'planning_map_topic',

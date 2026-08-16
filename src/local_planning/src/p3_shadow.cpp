@@ -998,7 +998,16 @@ private:
     P3ShadowPathEvaluation evaluation;
     if (path.wpnts.size() >= static_cast<std::size_t>(parameters_.minimum_path_points)) {
       const auto validation_start = Clock::now();
-      evaluation = planner_.validateP3ShadowPath(ego, path, obstacles);
+      // 후보 검증의 장애물 범위는 이 기동이 책임지는 구간(클러스터 끝 + post_merge_lookahead)
+      // 까지다. `generateP3Candidates`가 P0 선택 경로에서 이미 같은 horizon으로 재검증하고
+      // 있었는데(2026-08-15 run18: horizon 없이는 12 m 밖 꼬리 충돌로 앞 장애물의 회피
+      // 후보가 전멸 → kNoSafePath → 영구 크립), 정작 P3 자신의 후보 인증서는 horizon 없이
+      // 만들어져 두 경로의 판정이 갈렸다. 2026-08-16 백에서 P3는 s=31.7 장애물에 대해
+      // 3 m 이내 245 콜백 전부 NO_HARD_VALID_M1_CANDIDATE였고, 같은 순간 P0의 plan()은
+      // 6개 중 3개를 feasible로 통과시켰다. 트랙 경계·기하 검사는 여전히 경로 전체다.
+      const std::optional<double> collision_horizon(
+        stations[3] + parameters_.post_merge_lookahead_m);
+      evaluation = planner_.validateP3ShadowPath(ego, path, obstacles, 1.0, collision_horizon);
       hard_validation_us += elapsedUs(validation_start);
     } else {
       evaluation.rejection_reason = "spline segment has too few global race-line samples";
@@ -1029,6 +1038,8 @@ private:
         trace.maximum_commanded_speed_mps, waypoint.vx_mps);
     }
     trace.rejection_reason = evaluation.rejection_reason;
+    trace.exit_reaches_next_obstacle = exitReachesNextObstacle(
+      ego, path, obstacles, stations[3], stations[4]);
     trace.validation = evaluation;
     trace.path_digest = pathDigest(path);
     trace.source_branch_regime = sourceBranchRegime(stations, ego.d, target, middle);
@@ -1036,9 +1047,60 @@ private:
     return trace;
   }
 
+  // 클러스터를 지난 뒤(exit 램프 + merge 뒤 꼬리)에도 오프셋이 남아 다음 장애물의 물리
+  // 엔벨로프에 닿는가. 닿는다고 후보를 버리지는 않는다 — 장애물 간격이 좁으면 오프셋을
+  // 그대로 넘겨주는 것이 설계된 동작이고(AGENTS의 maximum_exit_length 비활성 사유), 여기서
+  // 거부하면 2026-08-12/08-15의 "후보 전멸 → 영구 크립" 회귀가 그대로 돌아온다. 대신
+  // 순위에서만 뒤로 민다: 다음 장애물을 건드리지 않는 exit이 하나라도 있으면 그쪽을 쓴다.
+  // 검사 구간은 **exit 램프뿐**이다: 클러스터 끝 이후 ~ merge 지점까지. merge 뒤 꼬리는
+  // 정의상 d=0인 글로벌 라인이라, 다음 장애물이 라인 위에 있으면(이번 백의 s=40.6이 정확히
+  // 그렇다) 모든 후보가 무조건 참이 되어 이 우선순위 자체가 무력해진다. 꼬리가 장애물을
+  // 지나가는 것은 이 기동의 문제가 아니라 연쇄 기동이 교체할 몫이다.
+  bool exitReachesNextObstacle(
+    const EgoFrenetState & ego,
+    const f110_msgs::msg::WpntArray & path,
+    const std::vector<f110_msgs::msg::Obstacle> & obstacles,
+    double cluster_end,
+    double merge_station) const
+  {
+    if (!(merge_station > cluster_end + kEpsilon)) {
+      return false;
+    }
+    const double clearance = parameters_.obstacleBaseClearance();
+    for (const auto & obstacle : obstacles) {
+      const double start = planner_.forwardDistance(ego.s, obstacle.s_start);
+      const double end = planner_.forwardDistance(ego.s, obstacle.s_end);
+      if (!(start > cluster_end + kEpsilon) || end < start || start > merge_station + kEpsilon) {
+        continue;   // 이 기동이 피하는 클러스터이거나, 뒤에 있거나, exit 구간 밖이다.
+      }
+      for (const auto & waypoint : path.wpnts) {
+        const double forward = planner_.forwardDistance(ego.s, waypoint.s_m);
+        if (forward + kEpsilon < start || forward > end + kEpsilon ||
+          forward > merge_station + kEpsilon)
+        {
+          continue;
+        }
+        if (waypoint.d_m > obstacle.d_right - clearance - kEpsilon &&
+          waypoint.d_m < obstacle.d_left + clearance + kEpsilon)
+        {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
   static bool betterFeasible(
     const P3ShadowCandidateTrace & first, const P3ShadowCandidateTrace & second)
   {
+    // 다음 장애물을 건드리지 않는 exit이 항상 우선한다. 이 우선순위가 없으면 safety slack
+    // 최대 기준이 가장 긴 exit(스케일 3.699 → 최대 22.9 m)을 고르는데, 그 램프는 8~12 m 뒤
+    // 장애물 위를 오프셋을 유지한 채 지나가 커밋 재검증과 계속 충돌한다 (2026-08-16 백:
+    // s=31.7 기동의 exit이 s=40.6 장애물을 d=-0.265로 관통 → 랩당 hard collision 41회,
+    // 25 ms마다 같은 후보를 재선택하는 무한 재계획).
+    if (first.exit_reaches_next_obstacle != second.exit_reaches_next_obstacle) {
+      return second.exit_reaches_next_obstacle;
+    }
     const double slack_delta = first.minimum_normalized_safety_slack -
       second.minimum_normalized_safety_slack;
     if (std::abs(slack_delta) > kEpsilon) {

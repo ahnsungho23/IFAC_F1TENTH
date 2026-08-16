@@ -15,13 +15,14 @@
 """
 Start local_planner_node ALONE.
 
-local_planner_node subscribes to /global_waypoints, /static_obs, /car_state/frenet/odom and
-/state. It does NOT subscribe to any occupancy map, so nothing here starts a map server: the
-reference map exists only for the perception node that produces /static_obs.
+local_planner_node subscribes to /global_waypoints, /confirmed_static_obs (obstacles_topic),
+/car_state/frenet/odom and /state. It does NOT subscribe to any occupancy map, so nothing here
+starts a map server: the reference map exists only for the perception node that produces the
+static-obstacle topics.
 
 Use this when the detector (and its reference map) is already running, or when you want to drive
-the planner from a recorded/synthetic /static_obs source. For the whole perception+planning
-stack use local_planning.launch.py, which includes this file.
+the planner from a recorded/synthetic /confirmed_static_obs source. For the whole
+perception+planning stack use local_planning.launch.py, which includes this file.
 """
 
 import os

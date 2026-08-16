@@ -42,7 +42,7 @@ class SoftViolationProbe(Node):
         self.global_pub = self.create_publisher(
             WpntArray, '/global_waypoints', latched_qos())
         self.obstacle_pub = self.create_publisher(
-            ObstacleArray, '/static_obs', 10)
+            ObstacleArray, '/confirmed_static_obs', 10)
         self.odom_pub = self.create_publisher(
             Odometry, '/car_state/frenet/odom', 10)
         self.avoid_sub = self.create_subscription(

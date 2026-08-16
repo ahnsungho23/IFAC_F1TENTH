@@ -139,8 +139,8 @@ protected:
     const auto volatile_qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable();
     waypoints_pub_ =
       helper_->create_publisher<f110_msgs::msg::WpntArray>("/global_waypoints", global_qos);
-    obstacles_pub_ =
-      helper_->create_publisher<f110_msgs::msg::ObstacleArray>("/static_obs", volatile_qos);
+    obstacles_pub_ = helper_->create_publisher<f110_msgs::msg::ObstacleArray>(
+      "/confirmed_static_obs", volatile_qos);
     odometry_pub_ =
       helper_->create_publisher<nav_msgs::msg::Odometry>("/car_state/frenet/odom", volatile_qos);
     diagnostics_sub_ = helper_->create_subscription<std_msgs::msg::String>(

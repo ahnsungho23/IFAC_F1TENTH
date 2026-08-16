@@ -15,7 +15,16 @@
 
 - Runtime code is C++17 for ROS 2 Jazzy.
 - Use `f110_msgs/msg/ObstacleArray`, `WpntArray`, and `OTWpntArray`; do not create a new message.
-- Consume the detector-owned Frenet footprint on `/static_obs` without any Cartesian-to-Frenet
+- The obstacle input is `obstacles_topic`, which defaults to `/confirmed_static_obs`
+  (2026-08-16). `/confirmed_static_obs` is the detector's confirmed-only Layer-2 view: it carries
+  only `CONFIRMED` tracks classified `Static` by map-frame position persistence, while
+  `/static_obs` also carries `CONFIRMED+UNKNOWN` provisional objects. Wall fragments and scatter
+  clusters that survive a few scans reach `/static_obs` but not `/confirmed_static_obs`, and each
+  one of them made the planner publish a non-empty path, which alone flips the FSM into
+  `STATE_AVOID`. Both topics share the same track and physical ID space, so every ID-keyed
+  contract below (observation counts, committed guards, completed IDs) is unchanged. Keep the
+  topic a parameter; do not hardcode either name in the node.
+- Consume the detector-owned Frenet footprint on the obstacle input without any Cartesian-to-Frenet
   conversion. Treat `s_start/s_end/d_right/d_left` as the authoritative obstacle geometry.
   Cartesian AABB fields are optional metadata and are not consumed as planner geometry.
 - Obstacle bounds are raw detector geometry. Compute the tracking-error tube by bilinear
@@ -40,6 +49,28 @@
   widths interpolated on the matching local reference segment. Subtract only
   `wall_safety_margin_m`, exactly once. Never add the tracking tube, obstacle margin, simulator TTC
   sweep, scan-noise guard, or another boundary/commitment/fallback margin.
+- **One maneuver-scope collision horizon, used by every site that judges the same path**
+  (2026-08-16). The obstacle check of a maneuver's geometry stops at
+  `expanded cluster end + post_merge_lookahead_m`; track-bound and geometry checks always cover the
+  whole path. That horizon must be identical at candidate validation (`buildCandidate`), fresh
+  selection (`P3ManeuverLifecycle::selectFresh`), continuation revalidation
+  (`continueCurrent`), and the P0 re-validation in `generateP3Candidates`. Two sites judging one
+  path against different ranges is not a stricter safety check, it is an unbreakable loop: the
+  wider site condemns every path the narrower one blesses, so the planner re-selects and
+  re-condemns at the planning rate, and when that lands inside `safe_stop_buffer_m` it latches a
+  full stop. The P3 lifecycle originally had NO horizon while `generateP3Candidates` had one; on
+  the 2026-08-16 sim bag that single asymmetry produced `NO_HARD_VALID_M1_CANDIDATE` on 245/245
+  cycles within 3 m of an obstacle the P0 path was planning around successfully, plus a full stop
+  at the same place on every lap. Do not add a horizon to one site alone.
+- **An exit ramp that still reaches the next obstacle is ranked last, never rejected**
+  (2026-08-16, `exit_reaches_next_obstacle`). Measured on the post-cluster ramp only — up to the
+  merge station, NOT into the post-merge global tail, which is at `d=0` and would mark every
+  candidate whenever the next obstacle sits on the race line. Rejecting instead of demoting
+  reinstates the 2026-08-12/08-15 regressions where every candidate died on a tail collision and
+  the car crept forever; carrying the offset over closely spaced obstacles is the intended
+  behaviour when nothing better exists. `P3ShadowEvaluator::betterFeasible` and `plan()`'s
+  `better_candidate` must apply this term identically, or P0 commits a different path than P3
+  selected.
 - P3 lifecycle is continuation-first, and that is a COMPUTATION order, not only an output
   priority: an active recorded maneuver is continued (frozen path, revalidated every callback via
   guard containment + raw fallback) BEFORE any fresh M1 selection, and fresh selection runs only
@@ -147,7 +178,7 @@
   `SafetySlackRejectsBarelyWallFeasibleTargetAsBest` in `test/test_raceline_spline.cpp`.
 - Before the first lateral commitment, publish `ot_line=raceline_static_prepare` with a validated
   braking prefix while collecting the nearest cluster's IDs and conservative Frenet-envelope union.
-  Count distinct `/static_obs` messages, not planning ticks, and require the configured number of
+  Count distinct `/confirmed_static_obs` messages, not planning ticks, and require the configured number of
   observations for every cluster ID and the configured minimum stabilization duration unless the
   maximum wait is reached. Expand the final union longitudinally by `k*sqrt(s_var)` plus the fixed
   longitudinal floor, but preserve the union's detector-owned `d_right/d_left` without lateral
@@ -165,7 +196,7 @@
   the next maneuver so a centred-obstacle tie cannot weave the car. Keep the commitment until its
   tail merges at `d=0`, even if perception drops the passed
   obstacle.
-- After at least one valid `/static_obs` message, treat input older than
+- After at least one valid `/confirmed_static_obs` message, treat input older than
   `obstacle_stale_timeout_sec` as degraded perception, not as proof that the track is clear. Retain
   the frozen commitment and the last valid obstacle snapshot, complete the odometry-based merge and
   GLOBAL handoff normally, and reuse the snapshot when planning on a later lap. A fresh valid
@@ -193,6 +224,19 @@
   publish a full global loop with `ot_line=raceline_global_handoff`. Continue that non-empty
   handoff path until `/state` has entered `STATE_AVOID` for the commitment and subsequently
   confirms `STATE_GLOBAL`.
+- **Never publish an empty path while `/state` reads `STATE_AVOID`** (2026-08-16). The FSM's
+  return path (`enter_to_global`) only RUNS when the latest `/avoid_waypoints` is non-empty, and
+  an empty message carries no timeout and no alternative exit: publishing empty from AVOID latches
+  the FSM in AVOID permanently (sector speed scaling then stays off for the rest of the run).
+  A phantom detection that vanishes before any commitment is the common way in. Two rules
+  implement this: (1) when the track is clear and the planner has no commitment, treat "the last
+  publication was non-empty" — not only "a preparation path was published" — as the trigger to
+  hand back through `activateGlobalHandoff`, because the stabilization-time early-avoidance branch
+  clears `initial_prepare_published_`; (2) at the terminal `publishEmpty` site, if `plan()`
+  returned `kNoObstacle` and `/state` is still `STATE_AVOID`, publish the closed global handoff
+  loop instead. Its tail sits at ego with `d=0`, which is exactly what the FSM's tail-reach and
+  lateral gates need, so GLOBAL is confirmed through the normal path rather than by a timeout.
+  Restrict this to `kNoObstacle`: it is the only result that proves the track is actually clear.
 - Merge ramp (ego d → 0 smoothstep grafted onto the global handoff loop, 2026-08-13) is
   implemented but DEFAULT-OFF (`merge_ramp_min_length_m`/`merge_ramp_time_sec` = 0). A bare d=0
   loop delegates the return to the controller's natural convergence (real car: 0.055 m/m), but
@@ -225,7 +269,7 @@
   confirm the node's startup log line rather than trusting the YAML, and keep launch defaults in
   sync with the YAML.
 - Safe-stop release condition B requires the escape to target the latched obstacle ONLY while that
-  obstacle is still present in the current `/static_obs` snapshot. Once it is gone (the car
+  obstacle is still present in the current `/confirmed_static_obs` snapshot. Once it is gone (the car
   stopped just past it and it left the FOV) the identity test is a stale bookkeeping token, while
   condition A cannot fire either because clearing the danger range by `safe_stop_buffer_m` needs
   forward motion the latch itself prevents. Keep the "latched obstacle no longer present" branch:
@@ -242,7 +286,7 @@
   never forces an immediate return to `d=0`. Without a usable committed prefix, keep the current
   `ego.d`; if no forward stop prefix exists, publish a zero-speed current-`d` hold rather than an
   empty path that would fall back to global. Latch safe-stop and its obstacle IDs/sequence, danger
-  `s` range, stop target, activation ego `s`, and timestamp immediately. An empty `/static_obs`
+  `s` range, stop target, activation ego `s`, and timestamp immediately. An empty `/confirmed_static_obs`
   array or an empty-cycle count is never a release condition. Release only after ego passes the
   latched danger range with margin, a hard-valid path for the same obstacle is consecutively
   confirmed and selectable in `STATE_AVOID`, or a stopped vehicle sees a persistently and
@@ -260,7 +304,8 @@
 ## Interfaces
 
 - Subscribe: `/global_waypoints` (`f110_msgs/msg/WpntArray`).
-- Subscribe: `/static_obs` (`f110_msgs/msg/ObstacleArray`); each obstacle must provide finite
+- Subscribe: `/confirmed_static_obs` (`f110_msgs/msg/ObstacleArray`, `obstacles_topic`); each
+  obstacle must provide finite
   `s_start/s_end/d_right/d_left` fields forming a non-point Frenet footprint, with
   `d_right <= d_left`. `s_start > s_end` is valid across the closed-track wrap. Cartesian fields
   and `radius` are optional metadata and are not used as planner geometry.
@@ -274,7 +319,7 @@
 - Never publish `/local_waypoints`; `state_machine_node` exclusively selects and publishes it
   according to its committed state.
 - Tuning-only timing diagnostics are default-off companion messages. T0 is the first relevant
-  non-empty `/static_obs` accepted by the node and T1 is the first actual non-empty
+  non-empty `/confirmed_static_obs` accepted by the node and T1 is the first actual non-empty
   `/avoid_waypoints` publication. Capture the event's steady-clock time at the source operation and
   never feed `/cma_timing/events` back into perception or planning.
 - Tuning-only record/replay diagnostics are also default-off. When enabled, publish passive JSON on
@@ -285,7 +330,7 @@
   curvature/rate, speed loss, rejection reason, and final rank. Do not introduce a decision clock
   or feed diagnostics back.
 - `lockstep_mode` is CMA-only and default-off. It must suppress the wall planning timer and invoke
-  the existing planner exactly once for each identical-stamp `/static_obs` and Frenet odometry
+  the existing planner exactly once for each identical-stamp `/confirmed_static_obs` and Frenet odometry
   pair. Before processing step k after the first step, require the state-machine output from step
   k-1 so DDS arrival order cannot select a different cached state.
 
@@ -343,7 +388,7 @@
   preempts from nonzero `ego.d` without preparation, safe-stop, empty output, or GLOBAL handoff.
 - Stale-perception harness: `test/stale_obstacle_memory_pipeline_test.py`; run it against a fresh
   `local_planner_node` to verify frozen-path retention beyond the stale timeout, GLOBAL handoff
-  completion, and last-snapshot reuse on the next lap while `/static_obs` remains silent.
+  completion, and last-snapshot reuse on the next lap while `/confirmed_static_obs` remains silent.
 - Keep all runtime values configurable in YAML and load that YAML from the launch file.
 - Keep `timing_diagnostics_enable=false` in the operational YAML.
 - Keep `replay_diagnostics_enable=false` in the operational YAML.

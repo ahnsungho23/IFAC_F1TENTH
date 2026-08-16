@@ -4,7 +4,7 @@
 
 `local_planner_node`는 정적 장애물이 글로벌 Race Line을 막을 때만 로컬 회피 세그먼트를 만듭니다.
 동적 상대 차량 정보는 `obstacle_detector`의 `/opp_obs`로 분리되며, 이 노드는 정적 장애물용
-`/static_obs`만 구독하고 `/avoid_waypoints`를 발행합니다.
+`/confirmed_static_obs`만 구독하고 `/avoid_waypoints`를 발행합니다.
 
 검증된 analytic P3와 M1 active-set closure도 동일 패키지와 동일 planning callback 안에서 실행할
 수 있습니다. 외부 evaluator는 frozen parity 회귀에만 사용하며 runtime 경로를 공급하지 않습니다.
@@ -46,7 +46,7 @@ P0(`RacelineSplinePlanner`)는 한 덩어리가 아니라 세 층이고, P3는 �
 pass → safe stop)로 갑니다. 순위 기준(`minimum_normalized_safety_slack` 사전식)은 P0 시절과
 동일합니다.
 
-P3/M1은 authoritative nonempty `/static_obs` snapshot이 들어오면 즉시 candidate generation을
+P3/M1은 authoritative nonempty `/confirmed_static_obs` snapshot이 들어오면 즉시 candidate generation을
 수행합니다. P0가 이미 사용하던 `initial_observation_count`,
 `initial_observation_min_duration_sec`, `initial_observation_max_wait_sec` 동안의 envelope union은
 계속 형성하지만, `selection_guard_ready` 자체는 ownership veto가 아닙니다. 준비 중에도 선택
@@ -94,7 +94,7 @@ guarded/raw exact 재검증으로 판별하므로 일회성 AABB 확대가 maneu
 현재 프로젝트에는 다음 차이를 반영해 C++17로 새로 구현했습니다.
 
 1. CSV 대신 `/global_waypoints`를 사용합니다.
-2. `/static_obs`의 `s_start/s_end/d_right/d_left`를 장애물의 authoritative Frenet 경계로
+2. `/confirmed_static_obs`의 `s_start/s_end/d_right/d_left`를 장애물의 authoritative Frenet 경계로
    사용합니다. `obstacle_detector`가 map-frame Cartesian AABB 전체를 CLCS로 투영하고, 가까운
    Race Line 선분과 AABB 면 사이의 최단거리까지 반영합니다. local planner는 이 좌표변환을
    반복하지 않습니다. Cartesian AABB와 enclosing-circle `radius`는 회피 형상에 사용하지
@@ -112,7 +112,12 @@ guarded/raw exact 재검증으로 판별하므로 일회성 AABB 확대가 maneu
 1. `/global_waypoints`의 모든 값이 유한하고 `s_m`이 엄격히 증가하는지 검사합니다.
 2. 마지막 `s_m`과 waypoint 중앙 간격으로 폐루프 트랙 길이를 구합니다.
 3. Frenet odometry의 `position.x`를 ego `s`, `position.y`를 ego `d`로 읽습니다.
-4. `/static_obs`를 provisional/confirmed 정적 레이어 계약에 따라 그대로 입력받습니다.
+4. `/confirmed_static_obs`(파라미터 `obstacles_topic`)를 detector Layer 2 계약에 따라 그대로
+   입력받습니다. 이 토픽에는 `CONFIRMED` + map-frame 위치 지속성으로 `Static` 판정까지 끝난
+   객체만 실립니다. `/static_obs`에 함께 실리는 `CONFIRMED+UNKNOWN` provisional 객체는
+   포함되지 않으므로, 정지 증거를 못 모으는 벽 조각·산란 클러스터가 계획 입력이 되지
+   않습니다 (2026-08-16 전환). 두 토픽은 같은 track/physical ID를 쓰므로 관측 횟수·guard·
+   완료 ID 같은 ID 기반 계약은 그대로입니다.
 5. detector가 채운 Frenet 값이 유한하고 `d_right <= d_left`이며 종·횡방향 중 하나 이상의
    폭이 양수인지 검사합니다. 조건을 만족하지 않으면 해당 장애물을 제외합니다. Cartesian
    AABB는 planner geometry로 사용하지 않습니다.
@@ -318,7 +323,7 @@ clearance·simulator TTC sweep·scan-noise guard는 이 물리 track-bound 검�
 
 처음 blocking 장애물이 들어오면 곧바로 좌우 spline을 확정하지 않습니다. 먼저 글로벌 `d=0` 위의
 검증된 감속 prefix를 `ot_line=raceline_static_prepare`로 발행합니다. 가장 가까운 군집의 각
-ID가 서로 다른 `/static_obs` 메시지에서 `initial_observation_count`회 관측되고
+ID가 서로 다른 `/confirmed_static_obs` 메시지에서 `initial_observation_count`회 관측되고
 `initial_observation_min_duration_sec`도 지날 때까지 wrap-aware Frenet 경계 합집합과 가장 큰
 `s_var/d_var`를 누적합니다. planning timer가 같은 메시지를 여러 번 사용하더라도 관측 횟수는
 한 번만 증가합니다. 기본 최소 0.15초를 함께 요구하므로 약 250Hz detector의 연속 3개 메시지만
@@ -629,7 +634,7 @@ prefix, 그것도 없으면 충돌 탐색 없는 순수 제동 `buildLastPathBra
 ### 3.7 commitment와 합류
 
 안전 경로가 선택되면 방향, 경로 geometry, ID별 uncertainty Guard를 고정합니다. 매
-`/static_obs`에서 같은 ID의 최신 Frenet 경계에도 동일한 uncertainty 확장을 적용합니다. 그 전체가
+`/confirmed_static_obs`에서 같은 ID의 최신 Frenet 경계에도 동일한 uncertainty 확장을 적용합니다. 그 전체가
 저장된 Guard 안에 있으면 live envelope 대신 고정 Guard로 기존 경로를 재검증하므로 중심과 크기가
 조금 변해도 `target_d`와 출력 waypoint가 바뀌지 않습니다. Guard는 직전 관측을 따라 이동하지
 않으므로 작은 변화가 누적된 실제 이동은 결국 Guard 밖으로 나옵니다.
@@ -702,7 +707,7 @@ merge 뒤 controller 시야 확보용 global tail만 겹치는 장애물은 현�
 않습니다.
 
 다음 maneuver 군집은 첫 회피를 수행하는 동안에도 기존 최초 관측 조건, 즉 각 ID의 실제
-`/static_obs` 3회 관측, 최소 `initial_observation_min_duration_sec=0.15초`와 최대
+`/confirmed_static_obs` 3회 관측, 최소 `initial_observation_min_duration_sec=0.15초`와 최대
 `initial_observation_max_wait_sec=0.35초`를 사용해 동시에 안정화합니다. 현재 장애물 Guard의
 뒤쪽을 `chain_release_distance_m`만큼 완전히 지난 뒤 다음 군집이 안정화되어 있으면 다음 순서로
 직접 연결합니다.
@@ -721,9 +726,64 @@ merge 뒤 controller 시야 확보용 global tail만 겹치는 장애물은 현�
 감속합니다. 그 prefix조차 만들 수 없을 때만 현재 `ego.d`를 유지하는 zero-speed hold를
 최악 상황의 마지막 수단으로 사용합니다.
 
+### 3.8.0 기동 범위 충돌 지평은 하나뿐이다 (2026-08-16)
+
+한 기동의 **장애물** 검사 범위는 `확장 클러스터 끝 + post_merge_lookahead_m`입니다. 트랙 경계와
+기하(곡률·경사) 검사는 지평과 무관하게 경로 전체에 적용됩니다. 이 범위는 다음 네 곳에서
+**같아야** 합니다.
+
+| 지점 | 함수 |
+|---|---|
+| 후보 검증 | `P3ShadowEvaluator::buildCandidate` |
+| fresh 선택 | `P3ManeuverLifecycle::selectFresh` |
+| continuation 재검증 | `P3ManeuverLifecycle::continueCurrent` |
+| P0 재검증 | `RacelineSplinePlanner::generateP3Candidates` |
+
+두 지점이 서로 다른 범위로 같은 경로를 판정하면 그건 더 엄격한 안전 검사가 아니라 **무한
+루프**입니다. 넓은 쪽이 좁은 쪽의 합격 경로를 매번 기각하므로 계획 주기마다 선택과 폐기가
+반복되고, 그 시점이 `safe_stop_buffer_m` 안이면 그대로 정지로 굳습니다.
+
+2026-08-16 백에서 P3 라이프사이클만 지평이 없었습니다. 결과는 s=31.7 장애물 3 m 이내에서
+fresh 후보 245/245 전멸(`NO_HARD_VALID_M1_CANDIDATE`)인데 같은 순간 P0의 `plan()`은 6개 중
+3개를 통과시켰고, 매 랩 s=28~30에서 완전 정지했습니다. 한 곳에만 지평을 넣지 마십시오.
+
+### 3.8.0.1 다음 장애물에 닿는 exit은 순위에서만 뒤로 민다
+
+`exit_reaches_next_obstacle`은 클러스터 끝 이후 **merge 지점까지의 exit 램프**에서, 이 기동의
+클러스터가 아닌 장애물의 물리 엔벨로프에 경로가 닿는지를 봅니다. merge 뒤 글로벌 꼬리는
+정의상 `d=0`이므로 검사에 넣으면 라인 위 장애물에 대해 모든 후보가 참이 되어 우선순위가
+무력해집니다.
+
+이 후보를 **거부하지는 않습니다.** 장애물 간격이 좁으면 오프셋을 그대로 넘겨주는 것이 설계된
+동작이고, 거부하면 2026-08-12/08-15의 "후보 전멸 → 영구 크립" 회귀가 돌아옵니다. 닿지 않는
+exit이 하나라도 있으면 그쪽을 쓰고, 전부 닿으면 기존 slack 기준이 그대로 결정합니다.
+`betterFeasible`(P3)과 `better_candidate`(P0)가 이 항을 **동일하게** 적용해야 합니다.
+
+### 3.8.1 STATE_AVOID에서는 빈 경로를 내보내지 않는다 (2026-08-16)
+
+state machine의 GLOBAL 복귀 판정(`enter_to_global`)은 **최신 `/avoid_waypoints`가 비어 있지
+않을 때만 실행**됩니다. 빈 메시지에는 타임아웃도 대체 경로도 없으므로, AVOID 상태에서 빈
+경로를 발행하면 FSM은 AVOID에 영구히 갇힙니다(그 뒤로 컨트롤러의 섹터 속도 스케일링도 계속
+꺼진 상태가 됩니다). 유령 장애물이 commitment 전에 사라지는 경우가 이 함정의 전형입니다.
+
+두 지점에서 막습니다.
+
+1. 커밋이 없는 상태에서 트랙이 비면, "준비 감속을 발행했는가"가 아니라 **"직전 발행이
+   non-empty였는가"**를 기준으로 글로벌 핸드오프 루프로 돌려줍니다. 안정화 중 조기회피
+   분기가 `initial_prepare_published_`를 지우기 때문에, 예전 기준으로는 이 경로가 그대로
+   빈 경로로 빠졌습니다.
+2. 마지막 `publishEmpty` 지점에서 `plan()`이 `kNoObstacle`을 돌려주고 `/state`가 여전히
+   `STATE_AVOID`이면, 빈 경로 대신 닫힌 글로벌 핸드오프 루프를 발행합니다. 이 루프는 tail이
+   ego에 놓이고 `d=0`이라 FSM의 tail 도달·횡오차 게이트를 그대로 만족시켜 **정상 판정 경로로**
+   GLOBAL 복귀가 확정됩니다. GLOBAL이 확인되면 기존 handoff 릴리즈 분기가 commitment를 지우고
+   다시 빈 경로로 돌아갑니다.
+
+`kNoObstacle`로 한정하는 이유는 그것만이 "트랙이 실제로 비었다"를 증명하는 결과이기
+때문입니다. `kNoSafePath`/`kSafeStop`은 종전대로 안전정지 경로를 탑니다.
+
 ### 3.9 장애물 센서 stale과 다음 랩 기억
 
-유효한 `/static_obs`를 한 번 이상 받은 뒤
+유효한 `/confirmed_static_obs`를 한 번 이상 받은 뒤
 `obstacle_stale_timeout_sec` 동안 새 메시지가 없으면 planner는 **degraded perception
 mode**로 전환합니다. 이때 stale을 장애물이 사라졌다는 뜻으로 해석하지 않습니다.
 
@@ -749,7 +809,7 @@ commitment는 지우지 않으므로 odometry가 회복되면 다시 검증한 �
 | 구분 | 기본 토픽 | 메시지 | 설명 |
 |---|---|---|---|
 | 구독 | `/global_waypoints` | `f110_msgs/msg/WpntArray` | 순서를 고정할 글로벌 Race Line |
-| 구독 | `/static_obs` | `f110_msgs/msg/ObstacleArray` | Layer 2 authoritative Frenet 경계와 `s_var/d_var` 중심 위치 분산 |
+| 구독 | `/confirmed_static_obs` | `f110_msgs/msg/ObstacleArray` | Layer 2 confirmed-only(STATIC 확정) authoritative Frenet 경계와 `s_var/d_var` 중심 위치 분산. 파라미터 `obstacles_topic`으로 `/static_obs`로 되돌릴 수 있습니다 |
 | 구독 | `/car_state/frenet/odom` | `nav_msgs/msg/Odometry` | `x=s`, `y=d` ego 상태 |
 | 구독 | `/state` | `f110_msgs/msg/StateMachine` | AVOID 진입 및 GLOBAL handoff 완료 확인 |
 | 발행 | `/avoid_waypoints` | `f110_msgs/msg/OTWpntArray` | ego부터 글로벌 합류 뒤 lookahead까지의 회피 세그먼트 |
@@ -831,7 +891,7 @@ commitment는 지우지 않으므로 odometry가 회복되면 다시 검증한 �
 
 진단을 켜면 planner 입력과 출력의 실제 event 지점에 companion JSON을 발행합니다.
 
-- T0: node가 frame·geometry 검증을 통과한 첫 non-empty `/static_obs`를 수신한 순간
+- T0: node가 frame·geometry 검증을 통과한 첫 non-empty `/confirmed_static_obs`를 수신한 순간
 - T1: 첫 non-empty `/avoid_waypoints`를 실제 발행한 순간
 
 T0/T1에는 steady clock, ROS timestamp, ego `s/d`, speed, obstacle ID와 T1의 plan kind 및
@@ -848,11 +908,11 @@ ros2 launch local_planning local_planning.launch.py \
 ### 5.2 Deterministic replay event
 
 `replay_diagnostics_enable=true`이면 최초 장애물 군집의 stabilization 시작·충족과 실제
-commitment 시점에 JSON companion event를 발행합니다. 각 event에는 원본 `/static_obs` header
+commitment 시점에 JSON companion event를 발행합니다. 각 event에는 원본 `/confirmed_static_obs` header
 timestamp, message sequence, ego `s/d`, 장애물 ID, 선택 방향, `target_d`, 선택된 entry/exit
 길이가 들어갑니다. safe-stop 중에는 매 planning cycle마다 `SAFE_STOP_LIFECYCLE` event를 추가로
 기록합니다. 이 event에는 latched obstacle ID/sequence와 `s` 범위, stop target/activation 정보,
-현재 ego `s`/속도, `/static_obs` empty 여부, obstacle passed 여부, release A/B/C의 세부 평가와
+현재 ego `s`/속도, `/confirmed_static_obs` empty 여부, obstacle passed 여부, release A/B/C의 세부 평가와
 count, 최종 release reason, `raceline_global_handoff` 허용/거부 이유가 포함됩니다. 또한 생성한
 후보마다 `PLAN_CANDIDATE` event를 발행하며 side, target,
 requested/effective entry, exit, wall/obstacle clearance, peak curvature/rate, velocity loss,
@@ -945,7 +1005,7 @@ controller tail에 놓여도 첫 경로를 safe-stop으로 바꾸지 않고, 첫
 `ego.d`에서 두 번째 회피 경로로 직접 연결되는지 확인합니다. `--before-merge`를 주면 두 번째
 장애물을 old merge 1m 앞에 놓아, merge와 관계없이 현재 ego 기준 안정화와 조기 연결이
 동작하는지 검사합니다.
-`test/stale_obstacle_memory_pipeline_test.py`는 첫 회피 commitment 뒤 `/static_obs` 발행을
+`test/stale_obstacle_memory_pipeline_test.py`는 첫 회피 commitment 뒤 `/confirmed_static_obs` 발행을
 중단해 stale timeout을 넘겨도 경로가 비지 않고 geometry가 유지되는지, merge 뒤 GLOBAL
 handoff가 완료되는지, 센서가 계속 끊긴 다음 랩에도 마지막 장애물 스냅샷으로 다시 회피하는지
 검사합니다.
@@ -999,7 +1059,7 @@ ros2 launch local_planning local_planning.launch.py \
 
 ### 7.2 외부 perception 사용
 
-이미 `/static_obs` 발행기가 실행 중이면 detector 포함을 끕니다.
+이미 `/confirmed_static_obs` 발행기가 실행 중이면 detector 포함을 끕니다.
 
 ```zsh
 ros2 launch local_planning local_planning.launch.py \
@@ -1056,7 +1116,7 @@ perception 메시지는 유지하고, local planner와 state machine 사이의 `
 
 - `state_machine`: `raceline_static_prepare`를 합류 완료로 해석하지 않고 AVOID를 유지합니다.
 - `wpnt_publisher`: `STATE_AVOID`일 때 기존처럼 `/avoid_waypoints`를 `/local_waypoints`로 중계합니다.
-- `obstacle_detector`: Layer 2 `/static_obs`의 `f110_msgs/msg/ObstacleArray`에
+- `obstacle_detector`: Layer 2 `/confirmed_static_obs`의 `f110_msgs/msg/ObstacleArray`에
   authoritative `s_start/s_end/d_right/d_left`와 `is_static=true`를 채워 발행합니다. 현재 visible
   객체는 같은 footprint의 `has_cartesian=true`, Cartesian 중심/AABB/radius도 함께 제공합니다.
   local planner는 Frenet 경계만 회피 형상으로 사용합니다.
@@ -1067,13 +1127,13 @@ perception 메시지는 유지하고, local planner와 state machine 사이의 `
 ## 10. CMA deterministic lockstep 모드
 
 `lockstep_mode=false`가 production 기본값입니다. CMA runner가 이 값을 `true`로 지정하면 25 ms
-wall timer를 만들지 않고, 동일 header timestamp를 가진 `/static_obs`와
+wall timer를 만들지 않고, 동일 header timestamp를 가진 `/confirmed_static_obs`와
 `/car_state/frenet/odom`이 모두 준비된 때 기존 `RacelineSplinePlanner`를 한 번만 호출합니다.
 두 번째 step부터는 직전 step의 `/state`도 수신됐는지 확인합니다. 출력
 `/avoid_waypoints`에는 입력과 같은 logical timestamp를 사용합니다.
 
 이 모드는 장애물 GT나 scenario manifest를 구독하지 않습니다. 장애물 입력은 production과
-같이 detector의 `/static_obs`뿐이며 planner parameter와 핵심 경로 생성 알고리즘도 같습니다.
+같이 detector의 `/confirmed_static_obs`뿐이며 planner parameter와 핵심 경로 생성 알고리즘도 같습니다.
 전체 실행과 hash 검증 방법은 `tools/cmaes_tuning/docs/deterministic_lockstep_mode.md`에 있습니다.
 ### plan()의 후보 생성기를 P3로 통일 — P0 전용 경로 사각의 종결 (2026-08-15)
 

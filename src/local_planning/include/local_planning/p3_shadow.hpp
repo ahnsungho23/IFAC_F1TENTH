@@ -101,6 +101,11 @@ struct P3ShadowCandidateTrace
   double minimum_commanded_speed_mps{std::numeric_limits<double>::quiet_NaN()};
   double maximum_commanded_speed_mps{std::numeric_limits<double>::quiet_NaN()};
   std::string rejection_reason;
+  // True when this candidate's post-cluster exit ramp still carries enough lateral offset to reach
+  // a NOT-in-cluster obstacle's physical envelope. Such a candidate is legal — the maneuver-scope
+  // collision horizon deliberately stops before it, and on tightly spaced obstacles carrying the
+  // offset over is the intended behaviour — but it is the last resort, never the preference.
+  bool exit_reaches_next_obstacle{false};
   // The exact-validator verdict this candidate was already measured with, kept verbatim so the
   // maneuver lifecycle can reuse it instead of re-running an identical validation. Valid only
   // together with the owning result's snapshot lineage (stamp/epoch/reference generation).

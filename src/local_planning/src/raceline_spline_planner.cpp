@@ -169,6 +169,10 @@ struct RacelineSplinePlanner::Candidate
   double velocity_loss{std::numeric_limits<double>::quiet_NaN()};
   double global_path_deviation_m{std::numeric_limits<double>::quiet_NaN()};
   double minimum_normalized_safety_slack{-std::numeric_limits<double>::infinity()};
+  // 클러스터를 지난 뒤에도 오프셋이 남아 다음(비클러스터) 장애물의 물리 엔벨로프에 닿는
+  // 후보. 유효성은 그대로 두고 순위에서만 뒤로 민다 — P3ShadowCandidateTrace의 같은 이름
+  // 필드에서 그대로 옮겨온다.
+  bool exit_reaches_next_obstacle{false};
   std::size_t audit_index{std::numeric_limits<std::size_t>::max()};
   f110_msgs::msg::WpntArray path;
   std::vector<SplineControlPoint> control_points;
@@ -952,7 +956,8 @@ P3ShadowPathEvaluation RacelineSplinePlanner::validateP3ShadowPath(
   const EgoFrenetState & ego,
   const f110_msgs::msg::WpntArray & path,
   const std::vector<f110_msgs::msg::Obstacle> & obstacles,
-  double obstacle_reserve_scale) const
+  double obstacle_reserve_scale,
+  const std::optional<double> & collision_horizon) const
 {
   P3ShadowPathEvaluation result;
   Candidate candidate;
@@ -960,7 +965,7 @@ P3ShadowPathEvaluation RacelineSplinePlanner::validateP3ShadowPath(
   const auto visible = expandVisibleObstacles(ego, obstacles);
   measureCandidate(ego, visible, candidate);
   result.hard_valid = validateCandidate(
-    ego, candidate.path, visible, candidate.reason, 0U, 0U, nullptr, std::nullopt,
+    ego, candidate.path, visible, candidate.reason, 0U, 0U, nullptr, collision_horizon,
     obstacle_reserve_scale);
   result.minimum_normalized_safety_slack = candidate.minimum_normalized_safety_slack;
   result.minimum_track_margin_m = candidate.rectangular_footprint_wall_clearance_m;
@@ -977,14 +982,16 @@ P3ShadowPathEvaluation RacelineSplinePlanner::evaluateP3PathCurrent(
   const EgoFrenetState & ego,
   const f110_msgs::msg::WpntArray & path,
   const std::vector<f110_msgs::msg::Obstacle> & obstacles,
-  double obstacle_reserve_scale) const
+  double obstacle_reserve_scale,
+  const std::optional<double> & collision_horizon) const
 {
   if (path.wpnts.size() < static_cast<std::size_t>(parameters_.minimum_path_points)) {
     P3ShadowPathEvaluation result;
     result.rejection_reason = "spline segment has too few global race-line samples";
     return result;
   }
-  return validateP3ShadowPath(ego, path, obstacles, obstacle_reserve_scale);
+  return validateP3ShadowPath(
+    ego, path, obstacles, obstacle_reserve_scale, collision_horizon);
 }
 
 bool RacelineSplinePlanner::targetFitsTrackBounds(
@@ -1086,10 +1093,15 @@ f110_msgs::msg::WpntArray RacelineSplinePlanner::buildGlobalHandoffPath(
     std::abs(ego.speed) * std::max(0.0, parameters_.merge_ramp_time_sec));
   const bool apply_ramp = std::abs(ramp_d0) > 0.03 && ramp_length > 1.0e-6;
 
-  // controller에 충분한 전방 경로를 주기 위해 전체 global loop를 회전시켜 현재 ego를
-  // 마지막 tail_ratio 구간의 첫 점에 놓는다. state_machine은 명시적인 handoff 표식을
-  // 우선 사용하며, tail 배치는 기존 합류 판정과의 호환성을 유지한다(합류 확정은
-  // 램프와 무관하게 물리적 |ego_d| 게이트가 계속 담당한다).
+  // 전체 global loop를 회전시켜 현재 ego를 마지막 tail_ratio 구간의 **첫 점**에 놓는다.
+  // 이 배치가 GLOBAL 복귀의 유일한 통로다: state_machine의 enter_to_global은 경로의 마지막
+  // enter_global_tail_ratio(0.10) 구간만 훑어 ego와의 s 거리가 enter_global_s_gap_tol_m
+  // 이내인지 보므로, ego를 그 구간 첫 점에 놓으면 그 게이트가 즉시 성립하고 나머지는 물리적
+  // |ego_d| 게이트가 결정한다. 두 노드의 비율(state_handoff_tail_ratio ↔
+  // enter_global_tail_ratio)은 같이 움직여야 한다.
+  // ⚠️ state_machine은 `ot_line`을 읽지 않는다(2026-08-16 확인: 소스에 참조 0건).
+  // "handoff 표식을 우선 사용하고 tail 배치는 호환용"이라는 예전 주석은 사실이 아니었다 —
+  // tail 배치를 없애면 복귀 판정 자체가 성립하지 않는다.
   const std::size_t first_index = (ego_index + total - tail_begin) % total;
   path.wpnts.reserve(total);
   for (std::size_t k = 0; k < total; ++k) {
@@ -1662,36 +1674,49 @@ void RacelineSplinePlanner::applyAvoidanceVelocityLimit(
   if (!(approach_decel > 0.0) || path.wpnts.empty()) {
     return;
   }
-  double must_reach = std::numeric_limits<double>::infinity();
+  // 🔴 램프는 **스팬마다** 건다 (2026-08-16). 예전에는 가장 가까운 스팬 하나만
+  // (min(obstacle.start)) 대상으로 삼아서, 경로가 장애물 스팬을 두 개 이상 지나면 두 번째
+  // 스팬 앞에는 램프가 전혀 없었다. 캡은 스팬 안에서만 속도를 낮추므로 그 경계에 계단이
+  // 그대로 남는다 — 2026-08-16 백에서 s=39.67 vx=4.62 → s=39.92 vx=1.00, 즉 0.25 m 만에
+  // 3.6 m/s를 요구했다(decel 2.0으로는 5.0 m가 필요). 이 계단이 실차에서 브레이크 포화 →
+  // 마찰 한계 초과 → 조향 상실로 이어진 형태이고, 이 램프는 애초에 그것 때문에 들어갔다.
+  //
+  // 램프는 낮추기만 하므로 여러 스팬의 프로파일을 waypoint별 min으로 합성해도 정의가
+  // 깨지지 않는다. 목표 속도는 캡이 모두 반영된 프로파일에서 먼저 모아두고(램프끼리 서로의
+  // 목표를 갉아먹어 순서 의존이 생기지 않도록) 그 다음에 일괄 적용한다.
+  struct ApproachTarget
+  {
+    double span_start{0.0};
+    double target_speed{0.0};
+  };
+  std::vector<ApproachTarget> targets;
+  targets.reserve(visible.size());
   for (const auto & obstacle : visible) {
-    must_reach = std::min(must_reach, obstacle.start);
-  }
-  if (!std::isfinite(must_reach)) {
-    return;
-  }
-  must_reach = std::max(0.0, must_reach);
-  if (must_reach <= kEpsilon) {
-    return;   // 스팬이 자차에 붙어 있음(정지 탈출 등) — 접근 구간이 없다.
-  }
-  double target_speed = std::numeric_limits<double>::quiet_NaN();
-  for (const auto & waypoint : path.wpnts) {
-    if (forwardDistance(ego.s, waypoint.s_m) >= must_reach) {
-      target_speed = std::max(0.0, waypoint.vx_mps);
-      break;
+    const double span_start = obstacle.start;
+    if (!(span_start > kEpsilon)) {
+      continue;   // 스팬이 자차에 붙어 있음(정지 탈출 등) — 접근 구간이 없다.
+    }
+    for (const auto & waypoint : path.wpnts) {
+      if (forwardDistance(ego.s, waypoint.s_m) >= span_start) {
+        targets.push_back({span_start, std::max(0.0, waypoint.vx_mps)});
+        break;   // 경로가 스팬까지 안 이어지면 대상에서 빠진다.
+      }
     }
   }
-  if (!std::isfinite(target_speed)) {
-    return;   // 경로가 스팬까지 이어지지 않음 — 접근/스팬 경계를 정할 수 없다.
+  if (targets.empty()) {
+    return;
   }
   for (auto & waypoint : path.wpnts) {
     const double forward_s = forwardDistance(ego.s, waypoint.s_m);
-    if (forward_s >= must_reach) {
-      continue;
+    for (const auto & target : targets) {
+      if (forward_s >= target.span_start) {
+        continue;
+      }
+      const double braking_speed = std::sqrt(
+        target.target_speed * target.target_speed +
+        2.0 * approach_decel * (target.span_start - forward_s));
+      waypoint.vx_mps = std::min(std::max(0.0, waypoint.vx_mps), braking_speed);
     }
-    const double braking_speed = std::sqrt(
-      target_speed * target_speed +
-      2.0 * approach_decel * (must_reach - forward_s));
-    waypoint.vx_mps = std::min(std::max(0.0, waypoint.vx_mps), braking_speed);
   }
 }
 
@@ -2002,6 +2027,7 @@ std::size_t RacelineSplinePlanner::generateP3Candidates(
     candidate.target_d = trace.d_target;
     candidate.path = trace.path;
     candidate.audit_index = trace.generation_index;
+    candidate.exit_reaches_next_obstacle = trace.exit_reaches_next_obstacle;
     candidate.entry_transition_scale = trace.entry_scale;
     candidate.exit_transition_scale = trace.exit_scale;
     candidate.effective_exit_transition_scale = trace.exit_scale;
@@ -2358,6 +2384,12 @@ RacelineSplineResult RacelineSplinePlanner::plan(
   const auto better_candidate = [&](std::size_t first_index, std::size_t second_index) {
       const auto & first = candidates[first_index];
       const auto & second = candidates[second_index];
+      // 다음 장애물을 건드리지 않는 exit이 먼저다 (P3ShadowEvaluator::betterFeasible와 동일
+      // 계약 — 두 순위가 갈리면 P3가 고른 것과 다른 경로를 P0가 커밋한다). 전부 닿는
+      // 경우에는 이 항이 무력해져 기존 slack 기준이 그대로 결정한다.
+      if (first.exit_reaches_next_obstacle != second.exit_reaches_next_obstacle) {
+        return second.exit_reaches_next_obstacle;
+      }
       const double slack_delta =
         first.minimum_normalized_safety_slack - second.minimum_normalized_safety_slack;
       if (std::abs(slack_delta) > kEpsilon) {
