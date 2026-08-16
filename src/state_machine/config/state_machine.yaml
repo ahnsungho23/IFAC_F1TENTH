@@ -39,11 +39,16 @@ state_machine_node:
     handoff_ot_line: "raceline_global_handoff"
     enter_global_sec: 0.5
     enter_global_threshold: 0.2
-    # 경로 끝에서 거꾸로 잰 tail 창의 **호 길이**[m]. 비율(0.1)이던 시절에는 창 크기가
-    # 발행 경로 길이에 따라 0.5~4.3 m로 요동했습니다. local_planning의
+    # 경로 끝에서 거꾸로 잰 tail 창의 **호 길이**[m]. local_planning의
     # state_handoff_tail_distance_m와 반드시 같은 값이어야 합니다 — 플래너는 핸드오프
-    # 루프를 회전해 ego를 정확히 이 tail 구간의 첫 점에 놓습니다.
-    enter_global_tail_distance_m: 1.0
+    # 루프를 회전해 ego를 정확히 이 tail 구간의 첫 점에 놓습니다. 값이 어긋나면 tail이
+    # ego에서 (플래너값-FSM값)만큼 떨어진 곳에서 시작해 게이트가 성립하지 않습니다
+    # (2026-08-16 11:26/11:28 백: 플래너 6.0 / FSM 1.0 불일치로 8랩 전이 0회 실측).
+    # 6.0인 이유: 핸드오프 루프는 완료 시점에 고정되고 ego는 계속 전진하므로 이 창은
+    # "앵커에서 몇 m 안에 복귀를 확정해야 하는가"다. 완료 시점 ego는 아직 회피 오프셋
+    # (|d| 0.33~0.71)에 있고 컨트롤러 자연 수렴이 0.055 m/m라 |d|<=0.2까지 4~9 m가
+    # 필요하다. 표식 게이트가 전제이므로 창을 넓혀도 조기 복귀 위험은 없다.
+    enter_global_tail_distance_m: 6.0
     enter_global_s_gap_tol_m: 0.5
 
     # 마지막 보루 liveness 탈출: non-empty 회피 발행이 이 시간 동안 끊기면(빈 경로만
