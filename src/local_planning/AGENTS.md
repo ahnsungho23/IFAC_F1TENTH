@@ -41,7 +41,15 @@
   it may spend is the lateral room left between the path and the obstacle face, and speed is
   lowered only until the tube fits, never below `avoidance_minimum_speed_mps`. Below that floor the
   maneuver is infeasible and safe-stop decides; never crawl through on a tube the car cannot hold.
-  A waypoint passing no obstacle is never slowed. Keep this inversion of the LUT strict: a reduced
+  A waypoint passing no obstacle is never slowed. The per-span approach braking ramp is
+  ADAPTIVE (2026-08-16): its slope is the gentlest decel that reaches the span speed from the
+  EGO's measured speed over the ego-to-span distance, clamped to
+  [approach_feasibility_decel_mps2, approach_feasibility_decel_max_mps2]. A generous approach
+  keeps the comfort rate untouched; only an already-fast ego close to the span steepens, never
+  past the cap. Never compute the required slope from raw path-waypoint speeds — the waypoint
+  just before the span still carries the un-ramped raceline speed (the step itself), which
+  drives the requirement to infinity and pins every ramp at the cap
+  (ApproachRampSteepensOnlyWhenGeometryRequiresIt locks both properties). Keep this inversion of the LUT strict: a reduced
   speed whose tube overshoots the available room by the validator's own tolerance spends room the
   path does not have, and the validator then rejects the candidate the cap existed to enable.
   Global waypoint `d_left/d_right` are reference-to-physical-boundary distances. Validate every

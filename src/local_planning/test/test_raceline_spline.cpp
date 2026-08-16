@@ -383,6 +383,74 @@ TEST(RacelineSplinePlanner, PrefersExitThatClearsTheFollowingObstacle)
   }
 }
 
+// 접근 램프의 적응 기울기 (2026-08-16): 여유 있는 접근은 base(2.0)를 그대로 쓰고, 가용
+// 거리가 부족한 스팬만 max(3.5)까지 필요한 만큼 가팔라진다. 고정 상향은 여유 있는
+// 장애물까지 늦고 세게 제동하게 만들므로 금지 — 이 테스트가 두 성질을 함께 고정한다.
+TEST(RacelineSplinePlanner, ApproachRampSteepensOnlyWhenGeometryRequiresIt)
+{
+  auto parameters = testParameters();
+  parameters.target_d_candidate_count = 5;
+  parameters.approach_feasibility_decel_mps2 = 2.0;
+  parameters.approach_feasibility_decel_max_mps2 = 3.5;
+  parameters.tracking_error_lut_speed_bins_mps = {1.0, 5.0};
+  parameters.tracking_error_lut_curvature_bins_radpm = {0.0};
+  parameters.tracking_error_lut_values_m = {0.05, 0.50};
+  RacelineSplinePlanner planner(parameters);
+  auto reference = makeStraightReference(300, 0.25, 1.20, 0.75);
+  for (auto & waypoint : reference.wpnts) {
+    waypoint.vx_mps = 5.0;
+  }
+  ASSERT_TRUE(planner.setReference(reference));
+
+  // 케이스 1: 여유 있는 단일 장애물 (접근 10 m) — base 2.0을 넘는 감속이 있으면 안 된다.
+  {
+    auto lone = makeObstacle(10, 10.00, -0.10, 0.47);
+    lone.s_start = 9.85;
+    lone.s_end = 10.15;
+    const EgoFrenetState ego{0.0, 0.0, 3.0};
+    const auto result = planner.plan(ego, {lone});
+    ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
+    for (std::size_t i = 1; i < result.path.wpnts.size(); ++i) {
+      const auto & previous = result.path.wpnts[i - 1U];
+      const auto & current = result.path.wpnts[i];
+      const double ds = planner.forwardDistance(previous.s_m, current.s_m);
+      if (!(ds > 1.0e-6) || current.vx_mps >= previous.vx_mps) {
+        continue;
+      }
+      const double decel =
+        (previous.vx_mps * previous.vx_mps - current.vx_mps * current.vx_mps) / (2.0 * ds);
+      EXPECT_LE(decel, 2.0 * 1.10)
+        << "generous approach was braked harder than the comfort rate at forward="
+        << planner.forwardDistance(ego.s, current.s_m);
+    }
+  }
+
+  // 케이스 2: 자차가 이미 빠르고(5.0) 스팬이 가까움(5 m) — 필요 기울기
+  // (25-v_span²)/10 ≈ 2.3~2.5가 base를 넘으므로 램프가 그만큼만 가팔라져야 하고,
+  // 그래도 max(3.5)를 넘는 감속을 명령하면 안 된다.
+  {
+    auto first = makeObstacle(10, 5.00, -0.10, 0.47);
+    first.s_start = 4.85;
+    first.s_end = 5.15;
+    const EgoFrenetState ego{0.0, 0.0, 5.0};
+    const auto result = planner.plan(ego, {first});
+    ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
+    double worst = 0.0;
+    for (std::size_t i = 1; i < result.path.wpnts.size(); ++i) {
+      const auto & previous = result.path.wpnts[i - 1U];
+      const auto & current = result.path.wpnts[i];
+      const double ds = planner.forwardDistance(previous.s_m, current.s_m);
+      if (!(ds > 1.0e-6) || current.vx_mps >= previous.vx_mps) {
+        continue;
+      }
+      worst = std::max(
+        worst,
+        (previous.vx_mps * previous.vx_mps - current.vx_mps * current.vx_mps) / (2.0 * ds));
+    }
+    EXPECT_LE(worst, 3.5 * 1.10) << "tight gap demanded deceleration beyond the adaptive cap";
+  }
+}
+
 // 접근 제동 램프는 스팬마다 걸려야 한다. 예전에는 가장 가까운 스팬 하나만 대상이라, 두 번째
 // 장애물 앞에서 gap 캡이 그대로 계단으로 나타났다 (2026-08-16 백: 0.25 m 만에 4.62 → 1.00,
 // decel 2.0으로는 5.0 m가 필요한 감속을 요구).

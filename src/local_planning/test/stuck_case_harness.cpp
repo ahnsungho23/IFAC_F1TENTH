@@ -107,7 +107,7 @@ f110_msgs::msg::WpntArray loadReference(const std::string & path)
 RacelineSplineParameters operationalParameters()
 {
   RacelineSplineParameters p;
-  p.detection_lookahead_m = 12.0;
+  p.detection_lookahead_m = 15.0;
   p.obstacle_longitudinal_padding_m = 0.4149924657737441;
   p.vehicle_half_width_m = 0.1435;
   p.vehicle_length_m = 0.56;
@@ -128,6 +128,7 @@ RacelineSplineParameters operationalParameters()
   p.avoidance_minimum_speed_mps = 1.0;
   p.margin_pass_speed_cap_mps = 2.0;
   p.approach_feasibility_decel_mps2 = 2.0;
+  p.approach_feasibility_decel_max_mps2 = 3.5;
   p.commitment_retention_reserve_fraction = 0.5;
   p.localization_reserve_m = 0.12;
   p.wall_safety_margin_m = 0.10;

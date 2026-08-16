@@ -82,6 +82,14 @@ struct RacelineSplineParameters
   //    boundary instead of as a step at it. Span speeds themselves are never touched.
   // <= 0 disables both (old step behavior).
   double approach_feasibility_decel_mps2{2.0};
+  // Adaptive upper bound for the avoidance-span approach ramp (2026-08-16). The ramp slope is
+  // no longer fixed: per span it uses the GENTLEST decel that still reaches the span speed
+  // within the available run-up, clamped to [approach_feasibility_decel_mps2, this]. Obstacles
+  // with a generous approach keep the comfortable base rate unchanged; only geometrically tight
+  // gaps (e.g. re-acceleration to 6+ m/s between obstacles 8 m apart) steepen, and never beyond
+  // this cap — sized at ~70% of the raceline's own braking limit (5.0). A gap that needs more
+  // than the cap keeps the capped ramp and falls to the safe-stop ladder as before.
+  double approach_feasibility_decel_max_mps2{3.5};
   // Committed-path retention band: while re-validating an ALREADY COMMITTED path (P3
   // continuation, P0 commitment hold), the tracking-error reserve portion of the obstacle
   // clearance is scaled by this fraction, so envelope growth/jitter inside the released band

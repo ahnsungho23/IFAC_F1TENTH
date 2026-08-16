@@ -1695,6 +1695,7 @@ void RacelineSplinePlanner::applyAvoidanceVelocityLimit(
   {
     double span_start{0.0};
     double target_speed{0.0};
+    double decel{0.0};
   };
   std::vector<ApproachTarget> targets;
   targets.reserve(visible.size());
@@ -1705,13 +1706,33 @@ void RacelineSplinePlanner::applyAvoidanceVelocityLimit(
     }
     for (const auto & waypoint : path.wpnts) {
       if (forwardDistance(ego.s, waypoint.s_m) >= span_start) {
-        targets.push_back({span_start, std::max(0.0, waypoint.vx_mps)});
+        targets.push_back({span_start, std::max(0.0, waypoint.vx_mps), approach_decel});
         break;   // 경로가 스팬까지 안 이어지면 대상에서 빠진다.
       }
     }
   }
   if (targets.empty()) {
     return;
+  }
+  // 적응 기울기 (2026-08-16): 필요 감속의 기준은 **자차의 실측 속도와 스팬까지의 거리**
+  // 하나다 — required = (v_ego² − v_스팬²)/(2·스팬까지 거리). 이것이 "지금 이 속도로
+  // 여기서 출발해 스팬 시작까지 목표 속도에 닿는 시컨트"이며, 이보다 완만한 램프는
+  // 자차 위치의 명령 속도가 실측 속도보다 낮아져 그 자리에서 계단이 된다(체인/재계획
+  // 순간 — 13:20 백에서 5~6.4 m/s로 다음 장애물 5~8 m 앞에서 재계획하던 그 상황).
+  // 경로 waypoint의 원시 속도로 시컨트를 재면 안 된다: 스팬 직전 점은 램프가 아직 안
+  // 내린 라인 속도(=계단 그 자체)라 필요치가 항상 무한대로 발산한다(회귀 테스트로 고정).
+  // 여유 있는 접근은 base(2.0)가 그대로 남고, 자차가 이미 빠르고 가까운 경우만 필요한
+  // 만큼 [base, max]로 가팔라진다. max로도 모자라면 max 램프를 깔고(잔여 계단은 종전보다
+  // 작다) 종전대로 안전정지 사다리가 받친다.
+  const double approach_decel_max =
+    std::max(approach_decel, parameters_.approach_feasibility_decel_max_mps2);
+  const double ego_speed = std::max(0.0, ego.speed);
+  for (auto & target : targets) {
+    const double excess =
+      ego_speed * ego_speed - target.target_speed * target.target_speed;
+    const double required = excess > 0.0 && target.span_start > kEpsilon ?
+      excess / (2.0 * target.span_start) : 0.0;
+    target.decel = std::clamp(required, approach_decel, approach_decel_max);
   }
   for (auto & waypoint : path.wpnts) {
     const double forward_s = forwardDistance(ego.s, waypoint.s_m);
@@ -1721,7 +1742,7 @@ void RacelineSplinePlanner::applyAvoidanceVelocityLimit(
       }
       const double braking_speed = std::sqrt(
         target.target_speed * target.target_speed +
-        2.0 * approach_decel * (target.span_start - forward_s));
+        2.0 * target.decel * (target.span_start - forward_s));
       waypoint.vx_mps = std::min(std::max(0.0, waypoint.vx_mps), braking_speed);
     }
   }
