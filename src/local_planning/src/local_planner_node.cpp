@@ -412,7 +412,8 @@ void LocalPlannerNode::initializeParameters()
   merge_confirm_cycles_ = declare_parameter<int>("merge_confirm_cycles", 15);
   safe_stop_release_cycles_ = declare_parameter<int>("safe_stop_release_cycles", 8);
   planning_period_ms_ = declare_parameter<int>("planning_period_ms", 50);
-  state_handoff_tail_ratio_ = declare_parameter<double>("state_handoff_tail_ratio", 0.10);
+  state_handoff_tail_distance_m_ =
+    declare_parameter<double>("state_handoff_tail_distance_m", 1.0);
   state_handoff_speed_cap_mps_ =
     declare_parameter<double>("state_handoff_speed_cap_mps", 6.0);
   initial_observation_count_ =
@@ -552,7 +553,8 @@ void LocalPlannerNode::initializeParameters()
     planner_parameters_.merge_ramp_min_length_m < 0.0 ||
     !std::isfinite(planner_parameters_.merge_ramp_time_sec) ||
     planner_parameters_.merge_ramp_time_sec < 0.0 ||
-    !(state_handoff_tail_ratio_ > 0.0) || state_handoff_tail_ratio_ > 1.0 ||
+    !std::isfinite(state_handoff_tail_distance_m_) ||
+    !(state_handoff_tail_distance_m_ > 0.0) ||
     !(state_handoff_speed_cap_mps_ > 0.0) ||
     initial_observation_count_ <= 0 ||
     !std::isfinite(initial_observation_min_duration_sec_) ||
@@ -1411,11 +1413,34 @@ bool LocalPlannerNode::beginChainedManeuverIfNeeded(
   for (const int id : next_cluster_ids) {
     ids += ids.empty() ? std::to_string(id) : "," + std::to_string(id);
   }
+
+  // Plan-then-swap (2026-08-16): 다음 기동을 위해 기존 커밋을 지우기 **전에** 현재 ego에서
+  // 새 회피가 성립하는지 먼저 본다. 성립하면 그 경로로 곧바로 교체 커밋한다 — 지우고 나서
+  // 계획하던 예전 순서는 반대쪽 기동으로 넘어가는 전환부에서 매 랩 정지를 만들었다:
+  // ego가 아직 이전 기동의 오프셋(d≈-0.5)에 있는 채로 준비-정지 경로부터 만들었고, 그
+  // 지점의 준비-정지는 footprint_track_bound로 기각되어 안전정지 래치 + 8사이클 해제
+  // 대기가 됐다(2026-08-16 백 3개 공통: s=32.4~33.4에서 랩당 0.26~0.35 s 감속, 그 뒤
+  // 결국 같은 좌측 회피를 커밋). 측 잠금은 이미 해제된 상태의 계획이므로 양측을 다 본다.
+  RacelineSplineResult next_result = planner_.plan(ego, next_obstacles);
+  if (next_result.kind == SplinePlanKind::kAvoidance) {
+    RCLCPP_INFO(
+      get_logger(),
+      "Chaining static avoidance during %s for new blocking cluster [%s]; "
+      "swapping directly to a validated avoidance (plan-then-swap).",
+      phase.c_str(), ids.c_str());
+    resetForChainedManeuver();
+    commitAvoidance(std::move(next_result), ego, next_obstacles);
+    resetNextManeuverStabilization();
+    return true;
+  }
+
+  // 새 회피가 아직 불가능하면 종전 순서로 간다: 커밋을 지우고 안정화/준비-정지/안전정지
+  // 사다리에 맡긴다. 이때도 "안전한 제동 경로"가 다음 사이클에 즉시 만들어진다.
   RCLCPP_INFO(
     get_logger(),
     "Chaining static avoidance during %s for new blocking cluster [%s]; "
-    "releasing the completed maneuver's side lock.",
-    phase.c_str(), ids.c_str());
+    "no immediate avoidance from ego (%s) — releasing the completed maneuver's side lock.",
+    phase.c_str(), ids.c_str(), next_result.reason.c_str());
   resetForChainedManeuver();
   promoteNextManeuverStabilization();
   return true;
@@ -1557,7 +1582,7 @@ bool LocalPlannerNode::activateGlobalHandoff(
     return false;
   }
   auto handoff_path = planner_.buildGlobalHandoffPath(
-    ego, state_handoff_tail_ratio_, state_handoff_speed_cap_mps_);
+    ego, state_handoff_tail_distance_m_, state_handoff_speed_cap_mps_);
   if (handoff_path.wpnts.empty()) {
     return false;
   }
@@ -3187,7 +3212,10 @@ void LocalPlannerNode::publishCandidateAudit(
            << ",\"minimum_normalized_safety_slack\":"
            << jsonNumber(audit.minimum_normalized_safety_slack)
            << ",\"rejection_reason\":\"" << jsonEscape(audit.rejection_reason) << "\""
-           << ",\"final_rank\":" << audit.final_rank;
+           << ",\"final_rank\":" << audit.final_rank
+           << ",\"exit_reaches_next_obstacle\":"
+           << (audit.exit_reaches_next_obstacle ? "true" : "false")
+           << ",\"rank_without_exit_demotion\":" << audit.rank_without_exit_demotion;
     // The replay event remains machine-readable on its diagnostic topic. Mirror the payload to
     // the node log as well because tuning runners may deliberately keep their rosbag topic list
     // minimal; this guarantees that every generated/rejected candidate remains post-hoc auditable

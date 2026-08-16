@@ -605,17 +605,23 @@ TEST(RacelineSplinePlanner, RampedGlobalHandoffDecaysEgoOffsetToZero)
   RacelineSplinePlanner planner(ramp_params);
   ASSERT_TRUE(planner.setReference(reference));
 
-  constexpr double kTailRatio = 0.20;
+  constexpr double kTailDistanceM = 6.28;   // 구 0.20 비율과 같은 호 길이 (0.2 * 31.4 m)
   local_planning::EgoFrenetState ego;
   ego.s = reference.wpnts[37].s_m;
   ego.d = 0.40;   // 완료 시점에 남아 있는 회피 오프셋
   ego.speed = 2.0;  // ramp_length = max(3.0, 2.0*1.5) = 3.0 m
-  const auto path = planner.buildGlobalHandoffPath(ego, kTailRatio, 2.5);
+  const auto path = planner.buildGlobalHandoffPath(ego, kTailDistanceM, 2.5);
   ASSERT_EQ(path.wpnts.size(), reference.wpnts.size());
 
   const std::size_t total = path.wpnts.size();
-  const std::size_t tail_count = static_cast<std::size_t>(
-    std::ceil(kTailRatio * static_cast<double>(total)));
+  // 구현과 같은 정의: 경로 끝에서 거꾸로 호 길이를 걸어 tail 창을 정한다(균일 간격).
+  const double spacing = 2.0 * M_PI * 5.0 / static_cast<double>(total);
+  std::size_t tail_count = 1U;
+  double walked = 0.0;
+  while (tail_count < total && walked + spacing <= kTailDistanceM) {
+    walked += spacing;
+    ++tail_count;
+  }
   const std::size_t tail_begin = total - tail_count;
 
   // ego 위치(회전 배열의 tail 첫 점)에서 d는 ego.d로 시작한다.
@@ -665,17 +671,22 @@ TEST(RacelineSplinePlanner, RampedGlobalHandoffClampsInsideWallPinch)
   RacelineSplinePlanner planner(params);
   ASSERT_TRUE(planner.setReference(reference));
 
-  constexpr double kTailRatio = 0.20;
+  constexpr double kTailDistanceM = 6.28;   // 구 0.20 비율과 같은 호 길이
   local_planning::EgoFrenetState ego;
   ego.s = reference.wpnts[37].s_m;
   ego.d = 0.40;  // 왼쪽 오프셋 → 왼쪽 협착부가 클램프를 강제한다
   ego.speed = 2.0;
-  const auto path = planner.buildGlobalHandoffPath(ego, kTailRatio, 2.5);
+  const auto path = planner.buildGlobalHandoffPath(ego, kTailDistanceM, 2.5);
   ASSERT_FALSE(path.wpnts.empty());
 
   const std::size_t total = path.wpnts.size();
-  const std::size_t tail_count = static_cast<std::size_t>(
-    std::ceil(kTailRatio * static_cast<double>(total)));
+  const double spacing = 2.0 * M_PI * 5.0 / static_cast<double>(total);
+  std::size_t tail_count = 1U;
+  double walked = 0.0;
+  while (tail_count < total && walked + spacing <= kTailDistanceM) {
+    walked += spacing;
+    ++tail_count;
+  }
   const std::size_t tail_begin = total - tail_count;
   const double keepout = params.vehicle_half_width_m + params.wall_safety_margin_m;
   const double allowed_in_pinch = std::max(0.0, 0.20 - keepout);

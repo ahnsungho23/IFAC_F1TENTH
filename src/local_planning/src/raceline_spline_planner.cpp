@@ -1066,22 +1066,33 @@ bool RacelineSplinePlanner::targetFitsTrackBounds(
 }
 
 f110_msgs::msg::WpntArray RacelineSplinePlanner::buildGlobalHandoffPath(
-  const EgoFrenetState & ego, double state_tail_ratio, double speed_cap_mps) const
+  const EgoFrenetState & ego, double state_tail_distance_m, double speed_cap_mps) const
 {
   f110_msgs::msg::WpntArray path;
   path.header = reference_.header;
-  if (!ready() || !std::isfinite(ego.s) || !(state_tail_ratio > 0.0) ||
-    state_tail_ratio > 1.0 || !(speed_cap_mps > 0.0))
+  if (!ready() || !std::isfinite(ego.s) || !std::isfinite(state_tail_distance_m) ||
+    !(state_tail_distance_m > 0.0) || !(speed_cap_mps > 0.0))
   {
     return path;
   }
 
   const std::size_t total = reference_.wpnts.size();
-  const std::size_t tail_count = std::max<std::size_t>(
-    1U,
-    static_cast<std::size_t>(
-      std::ceil(state_tail_ratio * static_cast<double>(total))));
-  const std::size_t tail_begin = total - std::min(tail_count, total);
+  // tail 창은 경로 끝에서 거꾸로 잰 호 길이[m]다. 비율이던 시절에는 창이 경로 길이에
+  // 비례해 요동했다(전체 루프 43 m의 10% = 4.3 m). state_machine의
+  // enter_global_tail_distance_m와 같은 정의·같은 값이어야 한다.
+  std::size_t tail_count = 1U;
+  double walked_m = 0.0;
+  while (tail_count < total) {
+    const std::size_t index = total - tail_count;
+    const double segment = forwardDistance(
+      reference_.wpnts[(index - 1U) % total].s_m, reference_.wpnts[index % total].s_m);
+    if (walked_m + segment > state_tail_distance_m) {
+      break;
+    }
+    walked_m += segment;
+    ++tail_count;
+  }
+  const std::size_t tail_begin = total - tail_count;
   const std::size_t ego_index = nearestReferenceIndex(ego.s);
 
   // 계획된 복귀 램프: ego의 현재 d에서 0까지 smoothstep으로 내려간다. 램프 없이 d=0
@@ -1093,15 +1104,11 @@ f110_msgs::msg::WpntArray RacelineSplinePlanner::buildGlobalHandoffPath(
     std::abs(ego.speed) * std::max(0.0, parameters_.merge_ramp_time_sec));
   const bool apply_ramp = std::abs(ramp_d0) > 0.03 && ramp_length > 1.0e-6;
 
-  // 전체 global loop를 회전시켜 현재 ego를 마지막 tail_ratio 구간의 **첫 점**에 놓는다.
-  // 이 배치가 GLOBAL 복귀의 유일한 통로다: state_machine의 enter_to_global은 경로의 마지막
-  // enter_global_tail_ratio(0.10) 구간만 훑어 ego와의 s 거리가 enter_global_s_gap_tol_m
-  // 이내인지 보므로, ego를 그 구간 첫 점에 놓으면 그 게이트가 즉시 성립하고 나머지는 물리적
-  // |ego_d| 게이트가 결정한다. 두 노드의 비율(state_handoff_tail_ratio ↔
-  // enter_global_tail_ratio)은 같이 움직여야 한다.
-  // ⚠️ state_machine은 `ot_line`을 읽지 않는다(2026-08-16 확인: 소스에 참조 0건).
-  // "handoff 표식을 우선 사용하고 tail 배치는 호환용"이라는 예전 주석은 사실이 아니었다 —
-  // tail 배치를 없애면 복귀 판정 자체가 성립하지 않는다.
+  // 전체 global loop를 회전시켜 현재 ego를 마지막 tail 구간의 **첫 점**에 놓는다.
+  // state_machine은 이 경로의 ot_line=raceline_global_handoff 표식을 GLOBAL 복귀의
+  // 전제로 요구하고(2026-08-16 계약), 그 위에서 tail 도달·횡오차·지속시간 검사를
+  // 평가한다. ego를 tail 첫 점에 놓으므로 tail 도달 게이트는 즉시 성립하고, 실질
+  // 결정은 물리적 |ego_d| 게이트와 지속시간이 한다.
   const std::size_t first_index = (ego_index + total - tail_begin) % total;
   path.wpnts.reserve(total);
   for (std::size_t k = 0; k < total; ++k) {
@@ -2414,6 +2421,34 @@ RacelineSplineResult RacelineSplinePlanner::plan(
   for (std::size_t rank = 0; rank < feasible_order.size(); ++rank) {
     ranks[feasible_order[rank]] = static_cast<int>(rank + 1U);
   }
+  // 강등 전 가상 순위(exit_reaches_next_obstacle 항을 뺀 순수 slack 순위). 강등이 실제로
+  // 선택을 바꿨는지 감사 스트림에서 직접 확인하기 위한 것으로, 선택에는 쓰지 않는다:
+  // rank_without_exit_demotion==1인 후보와 final_rank==1인 후보가 다르면 강등이 결정했다.
+  const auto slack_only_candidate = [&](std::size_t first_index, std::size_t second_index) {
+      const auto & first = candidates[first_index];
+      const auto & second = candidates[second_index];
+      const double slack_delta =
+        first.minimum_normalized_safety_slack - second.minimum_normalized_safety_slack;
+      if (std::abs(slack_delta) > kEpsilon) {
+        return slack_delta > 0.0;
+      }
+      const double speed_loss_delta = first.velocity_loss - second.velocity_loss;
+      if (std::abs(speed_loss_delta) > kEpsilon) {
+        return speed_loss_delta < 0.0;
+      }
+      const double deviation_delta =
+        first.global_path_deviation_m - second.global_path_deviation_m;
+      if (std::abs(deviation_delta) > kEpsilon) {
+        return deviation_delta < 0.0;
+      }
+      return first.audit_index < second.audit_index;
+    };
+  std::vector<std::size_t> slack_order = feasible_order;
+  std::stable_sort(slack_order.begin(), slack_order.end(), slack_only_candidate);
+  std::vector<int> slack_ranks(candidates.size(), -1);
+  for (std::size_t rank = 0; rank < slack_order.size(); ++rank) {
+    slack_ranks[slack_order[rank]] = static_cast<int>(rank + 1U);
+  }
   const std::size_t selected_index = feasible_order.empty() ?
     std::numeric_limits<std::size_t>::max() : feasible_order.front();
   const auto build_audits = [&]() {
@@ -2427,6 +2462,8 @@ RacelineSplineResult RacelineSplinePlanner::plan(
         audit.selected = index == selected_index;
         audit.go_left = candidate.go_left;
         audit.final_rank = ranks[index];
+        audit.exit_reaches_next_obstacle = candidate.exit_reaches_next_obstacle;
+        audit.rank_without_exit_demotion = slack_ranks[index];
         audit.target_d = candidate.target_d;
         audit.entry_fraction = candidate.entry_transition_scale;
         audit.exit_transition_scale = candidate.effective_exit_transition_scale;

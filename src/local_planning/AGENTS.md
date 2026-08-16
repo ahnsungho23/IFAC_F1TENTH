@@ -223,7 +223,12 @@
 - Append a speed-aware ordered global `d=0` tail after the spline merge. After geometric merge,
   publish a full global loop with `ot_line=raceline_global_handoff`. Continue that non-empty
   handoff path until `/state` has entered `STATE_AVOID` for the commitment and subsequently
-  confirms `STATE_GLOBAL`.
+  confirms `STATE_GLOBAL`. This marker is now the FSM's REQUIRED precondition for AVOID->GLOBAL
+  (2026-08-16 contract): publish it only when no unfinished blocking cluster remains, and never
+  on ordinary avoidance/stop paths — a false marker releases the FSM early, a missing one keeps
+  it in AVOID until the liveness escape. The handoff rotation places ego at the start of the
+  last `state_handoff_tail_distance_m` metres of the loop; that value must equal the FSM's
+  `enter_global_tail_distance_m` (both are arc-length metres, ratios were removed).
 - **Never publish an empty path while `/state` reads `STATE_AVOID`** (2026-08-16). The FSM's
   return path (`enter_to_global`) only RUNS when the latest `/avoid_waypoints` is non-empty, and
   an empty message carries no timeout and no alternative exit: publishing empty from AVOID latches

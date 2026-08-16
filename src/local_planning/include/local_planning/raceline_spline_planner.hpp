@@ -194,6 +194,11 @@ struct SplineCandidateAudit
   bool selected{false};
   bool go_left{false};
   int final_rank{-1};
+  // exit 램프가 다음(비클러스터) 장애물의 물리 엔벨로프에 닿는 후보인가 — 순위 강등의
+  // 원인 플래그. rank_without_exit_demotion은 그 강등 항을 뺀 순수 slack 순위로,
+  // final_rank와 다르면 강등이 이 사이클의 선택을 실제로 바꿨다는 뜻이다. 감사 전용.
+  bool exit_reaches_next_obstacle{false};
+  int rank_without_exit_demotion{-1};
   double target_d{std::numeric_limits<double>::quiet_NaN()};
   double entry_fraction{std::numeric_limits<double>::quiet_NaN()};
   double exit_transition_scale{std::numeric_limits<double>::quiet_NaN()};
@@ -323,7 +328,7 @@ public:
   // 장애물에서 오프셋이 누적된다. FSM 합류 판정(|ego_d| <= threshold 지속)은 램프와
   // 무관하게 물리적 합류를 계속 게이트한다.
   f110_msgs::msg::WpntArray buildGlobalHandoffPath(
-    const EgoFrenetState & ego, double state_tail_ratio, double speed_cap_mps) const;
+    const EgoFrenetState & ego, double state_tail_distance_m, double speed_cap_mps) const;
   f110_msgs::msg::WpntArray buildEmergencyStopPath(const EgoFrenetState & ego) const;
   // Truncate `path` from the waypoint nearest ahead of ego and apply a braking profile that
   // stops within the configured safe-stop deceleration, without any obstacle search. Used as

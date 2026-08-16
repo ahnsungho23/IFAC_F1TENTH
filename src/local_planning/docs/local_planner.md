@@ -684,7 +684,7 @@ ego가 실제 spline merge 지점에 도달하고
 
 기하학적 합류만으로 commitment를 해제하지는 않습니다. 합류가 확인되면 전체 global waypoint를
 원래 순서 그대로 한 번 포함하는 폐루프 handoff 경로로 교체합니다. 배열 시작점만 회전해 현재
-ego가 마지막 `state_handoff_tail_ratio` 구간의 첫 부분에 위치하도록 하고
+ego가 경로 끝 `state_handoff_tail_distance_m`[m] tail 구간의 첫 점에 위치하도록 하고
 `ot_line=raceline_global_handoff`를 설정합니다. state machine은 이 표식을 받으면 고정 tail을
 다시 만날 때까지 기다리지 않고 실제 ego가 global line에 0.5초 동안 유지되는지만 확인합니다.
 컨트롤러에는 충분한 전방 global 경로가 계속 제공됩니다.
@@ -878,7 +878,7 @@ commitment는 지우지 않으므로 odometry가 회복되면 다시 검증한 �
   - obstacle stale: 마지막 유효 경로와 장애물 기억으로 주행/다음 랩 계획 지속
   - odometry stale: 마지막 위치에서 zero-speed hold
 - 합류 확인: `merge_lateral_tolerance_m`, `merge_confirm_cycles`, `state_topic`,
-  `state_handoff_tail_ratio`, `state_handoff_speed_cap_mps`
+  `state_handoff_tail_distance_m`, `state_handoff_speed_cap_mps`
 - 토픽과 프레임: `*_topic`, `frame_id`
 - P3 production integration: `p3_mode=OFF|SHADOW|TEST_ACTIVE`,
   `p3_diagnostics_topic=/local_planning/p3_shadow`
