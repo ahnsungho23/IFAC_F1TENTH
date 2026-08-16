@@ -351,6 +351,8 @@ void LocalPlannerNode::initializeParameters()
     declare_parameter<double>("approach_feasibility_decel_mps2", 2.0);
   planner_parameters_.approach_feasibility_decel_max_mps2 =
     declare_parameter<double>("approach_feasibility_decel_max_mps2", 3.5);
+  planner_parameters_.profile_feasibility_decel_mps2 =
+    declare_parameter<double>("profile_feasibility_decel_mps2", 3.5);
   planner_parameters_.commitment_retention_reserve_fraction =
     declare_parameter<double>("commitment_retention_reserve_fraction", 0.5);
   planner_parameters_.localization_reserve_m =
@@ -549,6 +551,8 @@ void LocalPlannerNode::initializeParameters()
     planner_parameters_.margin_pass_speed_cap_mps < 0.0 ||
     !std::isfinite(planner_parameters_.approach_feasibility_decel_mps2) ||
     !std::isfinite(planner_parameters_.approach_feasibility_decel_max_mps2) ||
+    !std::isfinite(planner_parameters_.profile_feasibility_decel_mps2) ||
+    planner_parameters_.profile_feasibility_decel_mps2 < 0.0 ||
     (planner_parameters_.approach_feasibility_decel_mps2 > 0.0 &&
     planner_parameters_.approach_feasibility_decel_max_mps2 <
     planner_parameters_.approach_feasibility_decel_mps2) ||

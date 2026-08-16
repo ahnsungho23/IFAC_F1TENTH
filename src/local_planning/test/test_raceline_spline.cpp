@@ -432,6 +432,50 @@ RacelineSplineParameters fieldParameters()
   return parameters;
 }
 
+// 발행 프로파일의 모든 감속은 실제로 제동 가능해야 한다 (2026-08-16 14:30 백 회귀).
+//
+// 그날 실측: s=32.89 v=6.63 → s=33.14 v=4.58. 0.25 m 만에 (6.63²-4.58²)/(2·0.25) = 46 m/s²의
+// 제동을 요구한다. 원인은 곡률·간격 캡이 waypoint마다 독립이라 S자 전이의 변곡점(κ≈0)에서
+// 캡이 통째로 풀리는 것이었고, 접근 램프는 장애물 스팬 앞에만 걸려 이 구간을 못 잡았다.
+TEST(RacelineSplinePlanner, EveryDropInThePublishedProfileIsActuallyBrakeable)
+{
+  auto parameters = fieldParameters();
+  RacelineSplinePlanner planner(parameters);
+  auto reference = makeStraightReference(300, 0.1, 1.20, 1.20);
+  for (auto & waypoint : reference.wpnts) {
+    waypoint.vx_mps = 7.0;              // 라인 최고속 구간 — 여기서 캡이 풀리면 스파이크가 된다
+  }
+  ASSERT_TRUE(planner.setReference(reference));
+  // 재현 조건: 라인 7.0 m/s에서 횡 ~1.0 m를 4.5 m 안에 옮긴다(백의 s=33~36과 같은 급도).
+  // 전이가 완만하면 곡률 캡이 아예 안 걸려 결함이 나타나지 않는다 — 8 m 전이로는 κ_max가
+  // 0.069뿐이라 프로파일이 7.00으로 평평하고, 이 테스트는 아무것도 잡지 못한다.
+  const EgoFrenetState ego{0.0, -0.35, 7.0};
+  const auto result = planner.plan(ego, {makeObstacle(2, 4.5, -0.60, 0.20)});
+  ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
+  ASSERT_GE(result.path.wpnts.size(), 3U);
+
+  const double limit = parameters.profileFeasibilityDecel();
+  double worst = 0.0;
+  double worst_s = 0.0;
+  for (std::size_t i = 1; i < result.path.wpnts.size(); ++i) {
+    const auto & earlier = result.path.wpnts[i - 1];
+    const auto & later = result.path.wpnts[i];
+    const double ds = later.s_m - earlier.s_m;
+    if (!(ds > 1.0e-9) || later.vx_mps >= earlier.vx_mps) {
+      continue;                       // 가속 방향은 이 패스의 대상이 아니다.
+    }
+    const double required =
+      (earlier.vx_mps * earlier.vx_mps - later.vx_mps * later.vx_mps) / (2.0 * ds);
+    if (required > worst) {
+      worst = required;
+      worst_s = earlier.s_m;
+    }
+  }
+  // 수치 오차만 허용한다. 이 값이 크게 튀면 캡 하나가 후방 패스 뒤에 적용되고 있다는 뜻이다.
+  EXPECT_LT(worst, limit + 1.0e-6)
+    << "s=" << worst_s << "에서 " << worst << " m/s² 제동을 요구한다 (한계 " << limit << ")";
+}
+
 TEST(RacelineSplinePlanner, MeasuredQuietFaceInflationKeepsTheEightyCentimetreGapPassable)
 {
   RacelineSplinePlanner planner(fieldParameters());

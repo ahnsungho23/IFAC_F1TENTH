@@ -90,6 +90,17 @@ struct RacelineSplineParameters
   // this cap — sized at ~70% of the raceline's own braking limit (5.0). A gap that needs more
   // than the cap keeps the capped ramp and falls to the safe-stop ladder as before.
   double approach_feasibility_decel_max_mps2{3.5};
+  // Longitudinal-feasibility backward pass (2026-08-16). The per-waypoint curvature and gap caps
+  // are computed independently, so a curvature dip (the inflection of an S-transition) lets the
+  // profile snap back to raceline speed for a point or two and then fall again — 14:30 백에서
+  // 6.63 → 4.58 m/s in 0.25 m, i.e. a 46 m/s² braking request. This is the deceleration used to
+  // make every drop in the published profile actually brakeable.
+  //
+  // 기본값이 접근 램프의 comfort base(2.0)가 아니라 그 상한(3.5)인 이유: 이 패스의 목적은
+  // "물리적으로 불가능한 계단"을 없애는 것이고, 그 기준은 comfort 목표가 아니라 차가 실제로
+  // 낼 수 있는 제동이다. 2.0으로 두면 곡률이 조금만 출렁여도 프로파일 전체가 끌려 내려가
+  // 근거 없이 속도를 잃는다. 접근 램프의 comfort base는 그대로 유지된다.
+  double profile_feasibility_decel_mps2{3.5};
   // Committed-path retention band: while re-validating an ALREADY COMMITTED path (P3
   // continuation, P0 commitment hold), the tracking-error reserve portion of the obstacle
   // clearance is scaled by this fraction, so envelope growth/jitter inside the released band
@@ -168,6 +179,13 @@ struct RacelineSplineParameters
   double obstacleSafetyClearance(
     double speed_mps, double curvature_radpm, double reserve_scale = 1.0) const;
   double trackBoundaryReserve(double speed_mps, double curvature_radpm) const;
+  // Deceleration used by the longitudinal-feasibility backward pass. Falls back to the approach
+  // ramp's adaptive cap when unset so an out-of-date parameter file cannot silently disable it.
+  double profileFeasibilityDecel() const
+  {
+    return profile_feasibility_decel_mps2 > 0.0 ?
+           profile_feasibility_decel_mps2 : approach_feasibility_decel_max_mps2;
+  }
 };
 
 struct EgoFrenetState
@@ -503,6 +521,11 @@ private:
     f110_msgs::msg::WpntArray & path,
     const EgoFrenetState & ego,
     const std::vector<ExpandedObstacle> & visible) const;
+  void applyApproachFeasibilityRamp(
+    f110_msgs::msg::WpntArray & path,
+    const EgoFrenetState & ego,
+    const std::vector<ExpandedObstacle> & visible) const;
+  void applyLongitudinalFeasibility(f110_msgs::msg::WpntArray & path) const;
   void updateGeometryAndAcceleration(f110_msgs::msg::WpntArray & path) const;
   bool validateCandidate(
     const EgoFrenetState & ego,

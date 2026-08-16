@@ -1714,6 +1714,34 @@ void RacelineSplinePlanner::applyAvoidanceVelocityLimit(
     waypoint.vx_mps = parameters_.limitedAvoidanceSpeed(speed, waypoint.kappa_radpm);
   }
 
+  applyApproachFeasibilityRamp(path, ego, visible);
+  applyLongitudinalFeasibility(path);
+}
+
+// 종방향 실현가능 후방 패스 (2026-08-16).
+//
+// 위의 캡들은 waypoint마다 **독립적으로** 곡률·간격 상한을 매길 뿐, 인접 waypoint 사이에
+// 종방향 동역학을 전혀 걸지 않는다. 그래서 S자 전이의 변곡점처럼 곡률이 순간 0에 가까워지는
+// 지점에서는 캡이 통째로 풀려 프로파일이 튄다 — 14:30 백 실측(s=32.9~36.2):
+//
+//   s=32.89 v=6.63 → s=33.14 v=4.58   0.25 m 만에 46 m/s² 제동 요구
+//   s=34.39 v=7.00 → s=34.90 v=5.62   곡률 0 구간에서 라인 속도로 복귀했다가 다시 하락
+//
+// 접근 램프는 "장애물 스팬 앞"에만 걸리므로 스팬이 아닌 전이 구간의 이 계단들은 잡지
+// 못한다. 여기서 경로 전체에 v[i] = min(v[i], sqrt(v[i+1]² + 2·a·ds))를 뒤에서 앞으로
+// 적용해 모든 감속이 실제로 제동 가능한 기울기가 되게 한다. 낮추기만 하므로 위의 어떤
+// 안전 캡도 무효화하지 않는다.
+//
+// 가속 방향(올라가는 계단)은 일부러 제한하지 않는다: 명령이 실측보다 높은 것은 차가 낼 수
+// 있는 만큼 내는 것이라 안전 문제가 아니고, 여기서 조이면 근거 없이 속도만 잃는다.
+//
+// ⚠️ 이 패스는 계단을 없앨 뿐 속도를 되찾아주지 않는다. s=33~37의 달성률 57~63%는 전이
+// 구간의 곡률 자체가 원인이며 그것은 별개 문제다.
+void RacelineSplinePlanner::applyApproachFeasibilityRamp(
+  f110_msgs::msg::WpntArray & path,
+  const EgoFrenetState & ego,
+  const std::vector<ExpandedObstacle> & visible) const
+{
   // 접근 실현성 후방 제동 램프(2026-08-14 실차): 위 캡들은 장애물 스팬 안에서만 속도를
   // 낮추므로, 접근 구간은 프로파일 속도 그대로다가 스팬 경계에서 속도가 계단으로
   // 떨어진다. 실차에서는 그 계단이 서비스 브레이크 포화 → 마찰 한계 초과 슬립 →
@@ -1788,6 +1816,26 @@ void RacelineSplinePlanner::applyAvoidanceVelocityLimit(
         2.0 * target.decel * (target.span_start - forward_s));
       waypoint.vx_mps = std::min(std::max(0.0, waypoint.vx_mps), braking_speed);
     }
+  }
+}
+
+void RacelineSplinePlanner::applyLongitudinalFeasibility(
+  f110_msgs::msg::WpntArray & path) const
+{
+  const double decel = parameters_.profileFeasibilityDecel();
+  if (!(decel > 0.0) || path.wpnts.size() < 2U) {
+    return;
+  }
+  for (std::size_t index = path.wpnts.size() - 1U; index > 0U; --index) {
+    auto & earlier = path.wpnts[index - 1U];
+    const auto & later = path.wpnts[index];
+    const double ds = forwardDistance(earlier.s_m, later.s_m);
+    if (!(ds > kEpsilon)) {
+      continue;
+    }
+    const double later_speed = std::max(0.0, later.vx_mps);
+    const double reachable = std::sqrt(later_speed * later_speed + 2.0 * decel * ds);
+    earlier.vx_mps = std::min(std::max(0.0, earlier.vx_mps), reachable);
   }
 }
 
