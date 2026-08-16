@@ -15,10 +15,7 @@ float64 y_max
 float64 x_var
 float64 y_var
 
-# Frenet representation used by tracking and planning. For a currently visible Cartesian
-# footprint, obstacle_detector projects the complete map-frame AABB and these bounds describe
-# that same footprint. Predicted-only tracks retain their last measured Frenet extent around the
-# predicted centre while `has_cartesian=false`.
+# Frenet representation used by dynamic-opponent tracking and trajectory prediction.
 float64 s_start
 float64 s_end
 float64 d_right           # defined as right bound of the obstacle
@@ -35,3 +32,6 @@ float64 vs_var
 float64 vd_var
 bool is_static
 bool is_visible
+# True when the dynamic opponent overlaps the ego driving corridor and its current or predicted
+# longitudinal gap is small enough to interfere with ego driving.
+bool is_interfering

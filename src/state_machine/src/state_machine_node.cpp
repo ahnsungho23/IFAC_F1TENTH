@@ -6,10 +6,8 @@
 #include <cmath>
 #include <cstddef>
 #include <functional>
-#include <iomanip>
 #include <limits>
 #include <memory>
-#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -21,22 +19,15 @@ namespace state_machine
 namespace
 {
 
-std::int64_t steady_now_ns()
-{
-  return std::chrono::duration_cast<std::chrono::nanoseconds>(
-    std::chrono::steady_clock::now().time_since_epoch()).count();
-}
-
-std::int64_t stamp_ns(const builtin_interfaces::msg::Time & stamp)
-{
-  return static_cast<std::int64_t>(stamp.sec) * 1000000000LL +
-         static_cast<std::int64_t>(stamp.nanosec);
-}
-
 double circular_s_distance(double a, double b, double track_length)
 {
   const double diff = std::fmod(std::abs(a - b), track_length);
   return std::min(diff, track_length - diff);
+}
+
+double forward_s_distance(double from, double to, double track_length)
+{
+  return std::fmod(to - from + track_length, track_length);
 }
 
 double track_length_from(const f110_msgs::msg::WpntArray & global_wpnts)
@@ -60,19 +51,20 @@ StateMachineNode::StateMachineNode()
   declare_parameter<std::string>("frenet_odom_topic", "/car_state/frenet/odom");
   declare_parameter<std::string>("global_waypoints_topic", "/global_waypoints");
   declare_parameter<std::string>("avoid_waypoints_topic", "/avoid_waypoints");
-  declare_parameter<std::string>("overtake_waypoints_topic", "/overtake_waypoints");
+  declare_parameter<std::string>("opponent_topic", "/opp_obs");
+  declare_parameter<std::string>("static_obstacles_topic", "/static_obs");
   declare_parameter<std::string>("frame_id", "map");
   declare_parameter<std::string>("default_state", "global");
   declare_parameter<std::string>("invalid_local_path_policy", "global_fallback");
 
   declare_parameter<double>("publish_rate_hz", 100.0);
   declare_parameter<int>("waypoint_num", 50);
-  declare_parameter<double>("overtake_hold_duration_sec", 2.0);
   declare_parameter<double>("global_publisher_warn_timeout_sec", 5.0);
   declare_parameter<double>("frenet_stale_timeout_sec", 0.5);
+  declare_parameter<double>("opponent_stale_timeout_sec", 0.3);
 
   declare_parameter<bool>("allow_avoid_transition", true);
-  declare_parameter<bool>("allow_overtake_transition", true);
+  declare_parameter<bool>("allow_cruise_transition", true);
   declare_parameter<int64_t>("local_path_confirmation_window_size", 5);
   declare_parameter<int64_t>("local_path_confirmation_min_hits", 3);
 
@@ -80,10 +72,14 @@ StateMachineNode::StateMachineNode()
   declare_parameter<double>("enter_global_threshold", 0.2);
   declare_parameter<double>("enter_global_tail_ratio", 0.1);
   declare_parameter<double>("enter_global_s_gap_tol_m", 0.5);
-  declare_parameter<bool>("timing_diagnostics_enable", false);
-  declare_parameter<std::string>("timing_diagnostics_topic", "/cma_timing/events");
-  declare_parameter<double>("tuning_publish_rate_hz_override", -1.0);
-  declare_parameter<bool>("lockstep_mode", false);
+  declare_parameter<double>("avoid_path_stale_timeout_sec", 0.5);
+  declare_parameter<double>("avoid_path_exhaustion_sec", 0.5);
+  declare_parameter<double>("avoid_path_exhaustion_s_gap_tol_m", 0.75);
+  declare_parameter<double>("static_obstacles_stale_timeout_sec", 0.3);
+  declare_parameter<double>("stopped_path_clear_sec", 1.0);
+  declare_parameter<double>("stopped_path_speed_threshold_mps", 0.01);
+  declare_parameter<double>("stopped_path_obstacle_lookahead_m", 3.0);
+  declare_parameter<double>("stopped_path_ego_half_width_m", 0.16);
 
   state_topic_ = get_parameter("state_topic").as_string();
   local_waypoints_topic_ = get_parameter("local_waypoints_topic").as_string();
@@ -91,9 +87,10 @@ StateMachineNode::StateMachineNode()
   frame_id_ = get_parameter("frame_id").as_string();
   default_state_name_ = get_parameter("default_state").as_string();
   invalid_local_path_policy_ = get_parameter("invalid_local_path_policy").as_string();
+  static_obstacles_topic_ = get_parameter("static_obstacles_topic").as_string();
 
   allow_avoid_transition_ = get_parameter("allow_avoid_transition").as_bool();
-  allow_overtake_transition_ = get_parameter("allow_overtake_transition").as_bool();
+  allow_cruise_transition_ = get_parameter("allow_cruise_transition").as_bool();
   local_path_confirmation_window_size_ = std::max<int64_t>(
     1, get_parameter("local_path_confirmation_window_size").as_int());
   local_path_confirmation_min_hits_ = std::clamp<int64_t>(
@@ -102,23 +99,29 @@ StateMachineNode::StateMachineNode()
     local_path_confirmation_window_size_);
 
   const int64_t waypoint_num = get_parameter("waypoint_num").as_int();
-  double publish_rate_hz = get_parameter("publish_rate_hz").as_double();
-  overtake_hold_duration_sec_ = get_parameter("overtake_hold_duration_sec").as_double();
+  const double publish_rate_hz = get_parameter("publish_rate_hz").as_double();
   global_publisher_warn_timeout_sec_ =
     get_parameter("global_publisher_warn_timeout_sec").as_double();
   frenet_stale_timeout_sec_ = get_parameter("frenet_stale_timeout_sec").as_double();
+  opponent_stale_timeout_sec_ = get_parameter("opponent_stale_timeout_sec").as_double();
   enter_global_sec_ = get_parameter("enter_global_sec").as_double();
   enter_global_threshold_ = get_parameter("enter_global_threshold").as_double();
   enter_global_tail_ratio_ = get_parameter("enter_global_tail_ratio").as_double();
   enter_global_s_gap_tol_m_ = get_parameter("enter_global_s_gap_tol_m").as_double();
-  timing_diagnostics_enable_ = get_parameter("timing_diagnostics_enable").as_bool();
-  timing_diagnostics_topic_ = get_parameter("timing_diagnostics_topic").as_string();
-  tuning_publish_rate_hz_override_ =
-    get_parameter("tuning_publish_rate_hz_override").as_double();
-  lockstep_mode_ = get_parameter("lockstep_mode").as_bool();
-  if (timing_diagnostics_enable_ && tuning_publish_rate_hz_override_ > 0.0) {
-    publish_rate_hz = tuning_publish_rate_hz_override_;
-  }
+  avoid_path_stale_timeout_sec_ =
+    get_parameter("avoid_path_stale_timeout_sec").as_double();
+  avoid_path_exhaustion_sec_ = get_parameter("avoid_path_exhaustion_sec").as_double();
+  avoid_path_exhaustion_s_gap_tol_m_ =
+    get_parameter("avoid_path_exhaustion_s_gap_tol_m").as_double();
+  static_obstacles_stale_timeout_sec_ =
+    get_parameter("static_obstacles_stale_timeout_sec").as_double();
+  stopped_path_clear_sec_ = get_parameter("stopped_path_clear_sec").as_double();
+  stopped_path_speed_threshold_mps_ =
+    get_parameter("stopped_path_speed_threshold_mps").as_double();
+  stopped_path_obstacle_lookahead_m_ =
+    get_parameter("stopped_path_obstacle_lookahead_m").as_double();
+  stopped_path_ego_half_width_m_ =
+    get_parameter("stopped_path_ego_half_width_m").as_double();
 
   if (waypoint_num <= 0 || waypoint_num > std::numeric_limits<int>::max()) {
     throw std::invalid_argument("waypoint_num must be in the range [1, INT_MAX]");
@@ -126,15 +129,6 @@ StateMachineNode::StateMachineNode()
   waypoint_num_ = static_cast<int>(waypoint_num);
   if (!std::isfinite(publish_rate_hz) || publish_rate_hz <= 0.0) {
     throw std::invalid_argument("publish_rate_hz must be finite and positive");
-  }
-  if (!std::isfinite(tuning_publish_rate_hz_override_) ||
-    (tuning_publish_rate_hz_override_ != -1.0 && tuning_publish_rate_hz_override_ <= 0.0))
-  {
-    throw std::invalid_argument(
-            "tuning_publish_rate_hz_override must be -1 or finite and positive");
-  }
-  if (!std::isfinite(overtake_hold_duration_sec_) || overtake_hold_duration_sec_ < 0.0) {
-    throw std::invalid_argument("overtake_hold_duration_sec must be finite and non-negative");
   }
   if (!std::isfinite(global_publisher_warn_timeout_sec_) ||
     global_publisher_warn_timeout_sec_ <= 0.0)
@@ -145,6 +139,9 @@ StateMachineNode::StateMachineNode()
   if (!std::isfinite(frenet_stale_timeout_sec_) || frenet_stale_timeout_sec_ <= 0.0) {
     throw std::invalid_argument("frenet_stale_timeout_sec must be finite and positive");
   }
+  if (!std::isfinite(opponent_stale_timeout_sec_) || opponent_stale_timeout_sec_ <= 0.0) {
+    throw std::invalid_argument("opponent_stale_timeout_sec must be finite and positive");
+  }
   if (!std::isfinite(enter_global_sec_) || enter_global_sec_ < 0.0 ||
     !std::isfinite(enter_global_threshold_) || enter_global_threshold_ < 0.0 ||
     !std::isfinite(enter_global_tail_ratio_) || enter_global_tail_ratio_ <= 0.0 ||
@@ -152,6 +149,26 @@ StateMachineNode::StateMachineNode()
     enter_global_s_gap_tol_m_ < 0.0)
   {
     throw std::invalid_argument("invalid global re-entry parameter value");
+  }
+  if (!std::isfinite(avoid_path_stale_timeout_sec_) ||
+    avoid_path_stale_timeout_sec_ <= 0.0 ||
+    !std::isfinite(avoid_path_exhaustion_sec_) || avoid_path_exhaustion_sec_ < 0.0 ||
+    !std::isfinite(avoid_path_exhaustion_s_gap_tol_m_) ||
+    avoid_path_exhaustion_s_gap_tol_m_ < 0.0)
+  {
+    throw std::invalid_argument("invalid avoid path exhaustion parameter value");
+  }
+  if (!std::isfinite(static_obstacles_stale_timeout_sec_) ||
+    static_obstacles_stale_timeout_sec_ <= 0.0 ||
+    !std::isfinite(stopped_path_clear_sec_) || stopped_path_clear_sec_ < 0.0 ||
+    !std::isfinite(stopped_path_speed_threshold_mps_) ||
+    stopped_path_speed_threshold_mps_ < 0.0 ||
+    !std::isfinite(stopped_path_obstacle_lookahead_m_) ||
+    stopped_path_obstacle_lookahead_m_ <= 0.0 ||
+    !std::isfinite(stopped_path_ego_half_width_m_) ||
+    stopped_path_ego_half_width_m_ < 0.0)
+  {
+    throw std::invalid_argument("invalid stopped path clear parameter value");
   }
   if (invalid_local_path_policy_ != "global_fallback") {
     throw std::invalid_argument(
@@ -166,10 +183,6 @@ StateMachineNode::StateMachineNode()
   local_waypoints_pub_ =
     create_publisher<f110_msgs::msg::WpntArray>(local_waypoints_topic_, volatile_qos);
   local_path_pub_ = create_publisher<nav_msgs::msg::Path>(local_path_topic_, volatile_qos);
-  if (timing_diagnostics_enable_) {
-    timing_diagnostics_pub_ = create_publisher<std_msgs::msg::String>(
-      timing_diagnostics_topic_, rclcpp::QoS(100).reliable());
-  }
 
   frenet_sub_ = create_subscription<nav_msgs::msg::Odometry>(
     get_parameter("frenet_odom_topic").as_string(),
@@ -183,16 +196,18 @@ StateMachineNode::StateMachineNode()
     get_parameter("avoid_waypoints_topic").as_string(),
     volatile_qos,
     std::bind(&StateMachineNode::on_avoid_wpnts, this, std::placeholders::_1));
-  overtake_sub_ = create_subscription<f110_msgs::msg::OTWpntArray>(
-    get_parameter("overtake_waypoints_topic").as_string(),
+  opponent_sub_ = create_subscription<f110_msgs::msg::ObstacleArray>(
+    get_parameter("opponent_topic").as_string(),
     volatile_qos,
-    std::bind(&StateMachineNode::on_overtake_wpnts, this, std::placeholders::_1));
+    std::bind(&StateMachineNode::on_opponent, this, std::placeholders::_1));
+  static_obstacles_sub_ = create_subscription<f110_msgs::msg::ObstacleArray>(
+    static_obstacles_topic_,
+    volatile_qos,
+    std::bind(&StateMachineNode::on_static_obstacles, this, std::placeholders::_1));
 
   const auto period = std::chrono::duration_cast<std::chrono::nanoseconds>(
     std::chrono::duration<double>(1.0 / publish_rate_hz));
-  if (!lockstep_mode_) {
-    timer_ = create_wall_timer(period, std::bind(&StateMachineNode::publish_state_cycle, this));
-  }
+  timer_ = create_wall_timer(period, std::bind(&StateMachineNode::publish_state_cycle, this));
 
   const auto parsed_default = parse_state(default_state_name_);
   if (!parsed_default.has_value()) {
@@ -211,16 +226,10 @@ StateMachineNode::StateMachineNode()
     local_waypoints_topic_.c_str(),
     waypoint_num_,
     default_state_name_.c_str());
-  if (timing_diagnostics_enable_) {
-    RCLCPP_INFO(
-      get_logger(),
-      "Tuning-only timing diagnostics enabled: topic='%s', effective publish rate=%.1f Hz.",
-      timing_diagnostics_topic_.c_str(), publish_rate_hz);
-  }
-  if (!allow_avoid_transition_ && !allow_overtake_transition_) {
+  if (!allow_avoid_transition_ && !allow_cruise_transition_) {
     RCLCPP_WARN(
       get_logger(),
-      "Both local-path transitions are disabled. The FSM will stay in its default state.");
+      "Both AVOID and CRUISE transitions are disabled. The FSM will stay in its default state.");
   }
 }
 
@@ -232,8 +241,8 @@ std::optional<uint8_t> StateMachineNode::parse_state(const std::string & state_n
   if (state_name == "avoid") {
     return f110_msgs::msg::StateMachine::STATE_AVOID;
   }
-  if (state_name == "overtake") {
-    return f110_msgs::msg::StateMachine::STATE_OVERTAKE;
+  if (state_name == "cruise") {
+    return f110_msgs::msg::StateMachine::STATE_CRUISE;
   }
   return std::nullopt;
 }
@@ -272,7 +281,7 @@ std::optional<int> StateMachineNode::parse_waypoint_index(const std::string & va
 
 bool StateMachineNode::is_fresh(const rclcpp::Time & stamp, double timeout_sec) const
 {
-  return (event_now() - stamp).seconds() <= timeout_sec;
+  return (now() - stamp).seconds() <= timeout_sec;
 }
 
 bool StateMachineNode::local_path_confirmed(
@@ -302,10 +311,10 @@ bool StateMachineNode::has_avoid_wpnts() const
   return has_avoid_wpnts_ && avoid_wpnts_msg_ != nullptr && !avoid_wpnts_msg_->wpnts.empty();
 }
 
-bool StateMachineNode::has_overtake_wpnts() const
+bool StateMachineNode::has_interfering_opponent() const
 {
-  return has_overtake_wpnts_ && overtake_wpnts_msg_ != nullptr &&
-         !overtake_wpnts_msg_->wpnts.empty();
+  return allow_cruise_transition_ && opponent_seen_ && opponent_interfering_ &&
+         is_fresh(last_opponent_time_, opponent_stale_timeout_sec_);
 }
 
 bool StateMachineNode::validate_global_waypoints(
@@ -335,18 +344,10 @@ bool StateMachineNode::validate_global_waypoints(
 
 bool StateMachineNode::can_enter_avoid() const
 {
-  if (!allow_avoid_transition_) {
+  if (!allow_avoid_transition_ || stopped_path_clear_latched_) {
     return false;
   }
   return local_path_confirmed(avoid_path_history_, avoid_wpnts_msg_);
-}
-
-bool StateMachineNode::can_enter_overtake() const
-{
-  if (!allow_overtake_transition_) {
-    return false;
-  }
-  return local_path_confirmed(overtake_path_history_, overtake_wpnts_msg_);
 }
 
 void StateMachineNode::on_frenet_odom(const nav_msgs::msg::Odometry::SharedPtr msg)
@@ -356,13 +357,8 @@ void StateMachineNode::on_frenet_odom(const nav_msgs::msg::Odometry::SharedPtr m
   }
   has_frenet_ = true;
   frenet_odom_msg_ = msg;
-  last_frenet_time_ = lockstep_mode_ ? rclcpp::Time(msg->header.stamp) : now();
-  if (lockstep_mode_) {
-    lockstep_frenet_stamp_ns_ = stamp_ns(msg->header.stamp);
-    try_run_lockstep_cycle();
-  } else {
-    publish_selected_waypoints(committed_state_);
-  }
+  last_frenet_time_ = now();
+  publish_selected_waypoints(committed_state_);
 }
 
 void StateMachineNode::on_global_waypoints(const f110_msgs::msg::WpntArray::SharedPtr msg)
@@ -383,6 +379,7 @@ void StateMachineNode::on_global_waypoints(const f110_msgs::msg::WpntArray::Shar
 void StateMachineNode::on_avoid_wpnts(const f110_msgs::msg::OTWpntArray::SharedPtr msg)
 {
   const bool non_empty = msg != nullptr && !msg->wpnts.empty();
+  last_avoid_receive_time_ = now();
   avoid_path_history_.push_back(non_empty);
   while (static_cast<int64_t>(avoid_path_history_.size()) >
     local_path_confirmation_window_size_)
@@ -392,27 +389,11 @@ void StateMachineNode::on_avoid_wpnts(const f110_msgs::msg::OTWpntArray::SharedP
 
   has_avoid_wpnts_ = non_empty;
   avoid_wpnts_msg_ = msg;
-  if (lockstep_mode_ && msg != nullptr) {
-    lockstep_avoid_stamp_ns_ = stamp_ns(msg->header.stamp);
-  }
-  if (timing_diagnostics_enable_ && !timing_t2_published_ &&
-    committed_state_ == f110_msgs::msg::StateMachine::STATE_GLOBAL && can_enter_avoid())
-  {
-    timing_t2_steady_ns_ = steady_now_ns();
-    timing_t2_path_stamp_ns_ = msg == nullptr ? 0 : stamp_ns(msg->header.stamp);
-    std::ostringstream fields;
-    fields << std::setprecision(17)
-           << "\"trigger_path_stamp_ns\":" << timing_t2_path_stamp_ns_
-           << ",\"confirmation_hits\":"
-           << std::count(avoid_path_history_.begin(), avoid_path_history_.end(), true)
-           << ",\"confirmation_window_size\":" << avoid_path_history_.size();
-    if (frenet_odom_msg_ != nullptr) {
-      fields << ",\"ego_s\":" << frenet_odom_msg_->pose.pose.position.x
-             << ",\"ego_d\":" << frenet_odom_msg_->pose.pose.position.y
-             << ",\"speed_mps\":" << frenet_odom_msg_->twist.twist.linear.x;
+  if (non_empty) {
+    last_non_empty_avoid_wpnts_msg_ = msg;
+    if (msg->wpnts.back().vx_mps > stopped_path_speed_threshold_mps_) {
+      stopped_path_clear_latched_ = false;
     }
-    publish_timing_event("T2_STATE_CONFIRMATION", timing_t2_steady_ns_, fields.str());
-    timing_t2_published_ = true;
   }
   if (!non_empty) {
     RCLCPP_WARN_THROTTLE(
@@ -421,54 +402,63 @@ void StateMachineNode::on_avoid_wpnts(const f110_msgs::msg::OTWpntArray::SharedP
       2000,
       "Received empty avoid waypoints; STATE_AVOID will use the configured fallback.");
   }
-  if (lockstep_mode_) {
-    try_run_lockstep_cycle();
-  }
 }
 
-rclcpp::Time StateMachineNode::event_now() const
+void StateMachineNode::on_opponent(const f110_msgs::msg::ObstacleArray::SharedPtr msg)
 {
-  return lockstep_mode_ ? lockstep_event_time_ : now();
-}
-
-void StateMachineNode::try_run_lockstep_cycle()
-{
-  if (!lockstep_mode_ || lockstep_avoid_stamp_ns_ <= 0 ||
-    lockstep_avoid_stamp_ns_ != lockstep_frenet_stamp_ns_ ||
-    lockstep_avoid_stamp_ns_ <= lockstep_last_processed_stamp_ns_)
-  {
+  if (msg == nullptr) {
     return;
   }
-  lockstep_last_processed_stamp_ns_ = lockstep_avoid_stamp_ns_;
-  lockstep_event_time_ = rclcpp::Time(lockstep_avoid_stamp_ns_, RCL_ROS_TIME);
-  publish_state_cycle();
-  publish_selected_waypoints(committed_state_);
+  opponent_seen_ = true;
+  opponent_interfering_ = std::any_of(
+    msg->obstacles.begin(), msg->obstacles.end(),
+    [](const auto & obstacle) {return !obstacle.is_static && obstacle.is_interfering;});
+  last_opponent_time_ = now();
 }
 
-void StateMachineNode::on_overtake_wpnts(const f110_msgs::msg::OTWpntArray::SharedPtr msg)
+void StateMachineNode::on_static_obstacles(
+  const f110_msgs::msg::ObstacleArray::SharedPtr msg)
 {
-  const rclcpp::Time current_time = event_now();
-  const bool non_empty = msg != nullptr && !msg->wpnts.empty();
+  if (msg == nullptr) {
+    return;
+  }
+  static_obstacles_msg_ = msg;
+  last_static_obstacles_time_ = now();
+}
 
-  overtake_path_history_.push_back(non_empty);
-  while (static_cast<int64_t>(overtake_path_history_.size()) >
-    local_path_confirmation_window_size_)
+bool StateMachineNode::has_front_static_obstacle() const
+{
+  if (static_obstacles_msg_ == nullptr ||
+    !is_fresh(last_static_obstacles_time_, static_obstacles_stale_timeout_sec_) ||
+    !has_fresh_frenet() || !has_valid_global())
   {
-    overtake_path_history_.pop_front();
+    // A stale detector stream is not evidence that the corridor is clear.
+    return true;
   }
 
-  const bool hold_elapsed = !has_overtake_wpnts_ ||
-    (current_time - last_overtake_update_time_).seconds() >= overtake_hold_duration_sec_;
-  if (non_empty) {
-    if (hold_elapsed) {
-      overtake_wpnts_msg_ = msg;
-      has_overtake_wpnts_ = true;
-      last_overtake_update_time_ = current_time;
-    }
-  } else if (has_overtake_wpnts_ && hold_elapsed) {
-    has_overtake_wpnts_ = false;
-    RCLCPP_INFO(get_logger(), "Overtake waypoint hold released by an empty message.");
+  const double track_length = track_length_from(*global_wpnts_msg_);
+  if (!(track_length > 0.0)) {
+    return true;
   }
+  const double ego_s = frenet_odom_msg_->pose.pose.position.x;
+  const double ego_d = frenet_odom_msg_->pose.pose.position.y;
+  const double ego_right = ego_d - stopped_path_ego_half_width_m_;
+  const double ego_left = ego_d + stopped_path_ego_half_width_m_;
+
+  return std::any_of(
+    static_obstacles_msg_->obstacles.begin(), static_obstacles_msg_->obstacles.end(),
+    [&, track_length](const auto & obstacle) {
+      if (obstacle.is_actually_a_gap || !std::isfinite(obstacle.s_center) ||
+        !std::isfinite(obstacle.d_right) || !std::isfinite(obstacle.d_left))
+      {
+        return false;
+      }
+      const double forward = forward_s_distance(ego_s, obstacle.s_center, track_length);
+      const double obstacle_right = std::min(obstacle.d_right, obstacle.d_left);
+      const double obstacle_left = std::max(obstacle.d_right, obstacle.d_left);
+      return forward <= stopped_path_obstacle_lookahead_m_ &&
+             obstacle_left >= ego_right && obstacle_right <= ego_left;
+    });
 }
 
 bool StateMachineNode::enter_to_global(
@@ -482,7 +472,6 @@ bool StateMachineNode::enter_to_global(
     enter_global_ok_since_.reset();
     return false;
   }
-  // 끝속도 0의 정지/홀드 경로는 "회피 완료"가 아니라 "회피 불능"이다 — 합류 판정 제외.
   // 이게 없으면 장애물 앞 홀드(꼬리=자차, |d|<threshold)가 아래 세 조건을 정지해 있다는
   // 이유만으로 전부 만족해 0.7초 주기 AVOID↔GLOBAL 요동이 생기고, GLOBAL 틱마다
   // 장애물 관통 글로벌 라인+속도 명령이 잠깐 전달되어 차가 장애물 쪽으로 기어간다
@@ -491,7 +480,6 @@ bool StateMachineNode::enter_to_global(
     enter_global_ok_since_.reset();
     return false;
   }
-
   const double track_length = track_length_from(*global_wpnts);
   if (!(track_length > 0.0)) {
     enter_global_ok_since_.reset();
@@ -526,7 +514,7 @@ bool StateMachineNode::enter_to_global(
     return false;
   }
 
-  const rclcpp::Time current_time = event_now();
+  const rclcpp::Time current_time = now();
   if (!enter_global_ok_since_.has_value()) {
     enter_global_ok_since_ = current_time;
   }
@@ -549,45 +537,140 @@ bool StateMachineNode::evaluate_enter_to_global(
   return enter_to_global(frenet_odom_msg_, local_wpnts, global_wpnts_msg_);
 }
 
+bool StateMachineNode::evaluate_avoid_path_exhausted()
+{
+  if (!has_fresh_frenet() || !has_valid_global() ||
+    last_non_empty_avoid_wpnts_msg_ == nullptr ||
+    last_non_empty_avoid_wpnts_msg_->wpnts.empty())
+  {
+    avoid_path_exhausted_since_.reset();
+    return false;
+  }
+
+  const bool empty_path = !has_avoid_wpnts();
+  const bool stale_path = !is_fresh(last_avoid_receive_time_, avoid_path_stale_timeout_sec_);
+  if (!(empty_path || stale_path)) {
+    avoid_path_exhausted_since_.reset();
+    return false;
+  }
+
+  const double track_length = track_length_from(*global_wpnts_msg_);
+  if (!(track_length > 0.0)) {
+    avoid_path_exhausted_since_.reset();
+    return false;
+  }
+
+  const double ego_s = frenet_odom_msg_->pose.pose.position.x;
+  const auto & wpnts = last_non_empty_avoid_wpnts_msg_->wpnts;
+  const std::size_t tail_count = std::max<std::size_t>(
+    1U,
+    static_cast<std::size_t>(
+      std::ceil(enter_global_tail_ratio_ * static_cast<double>(wpnts.size()))));
+  const std::size_t tail_begin = wpnts.size() - std::min(tail_count, wpnts.size());
+
+  double best_tail_gap = std::numeric_limits<double>::infinity();
+  for (std::size_t index = tail_begin; index < wpnts.size(); ++index) {
+    best_tail_gap = std::min(
+      best_tail_gap,
+      circular_s_distance(ego_s, wpnts[index].s_m, track_length));
+  }
+  if (best_tail_gap > avoid_path_exhaustion_s_gap_tol_m_) {
+    avoid_path_exhausted_since_.reset();
+    return false;
+  }
+
+  const rclcpp::Time current_time = now();
+  if (!avoid_path_exhausted_since_.has_value()) {
+    avoid_path_exhausted_since_ = current_time;
+  }
+  return (current_time - avoid_path_exhausted_since_.value()).seconds() >=
+         avoid_path_exhaustion_sec_;
+}
+
+bool StateMachineNode::evaluate_stopped_path_clear()
+{
+  if (!has_avoid_wpnts() || avoid_wpnts_msg_ == nullptr || avoid_wpnts_msg_->wpnts.empty() ||
+    avoid_wpnts_msg_->wpnts.back().vx_mps > stopped_path_speed_threshold_mps_ ||
+    has_front_static_obstacle())
+  {
+    stopped_path_clear_since_.reset();
+    return false;
+  }
+
+  const rclcpp::Time current_time = now();
+  if (!stopped_path_clear_since_.has_value()) {
+    stopped_path_clear_since_ = current_time;
+  }
+  return (current_time - stopped_path_clear_since_.value()).seconds() >=
+         stopped_path_clear_sec_;
+}
+
 uint8_t StateMachineNode::resolve_requested_state()
 {
+  if (stopped_path_clear_latched_ && has_front_static_obstacle()) {
+    stopped_path_clear_latched_ = false;
+  }
+  const bool avoid_requested = can_enter_avoid();
+  const bool cruise_requested = has_interfering_opponent();
+
   switch (committed_state_) {
     case f110_msgs::msg::StateMachine::STATE_GLOBAL:
-      if (can_enter_avoid()) {
-        if (timing_diagnostics_enable_ && !timing_t3_published_) {
-          timing_t3_steady_ns_ = steady_now_ns();
-          timing_t3_pending_ = true;
-        }
+      if (avoid_requested) {
         committed_state_ = f110_msgs::msg::StateMachine::STATE_AVOID;
         enter_global_ok_since_.reset();
         RCLCPP_INFO(get_logger(), "STATE_GLOBAL -> STATE_AVOID (avoid path confirmed M-of-N).");
-      } else if (can_enter_overtake()) {
-        committed_state_ = f110_msgs::msg::StateMachine::STATE_OVERTAKE;
+      } else if (cruise_requested) {
+        committed_state_ = f110_msgs::msg::StateMachine::STATE_CRUISE;
         enter_global_ok_since_.reset();
         RCLCPP_INFO(
-          get_logger(), "STATE_GLOBAL -> STATE_OVERTAKE (overtake path confirmed M-of-N).");
+          get_logger(), "STATE_GLOBAL -> STATE_CRUISE (/opp_obs interference=true).");
       }
       break;
 
     case f110_msgs::msg::StateMachine::STATE_AVOID:
-      if (evaluate_enter_to_global(
+      {
+        const bool merged_to_global = evaluate_enter_to_global(
           f110_msgs::msg::StateMachine::STATE_AVOID,
           has_avoid_wpnts(),
-          avoid_wpnts_msg_))
-      {
-        committed_state_ = f110_msgs::msg::StateMachine::STATE_GLOBAL;
-        RCLCPP_INFO(get_logger(), "STATE_AVOID -> STATE_GLOBAL (merged to global line).");
+          avoid_wpnts_msg_);
+        const bool path_exhausted = evaluate_avoid_path_exhausted();
+        const bool stopped_path_clear = evaluate_stopped_path_clear();
+        if (!(merged_to_global || path_exhausted || stopped_path_clear)) {
+          break;
+        }
+        committed_state_ = stopped_path_clear ?
+          f110_msgs::msg::StateMachine::STATE_GLOBAL : (cruise_requested ?
+          f110_msgs::msg::StateMachine::STATE_CRUISE :
+          f110_msgs::msg::StateMachine::STATE_GLOBAL);
+        RCLCPP_INFO(
+          get_logger(), "STATE_AVOID -> %s (%s).",
+          stopped_path_clear || !cruise_requested ? "STATE_GLOBAL" : "STATE_CRUISE",
+          stopped_path_clear ? "stopped with forward corridor clear" :
+          (path_exhausted ? "avoid path exhausted" : "merged to global line"));
+        if (path_exhausted || stopped_path_clear) {
+          avoid_path_history_.clear();
+          has_avoid_wpnts_ = false;
+          avoid_wpnts_msg_.reset();
+          last_non_empty_avoid_wpnts_msg_.reset();
+        }
+        if (stopped_path_clear) {
+          stopped_path_clear_latched_ = true;
+        }
+        avoid_path_exhausted_since_.reset();
+        stopped_path_clear_since_.reset();
       }
       break;
 
-    case f110_msgs::msg::StateMachine::STATE_OVERTAKE:
-      if (evaluate_enter_to_global(
-          f110_msgs::msg::StateMachine::STATE_OVERTAKE,
-          has_overtake_wpnts(),
-          overtake_wpnts_msg_))
-      {
+    case f110_msgs::msg::StateMachine::STATE_CRUISE:
+      if (avoid_requested) {
+        committed_state_ = f110_msgs::msg::StateMachine::STATE_AVOID;
+        enter_global_ok_since_.reset();
+        RCLCPP_INFO(
+          get_logger(), "STATE_CRUISE -> STATE_AVOID (avoid path confirmed M-of-N).");
+      } else if (!cruise_requested) {
         committed_state_ = f110_msgs::msg::StateMachine::STATE_GLOBAL;
-        RCLCPP_INFO(get_logger(), "STATE_OVERTAKE -> STATE_GLOBAL (merged to global line).");
+        RCLCPP_INFO(
+          get_logger(), "STATE_CRUISE -> STATE_GLOBAL (/opp_obs interference=false/stale).");
       }
       break;
 
@@ -603,26 +686,21 @@ void StateMachineNode::publish_state_cycle()
   const bool global_ready = has_valid_global();
   const bool frenet_ready = has_fresh_frenet();
   const bool avoid_ready = has_avoid_wpnts();
-  const bool overtake_ready = has_overtake_wpnts();
   const bool avoid_required = allow_avoid_transition_ ||
     committed_state_ == f110_msgs::msg::StateMachine::STATE_AVOID;
-  const bool overtake_required = allow_overtake_transition_ ||
-    committed_state_ == f110_msgs::msg::StateMachine::STATE_OVERTAKE;
 
-  if (!global_ready || !frenet_ready || (avoid_required && !avoid_ready) ||
-    (overtake_required && !overtake_ready))
-  {
+  if (!global_ready || !frenet_ready || (avoid_required && !avoid_ready)) {
     RCLCPP_WARN_THROTTLE(
       get_logger(),
       *get_clock(),
       3000,
-      "FSM inputs: global=%s frenet=%s avoid_wpnts=%s overtake_wpnts=%s.",
+      "FSM inputs: global=%s frenet=%s avoid_wpnts=%s opp_obs=%s.",
       global_ready ? "true" : "false",
       frenet_ready ? "true" : "false",
       avoid_ready ? "true" : "false",
-      overtake_ready ? "true" : "false");
+      opponent_seen_ ? (has_interfering_opponent() ? "interfering" : "clear") : "unseen");
   }
-  if (!lockstep_mode_ && global_ready &&
+  if (global_ready &&
     (now() - last_global_receive_time_).seconds() > global_publisher_warn_timeout_sec_)
   {
     RCLCPP_WARN_THROTTLE(
@@ -634,27 +712,10 @@ void StateMachineNode::publish_state_cycle()
 
   const uint8_t state = resolve_requested_state();
   f110_msgs::msg::StateMachine message;
-  message.header.stamp = event_now();
+  message.header.stamp = now();
   message.header.frame_id = frame_id_;
   message.state = state;
   state_pub_->publish(message);
-
-  if (timing_t3_pending_) {
-    std::ostringstream fields;
-    fields << "\"state_from\":0,\"state_to\":1"
-           << ",\"confirmation_steady_time_ns\":" << timing_t2_steady_ns_
-           << ",\"trigger_path_stamp_ns\":" << timing_t2_path_stamp_ns_
-           << ",\"state_message_stamp_ns\":" << stamp_ns(message.header.stamp);
-    if (frenet_odom_msg_ != nullptr) {
-      fields << std::setprecision(17)
-             << ",\"ego_s\":" << frenet_odom_msg_->pose.pose.position.x
-             << ",\"ego_d\":" << frenet_odom_msg_->pose.pose.position.y
-             << ",\"speed_mps\":" << frenet_odom_msg_->twist.twist.linear.x;
-    }
-    publish_timing_event("T3_STATE_TRANSITION", timing_t3_steady_ns_, fields.str());
-    timing_t3_pending_ = false;
-    timing_t3_published_ = true;
-  }
 
   if (!last_published_state_.has_value() || last_published_state_.value() != state) {
     RCLCPP_INFO(get_logger(), "Published state changed to %u.", state);
@@ -681,68 +742,26 @@ void StateMachineNode::publish_selected_waypoints(uint8_t state)
     return;
   }
 
-  const rclcpp::Time stamp = event_now();
+  const rclcpp::Time stamp = now();
   const auto waypoints = select_waypoints(state, stamp);
   if (!waypoints.has_value()) {
     return;
   }
 
-  const std::int64_t publish_steady_ns = steady_now_ns();
   local_waypoints_pub_->publish(waypoints.value());
-  if (timing_diagnostics_enable_ && !timing_t4_published_ &&
-    state == f110_msgs::msg::StateMachine::STATE_AVOID)
-  {
-    std::ostringstream fields;
-    fields << "\"path_stamp_ns\":" << stamp_ns(waypoints->header.stamp)
-           << ",\"source_path_stamp_ns\":"
-           << (avoid_wpnts_msg_ == nullptr ? 0 : stamp_ns(avoid_wpnts_msg_->header.stamp))
-           << ",\"transition_steady_time_ns\":" << timing_t3_steady_ns_
-           << ",\"waypoint_count\":" << waypoints->wpnts.size();
-    if (frenet_odom_msg_ != nullptr) {
-      fields << std::setprecision(17)
-             << ",\"ego_s\":" << frenet_odom_msg_->pose.pose.position.x
-             << ",\"ego_d\":" << frenet_odom_msg_->pose.pose.position.y
-             << ",\"speed_mps\":" << frenet_odom_msg_->twist.twist.linear.x;
-    }
-    publish_timing_event("T4_LOCAL_WAYPOINTS", publish_steady_ns, fields.str());
-    timing_t4_published_ = true;
-  }
   local_path_pub_->publish(build_path(waypoints.value()));
-}
-
-void StateMachineNode::publish_timing_event(
-  const std::string & event, std::int64_t steady_time_ns, const std::string & fields)
-{
-  if (!timing_diagnostics_enable_ || timing_diagnostics_pub_ == nullptr) {
-    return;
-  }
-  std_msgs::msg::String message;
-  std::ostringstream json;
-  json << "{\"schema\":\"cma_timing_event/1\","
-       << "\"event\":\"" << event << "\","
-       << "\"node\":\"state_machine_node\","
-       << "\"steady_time_ns\":" << steady_time_ns << ','
-       << "\"ros_time_ns\":" << event_now().nanoseconds();
-  if (!fields.empty()) {
-    json << ',' << fields;
-  }
-  json << '}';
-  message.data = json.str();
-  timing_diagnostics_pub_->publish(message);
 }
 
 std::optional<f110_msgs::msg::WpntArray> StateMachineNode::select_waypoints(
   uint8_t state,
   const rclcpp::Time & stamp)
 {
-  if (state == f110_msgs::msg::StateMachine::STATE_OVERTAKE && has_overtake_wpnts()) {
-    return convert_ot_waypoints(*overtake_wpnts_msg_, stamp);
-  }
   if (state == f110_msgs::msg::StateMachine::STATE_AVOID && has_avoid_wpnts()) {
     return convert_ot_waypoints(*avoid_wpnts_msg_, stamp);
   }
 
-  // The only supported first-stage invalid-local policy is global_fallback.
+  // GLOBAL and CRUISE both use the global path. CRUISE changes only longitudinal speed in the
+  // control package; it never asks this selector for a different geometric path.
   return build_global_waypoints(stamp);
 }
 

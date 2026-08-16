@@ -4,7 +4,7 @@
   <name>state_machine</name>
   <version>0.0.0</version>
   <description>Integrated behavior state and local waypoint selector for the F1TENTH pipeline.</description>
-  <maintainer email="sungho@example.com">sungho</maintainer>
+  <maintainer email="haejun@example.com">haejun</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
