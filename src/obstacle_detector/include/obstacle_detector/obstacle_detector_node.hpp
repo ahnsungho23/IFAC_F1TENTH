@@ -203,7 +203,6 @@ class ObstacleDetectorNode : public rclcpp::Node
     int map_occupied_thresh_;
     // 구조적 벽 필터(WallDistanceFilter) 파라미터 — 팀 edge_test 계열 포팅 (2026-08-13)
     double wall_assoc_distance_m_;
-    double wall_linear_ratio_;
     double wall_min_length_m_;
     // per-layer 2nd-stage merge
     bool layer_merge_enable_;

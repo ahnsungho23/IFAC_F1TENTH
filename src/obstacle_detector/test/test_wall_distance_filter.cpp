@@ -45,7 +45,6 @@ WallDistanceFilter::Params testParams()
 {
     WallDistanceFilter::Params params;
     params.occupied_thresh = 50;
-    params.linear_ratio = 4.0;
     params.min_length_m = 1.0;
     return params;
 }
@@ -70,12 +69,49 @@ TEST(WallDistanceFilter, RejectsCompactBlobAndShortStub)
     filter.buildFromMap(makeMap(), testParams());
     ASSERT_TRUE(filter.active());
 
-    // The 3x3 blob (eigenvalue ratio ~1) is not a wall: nearby points stay obstacle candidates.
+    // The 3x3 blob is only 0.3 m across, far below wall_min_length_m: nearby points stay
+    // obstacle candidates. (이것이 게이트의 원래 의도이며, 선형성 제거 후에도 유지된다.)
     EXPECT_FALSE(filter.isWallPoint(1.95, 2.65, 0.2));  // blob centre
     EXPECT_FALSE(filter.isWallPoint(1.95, 2.45, 0.2));  // directly against the blob
-    // The 2-cell stub is linear but far below wall_min_length_m.
+    // The 2-cell stub is far below wall_min_length_m.
     EXPECT_FALSE(filter.isWallPoint(3.55, 3.05, 0.2));
     EXPECT_FALSE(filter.isWallPoint(3.65, 3.05, 0.2));
+}
+
+// 🔴 2026-08-16 회귀. 트랙 경계는 닫힌 고리이고 등방적이라 PCA 선형성 검사를 통과할 수
+// 없다. 종전 게이트는 그것을 요구했고, 실측 맵에서 점유 셀의 87%를 가진 바깥 경계 성분이
+// ratio 1.85로 탈락해 트랙 벽의 87%가 필터에 존재하지 않았다. 그 결과 헤어핀에서 벽이 매
+// 랩 장애물 3개로 잡혔고, 유령 위치에서 "벽으로 인정된 셀"까지 2.4~2.7 m나 떨어져 있었다.
+TEST(WallDistanceFilter, ClosedLoopTrackBoundaryIsWall)
+{
+    nav_msgs::msg::OccupancyGrid map;
+    map.info.resolution = 0.1F;
+    map.info.width = 40;
+    map.info.height = 40;
+    map.data.assign(40U * 40U, 0);
+    auto set = [&map](int gx, int gy) {
+        map.data[static_cast<std::size_t>(gy) * 40U + static_cast<std::size_t>(gx)] = 100;
+    };
+    // 닫힌 사각 고리 (트랙 바깥 경계의 축약판): 5..34 x 5..34 의 테두리.
+    for (int g = 5; g <= 34; ++g)
+    {
+        set(g, 5);
+        set(g, 34);
+        set(5, g);
+        set(34, g);
+    }
+    WallDistanceFilter filter;
+    filter.buildFromMap(map, testParams());
+    ASSERT_TRUE(filter.active());
+
+    // 고리는 등방적이다 — 이 성분의 PCA 고유값비는 1에 가깝다. 그럼에도 벽이어야 한다.
+    EXPECT_DOUBLE_EQ(filter.distanceToWall(0.55, 0.55), 0.0) << "고리 모서리가 벽이 아니다";
+    EXPECT_TRUE(filter.isWallPoint(1.95, 0.55, 0.2)) << "고리 아래변이 벽이 아니다";
+    EXPECT_TRUE(filter.isWallPoint(1.95, 3.45, 0.2)) << "고리 위변이 벽이 아니다";
+    EXPECT_TRUE(filter.isWallPoint(0.55, 1.95, 0.2)) << "고리 왼변이 벽이 아니다";
+    EXPECT_TRUE(filter.isWallPoint(3.45, 1.95, 0.2)) << "고리 오른변이 벽이 아니다";
+    // 고리 안쪽 트랙 한복판은 벽이 아니다 (거리 변환이 살아 있는지 확인).
+    EXPECT_FALSE(filter.isWallPoint(1.95, 1.95, 0.2));
 }
 
 TEST(WallDistanceFilter, DistanceTransformValuesAreGridExact)

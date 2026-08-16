@@ -125,10 +125,6 @@ void WallDistanceFilter::buildFromMap(
         const double det = sxx * syy - sxy * sxy;
         const double disc = std::sqrt(std::max(0.0, 0.25 * trace * trace - det));
         const double lambda_max = 0.5 * trace + disc;
-        const double lambda_min = 0.5 * trace - disc;
-        const bool linear = lambda_min <= 1e-12 ||
-            (lambda_max / lambda_min) >= params.linear_ratio;
-
         // extent along the major axis: project every cell onto the dominant eigenvector
         double axis_x = 1.0;
         double axis_y = 0.0;
@@ -163,7 +159,7 @@ void WallDistanceFilter::buildFromMap(
             extent = proj_max - proj_min + resolution_;  // include the end cells' own size
         }
 
-        if (linear && extent >= params.min_length_m)
+        if (extent >= params.min_length_m)
         {
             for (const int idx : component)
             {

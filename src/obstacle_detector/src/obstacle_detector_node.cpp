@@ -181,7 +181,6 @@ void ObstacleDetectorNode::declareParameters()
     this->declare_parameter<bool>("use_map_filter", true);
     this->declare_parameter<int>("map_occupied_thresh", 50);
     this->declare_parameter<double>("wall_assoc_distance_m", 0.2);
-    this->declare_parameter<double>("wall_linear_ratio", 4.0);
     this->declare_parameter<double>("wall_min_length_m", 1.0);
 
     // per-layer 2nd-stage merge (object-level output)
@@ -319,7 +318,6 @@ void ObstacleDetectorNode::loadParameters()
     map_occupied_thresh_ = this->get_parameter("map_occupied_thresh").as_int();
     wall_assoc_distance_m_ =
         std::max(0.0, this->get_parameter("wall_assoc_distance_m").as_double());
-    wall_linear_ratio_ = this->get_parameter("wall_linear_ratio").as_double();
     wall_min_length_m_ = this->get_parameter("wall_min_length_m").as_double();
 
     layer_merge_enable_ = this->get_parameter("layer_merge_enable").as_bool();
@@ -541,7 +539,6 @@ void ObstacleDetectorNode::mapCallback(const nav_msgs::msg::OccupancyGrid::Share
     // 점유 투표 대신 빔 단위 벽 연관으로 판정한다.
     WallDistanceFilter::Params wall_params;
     wall_params.occupied_thresh = map_occupied_thresh_;
-    wall_params.linear_ratio = wall_linear_ratio_;
     wall_params.min_length_m = wall_min_length_m_;
     wall_filter_.buildFromMap(*msg, wall_params);
     RCLCPP_INFO_ONCE(this->get_logger(), "Occupancy map received (%u x %u @ %.3f m).",
