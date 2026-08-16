@@ -129,7 +129,7 @@ ros2 topic echo /opp_obs/markers --no-arr
 | 후단에서 Cartesian 장애물을 거부함 | `has_cartesian`, AABB min/max, 중심, 양수 `radius` 확인 |
 | 후단에서 Frenet 장애물을 거부함 | Frenet 경계 유한성, `d_right <= d_left`, global waypoint 준비 여부 확인 |
 | miss 이후 Cartesian 장애물이 과거 위치에 남음 | predicted-only 출력이 `has_cartesian=false`인지 확인 |
-| RViz 장애물과 local planner 판단 영역이 다름 | `/static_obs/markers`는 provisional까지 포함한다. planner 입력은 `/confirmed_static_obs`를 함께 확인 |
+| RViz 장애물과 local planner 판단 영역이 다름 | `/static_obs/markers`를 표시 중인지 확인하고 기존 `/perception/obstacles/markers` display 제거 |
 | RViz에서 scan과 map이 어긋남 | scan header frame, map→scan TF, ROS domain의 중복 TF publisher 확인 |
 
 ## Perception 진단 로그 확인

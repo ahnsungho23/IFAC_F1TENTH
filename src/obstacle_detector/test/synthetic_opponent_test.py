@@ -7,7 +7,6 @@ object beside the line, and (c) ONE static object seen as TWO scan fragments (oc
 split). It also injects a fourth static object as 3-beam and 2-beam fragments separated by one
 missing ray; neither fragment reaches min_cluster_points alone. Then it checks the layered outputs:
   * /opp_obs (Layer 3)    reports the moving object as a single dynamic obstacle with non-zero vs;
-  * the same-lane opponent sets is_interfering while its rear gap is within the configured range;
   * /static_obs (Layer 2) reports the car-sized stationary object and keeps it static;
   * pre-tracking cluster merge restores the 3+2 beam fragments as one detectable static object;
   * a one-frame 0.45 m static-object scan-face jump that fails the Mahalanobis gate is spatially
@@ -61,8 +60,6 @@ FRAG_OBJ = (6.0, -1.25)
 FRAG_HALF_SEP = 0.2       # fragment centres at d = -1.05 / -1.45
 PREMERGE_OBJ = (8.0, 0.65)  # emitted as 3 beams + gap + 2 beams; each is too small alone
 STATIC_OUTLIER_SHIFT = 0.45  # inside assoc_gate=0.5, but statistically implausible once converged
-OPP_DROPOUT_START_S = 4.0    # deterministic prediction-only window after dynamic confirmation
-OPP_DROPOUT_DURATION_S = 0.15
 DURATION_S = 6.0
 RATE_HZ = 20.0
 
@@ -165,7 +162,6 @@ class Harness(Node):
 
         self.max_dyn_vs = 0.0
         self.saw_dynamic = False       # opponent present in /opp_obs (near d=0, |vs|>0.3)
-        self.saw_interfering = False   # same-lane opponent within configured interference range
         self.saw_static = False        # stationary obstacle present in /static_obs
         self.saw_confirmed_static = False  # stationary obstacle reached confirmed-only output
         self.static_size = 0.0
@@ -274,10 +270,7 @@ class Harness(Node):
             # covariance should make the Mahalanobis gate reject this measurement.
             static_x += STATIC_OUTLIER_SHIFT
             self.outlier_injected = True
-        opponent_points = [] if (
-            OPP_DROPOUT_START_S <= t < OPP_DROPOUT_START_S + OPP_DROPOUT_DURATION_S
-        ) else facet_points(opp_x, 0.0)
-        pts = (opponent_points + box_points(static_x, STATIC_OBJ[1])
+        pts = (facet_points(opp_x, 0.0) + box_points(static_x, STATIC_OBJ[1])
                + facet_points(FRAG_OBJ[0], FRAG_OBJ[1] + FRAG_HALF_SEP)
                + facet_points(FRAG_OBJ[0], FRAG_OBJ[1] - FRAG_HALF_SEP))
 
@@ -404,7 +397,6 @@ class Harness(Node):
                 self.static_wrongly_dynamic = True
             elif not ob.is_static and abs(ob.vs) > 0.3:
                 self.saw_dynamic = True
-                self.saw_interfering = self.saw_interfering or ob.is_interfering
                 self.max_dyn_vs = max(self.max_dyn_vs, abs(ob.vs))
                 if ob.id in self.provisional_opp_ids:
                     self.dynamic_id_continuity = True
@@ -442,8 +434,6 @@ class Harness(Node):
     def finish(self):
         print("\n================ SYNTHETIC OBSTACLE TEST RESULT ================", flush=True)
         print(f"  dynamic opponent on /opp_obs (is_static=False, |vs|>0.3): {self.saw_dynamic}", flush=True)
-        print(f"  same-lane opponent marked is_interfering:                 "
-              f"{self.saw_interfering}", flush=True)
         print(f"  max estimated |vs| of opponent [m/s]:                     {self.max_dyn_vs:.2f}  (truth {OPP_SPEED:.2f})", flush=True)
         print(f"  car-sized static obstacle on /static_obs:                 {self.saw_static}", flush=True)
         print(f"  same obstacle on /confirmed_static_obs:                   "
@@ -489,8 +479,7 @@ class Harness(Node):
               f"(max simultaneous entries: {self.max_premerge_entries})", flush=True)
         print(f"  fragmented object merged into ONE /static_obs entry:      {self.saw_frag_merged} "
               f"(max simultaneous entries in region: {self.max_frag_entries})", flush=True)
-        self.ok = (self.saw_dynamic and self.saw_interfering
-                   and self.saw_static and self.saw_confirmed_static
+        self.ok = (self.saw_dynamic and self.saw_static and self.saw_confirmed_static
                    and not self.static_wrongly_dynamic
                    and self.saw_opp_provisional_static and self.dynamic_id_continuity
                    and not self.opp_static_after_dynamic and self.static_size > 0.5

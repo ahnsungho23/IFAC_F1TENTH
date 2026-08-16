@@ -101,19 +101,16 @@ obstacle_detector:
     publish_markers: true                      # publish both Frenet-boundary MarkerArray mirrors
     diagnostics_enable: true                   # emit passive perception diagnostics
     diagnostics_period_sec: 1.0                # wall-clock accumulation window (s, minimum 0.1)
-
-    # === DYNAMIC OPPONENT INTERFERENCE ===
-    # /opp_obs의 전방 상대차가 ego 주행 corridor와 겹치고, 현재 또는 등속 예측 간격이 아래
-    # 거리 이내이면 obstacle.is_interfering=true로 발행합니다. 이 값은 CRUISE 상태 전이용이며
-    # 검출·추적·동적 분류 자체에는 영향을 주지 않습니다.
+    # 선택된 상대차가 ego corridor와 겹치고 현재/예측 후면 간격이 기준 이내이면
+    # obstacle.is_interfering=true로 발행합니다. 검출·추적·동적 분류에는 영향을 주지 않습니다.
     interference_check_enable: true
-    interference_distance_m: 1.0              # 크루즈 목표 상대차 후면 간격 [m]
-    interference_distance_margin_ratio: 0.20  # +50%인 1.2 m까지 간섭 유지
-    interference_time_horizon_sec: 1.0         # 현재 상대속도 등속 예측 시간 [s]
-    interference_min_closing_speed_mps: 0.2    # 이보다 작은 접근 속도는 예측 closure에서 제외
+    interference_distance_m: 1.0               # 간섭 진입 후면 간격 [m]
+    interference_distance_margin_ratio: 0.20   # 같은 ID는 1.2 m까지 간섭 유지
+    interference_time_horizon_sec: 1.0         # 등속 상대속도 예측 시간 [s]
+    interference_min_closing_speed_mps: 0.2    # 이보다 작은 접근 속도는 예측에서 제외
     interference_lateral_margin_m: 0.10        # ego 차폭 밖 추가 횡 안전 여유 [m]
     interference_ego_half_width_m: 0.16        # ego 차체 반폭 [m]
-    interference_ego_front_offset_m: 0.25      # ego 기준점에서 전면까지 거리 [m]
+    interference_ego_front_offset_m: 0.25      # ego 기준점부터 전면까지 거리 [m]
     # Deterministic record/replay audit companion stream. It only exposes the already-computed
     # per-scan detections/tracker state and is disabled in production.
     replay_diagnostics_enable: false

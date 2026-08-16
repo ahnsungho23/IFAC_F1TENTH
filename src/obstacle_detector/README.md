@@ -38,8 +38,8 @@
   `/confirmed_static_obs`에 별도로 발행한다. 장기 저장
   노드는 이 토픽을 사용하며 기존 `/static_obs` 계약은 바뀌지 않는다.
 - Layer 3: 확정 동적 물체 중 에고 전방에서 가장 가까운 하나를 `/opp_obs`로 발행하고,
-  ego corridor와 현재/예측 간격을 비교한 `is_interfering` 값을 함께 제공한다. 기본 5.0 m에서
-  진입하고 같은 ID를 추종하는 동안 +10% 여유를 둬 5.5 m까지 간섭 상태를 유지한다.
+  ego corridor와 현재/예측 후면 간격으로 계산한 `is_interfering` 값을 제공한다. 기본값은
+  1.0 m에서 진입하고 같은 ID를 추종하는 동안 20% 여유를 적용해 1.2 m에서 해제한다.
 
 세 장애물 레이어 view는 `f110_msgs/msg/ObstacleArray`이며 매 scan마다 발행된다. 해당 view가
 비어 있으면 빈 배열을 발행한다.
@@ -69,9 +69,8 @@ Kalman 예측만 남은 객체는 마지막 측정 Frenet 크기를 예측 중�
 현재 위치로 오해하지 않도록 `has_cartesian=false`로 발행한다.
 
 RViz용 `/static_obs/markers`와 `/opp_obs/markers`는 각각 최종 ObstacleArray의
-`s_start/s_end/d_right/d_left`를 map 좌표로 변환한 테두리다. `/static_obs/markers`는
-provisional 객체까지 포함하므로, `/confirmed_static_obs`만 사용하는 local planner 입력의
-상위집합이다. Predicted-only 객체도 표시하며 현재
+`s_start/s_end/d_right/d_left`를 map 좌표로 변환한 테두리다. 따라서 `/static_obs/markers`는
+local planner가 실제로 판단하는 정적 장애물 영역과 같다. Predicted-only 객체도 표시하며 현재
 관측 객체보다 옅게 그린다.
 
 ## 주요 입출력
