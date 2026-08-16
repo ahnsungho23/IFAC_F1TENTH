@@ -105,7 +105,7 @@ particle_filter:
     odom_topic: "/odom"                # Odometry input topic
     publish_odom: true                 # Publish pose as odometry message
     viz: true                          # Enable particle visualization
-    timer_frequency: 20.0              # MCL update frequency (Hz) - increased for simulation
+    timer_frequency: 40.0              # MCL update & /pf/pose/odom publish rate (Hz), real/bag
     
     # === TF FRAME NAMES ===
     map_frame: "map"                   # Global reference frame
