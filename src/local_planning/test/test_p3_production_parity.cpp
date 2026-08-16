@@ -460,6 +460,31 @@ TEST(P3ProductionParity, ReplanBesideAClusterIsStillUnsolved)
   }
 }
 
+// 좁은 길목 직후 장애물 — 같은 기하를 거리만 달리해 평가하면 결과가 갈린다.
+//
+// 2026-08-17 두 백 대조. 자차 s≈20.85에서 둘 다 똑같이 실패하고, 00:10은 검출이 끊겨
+// 래치가 0.33 s 만에 풀린 덕에 1.8 m 더 굴러가 s=22.60에서 성공했다. 01:05은 검출이
+// 안정화되어(끊김 50회 → 5회) 그 우연한 탈출구가 사라졌고 9.9 s 정지했다.
+//
+//   pinch_success  s=22.60  v=1.99  cluster_start=1.02  → 성공
+//   pinch_failure  s=20.88  v=3.28  cluster_start=2.77  → 실패
+//
+// 두 램프의 절대 위치·길이는 사실상 같다(22.60~23.62 L=1.02 / 22.56~23.65 L=1.09).
+// 그런데도 갈리는 이유를 이 두 스트림으로 고정한다.
+TEST(P3ProductionParity, SamePinchGeometryAtTwoDistances)
+{
+  const auto success = recoversPerFrame(readStream(scenarioPath("pinch_success")));
+  ASSERT_EQ(success.size(), 1U);
+  EXPECT_TRUE(success[0]) << "가까이서 되던 회피가 안 된다(회귀)";
+
+  const auto failure = recoversPerFrame(readStream(scenarioPath("pinch_failure")));
+  ASSERT_EQ(failure.size(), 2U);
+  for (std::size_t index = 0; index < failure.size(); ++index) {
+    EXPECT_FALSE(failure[index])
+      << "pinch_failure frame " << index << ": 고쳐졌다면 회복 케이스로 옮길 것";
+  }
+}
+
 TEST(P3ProductionParity, GeometricallyImpossibleGapStaysImpossible)
 {
   const auto stream = readStream(scenarioPath("passing_mixed"));
