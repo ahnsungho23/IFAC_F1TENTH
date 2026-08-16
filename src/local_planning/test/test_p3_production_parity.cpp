@@ -323,6 +323,58 @@ TEST(P3ProductionParity, StraightAvoidanceDoesNotDegradeToMarginCrawl)
   }
 }
 
+// A안 회귀 (2026-08-16): 실현 가능한 후보끼리는 속도가 slack보다 먼저다.
+// 선택된 경로의 최저 속도가 다른 실현가능 후보들의 최저보다 낮으면 순위가 되돌아간 것이다.
+TEST(P3ProductionParity, SelectedPathIsTheFastestFeasibleOne)
+{
+  const auto stream = readStream(scenarioPath("straight_margin_crawl"));
+  RacelineSplinePlanner planner(parametersOf(stream));
+  ASSERT_TRUE(planner.setReference(stream.reference));
+  for (std::size_t index = 0; index < stream.frames.size(); ++index) {
+    const auto & frame = stream.frames[index];
+    const auto result = planner.plan(frame.ego, frame.obstacles);
+    ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
+    // exit_reaches_next_obstacle 강등은 속도보다 우선한다(다음 기동의 성립 여부를 좌우하는
+    // 정합성 조건이다). 따라서 비교는 선택된 후보와 **같은 강등 등급** 안에서만 한다.
+    bool selected_demoted = false;
+    for (const auto & audit : result.candidate_audits) {
+      if (audit.selected) {
+        selected_demoted = audit.exit_reaches_next_obstacle;
+      }
+    }
+    double selected_loss = std::numeric_limits<double>::quiet_NaN();
+    double best_loss = std::numeric_limits<double>::infinity();
+    for (const auto & audit : result.candidate_audits) {
+      if (!audit.feasible || audit.exit_reaches_next_obstacle != selected_demoted) {
+        continue;
+      }
+      best_loss = std::min(best_loss, audit.velocity_loss);
+      if (audit.selected) {
+        selected_loss = audit.velocity_loss;
+      }
+    }
+    if (std::getenv("P3_PARITY_DUMP") != nullptr) {
+      for (const auto & audit : result.candidate_audits) {
+        if (!audit.feasible) {
+          continue;
+        }
+        printf(
+          "  RANK frame%zu #%d%s target_d=%+.3f entry=%.3f loss=%.4f slack=%.4f exit_next=%d\n",
+          index, audit.final_rank, audit.selected ? "*" : " ", audit.target_d,
+          audit.entry_fraction, audit.velocity_loss,
+          audit.minimum_normalized_safety_slack,
+          static_cast<int>(audit.exit_reaches_next_obstacle));
+      }
+    }
+    if (!std::isfinite(selected_loss) || !std::isfinite(best_loss)) {
+      continue;   // 감사 정보가 없는 경로(핸드오프 등)는 대상이 아니다.
+    }
+    EXPECT_LE(selected_loss, best_loss + 1.0e-9)
+      << "frame " << index << ": 더 빠른 실현가능 후보가 있는데 느린 쪽을 골랐다 ("
+      << selected_loss << " vs " << best_loss << ")";
+  }
+}
+
 TEST(P3ProductionParity, PassingScenariosKeepRecovering)
 {
   const auto stream = readStream(scenarioPath("passing_mixed"));

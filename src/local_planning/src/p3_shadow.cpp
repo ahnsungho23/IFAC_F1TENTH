@@ -1113,14 +1113,17 @@ private:
     if (first.exit_reaches_next_obstacle != second.exit_reaches_next_obstacle) {
       return second.exit_reaches_next_obstacle;
     }
+    // A안 (2026-08-16): 속도가 slack보다 먼저다. 근거는 raceline_spline_planner.cpp의
+    // better_candidate 주석 참조 — 두 순위는 반드시 같아야 한다(갈리면 P3가 고른 것과
+    // 다른 경로를 plan()이 커밋한다).
+    const double velocity_delta = first.velocity_loss - second.velocity_loss;
+    if (std::abs(velocity_delta) > kEpsilon) {
+      return velocity_delta < 0.0;
+    }
     const double slack_delta = first.minimum_normalized_safety_slack -
       second.minimum_normalized_safety_slack;
     if (std::abs(slack_delta) > kEpsilon) {
       return slack_delta > 0.0;
-    }
-    const double velocity_delta = first.velocity_loss - second.velocity_loss;
-    if (std::abs(velocity_delta) > kEpsilon) {
-      return velocity_delta < 0.0;
     }
     const double deviation_delta = first.global_path_deviation_m -
       second.global_path_deviation_m;

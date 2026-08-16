@@ -552,20 +552,29 @@ TEST(RacelineSplinePlanner, GapCapBridgesFragmentGapsInsideOneCluster)
 
   // hull(첫 조각 시작 ~ 둘째 조각 끝) 안의 모든 waypoint는 스팬 내부와 같은 수준으로
   // 캡돼야 한다. 수리 전에는 틈 waypoint가 라인 속도(5.0)로 남았다.
-  double span_cap = 0.0;
+  // 🔴 2026-08-16: 종전에는 span_cap을 max(span_cap, 0.0)으로 계산해 **항상 0**이었고,
+  // 실제로는 임계 3.0만 보고 있었다. 그 상수는 당시 선택되던 후보에 맞춘 값이라, 후보
+  // 순위가 바뀌면(A안: 속도 우선) 더 빠른 경로가 선택되면서 의도와 무관하게 깨진다.
+  // 이 테스트가 지켜야 할 성질은 "틈 waypoint가 라인 속도로 남지 않고 스팬과 같은 수준으로
+  // 캡되는가"이므로, 스팬 속도를 실제로 재서 그것과 비교한다.
+  double span_max = 0.0;
   double gap_max = 0.0;
   for (const auto & waypoint : result.path.wpnts) {
     const double forward = planner.forwardDistance(ego.s, waypoint.s_m);
-    if (forward >= 9.90 - 0.5 && forward <= 11.00 + 0.5) {
-      span_cap = std::max(span_cap, 0.0);
+    if ((forward >= 9.49 && forward <= 10.51) || (forward >= 11.19 && forward <= 12.21)) {
+      span_max = std::max(span_max, waypoint.vx_mps);   // 확장 스팬 내부
     }
-    if (forward > 10.60 && forward < 11.15) {   // 확장 스팬 사이 비커버 틈
+    if (forward > 10.60 && forward < 11.15) {           // 확장 스팬 사이 비커버 틈
       gap_max = std::max(gap_max, waypoint.vx_mps);
     }
   }
   ASSERT_GT(gap_max, 0.0) << "no waypoint landed in the fragment gap; spacing broke";
-  EXPECT_LT(gap_max, 3.0)
-    << "fragment-gap waypoint kept raceline speed (sawtooth): " << gap_max;
+  ASSERT_GT(span_max, 0.0) << "no waypoint landed inside the fragment spans";
+  EXPECT_LT(gap_max, 5.0 - 1.0e-9)
+    << "fragment-gap waypoint kept the raceline speed (5.0): " << gap_max;
+  EXPECT_LE(gap_max, span_max + 1.0e-6)
+    << "fragment-gap waypoint is faster than the span it bridges (sawtooth): "
+    << gap_max << " vs span " << span_max;
 }
 
 TEST(RacelineSplinePlanner, ApproachRampSteepensOnlyWhenGeometryRequiresIt)

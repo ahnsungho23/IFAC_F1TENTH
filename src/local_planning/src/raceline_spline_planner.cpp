@@ -2610,14 +2610,28 @@ RacelineSplineResult RacelineSplinePlanner::plan(
       if (first.exit_reaches_next_obstacle != second.exit_reaches_next_obstacle) {
         return second.exit_reaches_next_obstacle;
       }
+      // 🔴 2026-08-16 (A안): 실현 가능한 후보끼리는 **속도를 slack보다 먼저** 본다.
+      //
+      // slack(벽·장애물·곡률·곡률변화율 여유의 최솟값)은 하드 게이트를 통과한 뒤의 여분
+      // 마진이다. 필요한 여유는 게이트가 보장하므로, 그 위로 더 버는 것보다 빨리 지나가는
+      // 것이 맞다는 판단(2026-08-16 사용자 결정).
+      //
+      // 종전 순서의 실해 — 23:41 백 s=33~37 직선(라인 7.0): 늦게 급하게 꺾는 경로가 벽
+      // 여유에서 이겨, 횡이동 0.74 m를 1.76 m에 욱여넣어 곡률 1.38 rad/m → 속도 캡
+      // 2.26 m/s가 됐다. 그 최솟값이 후방 실현가능 패스로 4 m 역전파돼 구간 평균이
+      // 2.0 m/s까지 내려갔고, 후보 간 slack 차이가 근소해 한 랩 걸러 2.4배씩 갈렸다.
+      //
+      // exit_reaches_next_obstacle은 여전히 최우선이다 — 여유가 아니라 다음 기동의 성립
+      // 여부를 좌우하는 정합성 조건이다. P3ShadowEvaluator::betterFeasible와 같은 순서를
+      // 유지해야 한다(갈리면 P3가 고른 것과 다른 경로를 plan()이 커밋한다).
+      const double speed_loss_delta = first.velocity_loss - second.velocity_loss;
+      if (std::abs(speed_loss_delta) > kEpsilon) {
+        return speed_loss_delta < 0.0;
+      }
       const double slack_delta =
         first.minimum_normalized_safety_slack - second.minimum_normalized_safety_slack;
       if (std::abs(slack_delta) > kEpsilon) {
         return slack_delta > 0.0;
-      }
-      const double speed_loss_delta = first.velocity_loss - second.velocity_loss;
-      if (std::abs(speed_loss_delta) > kEpsilon) {
-        return speed_loss_delta < 0.0;
       }
       const double deviation_delta =
         first.global_path_deviation_m - second.global_path_deviation_m;
