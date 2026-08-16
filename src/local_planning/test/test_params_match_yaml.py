@@ -55,6 +55,26 @@ def scalars_from_yaml(text):
     return found
 
 
+def missing_planner_scalars(harness_text, yaml_text):
+    """
+    YAML에 있고 RacelineSplineParameters의 필드인데 하니스가 설정하지 않는 값을 돌려준다.
+
+    2026-08-16: 종전 검사는 "하니스가 설정한 값이 YAML과 같은가"만 봤다. 그래서 하니스가
+    아예 설정하지 않은 8개는 구조체 기본값이 조용히 쓰였고, post_merge_lookahead_m이
+    기본 2.0 / 운영 5.0으로 어긋나 하니스의 충돌 검사 범위가 3 m 짧았다. 결합 장애물
+    진단이 하니스와 실제 백에서 두 번 엇갈린 원인이다.
+    """
+    header_path = HERE.parent / 'include' / 'local_planning' / 'raceline_spline_planner.hpp'
+    header = header_path.read_text()
+    begin = header.index('struct RacelineSplineParameters')
+    end = header.index('\n};', begin)
+    fields = set(re.findall(
+        r'^\s+(?:double|int|std::size_t|bool)\s+([a-z_0-9]+)\s*[{=]', header[begin:end], re.M))
+    in_yaml = set(re.findall(r'^\s{2,}([a-z_0-9]+):\s*[-0-9\[]', yaml_text, re.M))
+    return sorted((fields & in_yaml) - set(scalars_from_harness(harness_text)) -
+                  set(re.findall(r'p\.([a-z_0-9]+)\s*=', harness_text)))
+
+
 def test_harness_parameters_match_operational_yaml():
     """하니스 진단 결과로 운영값을 정하므로 둘은 반드시 같아야 한다."""
     assert main() == 0
@@ -82,6 +102,15 @@ def main():
         for name, harness_value, yaml_value in mismatches:
             print(f'  {name}: 하니스 {harness_value!r} vs YAML {yaml_value!r}', file=sys.stderr)
         print('\n하니스 진단 결과로 운영값을 정하므로 둘은 반드시 같아야 합니다.', file=sys.stderr)
+        return 1
+    missing = missing_planner_scalars(HARNESS.read_text(), YAML.read_text())
+    if missing:
+        print('\nRacelineSplineParameters 필드인데 하니스가 설정하지 않습니다:', file=sys.stderr)
+        for name in missing:
+            print(f'  - {name}', file=sys.stderr)
+        print(
+            '\n설정하지 않으면 구조체 기본값이 조용히 쓰여 하니스가 운영과 다른 답을 냅니다.',
+            file=sys.stderr)
         return 1
     if checked < 15:
         print(f'FAIL: {checked}개만 대조됐다 — 이름 규칙이 바뀌어 검사가 무력해졌을 수 있다',

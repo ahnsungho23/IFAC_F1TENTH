@@ -143,6 +143,19 @@ RacelineSplineParameters operationalParameters()
   p.maximum_lateral_slope = 0.8;
   p.maximum_curvature_radpm = 1.316266519079011;
   p.maximum_curvature_rate_radpm2 = 20.0;
+  // 🔴 2026-08-16: 아래 8개는 종전에 하니스가 설정하지 않아 **구조체 기본값**이 쓰였다.
+  // 특히 post_merge_lookahead_m이 기본 2.0 / 운영 5.0으로 어긋나 하니스의 충돌 검사 범위가
+  // 운영보다 3 m 짧았고, 그래서 "다음 장애물에 걸리는" 종류의 실패를 하니스가 통과시켰다.
+  // 이 세션에서 결합 장애물 진단이 하니스와 실제 백에서 두 번 엇갈린 원인이다.
+  // test/test_params_match_yaml.py가 이제 누락도 검사한다.
+  p.obstacle_cluster_gap_m = 0.8;
+  p.minimum_target_offset_m = 0.15;
+  p.maximum_exit_length_m = 0.0;
+  p.merge_ramp_min_length_m = 0.0;
+  p.merge_ramp_time_sec = 0.0;
+  p.post_merge_lookahead_m = 5.0;
+  p.post_merge_min_time_sec = 1.0;
+  p.profile_feasibility_decel_mps2 = 3.5;
   p.safe_stop_buffer_m = 2.60;
   p.safe_stop_deceleration_mps2 = 1.8;
   p.minimum_path_points = 8;

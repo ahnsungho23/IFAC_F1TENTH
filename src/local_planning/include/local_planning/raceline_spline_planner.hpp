@@ -430,6 +430,32 @@ public:
 
   // Controller tail appended after the merge. It is also the single margin every maneuver-scope
   // collision horizon adds to its cluster end, so selection and revalidation stay identical.
+  // 이 기동이 책임지는 구간의 끝 [자차 기준 전방 m].
+  //
+  // 기본은 `cluster_end + post_merge_lookahead_m`이다 — 장애물을 지난 뒤에도 차는 아직
+  // 옆으로 나가 있으므로 탈출·합류 램프의 꼬리까지 봐야 한다.
+  //
+  // 🔴 2026-08-16: 그 고정 거리(5.0 m)가 **다음 클러스터를 삼키면**, 기동 N이 자기 책임이
+  // 아닌 장애물 N+1로 심판받는다. 두 장애물이 반대편 통과를 요구하면 그 순간 기동 N은
+  // 원천적으로 불가능해진다. 17:02/17:59 백 실측: obs9(s=32.7, 우측 필수)와
+  // obs10(s=37.4, 좌측 필수)가 4.2 m 간격이고 지평은 5.0 m라, obs9 기동의 **모든** 후보가
+  // obs10에서 걸렸다(1179건). 특히 짧은 탈출 후보는 s=36.907에서 d=+0.0000 — 즉 라인으로
+  // 합류를 마친 상태에서 걸렸다. obs10의 박스가 d=0을 물고 있어 **라인 복귀 자체가 충돌**
+  // 이었던 것이다. 깊이·후보 수로는 절대 풀리지 않는 형태다.
+  //
+  // 그래서 다음 클러스터의 확장 앞면에서 자른다. 그 장애물은 체인 기동이 맡는다 —
+  // beginChainedManeuverIfNeeded가 정확히 그 용도로 있다. 잘린 뒤 꼬리가 다음 장애물에
+  // 닿더라도 안전정지 사다리(buildCommittedPathStop/buildLastPathBrake)는 지평 없이 전
+  // 장애물을 보므로 최후 보루는 유지된다.
+  //
+  // ⚠️ 후보 선택과 커밋 재검증이 **반드시 같은 값**을 써야 한다. 두 범위가 어긋나면 더
+  // 엄격한 검사가 되는 게 아니라 수렴하지 않는 루프가 된다(2026-08-15 run18: 25 ms마다
+  // 같은 후보를 다시 고르는 무한 재계획, 랩당 hard collision 41회).
+  double maneuverScopeEnd(
+    const EgoFrenetState & ego,
+    const std::vector<f110_msgs::msg::Obstacle> & obstacles,
+    const std::vector<int> & cluster_ids,
+    double cluster_end_forward_m) const;
   double postMergeLookaheadM() const
   {
     return parameters_.post_merge_lookahead_m;
@@ -554,32 +580,8 @@ private:
     PathValidationFailure * failure = nullptr,
     const std::optional<double> & maximum_collision_forward_m = std::nullopt,
     double obstacle_reserve_scale = 1.0) const;
-  // 이 기동이 책임지는 구간의 끝 [자차 기준 전방 m].
-  //
-  // 기본은 `cluster_end + post_merge_lookahead_m`이다 — 장애물을 지난 뒤에도 차는 아직
-  // 옆으로 나가 있으므로 탈출·합류 램프의 꼬리까지 봐야 한다.
-  //
-  // 🔴 2026-08-16: 그 고정 거리(5.0 m)가 **다음 클러스터를 삼키면**, 기동 N이 자기 책임이
-  // 아닌 장애물 N+1로 심판받는다. 두 장애물이 반대편 통과를 요구하면 그 순간 기동 N은
-  // 원천적으로 불가능해진다. 17:02/17:59 백 실측: obs9(s=32.7, 우측 필수)와
-  // obs10(s=37.4, 좌측 필수)가 4.2 m 간격이고 지평은 5.0 m라, obs9 기동의 **모든** 후보가
-  // obs10에서 걸렸다(1179건). 특히 짧은 탈출 후보는 s=36.907에서 d=+0.0000 — 즉 라인으로
-  // 합류를 마친 상태에서 걸렸다. obs10의 박스가 d=0을 물고 있어 **라인 복귀 자체가 충돌**
-  // 이었던 것이다. 깊이·후보 수로는 절대 풀리지 않는 형태다.
-  //
-  // 그래서 다음 클러스터의 확장 앞면에서 자른다. 그 장애물은 체인 기동이 맡는다 —
-  // beginChainedManeuverIfNeeded가 정확히 그 용도로 있다. 잘린 뒤 꼬리가 다음 장애물에
-  // 닿더라도 안전정지 사다리(buildCommittedPathStop/buildLastPathBrake)는 지평 없이 전
-  // 장애물을 보므로 최후 보루는 유지된다.
-  //
-  // ⚠️ 후보 선택과 커밋 재검증이 **반드시 같은 값**을 써야 한다. 두 범위가 어긋나면 더
-  // 엄격한 검사가 되는 게 아니라 수렴하지 않는 루프가 된다(2026-08-15 run18: 25 ms마다
-  // 같은 후보를 다시 고르는 무한 재계획, 랩당 hard collision 41회).
-  double maneuverScopeEnd(
-    const EgoFrenetState & ego,
-    const std::vector<f110_msgs::msg::Obstacle> & obstacles,
-    const std::vector<int> & cluster_ids,
-    double cluster_end_forward_m) const;
+
+
   P3ShadowPlanningContext buildP3ShadowPlanningContext(
     const EgoFrenetState & ego,
     const std::vector<f110_msgs::msg::Obstacle> & obstacles,
