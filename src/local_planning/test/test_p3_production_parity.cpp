@@ -295,6 +295,34 @@ TEST(P3ProductionParity, CorridorPinchDuringTransitionIsStillUnsolved)
 }
 
 // 지금 성공하는 장면. 후보 배치를 어떻게 바꾸든 여기가 깨지면 회귀다.
+// 🔴 2026-08-16 23:31 백 회귀. 직선(라인 속도 7.0)에서 차가 라인 위를 2.0 m/s로 5 m 넘게
+// 기어갔다. 원인은 margin pass — "라인이 물리적으로는 주행 가능하니 상한 속도로 그냥 통과"
+// 인데, 그 전제인 "양측 회피 실패"가 잘못 성립한 것이다.
+//
+// obs9(s=32.3)는 우측 여유가 1.14 m나 되어 통과 가능한데, 4.4 m 뒤 obs10(s=37.2, 라인을
+// 물고 있어 좌측 통과 필수)이 검증 지평 안에 들어와 모든 후보를 기각시켰다. plan()의
+// 후보 검증(generateP3Candidates)이 세 지평 사용처 중 유일하게 고정 거리를 쓰고 있어서,
+// P3 평가기와 커밋 재검증을 먼저 고친 뒤에도 증상이 남았다.
+//
+// 세 곳이 같은 정의(maneuverScopeEnd)를 쓰는지 이 테스트가 지킨다.
+TEST(P3ProductionParity, StraightAvoidanceDoesNotDegradeToMarginCrawl)
+{
+  const auto stream = readStream(scenarioPath("straight_margin_crawl"));
+  RacelineSplinePlanner planner(parametersOf(stream));
+  ASSERT_TRUE(planner.setReference(stream.reference));
+  ASSERT_GE(stream.frames.size(), 1U);
+  for (std::size_t index = 0; index < stream.frames.size(); ++index) {
+    const auto & frame = stream.frames[index];
+    const auto result = planner.plan(frame.ego, frame.obstacles);
+    EXPECT_EQ(result.kind, SplinePlanKind::kAvoidance)
+      << "frame " << index << ": " << result.reason;
+    EXPECT_FALSE(result.margin_pass)
+      << "frame " << index
+      << ": 우측이 열려 있는데 라인 위 저속 통과로 떨어졌다 (margin crawl). target_d="
+      << result.target_d << ", " << result.reason;
+  }
+}
+
 TEST(P3ProductionParity, PassingScenariosKeepRecovering)
 {
   const auto stream = readStream(scenarioPath("passing_mixed"));

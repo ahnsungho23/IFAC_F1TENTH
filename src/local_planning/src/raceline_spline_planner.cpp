@@ -2267,10 +2267,17 @@ std::size_t RacelineSplinePlanner::generateP3Candidates(
     // 실측). 트랙 경계·기하 검사는 horizon과 무관하게 경로 전체에 적용된다.
     measureCandidate(ego, visible, candidate);
     std::string validation_reason;
+    // 🔴 2026-08-16: 여기도 다음 클러스터 앞에서 자른다. 종전에는 이 세 번째 지점만
+    // 고정 거리를 그대로 써서, P3 평가기와 커밋 재검증을 고친 뒤에도 plan()의 후보가
+    // 여전히 다음 장애물로 심판받았다. 23:31 백 실측: obs9(s=32.3, 우측 통과 가능,
+    // 우측 여유 1.14 m)를 피하는 후보가 4.4 m 뒤 obs10(s=37.2, 라인을 물고 좌측 통과
+    // 필수)에서 전멸해 양측 실패 → margin pass로 떨어졌고, 라인 위를 2.0 m/s로 5 m
+    // 넘게 기어갔다(라인 속도 7.0). 세 지점이 같은 정의를 쓰지 않으면 어느 하나를
+    // 고쳐도 증상이 남는다.
     const std::optional<double> collision_horizon =
       std::isfinite(p3.cluster_end_forward_m) ?
       std::optional<double>(
-      p3.cluster_end_forward_m + parameters_.post_merge_lookahead_m) :
+      maneuverScopeEnd(ego, obstacles, p3.cluster_obstacle_ids, p3.cluster_end_forward_m)) :
       std::nullopt;
     candidate.valid = validateCandidate(
       ego, candidate.path, visible, validation_reason, 0U, 0U, nullptr, collision_horizon);
