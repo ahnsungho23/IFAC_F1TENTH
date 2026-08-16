@@ -193,6 +193,17 @@ struct P3ShadowResult
   double runtime_hard_validation_us{0.0};
   std::string failure_classification{"NOT_INVOKED"};
   std::vector<P3ShadowCandidateTrace> candidates;
+  // 진단 전용 (2026-08-16). 후보가 전멸했을 때 원인을 셋 중 하나로 좁히는 데 필요한
+  // 최소 정보다:
+  //   (a) 도메인이 실현 가능한 오프셋을 아예 포함하지 않았다  → 도메인 계산 문제
+  //   (b) 포함했는데 그 깊이에 후보를 만들지 않았다            → 후보 배치 간격 문제
+  //   (c) 만들었는데 탈락했다                                  → 검증 기준 문제
+  // 이 셋은 발행된 candidate d_target 목록과 도메인 경계 없이는 구분할 수 없다.
+  // 2026-08-16 16:06 백에서 P3가 후보 8개를 전부 기각한 순간, 같은 상태를 하니스에 넣으면
+  // P0 quintic 계열이 target_d=-0.84로 실현 가능한 해를 찾았다. 어느 단계에서 갈렸는지
+  // 알 수 없어 수리가 추측이 될 뻔했다.
+  P3ShadowSideDomain left_domain;
+  P3ShadowSideDomain right_domain;
 };
 
 }  // namespace local_planning

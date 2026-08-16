@@ -2442,6 +2442,38 @@ void LocalPlannerNode::publishP3CycleDiagnostic(
        << ",\"fresh_hard_valid\":" << (evaluation.would_recover ? "true" : "false")
        << ",\"fresh_rejection\":\""
        << jsonEscape(evaluation.failure_classification) << "\""
+       << ",\"left_domain\":{\"valid\":"
+       << (evaluation.left_domain.valid ? "true" : "false")
+       << ",\"min_target\":" << jsonNumber(evaluation.left_domain.minimum_target)
+       << ",\"max_target\":" << jsonNumber(evaluation.left_domain.maximum_target)
+       << ",\"reason\":\"" << jsonEscape(evaluation.left_domain.reason) << "\"}"
+       << ",\"right_domain\":{\"valid\":"
+       << (evaluation.right_domain.valid ? "true" : "false")
+       << ",\"min_target\":" << jsonNumber(evaluation.right_domain.minimum_target)
+       << ",\"max_target\":" << jsonNumber(evaluation.right_domain.maximum_target)
+       << ",\"reason\":\"" << jsonEscape(evaluation.right_domain.reason) << "\"}";
+  // 후보별 목표 오프셋과 탈락 사유. 후보가 전멸한 콜백에서만 원인을 좁힐 수 있으므로
+  // 낭비를 줄이려 그 경우에만 싣는다 (정상 선택 시에는 selected_* 필드로 충분하다).
+  json << ",\"candidates\":[";
+  if (!evaluation.would_recover) {
+    for (std::size_t index = 0; index < evaluation.candidates.size(); ++index) {
+      const auto & trace = evaluation.candidates[index];
+      if (index > 0U) {
+        json << ',';
+      }
+      json << "{\"i\":" << trace.generation_index
+           << ",\"left\":" << (trace.go_left ? "true" : "false")
+           << ",\"d_target\":" << jsonNumber(trace.d_target)
+           << ",\"d_mid\":" << jsonNumber(trace.d_mid)
+           << ",\"entry\":" << jsonNumber(trace.entry_scale)
+           << ",\"exit\":" << jsonNumber(trace.exit_scale)
+           << ",\"valid\":" << (trace.hard_valid ? "true" : "false")
+           << ",\"tmpl\":\"" << jsonEscape(trace.candidate_template) << "\""
+           << ",\"reason\":\"" << jsonEscape(trace.rejection_reason) << "\"}";
+    }
+  }
+  json << ']'
+
        << ",\"lifecycle_state\":\""
        << p3ManeuverLifecycleStateName(lifecycle.state) << "\""
        << ",\"lifecycle_reason\":\"" << jsonEscape(lifecycle.reason) << "\""

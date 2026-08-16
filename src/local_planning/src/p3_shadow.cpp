@@ -97,6 +97,8 @@ public:
     // side-feasibility rejection. Keep this observation separate from selected-candidate fields.
     result.cluster_start_forward_m = context.right.cluster_start;
     result.cluster_end_forward_m = context.right.cluster_end;
+    result.left_domain = context.left;
+    result.right_domain = context.right;
 
     bool m0_nonpositive_abort = false;
     std::vector<SideResult> sides;
