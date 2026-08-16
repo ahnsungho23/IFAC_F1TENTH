@@ -389,6 +389,32 @@ TEST(RacelineSplinePlanner, PrefersExitThatClearsTheFollowingObstacle)
 // 한 물리 상자가 두 조각으로 갈라져 관측될 때, 조각 사이 s-틈의 waypoint도 클러스터
 // hull 캡을 받아야 한다. 틈이 캡 없이 라인 속도로 남으면 스팬 안에서 1.1↔5.8 빗살
 // 프로파일이 나와 옆 통과 내내 급가감속 펄스가 생긴다 (2026-08-16 13:52 백 실측).
+// 안전정지 사유는 실제 P3 기각 사유를 담아야 하고, 측 제한이 걸리지 않았는데 "측 잠금"
+// 이라고 적어서는 안 된다. 종전에는 left_evaluated/right_evaluated가 죽은 변수라 양측을
+// 모두 평가하고 양측 다 실패한 경우에도 항상 "alternate side locked"가 찍혔고, 실제 사유
+// (NO_VALID_SIDE_DOMAIN 등)는 뒤에 붙어 로그에서 잘려나갔다 (2026-08-16 14:18 백 오진).
+TEST(RacelineSplinePlanner, SafeStopReasonReportsTheActualRejectionNotAPhantomSideLock)
+{
+  auto parameters = testParameters();
+  RacelineSplinePlanner planner(parameters);
+  // 회랑을 양측 모두 통과 불가능하게 좁힌다 (코너 정점 배치의 축약판).
+  ASSERT_TRUE(planner.setReference(makeStraightReference(300, 0.1, 0.36, 0.36)));
+
+  const EgoFrenetState ego{0.0, 0.0, 2.0};
+  const auto result = planner.plan(ego, {makeObstacle(21, 8.0, -0.10, 0.10)});
+  ASSERT_NE(result.kind, SplinePlanKind::kAvoidance) << result.reason;
+
+  // 측 제한을 건 적이 없으므로 그 문구가 나오면 안 된다.
+  EXPECT_EQ(result.reason.find("alternate side locked"), std::string::npos)
+    << "phantom side-lock text in: " << result.reason;
+  EXPECT_EQ(result.reason.find("side locked by active commitment"), std::string::npos)
+    << "phantom side-lock text in: " << result.reason;
+  // 실제 사유가 문자열 앞부분(로그 절단에도 살아남는 위치)에 있어야 한다.
+  ASSERT_GE(result.reason.size(), 20U);
+  EXPECT_NE(result.reason.substr(0, 120).find("no avoidance candidate"), std::string::npos)
+    << "actual rejection not at the front of: " << result.reason;
+}
+
 TEST(RacelineSplinePlanner, GapCapBridgesFragmentGapsInsideOneCluster)
 {
   auto parameters = testParameters();

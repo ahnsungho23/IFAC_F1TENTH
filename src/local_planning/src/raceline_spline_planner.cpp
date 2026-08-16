@@ -2430,20 +2430,22 @@ RacelineSplineResult RacelineSplinePlanner::plan(
 
   const bool outside_is_left = outsideIsLeft(ego, cluster);
   std::vector<Candidate> candidates;
-  std::string left_reason = "not evaluated: side locked by active commitment";
-  std::string right_reason = "not evaluated: side locked by active commitment";
-  bool left_evaluated = false;
-  bool right_evaluated = false;
 
   // 회피 후보 생성은 P3(analytic corridor) 한 곳뿐이다. P0 quintic 격자는 2026-08-15에
   // 제거됐다: 실차 시험에서 P0가 통과 가능한 모든 지점을 P3도 통과했고, 두 생성기를 함께
   // 두면 "어느 쪽이 답했는가"에 따라 연쇄 기동·안전정지 해제가 갈라진다.
+  //
+  // ⚠️ 사유 문자열은 P3가 돌려주는 이것 하나다. 예전에는 좌/우를 따로 평가하던 시절의
+  // left_evaluated/right_evaluated 플래그로 "양측 기각" vs "반대측 측 잠금"을 갈라 적었는데,
+  // P0 제거 후 그 두 변수는 false로 초기화된 뒤 갱신되는 곳이 없어져 **항상** "committed
+  // side rejected; alternate side locked after lateral engagement"가 출력됐다. 실제로는
+  // 양측을 모두 평가하고 양측 다 실패한 경우까지 그렇게 찍혀, 원인을 측 잠금 쪽으로
+  // 오도했다 (2026-08-16 14:18 백: 실제 사유는 좌·우 모두 NO_VALID_SIDE_DOMAIN인 코너
+  // 정점 기하 한계였는데 문구만 보고 측 잠금으로 반복 오진). 사유는 P3 것을 그대로 쓴다.
   std::string p3_reason;
   (void)generateP3Candidates(
     ego, obstacles, visible, preferred_left, allow_side_switch, false,
     candidates, p3_reason);
-  left_reason = p3_reason;
-  right_reason = p3_reason;
 
   std::vector<std::size_t> feasible_order;
   feasible_order.reserve(candidates.size());
@@ -2572,7 +2574,7 @@ RacelineSplineResult RacelineSplinePlanner::plan(
     if (!clusterPhysicallyBlocksRaceline(cluster)) {
       auto slow_pass = buildMarginSlowPass(ego, cluster);
       if (slow_pass.kind == SplinePlanKind::kAvoidance) {
-        slow_pass.reason += "; left: " + left_reason + "; right: " + right_reason;
+        slow_pass.reason += "; avoidance rejected: " + p3_reason;
         slow_pass.candidate_audits = build_audits();
         return slow_pass;
       }
@@ -2582,12 +2584,15 @@ RacelineSplineResult RacelineSplinePlanner::plan(
     for (const auto & obstacle : cluster) {
       safe_stop.obstacle_ids.push_back(obstacle.id);
     }
-    safe_stop.reason =
-      left_evaluated && right_evaluated ?
-      "both spline sides rejected; braking before the static obstacle" :
-      "committed side rejected; alternate side locked after lateral engagement; braking before "
-      "the static obstacle";
-    safe_stop.reason += "; left: " + left_reason + "; right: " + right_reason;
+    // 실제 사유를 먼저 적는다. 로그 라인이 길어 잘리는 환경에서도 원인이 남아야 한다
+    // (14:18 백에서 NO_VALID_SIDE_DOMAIN이 잘려 나가 오진의 직접 원인이 됐다).
+    // 측 제한이 실제로 걸린 경우에만 그렇게 표시한다 — plan()에 preferred_left가 있고
+    // allow_side_switch가 false일 때가 유일한 그 경우다.
+    const bool side_restricted = preferred_left.has_value() && !allow_side_switch;
+    safe_stop.reason = "no avoidance candidate: " + p3_reason + "; braking before the static "
+      "obstacle" + (side_restricted ?
+      std::string(" (search restricted to the committed ") +
+      (preferred_left.value() ? "left" : "right") + " side)" : std::string());
     // buildSafeStop이 붙인 탈출-불가 경고는 위 대입으로 지워지므로 여기서 다시 붙인다.
     if (!safe_stop.safe_stop_escape_verified) {
       safe_stop.reason +=
