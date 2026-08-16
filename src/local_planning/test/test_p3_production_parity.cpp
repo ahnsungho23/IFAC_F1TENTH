@@ -233,6 +233,21 @@ std::vector<bool> recoversPerFrame(const Stream & stream)
     const auto result = planner.evaluateP3Shadow(
       frame.ego, frame.obstacles, 0, 0U, 1U, "PARITY_ORACLE");
     recovers.push_back(result.would_recover);
+    if (std::getenv("P3_PARITY_DUMP") != nullptr) {
+      printf(
+        "DUMP %s ego s=%.3f d=%+.4f v=%.2f | R[%+.4f,%+.4f] L[%+.4f,%+.4f] | %s\n",
+        stream.scenario.c_str(), frame.ego.s, frame.ego.d, frame.ego.speed,
+        result.right_domain.minimum_target, result.right_domain.maximum_target,
+        result.left_domain.minimum_target, result.left_domain.maximum_target,
+        result.failure_classification.c_str());
+      for (const auto & candidate : result.candidates) {
+        printf(
+          "     %2zu %s d_target=%+.4f d_mid=%+.4f entry=%.3f exit=%.3f %s | %s\n",
+          candidate.generation_index, candidate.go_left ? "L" : "R", candidate.d_target,
+          candidate.d_mid, candidate.entry_scale, candidate.exit_scale,
+          candidate.hard_valid ? "OK" : "XX", candidate.rejection_reason.c_str());
+      }
+    }
   }
   return recovers;
 }
