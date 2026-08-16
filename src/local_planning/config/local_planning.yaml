@@ -323,7 +323,7 @@ local_planner_node:
     # tail 구간 첫 점에 ego를 놓습니다. state_machine의 enter_global_tail_distance_m와
     # **같은 값이어야** 합니다. FSM은 ot_line=raceline_global_handoff 표식이 있어야만
     # GLOBAL 복귀 검사를 평가하고(2026-08-16 계약), 그 검사가 이 tail 창을 사용합니다.
-    state_handoff_tail_distance_m: 1.0
+    state_handoff_tail_distance_m: 6.0
     state_handoff_speed_cap_mps: 6.0
 
     # 첫 blocking cluster는 실제 /static_obs 메시지에서 같은 ID를 3회 관측하고 최소 시간도

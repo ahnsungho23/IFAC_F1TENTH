@@ -94,7 +94,7 @@ private:
 
   double enter_global_sec_{0.5};
   double enter_global_threshold_{0.2};
-  double enter_global_tail_distance_m_{1.0};
+  double enter_global_tail_distance_m_{6.0};
   double enter_global_s_gap_tol_m_{0.5};
   double avoid_path_liveness_timeout_sec_{2.0};
 

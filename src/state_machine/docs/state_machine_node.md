@@ -91,7 +91,7 @@ GLOBAL 출력은 Frenet odometry의 `child_frame_id`를 최근접 글로벌 segm
 | `handoff_ot_line` | `raceline_global_handoff` | GLOBAL 복귀의 전제가 되는 플래너 표식 |
 | `enter_global_sec` | `0.5` | 합류 조건 연속 유지 시간 |
 | `enter_global_threshold` | `0.2` | 횡오차 게이트 [m] |
-| `enter_global_tail_distance_m` | `1.0` | 경로 끝에서 거꾸로 잰 tail 창 호 길이 [m]. local_planning의 `state_handoff_tail_distance_m`와 동일해야 함 |
+| `enter_global_tail_distance_m` | `6.0` | 경로 끝에서 거꾸로 잰 tail 창 호 길이 [m]. local_planning의 `state_handoff_tail_distance_m`와 동일해야 함 |
 | `enter_global_s_gap_tol_m` | `0.5` | tail 도달 허용 s 거리 [m] |
 | `avoid_path_liveness_timeout_sec` | `2.0` | non-empty 회피 발행 단절 시 AVOID 해제 (liveness 전용) |
 

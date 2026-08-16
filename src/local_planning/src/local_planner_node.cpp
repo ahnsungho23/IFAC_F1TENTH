@@ -413,7 +413,7 @@ void LocalPlannerNode::initializeParameters()
   safe_stop_release_cycles_ = declare_parameter<int>("safe_stop_release_cycles", 8);
   planning_period_ms_ = declare_parameter<int>("planning_period_ms", 50);
   state_handoff_tail_distance_m_ =
-    declare_parameter<double>("state_handoff_tail_distance_m", 1.0);
+    declare_parameter<double>("state_handoff_tail_distance_m", 6.0);
   state_handoff_speed_cap_mps_ =
     declare_parameter<double>("state_handoff_speed_cap_mps", 6.0);
   initial_observation_count_ =

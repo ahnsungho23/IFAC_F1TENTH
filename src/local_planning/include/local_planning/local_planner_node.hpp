@@ -271,7 +271,7 @@ private:
   int merge_confirm_cycles_{15};
   int safe_stop_release_cycles_{8};
   int planning_period_ms_{50};
-  double state_handoff_tail_distance_m_{1.0};
+  double state_handoff_tail_distance_m_{6.0};
   double state_handoff_speed_cap_mps_{6.0};
   int initial_observation_count_{3};
   double initial_observation_min_duration_sec_{0.15};

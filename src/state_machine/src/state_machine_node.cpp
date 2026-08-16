@@ -70,7 +70,7 @@ StateMachineNode::StateMachineNode()
 
   declare_parameter<double>("enter_global_sec", 0.5);
   declare_parameter<double>("enter_global_threshold", 0.2);
-  declare_parameter<double>("enter_global_tail_distance_m", 1.0);
+  declare_parameter<double>("enter_global_tail_distance_m", 6.0);
   declare_parameter<double>("enter_global_s_gap_tol_m", 0.5);
   declare_parameter<double>("avoid_path_liveness_timeout_sec", 2.0);
 
