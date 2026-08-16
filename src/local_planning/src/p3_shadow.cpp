@@ -55,6 +55,14 @@ public:
   {
   }
 
+private:
+  // 이 사이클이 책임지는 클러스터. buildCandidate가 검증 지평을 구할 때 필요한데 호출
+  // 경로가 셋(M0/M0확장/M1)이라 인자로 흘리면 시그니처 셋이 다 바뀐다. 평가기는
+  // evaluateP3Shadow 호출마다 새로 생성되므로(p3_shadow.cpp 하단) 사이클 상태로 두는 것이
+  // 안전하다 — 사이클 간에 남지 않는다.
+  mutable std::vector<int> cycle_cluster_ids_;
+
+public:
   P3ShadowResult run(
     const EgoFrenetState & ego,
     const std::vector<f110_msgs::msg::Obstacle> & obstacles,
@@ -93,6 +101,7 @@ public:
       return result;
     }
     result.cluster_obstacle_ids = context.cluster_ids;
+    cycle_cluster_ids_ = context.cluster_ids;
     // computeSideTargetRange fills the same longitudinal cluster span for both sides before any
     // side-feasibility rejection. Keep this observation separate from selected-candidate fields.
     result.cluster_start_forward_m = context.right.cluster_start;
@@ -1007,8 +1016,9 @@ private:
       // 만들어져 두 경로의 판정이 갈렸다. 2026-08-16 백에서 P3는 s=31.7 장애물에 대해
       // 3 m 이내 245 콜백 전부 NO_HARD_VALID_M1_CANDIDATE였고, 같은 순간 P0의 plan()은
       // 6개 중 3개를 feasible로 통과시켰다. 트랙 경계·기하 검사는 여전히 경로 전체다.
+      // 다음 클러스터 앞에서 자른다 — 근거는 RacelineSplinePlanner::maneuverScopeEnd 주석.
       const std::optional<double> collision_horizon(
-        stations[3] + parameters_.post_merge_lookahead_m);
+        planner_.maneuverScopeEnd(ego, obstacles, cycle_cluster_ids_, stations[3]));
       evaluation = planner_.validateP3ShadowPath(ego, path, obstacles, 1.0, collision_horizon);
       hard_validation_us += elapsedUs(validation_start);
     } else {

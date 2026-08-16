@@ -242,10 +242,13 @@ std::vector<bool> recoversPerFrame(const Stream & stream)
         result.failure_classification.c_str());
       for (const auto & candidate : result.candidates) {
         printf(
-          "     %2zu %s d_target=%+.4f d_mid=%+.4f entry=%.3f exit=%.3f %s | %s\n",
+          "     %2zu %s d_target=%+.4f d_mid=%+.4f entry=%.3f exit=%.3f %s "
+          "| obs=%d at s=%.3f d=%+.4f | %s\n",
           candidate.generation_index, candidate.go_left ? "L" : "R", candidate.d_target,
           candidate.d_mid, candidate.entry_scale, candidate.exit_scale,
-          candidate.hard_valid ? "OK" : "XX", candidate.rejection_reason.c_str());
+          candidate.hard_valid ? "OK" : "XX", candidate.validation.failure_obstacle_id,
+          candidate.validation.failure_waypoint_s, candidate.validation.failure_waypoint_d,
+          candidate.rejection_reason.c_str());
       }
     }
   }
@@ -254,25 +257,41 @@ std::vector<bool> recoversPerFrame(const Stream & stream)
 
 }  // namespace
 
-// 🔴 지금은 실패하는 것이 정상이다. 후보 배치를 고치면 이 단정이 뒤집혀야 한다.
+// 🔴 2026-08-16 수리 회귀. 이 장면들은 수리 전에는 전부 실패했다.
 //
-// 실패 원인(2026-08-16 17:02 백 638건 분석): 후보를 도메인의 고정 비율(1/64, 1/4, 1/2, 1/1)
-// 로 찍는데, 그 비율은 트랙 폭에서 온 값이라 장애물 위치와 무관하다. 그 결과 얕은 쪽 세 점이
-// 전부 장애물 clearance에 걸리고, 유일하게 장애물을 벗어나는 가장 깊은 점은 곡률·기울기·
-// 트랙 경계에 걸린다. 그 사이(도메인의 절반)에 후보가 하나도 없다.
-TEST(P3ProductionParity, CurrentlyFailingScenariosAreStillReproduced)
+// 원인(안전망 덤프로 확정): obs9(s=32.7)는 우측 통과 필수, obs10(s=37.4)은 좌측 통과 필수
+// 이고 간격이 4.2 m인데 검증 지평이 cluster_end + 5.0 m라 obs10을 삼켰다. 모든 후보가
+// obs10에서 걸렸고, 특히 짧은 탈출 후보는 s=36.907에서 **d=+0.0000** — 라인으로 합류를
+// 마친 상태에서 걸렸다. obs10의 박스가 d=0을 물고 있으니 라인 복귀 자체가 충돌이었다.
+// 깊이나 후보 수로는 절대 풀리지 않는 형태다.
+//
+// 수리: 검증 지평을 다음 클러스터의 확장 앞면에서 자른다(maneuverScopeEnd).
+TEST(P3ProductionParity, CoupledOppositeSideObstaclesRecover)
 {
-  for (const char * name : {"failing_cluster11", "failing_cluster1"}) {
-    const auto stream = readStream(scenarioPath(name));
-    const auto recovers = recoversPerFrame(stream);
-    ASSERT_FALSE(recovers.empty()) << name;
-    for (std::size_t index = 0; index < recovers.size(); ++index) {
-      EXPECT_FALSE(recovers[index])
-        << name << " frame " << index
-        << ": 이 장면은 아직 실패해야 한다. 성공한다면 후보 배치가 이미 바뀌었다는 뜻이고,"
-        " 그때는 이 테스트를 CurrentlyFailing → Recovers 로 옮길 것";
-    }
+  const auto stream = readStream(scenarioPath("failing_cluster11"));
+  const auto recovers = recoversPerFrame(stream);
+  ASSERT_EQ(recovers.size(), 3U);
+  for (std::size_t index = 0; index < recovers.size(); ++index) {
+    EXPECT_TRUE(recovers[index])
+      << "failing_cluster11 frame " << index
+      << ": 다음 클러스터가 지평 안에 들어와 회피가 다시 막혔다";
   }
+}
+
+// 아직 실패하는 것이 정상인 장면 — 원인이 다르다.
+//
+// 장애물 1(s=8.27)을 우측으로 피하려면 d<=-0.68까지 나가야 하는데, 그 앞 s=6.0~6.8에서
+// 회랑 우측이 -0.70까지 좁아진다. 전이 곡선은 양 끝점만 보고 그려지므로 그 잘록한 구간을
+// 관통하고 footprint_track_bound로 걸린다. 속도를 3.41 -> 2.0으로 낮춰도 회복하지 않으므로
+// run-up 부족이 아니다(실측). 회랑 중간 제약을 반영하는 전이 형상이 필요하며, 이는 검증
+// 지평과 무관한 별개 사안이다.
+TEST(P3ProductionParity, CorridorPinchDuringTransitionIsStillUnsolved)
+{
+  const auto stream = readStream(scenarioPath("failing_cluster1"));
+  const auto recovers = recoversPerFrame(stream);
+  ASSERT_EQ(recovers.size(), 1U);
+  EXPECT_FALSE(recovers.front())
+    << "회랑 잘록 구간 문제가 풀렸다면 이 테스트를 회복 케이스로 옮길 것";
 }
 
 // 지금 성공하는 장면. 후보 배치를 어떻게 바꾸든 여기가 깨지면 회귀다.

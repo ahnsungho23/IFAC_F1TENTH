@@ -903,6 +903,33 @@ bool RacelineSplinePlanner::computeSideTargetRange(
   return true;
 }
 
+double RacelineSplinePlanner::maneuverScopeEnd(
+  const EgoFrenetState & ego,
+  const std::vector<f110_msgs::msg::Obstacle> & obstacles,
+  const std::vector<int> & cluster_ids,
+  double cluster_end_forward_m) const
+{
+  const double nominal = cluster_end_forward_m + parameters_.post_merge_lookahead_m;
+  if (!ready() || !std::isfinite(cluster_end_forward_m)) {
+    return nominal;
+  }
+  // 이 기동의 클러스터보다 뒤에 있는 가장 가까운 장애물의 확장 앞면.
+  double next_start = std::numeric_limits<double>::infinity();
+  for (const auto & obstacle : expandVisibleObstacles(ego, obstacles)) {
+    const bool in_cluster = std::find(
+      cluster_ids.begin(), cluster_ids.end(), obstacle.id) != cluster_ids.end();
+    if (in_cluster || obstacle.start <= cluster_end_forward_m + kEpsilon) {
+      continue;
+    }
+    next_start = std::min(next_start, obstacle.start);
+  }
+  if (!std::isfinite(next_start)) {
+    return nominal;
+  }
+  // 클러스터 끝보다 앞으로 자르지는 않는다 — 자기 장애물은 반드시 검사해야 한다.
+  return std::max(cluster_end_forward_m, std::min(nominal, next_start));
+}
+
 P3ShadowPlanningContext RacelineSplinePlanner::buildP3ShadowPlanningContext(
   const EgoFrenetState & ego,
   const std::vector<f110_msgs::msg::Obstacle> & obstacles,
@@ -964,8 +991,9 @@ P3ShadowPathEvaluation RacelineSplinePlanner::validateP3ShadowPath(
   candidate.path = path;
   const auto visible = expandVisibleObstacles(ego, obstacles);
   measureCandidate(ego, visible, candidate);
+  PathValidationFailure failure;
   result.hard_valid = validateCandidate(
-    ego, candidate.path, visible, candidate.reason, 0U, 0U, nullptr, collision_horizon,
+    ego, candidate.path, visible, candidate.reason, 0U, 0U, &failure, collision_horizon,
     obstacle_reserve_scale);
   result.minimum_normalized_safety_slack = candidate.minimum_normalized_safety_slack;
   result.minimum_track_margin_m = candidate.rectangular_footprint_wall_clearance_m;
@@ -975,6 +1003,11 @@ P3ShadowPathEvaluation RacelineSplinePlanner::validateP3ShadowPath(
   result.velocity_loss = candidate.velocity_loss;
   result.global_path_deviation_m = candidate.global_path_deviation_m;
   result.rejection_reason = result.hard_valid ? std::string() : candidate.reason;
+  if (!result.hard_valid) {
+    result.failure_obstacle_id = failure.obstacle_id;
+    result.failure_waypoint_s = failure.waypoint_s;
+    result.failure_waypoint_d = failure.waypoint_d;
+  }
   return result;
 }
 

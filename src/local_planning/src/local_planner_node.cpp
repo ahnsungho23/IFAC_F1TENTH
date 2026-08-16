@@ -1299,7 +1299,10 @@ double LocalPlannerNode::maneuverCollisionHorizon(const EgoFrenetState & ego) co
     return remainingDistanceToMerge(ego);
   }
   double cluster_end_forward = 0.0;
+  std::vector<int> cluster_ids;
+  cluster_ids.reserve(committed_obstacle_guards_.size());
   for (const auto & entry : committed_obstacle_guards_) {
+    cluster_ids.push_back(entry.first);
     const double forward = planner_.forwardDistance(ego.s, entry.second.s_end);
     if (forward > 0.5 * planner_.trackLength()) {
       continue;   // 이미 지나친 Guard — 전방 범위에 기여하지 않는다.
@@ -1308,7 +1311,10 @@ double LocalPlannerNode::maneuverCollisionHorizon(const EgoFrenetState & ego) co
       cluster_end_forward,
       forward + planner_parameters_.obstacle_longitudinal_padding_m);
   }
-  return cluster_end_forward + planner_.postMergeLookaheadM();
+  // 후보 선택(p3_shadow)과 **같은 함수**로 범위를 구한다. 두 값이 어긋나면 선택기가
+  // 통과시킨 경로를 재검증이 매번 기각해 수렴하지 않는다(2026-08-15 run18).
+  return planner_.maneuverScopeEnd(
+    ego, buildCurrentManeuverInput(ego), cluster_ids, cluster_end_forward);
 }
 
 bool LocalPlannerNode::activeManeuverObstacleCleared(const EgoFrenetState & ego) const

@@ -69,6 +69,12 @@ struct P3ShadowPathEvaluation
   double velocity_loss{std::numeric_limits<double>::quiet_NaN()};
   double global_path_deviation_m{std::numeric_limits<double>::quiet_NaN()};
   std::string rejection_reason;
+  // 어떤 장애물과, 경로의 어느 지점에서 걸렸는가 (2026-08-16 진단).
+  // 사유 문자열만으로는 "탈출 램프가 다음 장애물을 스쳤다"와 "라인으로 복귀하는 합류가
+  // 라인 위 장애물을 관통했다"를 구분할 수 없고, 둘은 수리가 완전히 다르다.
+  int failure_obstacle_id{-1};
+  double failure_waypoint_s{std::numeric_limits<double>::quiet_NaN()};
+  double failure_waypoint_d{std::numeric_limits<double>::quiet_NaN()};
 };
 
 // Complete production P3 candidate trace. The evaluator ranks these internally; the node may
