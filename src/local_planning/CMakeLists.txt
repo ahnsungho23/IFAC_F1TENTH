@@ -114,12 +114,15 @@ if(BUILD_TESTING)
     endif()
   endif()
 
-  if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test/test_p3_production_parity.cpp")
-    ament_add_gtest(test_p3_production_parity test/test_p3_production_parity.cpp)
-    if(TARGET test_p3_production_parity)
-      ament_target_dependencies(test_p3_production_parity f110_msgs)
-      target_link_libraries(test_p3_production_parity local_planner_core)
-    endif()
+  # 시나리오 스트림 경로를 컴파일 시 넘긴다. 기준선(global_waypoints)이
+  # offline_trajectory_generator/output/에 있고 그 디렉터리는 gitignore라, 시나리오 파일이
+  # 기준선을 직접 담는다 — 그래서 소스 트리 경로만 알면 어디서든 재현된다.
+  ament_add_gtest(test_p3_production_parity test/test_p3_production_parity.cpp)
+  if(TARGET test_p3_production_parity)
+    ament_target_dependencies(test_p3_production_parity f110_msgs)
+    target_link_libraries(test_p3_production_parity local_planner_core)
+    target_compile_definitions(test_p3_production_parity PRIVATE
+      P3_SCENARIO_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/data/p3_scenarios")
   endif()
 
   add_executable(
