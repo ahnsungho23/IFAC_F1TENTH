@@ -2024,6 +2024,48 @@ bool RacelineSplinePlanner::validateCandidate(
       }
       return false;
     };
+  // 🔴 2026-08-17: 자차에서 경로 첫 점으로 **건너뛰는** 구간의 기울기 검사.
+  //
+  // 종전에는 경로 내부 waypoint 사이의 기울기만 봤다(아래 quintic d-offset 검사). 그래서
+  // 경로 자체는 매끄러운데 자차와 첫 점 사이가 불연속인 후보가 하드 검증을 통과했다.
+  //
+  // 실해 — 2026-08-17 00:10 백, 랩마다 재현된 충돌 2건:
+  //   자차        s=23.40  d=+0.043
+  //   커밋 경로 첫 점 s=23.60  d=+0.4897    → 0.20 m 앞에서 0.45 m 옆 (기울기 2.3)
+  // 안전정지가 8회 확인 후 해제되며 이 경로를 커밋했고, 차는 그 점을 향하다 오히려 반대로
+  // 밀려(d: +0.04 → -0.14) s=23.85에서 장애물에 박았다.
+  //
+  // 같은 검사가 buildCommittedPathStop에는 이미 있었다(정지 접두부용). 회피 경로에만
+  // 없었던 것이므로 여기로 옮겨 모든 후보가 통과하게 한다. 새 상수는 없다 —
+  // maximum_lateral_slope를 그대로 쓴다.
+  // 기준은 **자차 앞 가장 가까운 waypoint**다. path.wpnts[start_index]를 쓰면, 이미 커밋한
+  // 경로를 자차가 전진한 뒤 재검증할 때 자차보다 뒤에 있는 첫 점과 비교하게 되어 정상
+  // 상황을 기각한다(회귀 테스트 RejectsCommittedPathWhenObstacleEnvelopeGrows).
+  {
+    // 자차보다 **엄밀히 앞선** 최근접 점. 자차와 같은 s에 있는 점은 기준이 될 수 없다 —
+    // 커밋 경로를 추종하는 중에는 그 점의 d와 자차 d가 조금 다른 것이 정상이고, 그것을
+    // "제자리 횡점프"로 보면 정상 재검증이 기각된다.
+    std::size_t entry_index = path.wpnts.size();
+    double entry_forward = std::numeric_limits<double>::infinity();
+    for (std::size_t index = start_index; index < path.wpnts.size(); ++index) {
+      const double forward = forwardDistance(ego.s, path.wpnts[index].s_m);
+      if (forward > kEpsilon && forward < entry_forward) {
+        entry_forward = forward;
+        entry_index = index;
+      }
+    }
+    if (entry_index < path.wpnts.size() && entry_forward <= 0.5 * track_length_) {
+      const auto & entry = path.wpnts[entry_index];
+      const double entry_lateral = std::abs(entry.d_m - ego.d);
+      const bool excessive_entry_slope =
+        entry_lateral / entry_forward > parameters_.maximum_lateral_slope;
+      if (excessive_entry_slope) {
+        return reject(
+          PathValidationFailureKind::kGeometry,
+          "path entry is discontinuous from the current ego d", entry_index, &entry);
+      }
+    }
+  }
   if (start_index >= path.wpnts.size()) {
     return reject(
       PathValidationFailureKind::kNoForwardPath,

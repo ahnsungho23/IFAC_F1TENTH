@@ -166,7 +166,10 @@ TEST(RacelineSplinePlanner, RejectsRotatedFootprintWhenCenterlineRemainsInsideLe
   const auto reference = makeStraightReference(100, 0.1, 0.30, 0.30);
   RacelineSplinePlanner planner(testParameters());
   ASSERT_TRUE(planner.setReference(reference));
-  const EgoFrenetState ego{0.0, 0.0, 2.0};
+  // 자차 d를 경로 d에 맞춘다: 실제 경로는 언제나 자차의 현재 d에서 출발하므로,
+  // d=0 자차에 옆으로 떨어진 합성 경로는 진입 불연속 검사(2026-08-17)에 먼저 걸려
+  // 이 테스트가 원래 보려던 검사에 도달하지 못한다.
+  const EgoFrenetState ego{0.0, 0.15, 2.0};
   const auto rotated = makeStraightCandidate(reference, 0.15, 0.40);
   std::string reason;
   PathValidationFailure failure;
@@ -191,7 +194,7 @@ TEST(RacelineSplinePlanner, AcceptsHeadingAlignedFootprintAtSameCenterline)
   PathValidationFailure failure;
 
   EXPECT_TRUE(planner.validatePath(
-      EgoFrenetState{0.0, 0.0, 2.0}, aligned, {}, &reason, &failure)) << reason;
+      EgoFrenetState{0.0, 0.15, 2.0}, aligned, {}, &reason, &failure)) << reason;
   EXPECT_EQ(failure.kind, PathValidationFailureKind::kNone);
 }
 
@@ -206,7 +209,10 @@ TEST(RacelineSplinePlanner, DetectsBothLeftAndRightFootprintViolations)
   {
     PathValidationFailure failure;
     EXPECT_FALSE(planner.validatePath(
-        ego, makeStraightCandidate(reference, test.first, 0.40), {}, nullptr, &failure));
+        // 자차 d를 경로 d에 맞춘다 — 실제 경로는 언제나 자차 d에서 출발한다.
+        // 자차 d를 경로 d에 맞춘다 (진입 불연속 검사).
+        EgoFrenetState{ego.s, test.first, ego.speed},
+        makeStraightCandidate(reference, test.first, 0.40), {}, nullptr, &failure));
     EXPECT_EQ(failure.kind, PathValidationFailureKind::kTrackBoundary);
     EXPECT_EQ(failure.footprint_violation_side, test.second);
     EXPECT_GT(failure.centerline_wall_clearance, 0.0);
@@ -247,7 +253,10 @@ TEST(RacelineSplinePlanner, FootprintValidationIsBitDeterministic)
   const auto reference = makeStraightReference(100, 0.1, 0.30, 0.30);
   RacelineSplinePlanner planner(testParameters());
   ASSERT_TRUE(planner.setReference(reference));
-  const EgoFrenetState ego{0.0, 0.0, 2.0};
+  // 자차 d를 경로 d에 맞춘다: 실제 경로는 언제나 자차의 현재 d에서 출발하므로,
+  // d=0 자차에 옆으로 떨어진 합성 경로는 진입 불연속 검사(2026-08-17)에 먼저 걸려
+  // 이 테스트가 원래 보려던 검사에 도달하지 못한다.
+  const EgoFrenetState ego{0.0, -0.15, 2.0};
   const auto path = makeStraightCandidate(reference, -0.15, -0.40);
   PathValidationFailure expected;
   ASSERT_FALSE(planner.validatePath(ego, path, {}, nullptr, &expected));
@@ -437,6 +446,50 @@ RacelineSplineParameters fieldParameters()
 // 그날 실측: s=32.89 v=6.63 → s=33.14 v=4.58. 0.25 m 만에 (6.63²-4.58²)/(2·0.25) = 46 m/s²의
 // 제동을 요구한다. 원인은 곡률·간격 캡이 waypoint마다 독립이라 S자 전이의 변곡점(κ≈0)에서
 // 캡이 통째로 풀리는 것이었고, 접근 램프는 장애물 스팬 앞에만 걸려 이 구간을 못 잡았다.
+// 🔴 2026-08-17 00:10 백 회귀. 랩마다 재현된 충돌 2건의 원인.
+//
+// 안전정지가 8회 확인 후 해제되며 커밋한 경로의 첫 점이 자차에서 불연속이었다:
+//   자차          s=23.40  d=+0.043
+//   경로 첫 점     s=23.60  d=+0.4897   → 0.20 m 앞에서 0.45 m 옆 (기울기 2.3)
+// 경로 **내부**는 매끄러워 하드 검증을 통과했고, 차는 그 점을 향하다 오히려 반대로 밀려
+// (d: +0.04 → -0.14) s=23.85에서 장애물에 박았다.
+//
+// 같은 검사가 buildCommittedPathStop에는 있었지만 회피 경로에는 없었다.
+TEST(RacelineSplinePlanner, PathDiscontinuousFromEgoIsRejected)
+{
+  auto parameters = fieldParameters();
+  RacelineSplinePlanner planner(parameters);
+  const auto reference = makeStraightReference(300, 0.25, 1.20, 1.20);
+  ASSERT_TRUE(planner.setReference(reference));
+
+  const EgoFrenetState ego{5.0, 0.043, 1.0};
+  // 자차 0.20 m 앞에서 0.45 m 옆으로 시작하는 경로 — 기울기 2.25 (한계 0.8).
+  f110_msgs::msg::WpntArray path;
+  path.header = reference.header;
+  for (std::size_t index = 0; index < 20U; ++index) {
+    f110_msgs::msg::Wpnt waypoint;
+    waypoint.id = static_cast<std::int32_t>(index);
+    waypoint.s_m = 5.20 + 0.25 * static_cast<double>(index);
+    waypoint.d_m = 0.4897;                     // 경로 내부는 완전히 평탄하다
+    waypoint.x_m = waypoint.s_m;
+    waypoint.y_m = waypoint.d_m;
+    waypoint.vx_mps = 1.5;
+    path.wpnts.push_back(waypoint);
+  }
+  std::string reason;
+  EXPECT_FALSE(planner.validatePath(ego, path, {}, &reason))
+    << "자차에서 0.45 m 떨어진 곳에서 시작하는 경로가 통과했다";
+  EXPECT_NE(reason.find("discontinuous"), std::string::npos) << reason;
+
+  // 대조: 자차 d에서 시작하면 통과해야 한다 (검사가 과하게 걸리지 않는지).
+  for (auto & waypoint : path.wpnts) {
+    waypoint.d_m = ego.d;
+    waypoint.y_m = waypoint.d_m;
+  }
+  std::string ok_reason;
+  EXPECT_TRUE(planner.validatePath(ego, path, {}, &ok_reason)) << ok_reason;
+}
+
 TEST(RacelineSplinePlanner, EveryDropInThePublishedProfileIsActuallyBrakeable)
 {
   auto parameters = fieldParameters();
@@ -1002,14 +1055,14 @@ TEST(RacelineSplinePlanner, AppliesPhysicalVehicleClearanceOnceToTrackBounds)
   ASSERT_TRUE(feasible_planner.setReference(feasible_reference));
   std::string reason;
   EXPECT_TRUE(feasible_planner.validatePath(
-      EgoFrenetState{0.0, 0.0, 2.0},
+      EgoFrenetState{0.0, 0.23, 2.0},
       makeStraightCandidate(feasible_reference, 0.23, 0.0), {}, &reason)) << reason;
 
   const auto blocked_reference = makeStraightReference(300, 0.1, 0.34, 0.34);
   RacelineSplinePlanner blocked_planner(testParameters());
   ASSERT_TRUE(blocked_planner.setReference(blocked_reference));
   EXPECT_FALSE(blocked_planner.validatePath(
-      EgoFrenetState{0.0, 0.0, 2.0},
+      EgoFrenetState{0.0, 0.23, 2.0},
       makeStraightCandidate(blocked_reference, 0.23, 0.0), {}, &reason));
 }
 
@@ -1232,7 +1285,7 @@ TEST(RacelineSplinePlanner, AppliesIndependentWallSafetyMarginOnlyToTrackBounds)
   ASSERT_TRUE(tangent_planner.setReference(tangent_reference));
   std::string reason;
   EXPECT_TRUE(tangent_planner.validatePath(
-      EgoFrenetState{0.0, 0.0, 2.0},
+      EgoFrenetState{0.0, 0.23, 2.0},
       makeStraightCandidate(tangent_reference, 0.23, 0.0), {}, &reason)) << reason;
 
   RacelineSplinePlanner blocked_planner(parameters);
