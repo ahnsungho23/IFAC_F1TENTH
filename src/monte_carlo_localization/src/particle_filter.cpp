@@ -291,7 +291,23 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
 
     // Load map
     get_omap();
-    initialize_global();
+    // ⚠️ get_omap()은 map_server 응답을 기다리며 스핀한다. 그 사이 transient_local인
+    // /global_waypoints 콜백이 먼저 도착해 시작 포즈로 파티클을 이미 좁게 초기화할 수 있고,
+    // 그때 무조건 initialize_global()을 부르면 **정답 포즈를 랜덤 분산으로 덮어써** MCL이
+    // 끝내 수렴하지 못한다(2026-08-14: 시뮬 통합 검증 7회 중 4회가 이 경합으로 오차
+    // 4.2~12.7 m에 고정. 성공 런은 "글로벌 초기화 → 웨이포인트 초기화" 순서, 실패 런은
+    // 그 반대였다). 이미 초기화됐으면 건너뛴다.
+    if (auto_init_done_ || pose_initialized_from_rviz_)
+    {
+        RCLCPP_INFO(this->get_logger(),
+            "초기 포즈가 이미 설정됨 — 글로벌 랜덤 초기화를 건너뛴다 "
+            "(waypoints=%d, rviz=%d)",
+            static_cast<int>(auto_init_done_), static_cast<int>(pose_initialized_from_rviz_));
+    }
+    else
+    {
+        initialize_global();
+    }
 
     // Update timer - use slower frequency during startup to reduce resource contention
     double startup_frequency = std::min(TIMER_FREQUENCY, 15.0);  // Cap at 15Hz during startup
@@ -731,7 +747,30 @@ void ParticleFilter::motion_model(Eigen::MatrixXd &proposal_dist, const MotionCo
         // In high-speed curves, reduce noise to prevent particle divergence
         curve_factor = std::max(0.4, 1.0 - (speed * angular_speed / 10.0));
     }
-    const double noise_factor = std::min(speed_factor * curve_factor, 2.0);
+    // 🔴 2026-08-14: 이동량 비례 노이즈. 이전에는 noise_factor의 하한이 1.0이라 차가 완전히
+    // 서 있어도 매 사이클 노이즈가 100% 주입됐다. 40 Hz에서 정지 1초당 확산 폭이
+    // 위치 0.10*sqrt(40)=0.63 m, 각도 0.20 rad*sqrt(40)=72°였고, 이 트랙은 좌우 대칭 복도라
+    // 뒤집힌 가설도 스캔이 비슷하게 맞는다. 그래서 입자 일부가 반대 방향에 붙고 지배 모드가
+    // 바뀌는 순간 추정 포즈가 통째로 점프했다.
+    //   실측(run_0814_220956): 휠속 0.00·스캔 변화 0.004~0.005 m인데 포즈가
+    //   t=37.79 803 cm/167.6°, 41.26 137 cm, 43.84 214 cm, 46.46 207 cm, 48.51 108 cm 점프.
+    //   스캔이 그대로인데 포즈만 튀므로 센서·맵 문제가 아니다(맵은 MCL이 쓰는 파일과
+    //   동일 md5로 대조했고, 스캔이 맞는 포즈가 국소 탐색에서 잔차 0.05 m로 존재했다).
+    //
+    // 표준 오도메트리 모션 모델은 "움직인 만큼만" 불확실성을 더한다. 그 성질을 복원한다:
+    // 실제 이동량이 0에 수렴하면 확산도 0에 수렴하고, 정지 중 포즈는 스캔 우도만으로
+    // 고정된다. 기준값 0.02 m / 0.02 rad는 한 사이클(25 ms) 동안 사실상 정지로 볼 수 있는
+    // 크기다 — 0.02 m/25 ms = 0.8 m/s, 0.02 rad/25 ms = 0.8 rad/s.
+    // ⚠️ 하한 kStationaryNoiseFloor를 남긴다. 완전히 0으로 만들면 정지 중 입자 다양성이
+    //    소멸해 재수렴 능력을 잃는다(정지 중 누가 차를 옮기면 영영 못 따라간다).
+    constexpr double kMotionScaleReferenceM = 0.02;
+    constexpr double kMotionScaleReferenceRad = 0.02;
+    constexpr double kStationaryNoiseFloor = 0.05;
+    const double motion_scale = std::clamp(
+        std::abs(linear_displacement) / kMotionScaleReferenceM +
+        std::abs(delta_theta) / kMotionScaleReferenceRad,
+        kStationaryNoiseFloor, 1.0);
+    const double noise_factor = std::min(speed_factor * curve_factor, 2.0) * motion_scale;
 
     // Apply bicycle model kinematics
     for (int i = 0; i < MAX_PARTICLES; ++i)
