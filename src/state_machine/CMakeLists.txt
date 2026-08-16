@@ -47,4 +47,11 @@ install(DIRECTORY
   DESTINATION share/${PROJECT_NAME}
 )
 
+if(BUILD_TESTING)
+  find_package(ament_cmake_pytest REQUIRED)
+  # yaml과 코드의 파라미터 불일치는 ROS 2가 조용히 무시하므로 여기서 검사한다.
+  # 상세 근거는 test/test_params_match_code.py 문서 문자열 참고.
+  ament_add_pytest_test(params_match_code test/test_params_match_code.py)
+endif()
+
 ament_package()
