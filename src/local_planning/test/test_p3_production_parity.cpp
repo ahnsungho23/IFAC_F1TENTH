@@ -255,7 +255,7 @@ TEST(P3ProductionParity, CurrentlyFailingScenariosAreStillReproduced)
       EXPECT_FALSE(recovers[index])
         << name << " frame " << index
         << ": 이 장면은 아직 실패해야 한다. 성공한다면 후보 배치가 이미 바뀌었다는 뜻이고,"
-           " 그때는 이 테스트를 CurrentlyFailing → Recovers 로 옮길 것";
+        " 그때는 이 테스트를 CurrentlyFailing → Recovers 로 옮길 것";
     }
   }
 }
