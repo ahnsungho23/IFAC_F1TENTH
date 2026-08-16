@@ -177,14 +177,21 @@ ros2 launch f1tenth_control control_sim.launch.py
 
 ---
 
-### (선택) `new_map_con` 단독 컨트롤러
+### ~~(선택) `new_map_con` 단독 컨트롤러~~ (폐지)
 
-글로벌 플래너와 기본 제어기를 종료한 뒤 CSV waypoint 발행과 pure-pursuit 제어를 한 노드로
-시험할 때 사용합니다.
+**`new_map_con`은 삭제된 패키지입니다** (`3f50623 remove: delete obsolete new_map_con
+package`). `wpnt_publisher`와 같은 상태입니다 — 소스는 없고 `install/`의 옛 빌드 잔재로만
+실행됩니다. 클린 빌드 후에는 실행되지 않습니다. **띄우지 마십시오.**
+
+### 삭제된 패키지의 빌드 잔재 (정리 필요)
+
+의도적으로 삭제됐지만 `install/`에 남아 **아직 `ros2 launch`로 뜨는** 패키지가 있습니다.
+소스가 없으므로 옛 코드가 조용히 돌게 되어 위험합니다. 워크스페이스를 정리하려면:
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/jazzy/setup.zsh
-source install/setup.zsh
-ros2 launch new_map_con new_map_con.launch.py simulator:=true
+rm -rf src/new_map_con install/new_map_con install/wpnt_publisher \
+       build/new_map_con build/wpnt_publisher
 ```
+
+`src/new_map_con/`에는 `launch/__pycache__/*.pyc`만 남아 있습니다(소스 없음).
