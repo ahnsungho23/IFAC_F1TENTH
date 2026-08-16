@@ -491,6 +491,64 @@ TEST(P3ProductionParity, SamePinchGeometryAtTwoDistances)
   }
 }
 
+// 🔴 평가기의 내부 불변식 위반이 노드를 죽이면 안 된다 (2026-08-17).
+//
+// p3_shadow.cpp에는 후보 예산·구간 포함관계를 지키는 throw std::runtime_error가 6개 있고,
+// evaluateP3Shadow는 (a) 타이머 콜백에서, (b) plan() 안에서 불린다. ROS 2 콜백을 넘어간
+// 예외는 executor를 타고 나가 local_planner_node를 통째로 종료시킨다 — 주행 중이면 회피도
+// 안전정지도 남지 않는다. 노드 전체를 통틀어 catch는 진단용 std::stoll 하나뿐이었다.
+//
+// 여기서는 불변식을 직접 깨뜨릴 수 없으므로, 평가기가 어떤 입력에도 예외를 밖으로 흘리지
+// 않는다는 계약만 고정한다. 극단 입력(NaN·역전 구간·거대 폭·트랙 길이 초과)을 넣는다.
+TEST(P3ProductionParity, EvaluatorNeverThrowsOutOfTheCallback)
+{
+  const auto stream = readStream(scenarioPath("passing_mixed"));
+  auto parameters = parametersOf(stream);
+  RacelineSplinePlanner planner(parameters);
+  ASSERT_TRUE(planner.setReference(stream.reference));
+  const double track_length = stream.reference.wpnts.back().s_m;
+  const auto & frame = stream.frames.front();
+
+  const auto make = [&](double s_start, double s_end, double d_right, double d_left) {
+      f110_msgs::msg::Obstacle obstacle;
+      obstacle.id = 991;
+      obstacle.s_start = s_start;
+      obstacle.s_end = s_end;
+      obstacle.s_center = 0.5 * (s_start + s_end);
+      obstacle.d_right = d_right;
+      obstacle.d_left = d_left;
+      obstacle.d_center = 0.5 * (d_right + d_left);
+      obstacle.size = d_left - d_right;
+      obstacle.is_static = true;
+      obstacle.is_visible = true;
+      return obstacle;
+    };
+  const double quiet_nan = std::numeric_limits<double>::quiet_NaN();
+  const std::vector<std::vector<f110_msgs::msg::Obstacle>> hostile{
+    {},                                                            // 장애물 없음
+    {make(frame.ego.s + 2.0, frame.ego.s + 1.0, -0.3, 0.3)},       // 구간 역전
+    {make(frame.ego.s + 2.0, frame.ego.s + 2.0, -0.3, 0.3)},       // 길이 0
+    {make(frame.ego.s + 2.0, frame.ego.s + 2.5, 0.3, -0.3)},       // 좌우 역전
+    {make(frame.ego.s + 2.0, frame.ego.s + 2.5, -1.0e6, 1.0e6)},   // 거대 폭
+    {make(frame.ego.s + 3.0 * track_length, frame.ego.s + 3.1 * track_length, -0.3, 0.3)},
+    {make(quiet_nan, quiet_nan, quiet_nan, quiet_nan)},            // NaN
+    {make(frame.ego.s + 2.0, frame.ego.s + 2.5, -0.3, 0.3),
+      make(frame.ego.s + 2.1, frame.ego.s + 2.4, -0.2, 0.2)},      // 완전 겹침
+  };
+  for (std::size_t index = 0; index < hostile.size(); ++index) {
+    EXPECT_NO_THROW({
+        const auto result = planner.evaluateP3Shadow(
+        frame.ego, hostile[index], 0, 0U, 1U, "PARITY_ORACLE");
+        (void)result;
+    }) << "입력 " << index << ": 평가기가 예외를 콜백 밖으로 흘렸다 — 노드가 죽는다";
+    // plan()도 내부에서 같은 평가기를 부른다.
+    EXPECT_NO_THROW({
+        const auto plan = planner.plan(frame.ego, hostile[index]);
+        (void)plan;
+    }) << "입력 " << index << ": plan()이 예외를 콜백 밖으로 흘렸다 — 노드가 죽는다";
+  }
+}
+
 TEST(P3ProductionParity, GeometricallyImpossibleGapStaysImpossible)
 {
   const auto stream = readStream(scenarioPath("passing_mixed"));

@@ -1970,6 +1970,43 @@ P3ShadowResult RacelineSplinePlanner::evaluateP3Shadow(
   std::uint64_t global_reference_generation,
   const std::string & p0_failure_reason) const
 {
+  // 🔴 2026-08-17: 내부 불변식 위반이 **노드를 죽이지 않게** 한다.
+  //
+  // 이 파일에는 후보 예산·구간 포함관계 같은 불변식을 지키는 throw std::runtime_error가
+  // 있다. 그런데 이 함수는 (a) local_planner_node의 타이머 콜백에서, (b) plan() 안에서
+  // 불린다. ROS 2 콜백을 넘어간 예외는 executor를 타고 나가 **local_planner_node를 통째로
+  // 종료시킨다** — 주행 중이면 회피도 안전정지도 남지 않는다. 종전에는 이 경계에 catch가
+  // 없었고, 노드 전체를 통틀어 catch는 진단용 std::stoll 하나뿐이었다.
+  //
+  // 불변식 위반은 버그이므로 조용히 삼키지 않는다 — 호출자가 볼 수 있도록 실패 분류를
+  // 남기고, 노드는 ERROR 로그를 던진다. 다만 그 대가가 "노드 사망"이어서는 안 된다.
+  // 평가 실패로 떨어지면 상위는 후보를 못 찾았을 때와 **같은 경로**(안전정지 사다리)를
+  // 탄다. 이것이 이미 검증된 실패 경로다.
+  try {
+    return evaluateP3ShadowUnguarded(
+      ego, obstacles, snapshot_source_stamp_ns, snapshot_epoch,
+      global_reference_generation, p0_failure_reason);
+  } catch (const std::exception & error) {
+    P3ShadowResult failed;
+    failed.enabled = true;
+    failed.snapshot_source_stamp_ns = snapshot_source_stamp_ns;
+    failed.snapshot_epoch = snapshot_epoch;
+    failed.global_reference_generation = global_reference_generation;
+    failed.p0_failure_reason = p0_failure_reason;
+    failed.failure_classification =
+      std::string("EVALUATOR_INVARIANT_VIOLATION: ") + error.what();
+    return failed;
+  }
+}
+
+P3ShadowResult RacelineSplinePlanner::evaluateP3ShadowUnguarded(
+  const EgoFrenetState & ego,
+  const std::vector<f110_msgs::msg::Obstacle> & obstacles,
+  std::int64_t snapshot_source_stamp_ns,
+  std::uint64_t snapshot_epoch,
+  std::uint64_t global_reference_generation,
+  const std::string & p0_failure_reason) const
+{
   const P3ShadowEvaluator evaluator(*this);
   P3ShadowResult strict = evaluator.run(
     ego, obstacles, snapshot_source_stamp_ns, snapshot_epoch,

@@ -2258,10 +2258,21 @@ P3ShadowResult LocalPlannerNode::evaluateP3Snapshot(
     result.failure_classification = snapshot.not_ready_reason;
     return result;
   }
-  return planner_.evaluateP3Shadow(
+  const auto result = planner_.evaluateP3Shadow(
     snapshot.maneuver.ego, snapshot.maneuver.obstacles,
     snapshot.maneuver.source_stamp_ns, snapshot.maneuver.source_epoch,
     snapshot.maneuver.global_reference_generation, p0_context);
+  // 평가기는 내부 불변식 위반을 예외 대신 이 분류로 돌려준다(evaluateP3Shadow의 가드 참고).
+  // 조용히 지나가면 안 되는 버그이므로 여기서 크게 남긴다.
+  if (result.failure_classification.rfind("EVALUATOR_INVARIANT_VIOLATION", 0) == 0) {
+    RCLCPP_ERROR_THROTTLE(
+      get_logger(), *get_clock(), 1000,
+      "P3 평가기 내부 불변식 위반 — 이번 콜백은 평가 실패로 처리된다(노드는 유지). "
+      "%s | ego s=%.2f d=%+.2f 장애물 %zu개",
+      result.failure_classification.c_str(), snapshot.maneuver.ego.s,
+      snapshot.maneuver.ego.d, snapshot.maneuver.obstacles.size());
+  }
+  return result;
 }
 
 P3ManeuverLifecycleDecision LocalPlannerNode::advanceP3Lifecycle(

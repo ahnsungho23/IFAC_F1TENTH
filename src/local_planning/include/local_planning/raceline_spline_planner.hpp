@@ -397,6 +397,15 @@ public:
     std::uint64_t global_reference_generation,
     const std::string & p0_failure_reason) const;
 
+  // 위 함수가 try로 감싸는 실제 구현. 예외를 그대로 던지므로 직접 부르지 말 것.
+  P3ShadowResult evaluateP3ShadowUnguarded(
+    const EgoFrenetState & ego,
+    const std::vector<f110_msgs::msg::Obstacle> & obstacles,
+    std::int64_t snapshot_source_stamp_ns,
+    std::uint64_t snapshot_epoch,
+    std::uint64_t global_reference_generation,
+    const std::string & p0_failure_reason) const;
+
   // Revalidate a committed P3 suffix against the current immutable planning snapshot using the
   // same production hard validator and configured minimum-path contract as fresh P3 candidates.
   // `obstacle_reserve_scale` scales only the tracking-error reserve portion of the obstacle
