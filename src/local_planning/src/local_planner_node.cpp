@@ -1704,7 +1704,8 @@ void LocalPlannerNode::latchSafeStop(
       last_path_stop.reason += "; trigger: " + trigger_reason;
       result = std::move(last_path_stop);
     } else {
-      auto braked = planner_.buildLastPathBrake(ego, last_valid_guidance_path_);
+      auto braked = planner_.buildLastPathBrake(
+        ego, last_valid_guidance_path_, planning_obstacles);
       if (!braked.wpnts.empty()) {
         result.kind = SplinePlanKind::kSafeStop;
         result.path = std::move(braked);

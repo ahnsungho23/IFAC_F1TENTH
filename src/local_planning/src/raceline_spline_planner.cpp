@@ -1190,8 +1190,48 @@ f110_msgs::msg::WpntArray RacelineSplinePlanner::buildEmergencyStopPath(
   return path;
 }
 
+double RacelineSplinePlanner::firstCollisionForward(
+  const EgoFrenetState & ego, const f110_msgs::msg::WpntArray & path,
+  const std::vector<ExpandedObstacle> & visible, int * obstacle_id) const
+{
+  if (obstacle_id != nullptr) {
+    *obstacle_id = -1;
+  }
+  std::size_t start_index = 0U;
+  double nearest_forward = std::numeric_limits<double>::infinity();
+  for (std::size_t i = 0; i < path.wpnts.size(); ++i) {
+    const double forward = forwardDistance(ego.s, path.wpnts[i].s_m);
+    if (forward < nearest_forward) {
+      nearest_forward = forward;
+      start_index = i;
+    }
+  }
+  if (path.wpnts.empty() || nearest_forward > 0.5 * track_length_) {
+    return std::numeric_limits<double>::infinity();
+  }
+  for (std::size_t i = start_index; i < path.wpnts.size(); ++i) {
+    const auto & waypoint = path.wpnts[i];
+    const double forward_s = forwardDistance(ego.s, waypoint.s_m);
+    const double clearance = parameters_.obstacleSafetyClearance(
+      waypoint.vx_mps, waypoint.kappa_radpm);
+    for (const auto & obstacle : visible) {
+      if (forward_s >= obstacle.start && forward_s <= obstacle.end &&
+        waypoint.d_m > obstacle.raw_d_right - clearance + kEpsilon &&
+        waypoint.d_m < obstacle.raw_d_left + clearance - kEpsilon)
+      {
+        if (obstacle_id != nullptr) {
+          *obstacle_id = obstacle.id;
+        }
+        return forward_s;
+      }
+    }
+  }
+  return std::numeric_limits<double>::infinity();
+}
+
 f110_msgs::msg::WpntArray RacelineSplinePlanner::buildLastPathBrake(
-  const EgoFrenetState & ego, const f110_msgs::msg::WpntArray & path) const
+  const EgoFrenetState & ego, const f110_msgs::msg::WpntArray & path,
+  const std::vector<f110_msgs::msg::Obstacle> & obstacles) const
 {
   f110_msgs::msg::WpntArray braked;
   braked.header = path.header;
@@ -1214,22 +1254,40 @@ f110_msgs::msg::WpntArray RacelineSplinePlanner::buildLastPathBrake(
   }
   const double deceleration = std::max(parameters_.safe_stop_deceleration_mps2, 0.1);
   const double speed = std::max(0.0, ego.speed);
-  const double stop_at = nearest_forward + speed * speed / (2.0 * deceleration);
+  // 설정 감속으로 서려면 필요한 거리. 이것만으로 정지 목표를 잡으면 장애물이 그보다 가까울 때
+  // 목표가 장애물 뒤에 놓인다 — 15:37 백의 충돌 4회가 정확히 그 형태였다.
+  const double nominal_stop = nearest_forward + speed * speed / (2.0 * deceleration);
+  const auto visible = expandVisibleObstacles(ego, obstacles);
+  const double contact_forward = firstCollisionForward(ego, path, visible, nullptr);
+
+  // 포함 한계는 **접촉 지점 직전**이다. firstCollisionForward는 처음으로 충돌하는
+  // waypoint의 거리를 돌려주므로 그 점 자체를 포함하면 안 된다 — 경계에서 한 점만
+  // 넘어가도 그 자리가 곧 접촉이다.
+  std::vector<std::size_t> included;
   for (std::size_t i = start_index; i < path.wpnts.size(); ++i) {
     const double forward_s = forwardDistance(ego.s, path.wpnts[i].s_m);
-    if (forward_s > stop_at + kEpsilon) {
+    if (forward_s > nominal_stop + kEpsilon) {
       break;
     }
+    if (std::isfinite(contact_forward) && forward_s >= contact_forward - kEpsilon) {
+      break;
+    }
+    included.push_back(i);
+  }
+  if (included.size() < 2U) {
+    return braked;   // 이미 접촉 지점 — 호출자가 zero-speed hold로 처리한다.
+  }
+  // 정지 목표는 실제로 포함된 마지막 점이다. 그래야 프로파일이 그 점에서 정확히 0에
+  // 닿고, 접촉점 앞에서 멈추기 위해 필요한 감속이 설정값을 넘더라도 명령이 0에 도달한다.
+  const double stop_at = forwardDistance(ego.s, path.wpnts[included.back()].s_m);
+  for (const std::size_t i : included) {
+    const double forward_s = forwardDistance(ego.s, path.wpnts[i].s_m);
     auto waypoint = path.wpnts[i];
     waypoint.id = static_cast<int32_t>(braked.wpnts.size());
     waypoint.vx_mps = std::min(
       std::max(0.0, waypoint.vx_mps),
       std::sqrt(2.0 * deceleration * std::max(0.0, stop_at - forward_s)));
     braked.wpnts.push_back(waypoint);
-  }
-  if (braked.wpnts.size() < 2U) {
-    braked.wpnts.clear();
-    return braked;
   }
   braked.wpnts.back().vx_mps = 0.0;
   updateGeometryAndAcceleration(braked);
@@ -1265,43 +1323,41 @@ RacelineSplineResult RacelineSplinePlanner::buildCommittedPathStop(
   }
 
   const auto visible = expandVisibleObstacles(ego, obstacles);
-  double first_collision_forward = std::numeric_limits<double>::infinity();
   int first_collision_id = -1;
-  for (std::size_t i = start_index; i < committed_path.wpnts.size(); ++i) {
-    const auto & waypoint = committed_path.wpnts[i];
-    const double forward_s = forwardDistance(ego.s, waypoint.s_m);
-    const double clearance = parameters_.obstacleSafetyClearance(
-      waypoint.vx_mps, waypoint.kappa_radpm);
-    for (const auto & obstacle : visible) {
-      if (forward_s >= obstacle.start && forward_s <= obstacle.end &&
-        waypoint.d_m > obstacle.raw_d_right - clearance + kEpsilon &&
-        waypoint.d_m < obstacle.raw_d_left + clearance - kEpsilon)
-      {
-        first_collision_forward = forward_s;
-        first_collision_id = obstacle.id;
-        break;
-      }
-    }
-    if (std::isfinite(first_collision_forward)) {
-      break;
-    }
-  }
+  const double first_collision_forward =
+    firstCollisionForward(ego, committed_path, visible, &first_collision_id);
   if (!std::isfinite(first_collision_forward)) {
     result.reason = "committed path has no obstacle collision before which to stop";
     return result;
   }
 
-  const double stop_at = std::max(
-    0.0, first_collision_forward - parameters_.safe_stop_buffer_m);
-  result.path.header = committed_path.header;
-  for (std::size_t i = start_index; i < committed_path.wpnts.size(); ++i) {
-    const double forward_s = forwardDistance(ego.s, committed_path.wpnts[i].s_m);
-    if (forward_s > stop_at + kEpsilon) {
-      break;
-    }
-    auto waypoint = committed_path.wpnts[i];
-    waypoint.id = static_cast<int32_t>(result.path.wpnts.size());
-    result.path.wpnts.push_back(waypoint);
+  // safe_stop_buffer_m는 "여유가 있을 때 남겨두는 것"이지 "여유가 없으면 포기하는 조건"이
+  // 아니다 (2026-08-16). 종전에는 충돌이 버퍼(2.60 m)보다 가까우면 접두부가 비고, 호출자가
+  // 장애물을 전혀 보지 않는 buildLastPathBrake로 떨어져 장애물 뒤에 정지 목표를 세웠다.
+  // 그것이 15:37 백의 충돌 4회다. 이제 버퍼를 넣을 수 없으면 충돌 직전까지로 좁혀서라도
+  // 반드시 접촉점 이전에 세운다.
+  auto build_prefix = [&](double stop_at) {
+      f110_msgs::msg::WpntArray prefix;
+      prefix.header = committed_path.header;
+      for (std::size_t i = start_index; i < committed_path.wpnts.size(); ++i) {
+        const double forward_s = forwardDistance(ego.s, committed_path.wpnts[i].s_m);
+        if (forward_s > stop_at + kEpsilon) {
+          break;
+        }
+        auto waypoint = committed_path.wpnts[i];
+        waypoint.id = static_cast<int32_t>(prefix.wpnts.size());
+        prefix.wpnts.push_back(waypoint);
+      }
+      return prefix;
+    };
+  bool buffer_sacrificed = false;
+  result.path = build_prefix(
+    std::max(0.0, first_collision_forward - parameters_.safe_stop_buffer_m));
+  if (result.path.wpnts.size() < 2U) {
+    // 접촉점 바로 앞까지. 여기서 요구 감속이 safe_stop_deceleration_mps2를 넘을 수 있고,
+    // 그것이 의도다 — 명령이 0에 닿지 않는 것보다 급제동이 낫다.
+    buffer_sacrificed = true;
+    result.path = build_prefix(std::max(0.0, first_collision_forward - kEpsilon));
   }
   if (result.path.wpnts.size() < 2U) {
     result.path.wpnts.clear();
@@ -1346,7 +1402,10 @@ RacelineSplineResult RacelineSplinePlanner::buildCommittedPathStop(
   result.kind = SplinePlanKind::kSafeStop;
   result.obstacle_id = first_collision_id;
   result.merge_s = result.path.wpnts.back().s_m;
-  result.reason = "braking on the remaining committed geometry before a collision";
+  result.reason = buffer_sacrificed ?
+    "braking on the remaining committed geometry to the last collision-free point "
+    "(safe_stop_buffer_m did not fit; deceleration exceeds the configured rate)" :
+    "braking on the remaining committed geometry before a collision";
   return result;
 }
 

@@ -1987,7 +1987,7 @@ TEST(RacelineSplinePlanner, BuildLastPathBrakeStopsAlongGivenGeometry)
   const auto path = makeStraightCandidate(reference, 0.0, 0.0, 60U);
   const EgoFrenetState ego{1.0, 0.0, 2.0};
 
-  const auto braked = planner.buildLastPathBrake(ego, path);
+  const auto braked = planner.buildLastPathBrake(ego, path, {});
   ASSERT_GE(braked.wpnts.size(), 2U);
   // Stop distance from 2.0 m/s at the default 2.5 m/s^2 deceleration is 0.8 m.
   EXPECT_LE(planner.forwardDistance(ego.s, braked.wpnts.back().s_m), 0.8 + 0.2);
@@ -1997,7 +1997,27 @@ TEST(RacelineSplinePlanner, BuildLastPathBrakeStopsAlongGivenGeometry)
   }
 
   f110_msgs::msg::WpntArray empty_path;
-  EXPECT_TRUE(planner.buildLastPathBrake(ego, empty_path).wpnts.empty());
+  EXPECT_TRUE(planner.buildLastPathBrake(ego, empty_path, {}).wpnts.empty());
+
+  // 🔴 2026-08-16 회귀: 장애물이 제동거리보다 가까우면 정지 목표가 장애물 뒤에 놓여
+  // 차가 그 경로를 따라 들어갔다(15:37 백, 랩당 1회씩 4회 충돌). 정지 목표는 반드시
+  // 접촉점 이전이어야 하고, 그 때문에 요구 감속이 설정값을 넘는 것은 의도된 동작이다.
+  // 접촉점을 설정 제동거리(2.0 m/s, 2.5 m/s² → 0.8 m)보다 가깝게 둔다.
+  // 확장 앞면 = (s_center − ego.s) − (0.5·span + obstacle_longitudinal_padding_m).
+  const f110_msgs::msg::Obstacle blocker = makeObstacle(9, 2.1, -0.30, 0.30);
+  const double contact_forward =
+    (2.1 - ego.s) - (0.20 + testParameters().obstacle_longitudinal_padding_m);
+  ASSERT_LT(contact_forward, 0.8) << "이 기하로는 클램프가 발동하지 않는다";
+  const auto guarded = planner.buildLastPathBrake(ego, path, {blocker});
+  ASSERT_GE(guarded.wpnts.size(), 2U);
+  EXPECT_DOUBLE_EQ(guarded.wpnts.back().vx_mps, 0.0);
+  for (const auto & waypoint : guarded.wpnts) {
+    EXPECT_LT(planner.forwardDistance(ego.s, waypoint.s_m), contact_forward)
+      << "경로가 접촉점(자차 +" << contact_forward << " m)을 넘어 연장됐다";
+  }
+  // 그리고 실제로 잘려야 한다 — 장애물이 없었다면 0.8 m까지 갔을 경로다.
+  const double stop_forward = planner.forwardDistance(ego.s, guarded.wpnts.back().s_m);
+  EXPECT_LT(stop_forward, 0.8) << "제동거리가 접촉점 기준으로 좁혀지지 않았다";
 }
 
 TEST(RacelineSplinePlanner, StandstillCloseBehindObstacleStillPlansEscape)

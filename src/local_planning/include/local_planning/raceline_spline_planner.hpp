@@ -356,12 +356,23 @@ public:
   f110_msgs::msg::WpntArray buildGlobalHandoffPath(
     const EgoFrenetState & ego, double state_tail_distance_m, double speed_cap_mps) const;
   f110_msgs::msg::WpntArray buildEmergencyStopPath(const EgoFrenetState & ego) const;
-  // Truncate `path` from the waypoint nearest ahead of ego and apply a braking profile that
-  // stops within the configured safe-stop deceleration, without any obstacle search. Used as
+  // Truncate `path` from the waypoint nearest ahead of ego and apply a braking profile. Used as
   // the last-resort stop geometry when no collision-free stop prefix exists: braking along the
   // most recent vetted path beats an instantaneous zero-speed hold on a moving vehicle.
+  //
+  // 🔴 2026-08-16: 이 함수는 종전에 장애물을 전혀 보지 않고 stop_at = v²/(2·a)만 썼다.
+  // 그래서 장애물이 그 제동거리보다 가까우면 정지 목표가 **장애물 뒤**에 놓였고, 차는 그
+  // 경로를 충실히 따라 장애물로 들어갔다. 15:37 백 실측: v=3.26에서 정지목표 2.95 m 뒤,
+  // 접촉점은 1.37 m 앞 → 접촉 시점 명령속도 √(2·1.8·(2.95−1.37)) = 2.39 m/s, 실측 충돌
+  // 속도 2.39와 일치. 랩마다 같은 자리에서 4회 충돌했다.
+  //
+  // 이제 obstacles를 받아 정지 목표를 첫 충돌 지점 이전으로 자른다. 그렇게 하면 요구
+  // 감속이 safe_stop_deceleration_mps2를 넘을 수 있는데, 그것이 의도다 — "설정 감속으로는
+  // 못 선다"는 "서면 안 된다"가 아니다. 못 서면 한계를 넘겨서라도 최대한 일찍 세워야 하고,
+  // 명령이 0에 닿지 않는 것보다 급제동이 언제나 낫다.
   f110_msgs::msg::WpntArray buildLastPathBrake(
-    const EgoFrenetState & ego, const f110_msgs::msg::WpntArray & path) const;
+    const EgoFrenetState & ego, const f110_msgs::msg::WpntArray & path,
+    const std::vector<f110_msgs::msg::Obstacle> & obstacles) const;
   RacelineSplineResult buildCommittedPathStop(
     const EgoFrenetState & ego,
     const f110_msgs::msg::WpntArray & committed_path,
@@ -430,6 +441,12 @@ private:
   friend class P3ShadowEvaluator;
 
   struct ExpandedObstacle;
+  // Forward distance from ego to the first waypoint of `path` whose footprint intersects an
+  // obstacle, or infinity when the path is clear. Shared by every stop-geometry builder so they
+  // cannot disagree about where contact begins.
+  double firstCollisionForward(
+    const EgoFrenetState & ego, const f110_msgs::msg::WpntArray & path,
+    const std::vector<ExpandedObstacle> & visible, int * obstacle_id = nullptr) const;
   struct Candidate;
   struct FootprintTrackBoundSample;
 
