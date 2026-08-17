@@ -213,7 +213,7 @@ def generate_launch_description():
         #    발행자가 마지막이었나"에 따라 갈린다 → 로컬플래닝이 장애물을 map 프레임으로
         #    옮길 때마다 90 Hz 톱니 8.5 cm 가 실린다(코너 MCL 오차 13 cm 에 맞먹는다).
         #    ⚠️ map->odom(publish_map_odom_tf)은 MCL 만 내므로 real=true 그대로 둘 것.
-        'publish_odom_base_tf': 'false',
+        'publish_odom_base_tf': False,
 
         # ※ 튜닝값(모션 노이즈/스묻싱 등)은 전부 YAML이 단일 소스. launch는
         #    모드 배선(토픽/프레임/TF 플래그)과 설정 파일 선택만 담당한다.
