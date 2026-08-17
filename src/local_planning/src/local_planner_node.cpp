@@ -416,6 +416,14 @@ void LocalPlannerNode::initializeParameters()
   merge_lateral_tolerance_m_ = declare_parameter<double>("merge_lateral_tolerance_m", 0.15);
   merge_confirm_cycles_ = declare_parameter<int>("merge_confirm_cycles", 15);
   safe_stop_release_cycles_ = declare_parameter<int>("safe_stop_release_cycles", 8);
+  remembered_obstacle_enable_ =
+    declare_parameter<bool>("remembered_obstacle_enable", true);
+  remembered_obstacle_removal_passes_ =
+    declare_parameter<int>("remembered_obstacle_removal_passes", 1);
+  remembered_obstacle_visibility_margin_m_ =
+    declare_parameter<double>("remembered_obstacle_visibility_margin_m", 2.0);
+  remembered_obstacle_match_tolerance_m_ =
+    declare_parameter<double>("remembered_obstacle_match_tolerance_m", 0.60);
   planning_period_ms_ = declare_parameter<int>("planning_period_ms", 50);
   state_handoff_tail_distance_m_ =
     declare_parameter<double>("state_handoff_tail_distance_m", 6.0);
@@ -787,6 +795,7 @@ void LocalPlannerNode::onObstacles(const f110_msgs::msg::ObstacleArray::SharedPt
   }
   static_obstacles_ = std::move(accepted_obstacles);
   updateFaceObservationWindows();
+  updateRememberedObstacles();
   has_obstacles_message_ = true;
   last_obstacles_time_ = lockstep_mode_ ? rclcpp::Time(message->header.stamp) : now();
   ++obstacles_message_sequence_;
@@ -989,6 +998,124 @@ LocalPlannerNode::buildInitialStabilizationInput() const
     result.push_back(entry.second);
   }
   return result;
+}
+
+
+// 확정 장애물을 Frenet 그대로 기억하고, 지나쳤는데 못 본 것은 지운다.
+//
+// 규칙은 셋뿐이다:
+//   1. 확정된 장애물은 기억에 넣거나 갱신한다 (온라인이 항상 최신이다)
+//   2. 자차가 그 s를 **시야 확보한 채** 지나가면 "이번 통과에서 봤는가"를 판정한다
+//   3. 못 봤으면 unconfirmed_passes 를 올리고, 임계에 닿으면 지운다
+//
+// 시야 확보 판정은 "자차가 장애물 s를 지나쳤고, 지나기 전에 충분히 가까웠다"로 본다.
+// 멀리서 스쳐 지나간 것을 근거로 지우면 가림 때문에 못 본 것까지 지워버린다.
+void LocalPlannerNode::updateRememberedObstacles()
+{
+  if (!remembered_obstacle_enable_ || !has_global_waypoints_) {
+    return;
+  }
+  const double track_length = planner_.trackLength();
+  if (!(track_length > 0.0)) {
+    return;
+  }
+  const double ego_s = latest_odometry_.pose.pose.position.x;
+
+  const auto forward_gap = [track_length](double from, double to) {
+      double gap = to - from;
+      while (gap < 0.0) {gap += track_length;}
+      while (gap >= track_length) {gap -= track_length;}
+      return gap;
+    };
+
+  // 1. 확정된 것을 기억에 반영한다.
+  for (const auto & obstacle : static_obstacles_) {
+    auto match = std::find_if(
+      remembered_obstacles_.begin(), remembered_obstacles_.end(),
+      [&](const RememberedObstacle & stored) {
+        const double gap = std::min(
+          forward_gap(stored.obstacle.s_center, obstacle.s_center),
+          forward_gap(obstacle.s_center, stored.obstacle.s_center));
+        return gap <= remembered_obstacle_match_tolerance_m_;
+      });
+    if (match == remembered_obstacles_.end()) {
+      RememberedObstacle stored;
+      stored.obstacle = obstacle;
+      stored.last_confirmed_sequence = obstacles_message_sequence_;
+      remembered_obstacles_.push_back(std::move(stored));
+    } else {
+      match->obstacle = obstacle;
+      match->last_confirmed_sequence = obstacles_message_sequence_;
+      match->unconfirmed_passes = 0;      // 다시 봤으면 제거 근거가 사라진다
+      match->pass_pending = false;
+    }
+  }
+
+  // 2·3. 통과 판정.
+  for (auto & stored : remembered_obstacles_) {
+    const double ahead = forward_gap(ego_s, stored.obstacle.s_center);
+    const bool approaching = ahead <= remembered_obstacle_visibility_margin_m_ &&
+      ahead > 0.5 * track_length * 0.0;   // 앞에 있고 시야 안
+    const bool passed = ahead > 0.5 * track_length;   // 지나쳤다(뒤에 있다)
+    if (approaching) {
+      // 시야 안에 들어왔다. 이번 통과의 판정을 예약한다.
+      stored.pass_pending = true;
+      if (stored.last_confirmed_sequence == obstacles_message_sequence_) {
+        stored.pass_pending = false;      // 지금 보고 있다 — 판정할 것이 없다
+      }
+    } else if (passed && stored.pass_pending) {
+      // 시야 안에 들어왔었는데 지나칠 때까지 확정하지 못했다.
+      stored.pass_pending = false;
+      ++stored.unconfirmed_passes;
+      RCLCPP_INFO(
+        get_logger(),
+        "기억된 장애물 s=%.2f 를 시야 안에서 지나쳤으나 확정하지 못했다 (%d/%d) — "
+        "제거 판정 진행",
+        stored.obstacle.s_center, stored.unconfirmed_passes,
+        remembered_obstacle_removal_passes_);
+    }
+  }
+
+  const std::size_t before = remembered_obstacles_.size();
+  remembered_obstacles_.erase(
+    std::remove_if(
+      remembered_obstacles_.begin(), remembered_obstacles_.end(),
+      [this](const RememberedObstacle & stored) {
+        return stored.unconfirmed_passes >= remembered_obstacle_removal_passes_;
+      }),
+    remembered_obstacles_.end());
+  if (remembered_obstacles_.size() != before) {
+    RCLCPP_INFO(
+      get_logger(), "기억된 장애물 %zu개 제거 — 남은 기억 %zu개",
+      before - remembered_obstacles_.size(), remembered_obstacles_.size());
+  }
+}
+
+// 계획 입력. 온라인 확정이 **항상 우선**이고, 기억은 온라인에 없는 것만 채운다.
+//
+// 두 소스가 같은 자리를 다투면 안 된다. 오늘 안전정지 래치와 FSM이 서로 싸울 때 어떤 일이
+// 벌어지는지 봤다. 여기서는 권한이 하나다 — 온라인. 기억은 "아직 안 보이는 것"만 미리
+// 알려주는 사전 정보다.
+std::vector<f110_msgs::msg::Obstacle> LocalPlannerNode::obstaclesWithMemory() const
+{
+  if (!remembered_obstacle_enable_ || remembered_obstacles_.empty()) {
+    return static_obstacles_;
+  }
+  const double track_length = planner_.trackLength();
+  auto merged = static_obstacles_;
+  for (const auto & stored : remembered_obstacles_) {
+    const bool online_has_it = std::any_of(
+      static_obstacles_.begin(), static_obstacles_.end(),
+      [&](const f110_msgs::msg::Obstacle & live) {
+        double gap = std::abs(live.s_center - stored.obstacle.s_center);
+        if (track_length > 0.0) {gap = std::min(gap, track_length - gap);}
+        return gap <= remembered_obstacle_match_tolerance_m_;
+      });
+    if (!online_has_it) {
+      merged.push_back(stored.obstacle);
+    }
+  }
+  return merged;
 }
 
 void LocalPlannerNode::updateFaceObservationWindows()
@@ -2107,8 +2234,11 @@ P3CallbackSnapshot LocalPlannerNode::captureP3CallbackSnapshot()
     snapshot.maneuver.ego.d = snapshot.odometry.pose.pose.position.y;
     snapshot.maneuver.ego.speed = std::abs(snapshot.odometry.twist.twist.linear.x);
   }
-  snapshot.maneuver.obstacles = static_obstacles_;
-  snapshot.maneuver.raw_obstacles = static_obstacles_;
+  // 계획 입력에 기억된 장애물을 병합한다. 온라인 확정이 항상 우선이고, 기억은 아직 안
+  // 보이는 것만 채운다 — 권한은 하나다(obstaclesWithMemory 주석 참고).
+  const auto planning_input = obstaclesWithMemory();
+  snapshot.maneuver.obstacles = planning_input;
+  snapshot.maneuver.raw_obstacles = planning_input;
   snapshot.maneuver.source_stamp_ns = latest_obstacle_source_stamp_ns_;
   snapshot.maneuver.source_epoch = p3_source_epoch_;
   snapshot.maneuver.global_reference_generation = global_reference_generation_;
@@ -2812,7 +2942,7 @@ void LocalPlannerNode::runP0PlanningCycle(const P3CallbackSnapshot * snapshot)
     }
   }
 
-  std::vector<f110_msgs::msg::Obstacle> planning_obstacles = static_obstacles_;
+  std::vector<f110_msgs::msg::Obstacle> planning_obstacles = obstaclesWithMemory();
   bool chained_maneuver_started = false;
 
   // local planner가 먼저 빈 경로를 보내면 state_machine은 merge 판단에 사용할 tail을 잃는다.

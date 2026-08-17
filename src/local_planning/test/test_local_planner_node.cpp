@@ -213,6 +213,98 @@ protected:
   std::string last_diagnostic_;
 };
 
+
+// ── 확정 정적 장애물 기억 ───────────────────────────────────────────────────────────────
+//
+// 왜 (2026-08-17): 오늘 실패의 전부가 "짧은 지평에서 현재 위치로부터 급하게 계획하기"였다.
+// 한 랩 전에 위치를 알면 그 부류가 통째로 사라진다. 대회는 20랩이고 선두 차량이 10랩을
+// 완주하면 장애물이 제거되므로 3~10랩이 이득 구간이다.
+//
+// 계약이 셋이다. 셋 다 깨지면 실차에서 위험하다.
+
+// 1. 기억은 온라인을 **덮어쓰지 않는다**.
+//    권한이 둘이면 서로 싸운다(오늘 안전정지 래치와 FSM에서 겪었다). 온라인이 항상 최신이고,
+//    기억은 온라인에 없는 것만 채운다.
+TEST_F(LocalPlannerNodeTest, RememberedObstaclesNeverOverrideLiveDetection)
+{
+  waypoints_pub_->publish(ringReference());
+  publishOdometry(0.0);
+  spin(std::chrono::milliseconds(150));
+
+  // 같은 자리의 장애물을 두 번 보되, 두 번째는 폭이 다르다. 병합 후에도 **최신** 값이어야 한다.
+  auto first = validObstacle(21, 8.0);
+  publishObstacles({first}, 5);
+  ASSERT_TRUE(waitForAcceptedStamp(5, std::chrono::milliseconds(1500))) << last_diagnostic_;
+
+  auto grown = validObstacle(21, 8.0);
+  grown.d_left = 0.45;                       // 가까워지며 커진 관측
+  grown.d_right = -0.45;
+  publishObstacles({grown}, 6);
+  ASSERT_TRUE(waitForAcceptedStamp(6, std::chrono::milliseconds(1500))) << last_diagnostic_;
+
+  // 진단의 장애물 목록에 같은 s가 **하나만** 있어야 한다. 기억이 옛 관측을 따로 얹으면 둘이
+  // 되고, 그러면 플래너가 유령 장애물을 하나 더 피하려 든다.
+  const auto position = last_diagnostic_.find("\"obstacles\"");
+  ASSERT_NE(position, std::string::npos) << last_diagnostic_;
+  std::size_t count = 0;
+  for (std::size_t at = last_diagnostic_.find("\"s_start\"", position);
+    at != std::string::npos;
+    at = last_diagnostic_.find("\"s_start\"", at + 1))
+  {
+    ++count;
+  }
+  EXPECT_EQ(count, 1U)
+    << "기억이 온라인 관측 위에 중복으로 얹혔다 — 유령 장애물이 생긴다: " << last_diagnostic_;
+}
+
+// 2. 검출이 끊겨도 기억이 장애물을 유지한다.
+//    가림(오늘 실측: 폭 0.137 -> 0.473)이나 일시적 미검출로 장애물이 사라지면, 종전에는
+//    플래너가 "길이 열렸다"고 보고 커밋을 버렸다. 기억이 그것을 막는다.
+TEST_F(LocalPlannerNodeTest, RememberedObstaclesSurviveADetectionDropout)
+{
+  waypoints_pub_->publish(ringReference());
+  publishOdometry(0.0);
+  spin(std::chrono::milliseconds(150));
+
+  publishObstacles({validObstacle(31, 9.0)}, 5);
+  ASSERT_TRUE(waitForAcceptedStamp(5, std::chrono::milliseconds(1500))) << last_diagnostic_;
+
+  // 검출이 한 프레임 끊긴다. 자차는 아직 멀리 있으므로(s=0, 장애물 s=9) "지나쳤다"가 아니다.
+  publishObstacles({}, 6);
+  ASSERT_TRUE(waitForAcceptedStamp(6, std::chrono::milliseconds(1500))) << last_diagnostic_;
+
+  EXPECT_NE(last_diagnostic_.find("\"s_start\""), std::string::npos)
+    << "검출 한 프레임 끊김에 기억이 무너졌다 — 가림 때마다 커밋이 버려진다: "
+    << last_diagnostic_;
+}
+
+// 3. 시야 확보한 채 지나쳤는데 못 봤으면 **지워야 한다**.
+//    규정상 선두 차량이 10랩을 완주하면 장애물이 제거된다. 그 시점은 상대차 진행에 달려 있어
+//    우리 랩 카운터로는 맞출 수 없다. 지우지 못하면 레이스 후반 내내 없는 장애물을 피해 돈다.
+TEST_F(LocalPlannerNodeTest, RememberedObstaclesAreDroppedAfterPassingWithoutConfirmation)
+{
+  waypoints_pub_->publish(ringReference());
+  publishOdometry(0.0);
+  spin(std::chrono::milliseconds(150));
+
+  publishObstacles({validObstacle(41, 3.0)}, 5);
+  ASSERT_TRUE(waitForAcceptedStamp(5, std::chrono::milliseconds(1500))) << last_diagnostic_;
+
+  // 시야 안(기본 2.0 m)까지 접근한다.
+  publishOdometry(2.0);
+  publishObstacles({}, 6);
+  ASSERT_TRUE(waitForAcceptedStamp(6, std::chrono::milliseconds(1500))) << last_diagnostic_;
+
+  // 지나친다. 시야 안에 들어왔었는데 확정하지 못했으므로 제거되어야 한다.
+  publishOdometry(30.0);
+  publishObstacles({}, 7);
+  ASSERT_TRUE(waitForAcceptedStamp(7, std::chrono::milliseconds(1500))) << last_diagnostic_;
+
+  EXPECT_EQ(last_diagnostic_.find("\"s_start\""), std::string::npos)
+    << "지나쳤는데 못 본 장애물이 기억에 남았다 — 제거 후에도 계속 피해 돈다: "
+    << last_diagnostic_;
+}
+
 // An array whose every entry fails the Frenet validity check is degraded perception. Accepting it
 // would store an empty snapshot indistinguishable from the explicitly-empty array that IS allowed
 // to erase the retained obstacle memory.
