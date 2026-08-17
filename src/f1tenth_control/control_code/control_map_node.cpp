@@ -498,6 +498,43 @@ public:
         l1_marker_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(
             "/debug/l1_lookahead", 10);
 
+        // max_speed만 런타임 변경을 수용한다 — map_creator가 장애물 회피 글로벌 라인
+        // 스왑 직후 파라미터 서비스로 속도 상한을 바꾼다(map_creator.yaml의
+        // swap_max_speed_mps / rollback_max_speed_mps, control_node_name="control_map_node").
+        // 나머지 파라미터는 기존대로 생성자 1회 읽기다(변경하려면 노드 재시작).
+        // ⚠️ 이 노드는 rclcpp::spin() = 단일 스레드 실행기라 이 콜백과 control_loop가
+        //    직렬화된다 — max_speed_ 접근에 락이 필요 없다. 실행기를 멀티스레드로
+        //    바꾸면 이 전제가 깨진다.
+        param_cb_handle_ = this->add_on_set_parameters_callback(
+            [this](const std::vector<rclcpp::Parameter> & params) {
+                rcl_interfaces::msg::SetParametersResult result;
+                result.successful = true;
+                for (const auto & p : params) {
+                    if (p.get_name() != "max_speed") {
+                        // 거부하지 않고 경고만 한다 — 거부하면 use_sim_time 같은
+                        // 정상 설정까지 막힌다. 다만 조용히 성공시키면 ros2 param get은
+                        // 새 값을 보여주는데 노드는 생성자 값을 계속 쓰는 함정이 되므로,
+                        // 로그로 드러낸다.
+                        RCLCPP_WARN(this->get_logger(),
+                                    "'%s' 런타임 변경은 제어에 반영되지 않는다 "
+                                    "(이 노드는 max_speed만 런타임 수용 — 나머지는 재시작 필요)",
+                                    p.get_name().c_str());
+                        continue;
+                    }
+                    if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE ||
+                        !std::isfinite(p.as_double()) || p.as_double() <= 0.0) {
+                        result.successful = false;
+                        result.reason = "max_speed는 양의 유한 double이어야 함";
+                        return result;
+                    }
+                    RCLCPP_INFO(this->get_logger(),
+                                "max_speed 런타임 변경: %.2f -> %.2f m/s",
+                                max_speed_, p.as_double());
+                    max_speed_ = p.as_double();
+                }
+                return result;
+            });
+
         control_timer_ = this->create_wall_timer(
             std::chrono::milliseconds(20), std::bind(&ControlMapNode::control_loop, this));
 
@@ -1679,7 +1716,8 @@ private:
     double ramp_lead_max_ = 2.4;   // 램프 안티와인드업 선행 상한 [m/s], 0이면 비활성
     double base_max_decel_;                  // 명령 속도 하강 rate limit [m/s²]
     double prebrake_decel_ = 1.5;            // 곡률 사전감속용 실측 감속 권한 [m/s²]
-    double max_speed_, min_speed_;
+    double max_speed_, min_speed_;   // max_speed_는 런타임 파라미터 변경 수용(생성자 콜백)
+    rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr param_cb_handle_;
 
     // 런치 킥
     bool launch_boost_enable_ = true;

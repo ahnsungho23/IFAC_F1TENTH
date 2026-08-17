@@ -119,6 +119,10 @@ private:
     declare_parameter<std::string>("state_machine_node_name", "state_machine_node");
     // Post-swap control speed cap: send max_speed to the control node right
     // after a successful obstacle-line swap. <= 0 disables the send.
+    // The direction is relative to the control node's launch default (currently
+    // 5.0 in control_real.launch.py): laps 1-2 run the baseline line with unknown
+    // obstacle positions, so they start slow and this raises the cap once the
+    // swapped line routes around the obstacles.
     declare_parameter<std::string>("control_node_name", "control_map_node");
     declare_parameter<double>("swap_max_speed_mps", 0.0);
     declare_parameter<double>("rollback_max_speed_mps", 0.0);

@@ -65,10 +65,20 @@ IDLE ──(lap_count ≥ trigger, 원장 freeze)──▶ 판정+페인팅+저�
    파라미터 서비스 미준비 시 tick마다 재시도하며, 거부되면 로그만 남긴다.
 8. **제어 속도 상한 전송**: 같은 트리거(스왑 성공 직후)로 control 노드
    (`control_node_name`)의 `max_speed` 파라미터를 `swap_max_speed_mps`(기본 7.0)로
-   내린다. baseline rollback 스왑에서는 `rollback_max_speed_mps`(>0일 때만)를 보내
-   복원한다. control_map_node는 max_speed에 한해 런타임 파라미터 변경을 수용한다
-   (그 외 파라미터는 기존대로 생성자 1회 읽기). 전송 실패·미준비 시 AVOID 게이트와
-   같은 tick 재시도 경로를 쓴다.
+   바꾼다. baseline rollback 스왑에서는 `rollback_max_speed_mps`(>0일 때만)를 보내
+   복원한다.
+   - **방향은 control 쪽 기동 기본값과의 비교로 정해진다.** 현재
+     `control_real.launch.py`의 `max_speed`가 **5.0**이므로 7.0은 **올리는** 값이다 —
+     랩1~2는 장애물 위치를 모르는 baseline 라인으로 도니 낮게 출발하고, 스왑 뒤엔
+     라인 자체가 장애물을 비켜 가므로 올린다. (기동 기본값이 8.0이던 시절에는 같은
+     7.0이 "내리는" 값이었다. 그 시절 서술이 문서에 남아 있었다.)
+   - control_map_node는 **max_speed에 한해** 런타임 파라미터 변경을 수용한다
+     (그 외 파라미터는 기존대로 생성자 1회 읽기 — 런타임 set 시 거부하지 않고 경고만
+     찍으므로 `ros2 param get`은 새 값을 보여주지만 제어는 안 바뀐다).
+     수신 측 상세는 `f1tenth_control/CLAUDE.md` ②-t.
+   - 양의 유한 double이 아니면 control이 `reason`을 담아 거부하고, 이 노드가 그
+     `reason`을 ERROR 로그(`max_speed=%.2f rejected by control: ...`)로 찍는다.
+   - 전송 실패·미준비 시 AVOID 게이트와 같은 tick 재시도 경로를 쓴다.
 
 ## 3. 구독·발행·서비스
 

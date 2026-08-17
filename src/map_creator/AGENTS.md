@@ -109,6 +109,10 @@ map_creator package rules. These instructions apply to `src/map_creator`.
   AsyncParametersClient sends retried each tick until the service is ready:
   state_machine `allow_avoid_transition` (false on obstacle swap / true on rollback) and
   control `max_speed` (`swap_max_speed_mps` on obstacle swap, `rollback_max_speed_mps`
-  on rollback when > 0). control_map_node accepts runtime updates for max_speed only.
+  on rollback when > 0). control_map_node accepts runtime updates for max_speed only;
+  other parameters are warned about, not rejected, so `ros2 param get` can disagree with
+  what control actually uses. Whether `swap_max_speed_mps` raises or lowers the cap
+  depends on control's launch default (`control_real.launch.py max_speed`, currently 5.0,
+  so 7.0 raises it) — do not describe the direction without checking that value.
 - Update this AGENTS.md and `docs/map_creator_node.md` when behavior, topics,
   parameters, or launch usage change.

@@ -14,8 +14,14 @@ map_creator_node:
     state_machine_node_name: "state_machine_node"
 
     # ---- post-swap control speed cap ----
-    # 장애물 회피 라인 스왑 성공 직후 control 노드의 max_speed를 런타임으로 내립니다
+    # 장애물 회피 라인 스왑 성공 직후 control 노드의 max_speed를 런타임으로 바꿉니다
     # (avoid 게이트와 같은 트리거·재시도 경로). <=0 이면 해당 전이에는 전송하지 않음.
+    # 방향은 control 쪽 기동 기본값(control_real.launch.py max_speed, 현재 5.0)과의
+    # 비교로 정해집니다 — 랩1~2는 장애물 위치를 모르는 baseline 라인으로 도니 낮게
+    # 출발하고, 스왑 뒤엔 라인 자체가 장애물을 비켜 가므로 7.0으로 **올립니다**.
+    # (기동 기본값이 8.0이던 시절에는 같은 7.0이 "내리는" 값이었습니다.)
+    # 수신 측은 f1tenth_control CLAUDE.md ②-t — max_speed만 런타임 변경을 수용하고
+    # 양의 유한 double이 아니면 reason을 담아 거부합니다(그 reason이 아래 ERROR 로그로 나옴).
     # rollback_max_speed_mps: baseline rollback 스왑 시 복원 값 (0 = 미전송, 스왑 값 유지).
     control_node_name: "control_map_node"
     swap_max_speed_mps: 7.0
