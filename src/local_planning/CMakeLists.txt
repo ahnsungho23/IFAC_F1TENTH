@@ -123,6 +123,18 @@ if(BUILD_TESTING)
     target_link_libraries(test_p3_production_parity local_planner_core)
     target_compile_definitions(test_p3_production_parity PRIVATE
       P3_SCENARIO_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/data/p3_scenarios")
+      target_include_directories(test_p3_production_parity PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/test")
+  endif()
+
+  # 대회 규정 기반 속성 테스트. 재생 안전망과 같은 시나리오 스트림에서 기준선·파라미터만
+  # 빌려 쓰고, 장애물 배치는 규정으로부터 생성한다.
+  ament_add_gtest(test_rule_property test/test_rule_property.cpp)
+  if(TARGET test_rule_property)
+    ament_target_dependencies(test_rule_property f110_msgs)
+    target_link_libraries(test_rule_property local_planner_core)
+    target_include_directories(test_rule_property PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/test")
+    target_compile_definitions(test_rule_property PRIVATE
+      P3_SCENARIO_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/data/p3_scenarios")
   endif()
 
   add_executable(
