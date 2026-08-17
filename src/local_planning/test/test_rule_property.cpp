@@ -388,12 +388,19 @@ Verdict sweep(
     if (placement.obstacles.empty()) {continue;}
     ++verdict.generated;
 
-    // 자차는 가장 앞선 장애물보다 4~10 m 뒤에 둔다 (접근 중 상황).
+    // 자차 위치는 접근 중부터 **이미 옆에 붙은** 상태까지 고루 뽑는다.
+    //
+    // 처음에는 4~10 m 뒤만 뽑았는데, 그러면 cluster_start가 항상 크게 잡혀
+    // "자차가 클러스터 옆에 있는" 영역을 한 번도 시험하지 않는다. 실주행에서 정지가 나는
+    // 자리가 정확히 거기다(2026-08-17 01:55 백의 잔여 정지 5건 전부 cluster_start <= 1.1).
+    // 음수까지 허용해 자차가 클러스터 앞단을 막 지난 상태도 포함한다.
     const double lead = placement.obstacles.front().s_start;
-    std::uniform_real_distribution<double> back(4.0, 10.0);
+    std::uniform_real_distribution<double> back(-0.4, 10.0);
     double ego_s = lead - back(rng);
     while (ego_s < 0.0) {ego_s += track_length;}
-    EgoFrenetState ego{ego_s, 0.0, 3.0};
+    // 횡오프셋도 0만 쓰면 회피 도중 상태를 못 만든다. 회랑 안에서 고루 뽑는다.
+    std::uniform_real_distribution<double> lateral(-0.6, 0.6);
+    EgoFrenetState ego{ego_s, lateral(rng), 3.0};
 
     // 판정자와 플래너가 **같은 장애물 집합**을 봐야 공정하다. 플래너는 detection_lookahead_m
     // 안의 가장 가까운 군집만 계획한다(그 밖은 계획 대상이 아니며, 무시하는 것이 정상이다).
@@ -480,6 +487,11 @@ TEST(RuleProperty, PlannerFindsEveryCorridorAConservativeOracleFinds)
         count, verdict.generated, verdict.mandatory_checked, verdict.mandatory_failed,
         verdict.false_pass);
     }
+    if (verbose) {
+      for (const auto & kind : verdict.failure_kinds) {
+        std::printf("    사유 %4zu회  %s\n", kind.second, kind.first.c_str());
+      }
+    }
     EXPECT_EQ(verdict.false_pass, 0U)
       << "장애물 " << count << "개: 통로가 없는데 회피를 만들었다 — 충돌 위험";
     checked += verdict.mandatory_checked;
@@ -491,12 +503,19 @@ TEST(RuleProperty, PlannerFindsEveryCorridorAConservativeOracleFinds)
   // 수리해서 내려가면 이 숫자를 같이 내린다. 0으로 두면 빌드가 계속 빨개서 신호가 죽고,
   // 상한 없이 두면 조용히 나빠진다.
   //
-  // 2026-08-17 최초 측정: 597개 중 36개 실패 (6.0%).
-  //   실패 사유는 NO_HARD_VALID_M1_CANDIDATE 와 BOUNDARY_HANDOFF_UNRESOLVED 둘뿐이고,
-  //   후자는 cluster_start <= 0 결함(ReplanBesideAClusterIsStillUnsolved)과 같은 원인이다.
-  //   실패한 배치들의 실측 여유폭은 0.75~1.17 m로, 플래너가 필요로 하는 0.72 m보다 넓다.
-  //   즉 예약 부족이 아니라 후보 생성의 결함이다.
-  constexpr std::size_t kKnownFailureCeiling = 36U;
+  // 2026-08-17 1차: 597개 중 36개(6.0%). 그때 생성기는 자차를 장애물 4~10 m 뒤에만 두어
+  //   접근 구간만 재고 있었다. 실주행에서 정지가 나는 자리는 자차가 클러스터 **옆에 붙은**
+  //   상태인데(01:55 백의 잔여 정지 5건 전부 cluster_start <= 1.1) 그 영역을 한 번도 시험하지
+  //   않았다. 생성기를 -0.4~10 m + 횡오프셋 ±0.6 m로 넓혔다.
+  //
+  // 2026-08-17 2차(현재 기준): 546개 중 102개(18.7%). 코드가 나빠진 것이 아니라 **재던 범위가
+  //   넓어진 것**이다. 같은 코드로 좁은 생성기를 쓰면 34개다.
+  //   사유 분포:  NO_HARD_VALID_M1_CANDIDATE 93 / BOUNDARY_HANDOFF_UNRESOLVED 5 /
+  //               NO_VALID_SIDE_DOMAIN 4,  거짓 통과 0.
+  //   cluster_start <= 0 수리(같은 커밋) 전에는 그 영역이 전부 BOUNDARY_HANDOFF_UNRESOLVED
+  //   였는데 5건으로 떨어졌다. 남은 93건은 후보가 생성되지만 하드 검증에서 죽는 경우로,
+  //   진입 눈금 이분법이 아직 M0 baseline에만 있는 것과 관련이 있다(M0확장·M1은 고정 눈금).
+  constexpr std::size_t kKnownFailureCeiling = 102U;
   EXPECT_LE(failed, kKnownFailureCeiling)
     << "보수 판정자가 통로를 찾은 배치 " << checked << "개 중 " << failed
     << "개에서 플래너가 실패했다 — 종전 " << kKnownFailureCeiling

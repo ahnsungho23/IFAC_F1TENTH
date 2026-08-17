@@ -55,6 +55,14 @@ public:
   {
   }
 
+  // 기준선 샘플 간격. 발행 경로는 기준선 격자 위에 생성되므로, 두 station이 이보다 가까우면
+  // 서로 다른 점으로 나타나지 않는다. 튜닝값이 아니라 기준선의 성질이다.
+  double referenceSpacing() const
+  {
+    const std::size_t count = planner_.reference_.wpnts.size();
+    return count < 2U ? 0.25 : planner_.trackLength() / static_cast<double>(count);
+  }
+
 private:
   // 이 사이클이 책임지는 클러스터. buildCandidate가 검증 지평을 구할 때 필요한데 호출
   // 경로가 셋(M0/M0확장/M1)이라 인자로 흘리면 시그니처 셋이 다 바뀐다. 평가기는
@@ -492,23 +500,63 @@ private:
     return hexHash(hash);
   }
 
+  // 기동의 5개 지점. 오프셋은 {ego_d, target, middle, target, 0} 순으로 걸린다.
+  //
+  // 🔴 2026-08-17: 자차가 클러스터에 이미 닿았을 때를 표현할 수 있게 한다.
+  //
+  // 종전에는 진입 램프 길이가 cluster_start에 **비례**했다:
+  //     entry_length = cluster_start * pre_apex.front() * entry / lookahead
+  // cluster_start가 음수(자차가 이미 클러스터 앞단을 지나 옆에 나란히 있음)면 entry_length도
+  // 음수가 되어 첫 구간 길이가 음수가 되고, strictPositiveSegments가 후보를 전부 기각했다.
+  // 작은 양수여도 램프가 지나치게 짧아져 곡률 한계에서 전멸했다. 어느 쪽이든 **표현 가능한
+  // 형상이 아예 없어서**, 통과 가능한 상황에서도 안전정지로 떨어졌다.
+  //
+  // 실해 — 2026-08-17 01:55 백. 잔여 정지 5건 전부 이 자리에서 죽었다:
+  //     cluster_start = -0.541 / -0.151 / -0.018 / +0.174 / +0.275 / +0.756 / +1.095
+  // 안전정지는 스스로 해제 조건(유효 회피 8사이클)을 막으므로 2.3 s씩 갇혔다.
+  //
+  // 물리적으로 옳은 답은 둘 중 하나다:
+  //   지금 d가 이미 장애물을 비켜 있다 → "이 오프셋을 클러스터 끝까지 유지하고 빠져나가기"
+  //   지금 d가 안 비켜 있다           → 전진으로는 해결 불가. 정지가 맞다.
+  // 종전에는 이 둘을 구분하지 못하고 **무조건 두 번째로** 처리했다.
+  //
+  // 그래서 진입 램프가 클러스터 **앞에** 들어갈 자리가 없으면, 램프를 자차에서 시작시키고
+  // 목표 도달 지점을 "물리적으로 가능한 가장 이른 곳"으로 잡는다:
+  //     required = |target - ego_d| / maximum_lateral_slope
+  // 새 상수는 없다 — 이미 있는 기울기 한계가 정한다. 그 지점이 클러스터 안이면 그 구간에서
+  // 경로는 아직 목표에 못 미치는데, 그건 하드 검증의 장애물 충돌 검사가 판정한다. 비켜
+  // 있으면 통과하고, 아니면 기각된다 — 위 두 경우가 정확히 갈린다.
+  //
+  // minimum_station_gap_m은 기준선 샘플 간격이다. 두 지점이 그보다 가까우면 발행 경로에
+  // 서로 다른 점으로 나타나지 않아 구분이 의미를 잃는다. 튜닝값이 아니라 기준선의 성질이다.
   static std::array<double, 5> stationsFor(
     const RacelineSplineParameters & parameters,
     const P3ShadowSideDomain & domain,
     bool outside_is_left,
     double entry,
-    double exit)
+    double exit,
+    double ego_d,
+    double target,
+    double minimum_station_gap_m)
   {
-    const double entry_length = domain.cluster_start *
-      parameters.pre_apex_distances_m.front() * entry / parameters.detection_lookahead_m;
     const double outside_multiplier = domain.go_left == outside_is_left ?
       parameters.outside_line_transition_scale : 1.0;
     const double exit_length = parameters.post_apex_distances_m.back() *
       parameters.cappedCombinedExitScale(exit * outside_multiplier);
+
+    const double slope = std::max(parameters.maximum_lateral_slope, kEpsilon);
+    const double required_transition_m = std::abs(target - ego_d) / slope;
+    double apex = domain.cluster_start;
+    double start = apex - apex *
+      parameters.pre_apex_distances_m.front() * entry / parameters.detection_lookahead_m;
+    if (!(apex >= required_transition_m)) {
+      apex = std::max(required_transition_m, minimum_station_gap_m);
+      start = 0.0;                                  // 램프가 자차에서 시작한다
+    }
     return {
-      domain.cluster_start - entry_length,
-      domain.cluster_start,
-      0.5 * (domain.cluster_start + domain.cluster_end),
+      start,
+      apex,
+      0.5 * (apex + domain.cluster_end),
       domain.cluster_end,
       domain.cluster_end + exit_length};
   }
@@ -1377,7 +1425,8 @@ private:
     if (!seen.insert(key).second) {
       return;
     }
-    const auto stations = stationsFor(parameters_, domain, outside_is_left, entry, exit);
+    const auto stations = stationsFor(
+      parameters_, domain, outside_is_left, entry, exit, ego.d, target, referenceSpacing());
     ++outcome.validator_calls;
     auto trace = buildCandidate(
       ego, obstacles, domain.go_left, outside_is_left, target, middle, entry, exit,
@@ -1422,7 +1471,8 @@ private:
     }
     const Probe probe = chooseProbe(
       corridor, domain.cluster_start, domain.cluster_end, target, "BOTTLENECK_CENTER");
-    const auto stations = stationsFor(parameters_, domain, outside_is_left, entry, exit);
+    const auto stations = stationsFor(
+      parameters_, domain, outside_is_left, entry, exit, ego.d, target, referenceSpacing());
     if (probe.station < stations.front() - kEpsilon ||
       probe.station > stations.back() + kEpsilon)
     {
@@ -1611,7 +1661,8 @@ private:
       return;
     }
     const auto stations = stationsFor(
-      parameters_, context.domain, context.outside_is_left, entry, exit);
+      parameters_, context.domain, context.outside_is_left, entry, exit,
+      ego.d, target, referenceSpacing());
     double minimum_length = std::numeric_limits<double>::quiet_NaN();
     if (!strictPositiveSegments(stations, minimum_length)) {
       ++result.m1_positive_segment_rejection_count;
@@ -1674,7 +1725,8 @@ private:
       context.corridor, context.domain.cluster_start, context.domain.cluster_end,
       target, "BOTTLENECK_CENTER");
     const auto stations = stationsFor(
-      parameters_, context.domain, context.outside_is_left, entry, exit);
+      parameters_, context.domain, context.outside_is_left, entry, exit,
+      ego.d, target, referenceSpacing());
     double minimum_length = std::numeric_limits<double>::quiet_NaN();
     if (!strictPositiveSegments(stations, minimum_length)) {
       addM1Candidate(
@@ -1808,19 +1860,11 @@ private:
       [&](double entry, const std::vector<double> & exit_set) -> EntrySteer {
         EntrySteer steer = EntrySteer::kUnknown;
         for (const double exit : exit_set) {
-          const double entry_length = cluster_start *
-            parameters_.pre_apex_distances_m.front() * entry /
-            parameters_.detection_lookahead_m;
-          const double effective_exit = parameters_.cappedCombinedExitScale(
-            exit *
-            (go_left == outside_is_left ? parameters_.outside_line_transition_scale : 1.0));
-          const double exit_length = parameters_.post_apex_distances_m.back() * effective_exit;
-          const std::array<double, 5> stations{
-            cluster_start - entry_length,
-            cluster_start,
-            0.5 * (cluster_start + cluster_end),
-            cluster_end,
-            cluster_end + exit_length};
+          // stationsFor와 같은 식을 여기 복사해 두면 한쪽만 고쳤을 때 조용히 갈라진다.
+          // 실제로 cluster_start <= 0 수리(2026-08-17)가 이 복사본을 비껴갈 뻔했다.
+          const std::array<double, 5> stations = stationsFor(
+            parameters_, domain, outside_is_left, entry, exit,
+            ego.d, target, referenceSpacing());
           if (result.probe.station < stations.front() - kEpsilon ||
             result.probe.station > stations.back() + kEpsilon)
           {

@@ -282,16 +282,25 @@ TEST(P3ProductionParity, LayoutBReplanRecovers)
 // 검사의 오탐이었다(RacelineSplinePlanner.NormalTrackingErrorOverATinyBaselineIsNotADiscontinuity
 // 참조). 즉 이 테스트가 고정하는 것은 랩타임 손실이 아니라 기하 구성의 결함이다.
 //
-// 아직 고치지 않았으므로 실패가 정상이다. 고쳐지면 회복 케이스로 옮길 것.
-TEST(P3ProductionParity, ReplanBesideAClusterIsStillUnsolved)
+// 🔴 2026-08-17 수리 — stationsFor가 cluster_start <= 0 을 표현할 수 있게 됐다.
+// 진입 램프를 클러스터 앞에 놓을 자리가 없으면 램프를 자차에서 시작시키고, 목표 도달 지점을
+// 기울기 한계가 정하는 물리적 최소 이동거리(|target - ego_d| / maximum_lateral_slope)로 잡는다.
+//
+// 그 결과 두 경우가 비로소 갈린다:
+//   frame 2 (s=30.91, d=+0.657): 자차 d가 이미 좌측 도메인 [+0.525,+0.932] 안 → 그 오프셋을
+//           유지하고 빠져나가면 된다 → **성공**. 종전에는 표현 자체가 안 돼 정지했다.
+//   frame 1 (s=13.03, d=-0.017): 좌측 도메인 [+0.150,+0.457]까지 옮겨야 하는데 이미 옆에
+//           붙어 거리가 없다 → 후보는 생성되나(segrej 4->0, cand 0->3) 하드 검증에서 기각.
+//           전진으로 해결 불가가 물리적 사실이므로 실패가 정상이다.
+//   frame 0: 이 프레임에는 라인을 막는 장애물이 없다(회피 대상 아님).
+TEST(P3ProductionParity, ReplanBesideAClusterUsesTheRemainingSpan)
 {
   const auto stream = readStream(scenarioPath("layoutC_failing"));
   const auto recovers = recoversPerFrame(stream);
   ASSERT_EQ(recovers.size(), 3U);
-  for (std::size_t index = 0; index < recovers.size(); ++index) {
-    EXPECT_FALSE(recovers[index])
-      << "layoutC_failing frame " << index << ": 이미 고쳐졌다면 회복 케이스로 옮길 것";
-  }
+  EXPECT_FALSE(recovers[0]) << "frame 0: 막는 장애물이 없는데 회피를 만들었다";
+  EXPECT_FALSE(recovers[1]) << "frame 1: 전진으로 도달 불가인데 회피를 만들었다 — 거짓 통과";
+  EXPECT_TRUE(recovers[2]) << "frame 2: 이미 비켜 있는 오프셋을 유지하면 되는데 실패했다";
 }
 
 // 좁은 길목 직후 장애물 — 같은 기하를 거리만 달리해 평가하면 결과가 갈린다.
