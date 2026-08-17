@@ -217,9 +217,17 @@ private:
     return best;
   }
 
+  // 장애물 면에서 경로 중심선까지 필요한 거리.
+  //
+  // 🔴 판정자가 플래너보다 **관대**하면 안 된다. 처음에는 vehicle_half_width_m +
+  // safety_margin_m (=0.158)만 썼는데, 플래너는 여기에 추종오차 예약을 더한다
+  // (expandVisibleObstacles: obstacleBaseClearance() + maximumReferenceTrackingErrorReserve).
+  // 그 차이가 약 0.26 m다. 그래서 판정자가 "통로 있음"이라고 한 배치의 상당수가 사실은
+  // 플래너 기준으로 통로가 없었고, 멀쩡한 기각을 결함으로 세고 있었다.
   double lateralClearance() const
   {
-    return (parameters_.vehicle_half_width_m + parameters_.safety_margin_m) *
+    return (parameters_.obstacleBaseClearance() +
+           parameters_.avoidanceTrackingErrorReserve(reference_speed_mps_, 0.0)) *
            settings_.clearance_scale;
   }
 
@@ -284,6 +292,9 @@ private:
   const f110_msgs::msg::WpntArray & reference_;
   const RacelineSplineParameters & parameters_;
   OracleSettings settings_;
+  // 추종오차 예약은 속도에 따라 커진다. 판정자는 플래너가 실제로 쓰는 속도(속성 테스트의
+  // 자차 속도)로 평가한다.
+  double reference_speed_mps_{3.0};
 };
 
 // 규정을 만족하는 배치를 생성한다. 만들 수 없으면 빈 배치를 돌려준다.
@@ -398,8 +409,32 @@ Verdict sweep(
     std::uniform_real_distribution<double> back(-0.4, 10.0);
     double ego_s = lead - back(rng);
     while (ego_s < 0.0) {ego_s += track_length;}
-    // 횡오프셋도 0만 쓰면 회피 도중 상태를 못 만든다. 회랑 안에서 고루 뽑는다.
-    std::uniform_real_distribution<double> lateral(-0.6, 0.6);
+    // 횡오프셋도 0만 쓰면 회피 도중 상태를 못 만든다. 다만 **그 지점의 트랙 폭 안에서만**
+    // 뽑아야 한다.
+    //
+    // 처음에는 [-0.6, +0.6]에서 균등하게 뽑았는데, 그러면 차가 이미 벽에 박힌 상태로
+    // 시작하는 배치가 생긴다. 그때 플래너는 첫 waypoint에서 footprint_track_bound로 기각하고
+    // (기각이 옳다) 판정자는 그것을 "통로가 있는데 실패했다"로 센다. 즉 테스트가 스스로
+    // 만들어낸 불가능한 상태를 플래너 결함으로 보고했다. 실제로 s=14.07/d=+0.523 배치에서
+    // 그 지점의 허용 범위는 [-0.932, +0.482]였다.
+    // 발자국은 차 길이의 절반(±0.28 m)만큼 앞뒤로 뻗으므로, 자차 위치 한 점의 트랙 폭만
+    // 보면 부족하다. 그 구간에서 가장 좁은 폭을 써야 한다. 종전에는 최근접 waypoint 하나만
+    // 보아, 바로 옆 waypoint에서 발자국이 트랙을 벗어나는 자차 상태를 계속 만들어냈다
+    // (s=42.92에서 뽑은 d=+0.628이 s=42.93에서 기각됐다).
+    const double body = parameters.vehicle_half_width_m + parameters.wall_safety_margin_m;
+    const double reach = 0.5 * parameters.vehicle_length_m;
+    double d_low = -1.0e3;
+    double d_high = 1.0e3;
+    for (const auto & waypoint : reference.wpnts) {
+      double gap = waypoint.s_m - ego_s;
+      while (gap < -0.5 * track_length) {gap += track_length;}
+      while (gap > 0.5 * track_length) {gap -= track_length;}
+      if (std::abs(gap) > reach) {continue;}
+      d_low = std::max(d_low, -waypoint.d_right + body);
+      d_high = std::min(d_high, waypoint.d_left - body);
+    }
+    if (!(d_high > d_low)) {continue;}   // 차가 설 수 없는 지점이면 표본에서 제외
+    std::uniform_real_distribution<double> lateral(d_low, d_high);
     EgoFrenetState ego{ego_s, lateral(rng), 3.0};
 
     // 판정자와 플래너가 **같은 장애물 집합**을 봐야 공정하다. 플래너는 detection_lookahead_m
@@ -447,10 +482,12 @@ Verdict sweep(
             result.candidates.size());
           for (const auto & candidate : result.candidates) {
             std::printf(
-              "            %s entry=%.3f exit=%.3f d=%+.3f peakK=%.3f slope=%.3f | %s\n",
+              "            %s entry=%.3f exit=%.3f d=%+.3f peakK=%.3f slope=%.3f "
+              "| 실패 s=%.2f d=%+.3f | %s\n",
               candidate.go_left ? "L" : "R", candidate.entry_scale, candidate.exit_scale,
               candidate.d_target, candidate.peak_curvature_radpm,
-              candidate.peak_lateral_slope, candidate.rejection_reason.c_str());
+              candidate.peak_lateral_slope, candidate.validation.failure_waypoint_s,
+              candidate.validation.failure_waypoint_d, candidate.rejection_reason.c_str());
           }
         }
       }
@@ -523,14 +560,27 @@ TEST(RuleProperty, PlannerFindsEveryCorridorAConservativeOracleFinds)
   //   상태인데(01:55 백의 잔여 정지 5건 전부 cluster_start <= 1.1) 그 영역을 한 번도 시험하지
   //   않았다. 생성기를 -0.4~10 m + 횡오프셋 ±0.6 m로 넓혔다.
   //
-  // 2026-08-17 2차(현재 기준): 546개 중 102개(18.7%). 코드가 나빠진 것이 아니라 **재던 범위가
-  //   넓어진 것**이다. 같은 코드로 좁은 생성기를 쓰면 34개다.
-  //   사유 분포:  NO_HARD_VALID_M1_CANDIDATE 93 / BOUNDARY_HANDOFF_UNRESOLVED 5 /
-  //               NO_VALID_SIDE_DOMAIN 4,  거짓 통과 0.
-  //   cluster_start <= 0 수리(같은 커밋) 전에는 그 영역이 전부 BOUNDARY_HANDOFF_UNRESOLVED
-  //   였는데 5건으로 떨어졌다. 남은 93건은 후보가 생성되지만 하드 검증에서 죽는 경우로,
-  //   진입 눈금 이분법이 아직 M0 baseline에만 있는 것과 관련이 있다(M0확장·M1은 고정 눈금).
-  constexpr std::size_t kKnownFailureCeiling = 102U;
+  // 2026-08-17 2차: 546개 중 102개. 생성기를 넓힌 결과이지 코드가 나빠진 것이 아니다.
+  //
+  // 2026-08-17 3차(현재 기준): 538개 중 99개(18.4%). 이 사이에 **판정자와 생성기 자체의
+  //   결함 셋**을 잡았다. 그 전 숫자들에는 테스트가 스스로 만든 허수가 섞여 있었다:
+  //     - 자차 d를 트랙 폭과 무관하게 뽑아, 차가 이미 벽에 박힌 상태로 시작하는 배치를
+  //       만들었다. 플래너는 첫 waypoint에서 옳게 기각하는데 그것을 결함으로 셌다.
+  //     - 그 제약을 최근접 waypoint 하나로만 걸어, 발자국이 뻗는 ±0.28 m 안의 더 좁은
+  //       지점에서 같은 문제가 남았다.
+  //     - 판정자의 장애물 여유가 vehicle_half_width_m + safety_margin_m(0.158)뿐이어서
+  //       플래너보다 약 0.26 m 관대했다. 플래너는 여기에 추종오차 예약을 더한다.
+  //       판정자가 플래너보다 관대하면 멀쩡한 기각이 전부 결함으로 집계된다.
+  //
+  //   현재 사유 분포: NO_HARD_VALID_M1_CANDIDATE 95 / NO_VALID_SIDE_DOMAIN 3 /
+  //                   BOUNDARY_HANDOFF_UNRESOLVED 1,  거짓 통과 0.
+  //
+  //   남은 실패의 지배적 원인은 진입 눈금이 아니라 **기동 계열의 경직성**이다:
+  //     - 램프 형상이 대상 클러스터만 보고 정해진다. 전이 경로 위에 (클러스터가 아닌) 다른
+  //       장애물이 놓이면 모든 후보가 그 상자와 교차해 죽는데, 형상을 바꿀 수단이 없다.
+  //     - 도메인이 스팬 전체에서 유효한 하나의 상수 목표 d를 요구한다. 회랑이 스팬 안에서
+  //       좁아지면 s에 따라 d가 변하는 경로가 존재해도 도메인이 통째로 무효가 된다.
+  constexpr std::size_t kKnownFailureCeiling = 99U;
   EXPECT_LE(failed, kKnownFailureCeiling)
     << "보수 판정자가 통로를 찾은 배치 " << checked << "개 중 " << failed
     << "개에서 플래너가 실패했다 — 종전 " << kKnownFailureCeiling
