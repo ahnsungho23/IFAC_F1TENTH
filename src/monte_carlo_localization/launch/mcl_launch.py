@@ -201,9 +201,19 @@ def generate_launch_description():
         'publish_map_odom_tf': PythonExpression([
             "'false' if '", LaunchConfiguration('mod'), "' == 'sim' else 'true'"
         ]),
-        'publish_odom_base_tf': PythonExpression([
-            "'false' if '", LaunchConfiguration('mod'), "' == 'sim' else 'true'"
-        ]),
+        # 🔴 real 도 false 다 (2026-08-17 수정). 예전엔 real 에서 'true' 로 덮었는데,
+        #    real 은 f1tenth_stack 의 vesc_to_odom 이 odom->base_link 를 이미 발행한다
+        #    (config/mcl_config.yaml 의 "Let F1Tenth stack handle odom->base_link" 가 그 뜻).
+        #    그래서 **같은 변환을 두 노드가 동시에 발행**하고 있었다 — run_0817_165444 실측:
+        #      · odom->base_link 발행률 89.5 Hz (= vesc_to_odom 50 + MCL 40)
+        #      · 두 발행자가 6 ms 안에 겹친 비율 24.7%
+        #      · 그때 위치 불일치 p50 8.5 cm / p90 12.7 / max 18.5, 헤딩 p50 1.01°
+        #        (6 ms 에 8.5 cm 는 14 m/s 가 필요 = 물리적으로 이동이 아니라 불일치다)
+        #    tf2 버퍼는 (parent,child) 하나에 두 소스를 섞어 넣으므로, 조회 결과가 "어느
+        #    발행자가 마지막이었나"에 따라 갈린다 → 로컬플래닝이 장애물을 map 프레임으로
+        #    옮길 때마다 90 Hz 톱니 8.5 cm 가 실린다(코너 MCL 오차 13 cm 에 맞먹는다).
+        #    ⚠️ map->odom(publish_map_odom_tf)은 MCL 만 내므로 real=true 그대로 둘 것.
+        'publish_odom_base_tf': 'false',
 
         # ※ 튜닝값(모션 노이즈/스묻싱 등)은 전부 YAML이 단일 소스. launch는
         #    모드 배선(토픽/프레임/TF 플래그)과 설정 파일 선택만 담당한다.
