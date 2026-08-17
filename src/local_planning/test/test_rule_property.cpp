@@ -437,6 +437,21 @@ Verdict sweep(
               "          장애물 s=[%.2f,%.2f] d=[%+.3f,%+.3f]\n",
               obstacle.s_start, obstacle.s_end, obstacle.d_right, obstacle.d_left);
           }
+          std::printf(
+            "          clus=[%.3f,%.3f] L[%+.3f,%+.3f]%s R[%+.3f,%+.3f]%s 후보 %zu개\n",
+            result.cluster_start_forward_m, result.cluster_end_forward_m,
+            result.left_domain.minimum_target, result.left_domain.maximum_target,
+            result.left_domain.valid ? "" : "(무효)",
+            result.right_domain.minimum_target, result.right_domain.maximum_target,
+            result.right_domain.valid ? "" : "(무효)",
+            result.candidates.size());
+          for (const auto & candidate : result.candidates) {
+            std::printf(
+              "            %s entry=%.3f exit=%.3f d=%+.3f peakK=%.3f slope=%.3f | %s\n",
+              candidate.go_left ? "L" : "R", candidate.entry_scale, candidate.exit_scale,
+              candidate.d_target, candidate.peak_curvature_radpm,
+              candidate.peak_lateral_slope, candidate.rejection_reason.c_str());
+          }
         }
       }
     }

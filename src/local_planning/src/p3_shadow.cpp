@@ -189,7 +189,16 @@ public:
       ExtensionOutcome extension;
       if (!m0_nonpositive_abort) {
         try {
-          extension = evaluateM0Extension(ego, obstacles, context);
+          // 🔴 2026-08-17: 확장 계열의 상한을 **남은 총예산**으로 제한한다.
+          //
+          // 종전 상한은 kFrozenCandidateCap(16) + kM0ExtensionCandidateCap(12) = 28 로
+          // kTotalCandidateCap(24)을 넘을 수 있었고, 그러면 아래 불변식 검사가 throw 했다.
+          // 오래 잠복해 있다가 후보 수를 늘리는 변경(진입 눈금 이분법)에서 실제로 터졌다
+          // — 속성 테스트 546 배치 중 1건. 가드가 없었으면 그 자리에서 노드가 죽는다.
+          extension = evaluateM0Extension(
+            ego, obstacles, context,
+            kTotalCandidateCap > baseline->candidates.size() ?
+            kTotalCandidateCap - baseline->candidates.size() : 0U);
         } catch (const std::runtime_error & error) {
           if (std::string(error.what()) != "non-positive quintic-Hermite segment") {
             throw;
@@ -440,6 +449,9 @@ private:
 
   struct ExtensionOutcome
   {
+    // 이 계열이 만들 수 있는 후보 수. 자체 상한과 남은 총예산 중 작은 쪽으로, 호출부가 채운다.
+    // 후보를 추가하는 함수들이 셋이라 인자로 흘리면 시그니처가 다 바뀌므로 결과에 싣는다.
+    std::size_t candidate_cap{kM0ExtensionCandidateCap};
     std::vector<P3ShadowCandidateTrace> candidates;
     std::optional<std::size_t> best_index;
     std::size_t validator_calls{0U};
@@ -1402,6 +1414,73 @@ private:
     return result;
   }
 
+  // 이미 만들어진 후보들에서 진입 눈금 브래킷을 읽는다.
+  //
+  // 두 제약은 entry에 대해 서로 반대 방향으로 단조다(stationsFor의 구조에서 따라온다):
+  //   entry ↑ → 램프가 길어져 곡률 ↓, 동시에 시작점이 자차 쪽으로 당겨져 좁은 구간을 깊이 지남
+  // 그래서 "짧은 쪽은 곡률로, 긴 쪽은 경계로" 죽었다면 실현 구간이 그 사이에 있다.
+  // 그 조건이 아니면 이분법의 전제가 없으므로 false를 돌려주고 아무것도 하지 않는다.
+  static bool entryBracketFrom(
+    const std::vector<P3ShadowCandidateTrace> & candidates,
+    double low_entry, double high_entry)
+  {
+    bool low_needs_longer = false;
+    bool high_needs_shorter = false;
+    for (const auto & trace : candidates) {
+      if (trace.hard_valid) {
+        continue;
+      }
+      const EntrySteer steer = classifyEntrySteer(trace.rejection_reason);
+      if (std::abs(trace.entry_scale - low_entry) <= 1.0e-9 &&
+        steer == EntrySteer::kNeedsLongerRamp)
+      {
+        low_needs_longer = true;
+      }
+      if (std::abs(trace.entry_scale - high_entry) <= 1.0e-9 &&
+        steer == EntrySteer::kNeedsShorterRamp)
+      {
+        high_needs_shorter = true;
+      }
+    }
+    return low_needs_longer && high_needs_shorter && high_entry > low_entry + kEpsilon;
+  }
+
+  // 후보 전체에 "더 긴 램프가 필요한 실패"와 "더 짧은 램프가 필요한 실패"가 모두 있는가.
+  //
+  // entryBracketFrom은 눈금 값이 정확히 일치하는 후보만 본다. M1 템플릿은 목표 오프셋이
+  // 서로 달라 그 조건이 잘 성립하지 않는다. 실현 구간의 존재를 시사하는 신호로는 "양쪽 벽에
+  // 부딪힌 후보가 모두 있다"로 충분하고, 방향이 틀리면 이분법이 스스로 멈춘다.
+  static bool entryBracketPresent(const std::vector<P3ShadowCandidateTrace> & candidates)
+  {
+    bool longer = false;
+    bool shorter = false;
+    for (const auto & trace : candidates) {
+      if (trace.hard_valid) {
+        continue;
+      }
+      const EntrySteer steer = classifyEntrySteer(trace.rejection_reason);
+      longer = longer || steer == EntrySteer::kNeedsLongerRamp;
+      shorter = shorter || steer == EntrySteer::kNeedsShorterRamp;
+    }
+    return longer && shorter;
+  }
+
+  // 새로 추가된 후보들이 가리키는 방향. 하나라도 통과했으면 kUnknown(이분법 종료)이다.
+  static EntrySteer steerOfNewCandidates(
+    const std::vector<P3ShadowCandidateTrace> & candidates, std::size_t from)
+  {
+    EntrySteer steer = EntrySteer::kUnknown;
+    for (std::size_t index = from; index < candidates.size(); ++index) {
+      if (candidates[index].hard_valid) {
+        return EntrySteer::kUnknown;
+      }
+      if (steer == EntrySteer::kUnknown) {
+        steer = classifyEntrySteer(candidates[index].rejection_reason);
+      }
+    }
+    return steer;
+  }
+
   void addM0ExtensionCandidate(
     ExtensionOutcome & outcome,
     const EgoFrenetState & ego,
@@ -1418,7 +1497,7 @@ private:
     std::size_t & generation,
     std::set<std::tuple<bool, double, double, double, double>> & seen) const
   {
-    if (outcome.candidates.size() >= kM0ExtensionCandidateCap) {
+    if (outcome.candidates.size() >= outcome.candidate_cap) {
       return;
     }
     const auto key = std::make_tuple(domain.go_left, target, middle, entry, exit);
@@ -1466,7 +1545,7 @@ private:
     std::size_t & generation,
     std::set<std::tuple<bool, double, double, double, double>> & seen) const
   {
-    if (outcome.candidates.size() >= kM0ExtensionCandidateCap || corridor.branch.empty()) {
+    if (outcome.candidates.size() >= outcome.candidate_cap || corridor.branch.empty()) {
       return;
     }
     const Probe probe = chooseProbe(
@@ -1499,9 +1578,13 @@ private:
   ExtensionOutcome evaluateM0Extension(
     const EgoFrenetState & ego,
     const std::vector<f110_msgs::msg::Obstacle> & obstacles,
-    const P3ShadowPlanningContext & context) const
+    const P3ShadowPlanningContext & context,
+    std::size_t remaining_total_budget) const
   {
+    // 이 계열이 쓸 수 있는 후보 수. 자체 상한과 남은 총예산 중 작은 쪽이다.
     ExtensionOutcome outcome;
+    outcome.candidate_cap = std::min(kM0ExtensionCandidateCap, remaining_total_budget);
+    const std::size_t extension_cap = outcome.candidate_cap;
     std::size_t generation = 1000U;
     std::set<std::tuple<bool, double, double, double, double>> seen;
     for (const bool go_left : {false, true}) {
@@ -1561,11 +1644,46 @@ private:
         addM0AnalyticCandidate(
           outcome, ego, obstacles, domain, context.outside_is_left, corridor,
           component, near, entry_quarter, exit_quarter, generation, seen);
-        if (outcome.candidates.size() >= kM0ExtensionCandidateCap) {
+
+        // 🔴 2026-08-17: 고정 눈금이 실현 구간을 건너뛰면 이분법으로 찾는다.
+        //
+        // 이 계열은 entry를 entries.back()과 그 1/4점 둘만 썼다. baseline과 같은 병(病)이다 —
+        // 실현 구간이 두 눈금 사이에 끼면 통과 가능한 갭에서도 후보가 전멸한다. 눈금을 더
+        // 촘촘히 박는 대신 구간을 직접 찾는다. 기각 사유가 어느 벽인지 알려주므로 신탁은
+        // 공짜다. 템플릿이 이미 해를 냈으면 이 경로는 돌지 않는다(평소 비용 0).
+        if (!outcome.best_index.has_value() &&
+          entryBracketFrom(outcome.candidates, entry_quarter, entry_full))
+        {
+          double low_entry = entry_quarter;
+          double high_entry = entry_full;
+          while (!outcome.best_index.has_value() &&
+            outcome.candidates.size() < extension_cap &&
+            high_entry - low_entry > kEpsilon)
+          {
+            const double middle_entry = 0.5 * (low_entry + high_entry);
+            const std::size_t before = outcome.candidates.size();
+            addM0ExtensionCandidate(
+              outcome, ego, obstacles, domain, context.outside_is_left, component,
+              "ZERO_INTERFACE_BISECTED", "ZERO_INTERFACE",
+              quarter, quarter, middle_entry, exit_quarter, generation, seen);
+            if (outcome.candidates.size() == before) {
+              break;   // 중복으로 걸러졌다면 더 좁혀도 같은 후보만 나온다.
+            }
+            const EntrySteer steer = steerOfNewCandidates(outcome.candidates, before);
+            if (steer == EntrySteer::kNeedsLongerRamp) {
+              low_entry = middle_entry;
+            } else if (steer == EntrySteer::kNeedsShorterRamp) {
+              high_entry = middle_entry;
+            } else {
+              break;
+            }
+          }
+        }
+        if (outcome.candidates.size() >= outcome.candidate_cap) {
           break;
         }
       }
-      if (outcome.candidates.size() >= kM0ExtensionCandidateCap) {
+      if (outcome.candidates.size() >= outcome.candidate_cap) {
         break;
       }
     }
@@ -1797,6 +1915,46 @@ private:
       offerM1AnalyticTemplate(
         outcome, result, ego, obstacles, context, "FAR_SPAN",
         context.branch_far, context.entry_quarter, context.exit_span, seen);
+    }
+
+    // 🔴 2026-08-17: 고정 눈금이 실현 구간을 건너뛰면 이분법으로 찾는다.
+    //
+    // 이 계열은 entry를 entry_min / entry_quarter / entry_max 셋만 썼다. M0 baseline과 같은
+    // 병(病)이다 — 실현 구간이 눈금 사이에 끼면 통과 가능한 갭에서도 후보가 전멸한다.
+    // 두 제약(곡률·트랙 경계)이 entry에 대해 서로 반대 방향으로 단조이므로 실현 집합은 항상
+    // 구간이고, 기각 사유가 어느 벽인지 알려주므로 이분법의 신탁은 공짜다.
+    //
+    // 템플릿이 이미 해를 냈으면 이 경로는 돌지 않는다(평소 비용 0). 예산은 m1_budget이
+    // 그대로 강제하므로(addM1Candidate가 먼저 검사한다) 총 후보 상한을 넘지 않는다.
+    if (!outcome.best_index.has_value() && entryBracketPresent(outcome.candidates)) {
+      for (const auto & context : contexts) {
+        if (outcome.best_index.has_value()) {
+          break;
+        }
+        double low_entry = context.entry_min;
+        double high_entry = context.entry_max;
+        while (!outcome.best_index.has_value() &&
+          result.m1_candidate_count < result.m1_budget &&
+          high_entry - low_entry > kEpsilon)
+        {
+          const double middle_entry = 0.5 * (low_entry + high_entry);
+          const std::size_t before = outcome.candidates.size();
+          offerM1AnalyticTemplate(
+            outcome, result, ego, obstacles, context, "NEAR_BISECTED",
+            context.branch_near, middle_entry, context.exit_max, seen);
+          if (outcome.candidates.size() == before) {
+            break;   // 중복으로 걸러졌다면 더 좁혀도 같은 후보만 나온다.
+          }
+          const EntrySteer steer = steerOfNewCandidates(outcome.candidates, before);
+          if (steer == EntrySteer::kNeedsLongerRamp) {
+            low_entry = middle_entry;
+          } else if (steer == EntrySteer::kNeedsShorterRamp) {
+            high_entry = middle_entry;
+          } else {
+            break;
+          }
+        }
+      }
     }
     return outcome;
   }
