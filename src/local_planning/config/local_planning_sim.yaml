@@ -354,8 +354,10 @@ local_planner_node:
     # 달려 있어 랩 카운터로는 맞출 수 없다. 그래서 인지로 감지한다 — 시야 확보한 채 지나쳤는데
     # 확정하지 못하면 제거로 본다.
     remembered_obstacle_enable: true
-    # 시야 안에서 몇 번 지나쳐야 제거로 볼지. 1이면 한 번만 못 봐도 지운다(빠른 복귀 우선).
-    remembered_obstacle_removal_passes: 1
+    # 시야 안에서 몇 번 지나쳐야 제거로 볼지. 1 -> 2 (2026-08-17 16:17 백 실측 — 근거는
+    # 운영 YAML 주석 참고). 이 파일은 LUT와 localization_reserve 둘만 오버레이하므로
+    # 이 값은 운영 YAML과 항상 같아야 한다.
+    remembered_obstacle_removal_passes: 2
     # 이 거리 안까지 접근했으면 "볼 기회가 있었다"고 본다. 멀리서 스친 것을 근거로 지우면
     # 가림 때문에 못 본 것까지 지워버린다.
     remembered_obstacle_visibility_margin_m: 2.0

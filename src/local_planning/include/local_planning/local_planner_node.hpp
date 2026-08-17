@@ -305,7 +305,8 @@ private:
   };
   std::vector<RememberedObstacle> remembered_obstacles_;
   bool remembered_obstacle_enable_{true};
-  int remembered_obstacle_removal_passes_{1};
+  // 2 (2026-08-17): 통과 순간 검출 한 프레임 누락으로 진짜 장애물을 지우던 회귀 수리.
+  int remembered_obstacle_removal_passes_{2};
   double remembered_obstacle_visibility_margin_m_{2.0};
   double remembered_obstacle_match_tolerance_m_{0.60};
   void updateRememberedObstacles();

@@ -290,18 +290,32 @@ TEST_F(LocalPlannerNodeTest, RememberedObstaclesAreDroppedAfterPassingWithoutCon
   publishObstacles({validObstacle(41, 3.0)}, 5);
   ASSERT_TRUE(waitForAcceptedStamp(5, std::chrono::milliseconds(1500))) << last_diagnostic_;
 
-  // 시야 안(기본 2.0 m)까지 접근한다.
+  // 1회차 — 시야 안(기본 2.0 m)까지 접근했다가 지나친다.
   publishOdometry(2.0);
   publishObstacles({}, 6);
   ASSERT_TRUE(waitForAcceptedStamp(6, std::chrono::milliseconds(1500))) << last_diagnostic_;
-
-  // 지나친다. 시야 안에 들어왔었는데 확정하지 못했으므로 제거되어야 한다.
   publishOdometry(30.0);
   publishObstacles({}, 7);
   ASSERT_TRUE(waitForAcceptedStamp(7, std::chrono::milliseconds(1500))) << last_diagnostic_;
 
+  // 아직 지우면 안 된다 (removal_passes=2, 2026-08-17). 통과 순간 검출이 한 프레임
+  // 끊기는 일은 실제로 일어난다 — 16:17 백 실측으로 제거 6건 중 4건이 이 형태의
+  // 오제거였고, 3건은 0.01초 뒤 같은 자리에 다시 생성됐다. 한 번의 미확정으로
+  // 지우면 매 랩 기억을 잃고 다시 배우기를 반복한다.
+  EXPECT_NE(last_diagnostic_.find("\"s_start\""), std::string::npos)
+    << "한 번 못 본 것만으로 기억을 지웠다 — 프레임 한 개 누락에 매 랩 기억이 무너진다: "
+    << last_diagnostic_;
+
+  // 2회차 — 다시 접근했다가 지나친다. 이제 제거되어야 한다.
+  publishOdometry(2.0);
+  publishObstacles({}, 8);
+  ASSERT_TRUE(waitForAcceptedStamp(8, std::chrono::milliseconds(1500))) << last_diagnostic_;
+  publishOdometry(30.0);
+  publishObstacles({}, 9);
+  ASSERT_TRUE(waitForAcceptedStamp(9, std::chrono::milliseconds(1500))) << last_diagnostic_;
+
   EXPECT_EQ(last_diagnostic_.find("\"s_start\""), std::string::npos)
-    << "지나쳤는데 못 본 장애물이 기억에 남았다 — 제거 후에도 계속 피해 돈다: "
+    << "두 번 지나치도록 못 본 장애물이 기억에 남았다 — 제거 후에도 계속 피해 돈다: "
     << last_diagnostic_;
 }
 

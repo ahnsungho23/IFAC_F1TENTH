@@ -419,7 +419,7 @@ void LocalPlannerNode::initializeParameters()
   remembered_obstacle_enable_ =
     declare_parameter<bool>("remembered_obstacle_enable", true);
   remembered_obstacle_removal_passes_ =
-    declare_parameter<int>("remembered_obstacle_removal_passes", 1);
+    declare_parameter<int>("remembered_obstacle_removal_passes", 2);
   remembered_obstacle_visibility_margin_m_ =
     declare_parameter<double>("remembered_obstacle_visibility_margin_m", 2.0);
   remembered_obstacle_match_tolerance_m_ =
