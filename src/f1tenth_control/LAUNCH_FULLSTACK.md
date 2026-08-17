@@ -134,7 +134,7 @@ cp ~/slam_toolbox/map.png ~/slam_toolbox/map.yaml \
 **② GUI로 라인 확인하며 생성** (새 트랙이면 이쪽. 라인을 눈으로 보고 조정)
 ```bash
 cd ~/2026_IFAC
-python3 offline_trajectory_generator/trajectory_gui.py \
+python3 offline_trajectory_generator/forza_trajectory_gui.py \
   --map-yaml src/monte_carlo_localization/maps/map.yaml
 ```
 - 파라미터를 만지면 `offline_trajectory_generator/gui_params.yaml`에 **자동 저장**된다
@@ -189,12 +189,12 @@ print('차량 한계 초과 점: %d / %d' % (sum(1 for v in k if v > 1.286), len
 ```bash
 # 지도 (MCL용) — 재빌드 필요
 scp ~/slam_toolbox/map.png ~/slam_toolbox/map.yaml \
-    miru@10.1.1.1:~/2026_IFAC/src/monte_carlo_localization/maps/
+    miru@10.1.1.3:~/2026_IFAC/src/monte_carlo_localization/maps/
 
 # 글로벌 패스 — 재빌드 불필요
-ssh miru@10.1.1.1 'mkdir -p ~/2026_IFAC/offline_trajectory_generator/output/map'
+ssh miru@10.1.1.3 'mkdir -p ~/2026_IFAC/offline_trajectory_generator/output/map'
 scp -r ~/2026_IFAC/offline_trajectory_generator/output/map \
-    miru@10.1.1.1:~/2026_IFAC/offline_trajectory_generator/output/
+    miru@10.1.1.3:~/2026_IFAC/offline_trajectory_generator/output/
 ```
 
 ℹ️ **둘의 재빌드 여부가 다르다.**
