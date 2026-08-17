@@ -798,6 +798,40 @@ void ObstacleTracker::classify(Track &t, bool measurement_received) const
         t.motion_evidence_history, MotionEvidence::StaticEvidence, p_.static_vote_window);
     ++t.motion_observations_since_transition;
 
+    // Shared-evidence exclusion, evaluated once for both STATIC entry branches below. Each term is
+    // positive evidence that this track is not a map-fixed object, or that this frame cannot speak
+    // to the question at all; see TrackerParams::static_entry_exclusion_enable.
+    const bool object_evidence_contradicts_static =
+        p_.static_entry_exclusion_enable &&
+        ((p_.translation_corroboration_enable &&
+          std::isfinite(t.provable_translation_m) &&
+          t.provable_translation_m >= p_.dynamic_min_translation_m) ||
+         t.dynamic_vote_count > 0);
+    // The ego-transient term is bounded, unlike the two evidence terms above. `last_stamp_` is the
+    // stamp of the scan being classified (update() assigns it before any classify() call).
+    bool transient_contradicts_static =
+        p_.static_entry_exclusion_enable && ego_motion_transient_ &&
+        !object_evidence_contradicts_static;
+    if (!transient_contradicts_static)
+    {
+        t.static_entry_transient_block_since = std::numeric_limits<double>::quiet_NaN();
+    }
+    else if (p_.static_entry_exclusion_max_transient_sec > 0.0)
+    {
+        if (!std::isfinite(t.static_entry_transient_block_since) ||
+            t.static_entry_transient_block_since > last_stamp_)
+        {
+            t.static_entry_transient_block_since = last_stamp_;
+        }
+        if (last_stamp_ - t.static_entry_transient_block_since >
+            p_.static_entry_exclusion_max_transient_sec)
+        {
+            transient_contradicts_static = false;
+        }
+    }
+    const bool motion_contradicts_static =
+        object_evidence_contradicts_static || transient_contradicts_static;
+
     if (t.dynamic_vote_count >= p_.dynamic_vote_required &&
         t.motion_status != MotionStatus::Dynamic)
     {
@@ -807,6 +841,7 @@ void ObstacleTracker::classify(Track &t, bool measurement_received) const
     else if (t.motion_status == MotionStatus::Dynamic)
     {
         const bool conservative_static_reentry =
+            !motion_contradicts_static &&
             t.motion_observations_since_transition >=
                 p_.dynamic_to_static_min_observations &&
             t.static_vote_count >= p_.dynamic_to_static_vote_required &&
@@ -823,6 +858,7 @@ void ObstacleTracker::classify(Track &t, bool measurement_received) const
     else if (t.motion_status == MotionStatus::Unknown)
     {
         const bool static_entry =
+            !motion_contradicts_static &&
             t.static_vote_count >= p_.static_vote_required &&
             static_cast<int>(t.map_position_history.size()) >=
                 p_.static_min_observations &&

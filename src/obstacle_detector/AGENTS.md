@@ -88,6 +88,31 @@ Keep the scan-driven pipeline ordered as follows:
     `Uncertain`, never `Dynamic`. This gate only makes entering `Dynamic` harder — it must never be
     used to weaken the `Dynamic -> Static` hysteresis, and a genuinely moving object still
     translates far enough within the window to pass it.
+12a. Keep `Static` entry and `Dynamic` entry mutually exclusive on shared evidence, and never try
+    to fix their asymmetry by equalizing their latency. `Static` entry needs only
+    `static_vote_window` measurement SAMPLES — 0.06 s at 250 Hz — while `Dynamic` entry must also
+    prove translation, so `Static` wins the race outright and a passing opponent lands on
+    `/confirmed_static_obs`, where it additionally becomes hold-eligible and republishes a ghost
+    at a stale pose for `static_lost_hold_sec`. Both `Static` entry branches must therefore be
+    denied while the same window carries a corroborated translation, a live dynamic vote, or an
+    ego-motion suppression hold. That last term is not optional: a frame whose dynamic evidence is
+    deliberately discarded is not evidence of stillness either, and suppressing one side only is
+    exactly what froze opponents into `Static` during head-to-head accelerate/brake cycles.
+    A map-fixed obstacle triggers none of the three, so its detection latency must stay unchanged —
+    assert that, not just the exclusion itself. Bound the ego-suppression term in time
+    (`static_entry_exclusion_max_transient_sec`) and only that term: the other two are evidence
+    about the object and never expire, but a race car exceeds the acceleration threshold for most
+    of every braking zone, and an unbounded term would hide a newly seen obstacle from
+    `/confirmed_static_obs` exactly while the car brakes towards it.
+12b. Suppress localization jitter at its source, not by inflating per-track thresholds. An MCL
+    correction teleports the ego and therefore translates every map-frame track at once; it is
+    common-mode and separable. Raising `dynamic_min_translation_m` above the measured jitter
+    instead makes every frame pay, and slow or head-on opponents then never enter `Dynamic` at all.
+    Detect the jump directly from the odometry (pose increment versus the distance the twist
+    accounts for; compare magnitudes so no yaw is needed) and withhold votes only on the frames
+    that jumped. If every suppressor is disabled, `dynamic_min_translation_m` is the sole defence
+    again and must be raised back above the jitter — report that at startup rather than silently
+    overriding the parameter.
 13. A non-dynamic track enters `/static_obs` only while its envelope-stability streak reaches
     `envelope_stability_frames`: consecutive matched frames whose measured centre and extents stay
     within `envelope_stability_tolerance_m`. Fan-shaped morphing clusters never settle and stay
@@ -215,10 +240,25 @@ published Frenet bounds instead of reprojecting the Cartesian metadata.
 - **Ego-acceleration transient vote hold**: while the smoothed ego longitudinal acceleration
   exceeds `motion_classification.dynamic_vote_ego_accel_suppress_mps2`, dynamic motion votes are
   withheld (evidence downgraded to `Uncertain`), because braking/launch localization jitter
-  mimics obstacle translation. Static votes, existence confirmation, and Kalman updates continue
-  unchanged. Tests: `testParams()` disables the hold (`static_lost_hold_sec = 0`) so
+  mimics obstacle translation. Existence confirmation and Kalman updates continue unchanged.
+  As of 2026-08-17 the hold also blocks `Static` entry (see rule 12a) — it used to withhold only
+  the dynamic side, and that asymmetry is what froze opponents into `/confirmed_static_obs`.
+  It shares one flag with the localization-jump detector because both answer the same question.
+  Tests: `testParams()` disables the occlusion hold (`static_lost_hold_sec = 0`) so
   retire/dormant-identity tests exercise the legacy path; the hold and the vote hold each have a
-  dedicated test that enables them explicitly.
+  dedicated test that enables them explicitly. `testParams()` also uses a near-noiseless filter
+  (`process_var_* = 0.01`), which makes the map velocity certain almost immediately — any test
+  about the Static/Dynamic entry race must override those with the production values from
+  `config/obstacle_detector.yaml`, or the race it means to exercise will not occur.
+- **Localization-jump vote hold**: `applyEgoOdometry()` compares the pose increment against
+  `|v|·dt` and opens a `localization_jump_hold_sec` suppression window when the residual exceeds
+  `motion_classification.localization_jump_position_m`. Difference the VECTORS, never the
+  magnitudes: a correction pointing against travel shortens the measured step, so a magnitude test
+  reads it as "moved less than expected" and misses the very jumps that make every track appear to
+  surge forward. This is what allows `dynamic_min_translation_m` to sit at 0.10 m instead of above
+  the 0.27 m measured jitter (see rule 12b). It depends on `/pf/pose/odom` carrying
+  `twist.twist.linear.x`, which `monte_carlo_localization` does populate — if a future localizer
+  publishes pose without twist, every moving frame becomes a false jump and BOTH entries stall.
 
 ## Map filtering
 

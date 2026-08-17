@@ -27,6 +27,11 @@ namespace obstacle_detector
 
 namespace
 {
+// Measured MCL position-jitter ceiling on the real car (0.27 m, 2026-08-14 four-track back).
+// A dynamic-translation threshold at or above this needs no help to reject localization noise;
+// below it, a suppressor must be removing the jumping frames from the vote.
+constexpr double kUnprotectedMinTranslationM = 0.30;
+
 double stampToSec(const builtin_interfaces::msg::Time &t)
 {
     return static_cast<double>(t.sec) + static_cast<double>(t.nanosec) * 1e-9;
@@ -228,6 +233,12 @@ void ObstacleDetectorNode::declareParameters()
     this->declare_parameter<double>(
         "motion_classification.dynamic_vote_suppress_hold_sec", 0.5);
     this->declare_parameter<double>("motion_classification.ego_accel_smoothing_sec", 0.15);
+    this->declare_parameter<double>(
+        "motion_classification.localization_jump_position_m", 0.15);
+    this->declare_parameter<double>("motion_classification.localization_jump_hold_sec", 0.30);
+    this->declare_parameter<bool>("motion_classification.static_entry_exclusion_enable", true);
+    this->declare_parameter<double>(
+        "motion_classification.static_entry_exclusion_max_transient_sec", 1.0);
     this->declare_parameter<int>("min_hits_confirm", 3);
     this->declare_parameter<int>("confirmation_window", 5);
     this->declare_parameter<double>(
@@ -397,6 +408,15 @@ void ObstacleDetectorNode::loadParameters()
         this->get_parameter("motion_classification.dynamic_vote_suppress_hold_sec").as_double();
     ego_accel_smoothing_sec_ =
         this->get_parameter("motion_classification.ego_accel_smoothing_sec").as_double();
+    localization_jump_position_m_ =
+        this->get_parameter("motion_classification.localization_jump_position_m").as_double();
+    localization_jump_hold_sec_ =
+        this->get_parameter("motion_classification.localization_jump_hold_sec").as_double();
+    tracker_params_.static_entry_exclusion_enable =
+        this->get_parameter("motion_classification.static_entry_exclusion_enable").as_bool();
+    tracker_params_.static_entry_exclusion_max_transient_sec =
+        this->get_parameter(
+        "motion_classification.static_entry_exclusion_max_transient_sec").as_double();
     tracker_params_.min_hits_confirm = this->get_parameter("min_hits_confirm").as_int();
     tracker_params_.confirmation_window =
         this->get_parameter("confirmation_window").as_int();
@@ -450,6 +470,23 @@ void ObstacleDetectorNode::loadParameters()
     tracker_params_.dynamic_min_translation_m =
         this->get_parameter(
         "motion_classification.dynamic_min_translation_m").as_double();
+    // dynamic_min_translation_m may sit below the measured MCL jitter (0.27 m, 2026-08-14) only
+    // because a suppressor removes those frames from the vote. With every suppressor off, the
+    // threshold is the sole defence again and must be raised back above the jitter by hand. This
+    // is reported rather than silently overridden: a parameter must mean what the file says.
+    if (tracker_params_.translation_corroboration_enable &&
+        tracker_params_.dynamic_min_translation_m < kUnprotectedMinTranslationM &&
+        localization_jump_position_m_ <= 0.0 &&
+        dynamic_vote_ego_accel_suppress_mps2_ <= 0.0)
+    {
+        RCLCPP_WARN(
+            this->get_logger(),
+            "dynamic_min_translation_m=%.2f m is below the measured localization jitter (%.2f m) "
+            "and BOTH suppressors are disabled (localization_jump_position_m<=0, "
+            "dynamic_vote_ego_accel_suppress_mps2<=0). Localization jumps will be voted as "
+            "obstacle motion. Raise the threshold or re-enable a suppressor.",
+            tracker_params_.dynamic_min_translation_m, kUnprotectedMinTranslationM);
+    }
     motion_debug_enable_ =
         this->get_parameter("motion_classification.debug_enable").as_bool();
     motion_debug_period_sec_ =
@@ -633,6 +670,51 @@ void ObstacleDetectorNode::applyEgoOdometry(const nav_msgs::msg::Odometry & msg)
         }
         ego_last_speed_ = speed;
         ego_last_speed_stamp_ = speed_stamp;
+    }
+
+    // Localization jump: the pose increment disagrees with the step the twist accounts for. The
+    // comparison is a VECTOR difference, not a magnitude one. Magnitudes alone are blind to a
+    // correction that points against travel -- a 0.27 m backward jump during a 0.13 m forward step
+    // shortens the measured step to 0.14 m, which reads as "moved less than expected" and passes
+    // unnoticed, and that is precisely the correction that makes every track appear to surge
+    // forward. Differencing the vectors catches a jump in any direction.
+    // The expected step is taken along the heading at the START of the interval; over one odometry
+    // period the chord's true bearing differs from it by about half the yaw turned in that period
+    // (< 0.01 m at 5 m/s and 4 rad/s), far below the threshold.
+    const double pose_x = msg.pose.pose.position.x;
+    const double pose_y = msg.pose.pose.position.y;
+    const double pose_yaw = yawFromQuat(msg.pose.pose.orientation);
+    if (localization_jump_position_m_ > 0.0 && std::isfinite(pose_x) &&
+        std::isfinite(pose_y) && std::isfinite(pose_yaw))
+    {
+        const double dt = speed_stamp - ego_last_pose_stamp_;
+        if (std::isfinite(ego_last_pose_x_) && std::isfinite(ego_last_pose_y_) &&
+            std::isfinite(ego_last_pose_yaw_) && dt > 1.0e-4 && dt < 0.5)
+        {
+            const double twist_step = std::isfinite(ego_vs_) ? ego_vs_ * dt : 0.0;
+            const double residual = std::hypot(
+                (pose_x - ego_last_pose_x_) - twist_step * std::cos(ego_last_pose_yaw_),
+                (pose_y - ego_last_pose_y_) - twist_step * std::sin(ego_last_pose_yaw_));
+            if (residual > localization_jump_position_m_)
+            {
+                localization_jump_until_ =
+                    speed_stamp + std::max(0.0, localization_jump_hold_sec_);
+                RCLCPP_WARN_THROTTLE(
+                    this->get_logger(), *this->get_clock(), 2000,
+                    "Localization jump: pose increment differs from the twist-predicted step by "
+                    "%.3f m over %.3f s (v=%.2f m/s); withholding dynamic votes for %.2f s",
+                    residual, dt, ego_vs_, localization_jump_hold_sec_);
+            }
+        }
+        else if (dt < 0.0)
+        {
+            // Time went backwards (sim restart / bag loop): restart the estimator cleanly.
+            localization_jump_until_ = -1.0;
+        }
+        ego_last_pose_x_ = pose_x;
+        ego_last_pose_y_ = pose_y;
+        ego_last_pose_yaw_ = pose_yaw;
+        ego_last_pose_stamp_ = speed_stamp;
     }
 
     if (!converter_)
@@ -1614,9 +1696,14 @@ void ObstacleDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
 
     // ---- tracking: Frenet association/output geometry plus a supplemental map-frame Kalman
     //      velocity/significance and position-persistence motion classifier ----
+    // Both suppressors answer the same question -- "is this frame's apparent map-frame translation
+    // an artifact of ego motion rather than obstacle motion?" -- so they share one flag. The accel
+    // spike is a proxy (brake pitch shakes the pose); the jump is the direct observation.
     const bool ego_motion_transient =
-        dynamic_vote_ego_accel_suppress_mps2_ > 0.0 &&
-        ego_motion_transient_until_ >= 0.0 && stamp <= ego_motion_transient_until_;
+        (dynamic_vote_ego_accel_suppress_mps2_ > 0.0 &&
+         ego_motion_transient_until_ >= 0.0 && stamp <= ego_motion_transient_until_) ||
+        (localization_jump_position_m_ > 0.0 &&
+         localization_jump_until_ >= 0.0 && stamp <= localization_jump_until_);
     // 홀드 중인 confirmed static track에 대해서만 호출된다(트래커가 그렇게 게이트한다).
     // 스캔 기하를 아는 쪽은 node뿐이므로 반증 판정을 여기서 주입한다.
     ObstacleTracker::FreeSpaceRefuter free_space_refuter;

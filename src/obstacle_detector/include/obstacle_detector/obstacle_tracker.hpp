@@ -122,6 +122,27 @@ struct TrackerParams
     double translation_window_sec{0.20};
     int translation_history_max_samples{64};
     double dynamic_min_translation_m{0.10};
+    // STATIC entry needs only 15 measurement samples, which at 250 Hz is 0.06 s, while DYNAMIC
+    // entry additionally has to prove dynamic_min_translation_m of translation. STATIC therefore
+    // always wins the race, and a passing opponent that has not yet earned its dynamic votes is
+    // frozen into /confirmed_static_obs -- where a Confirmed STATIC track additionally becomes
+    // hold-eligible and republishes a ghost at a stale pose for static_lost_hold_sec.
+    // The exclusion makes the two entries mutually exclusive on shared evidence instead of
+    // equalizing their latency: STATIC entry is denied while the same window carries motion
+    // evidence (a corroborated translation or a live dynamic vote), and while the ego-motion
+    // transient is withholding dynamic votes -- because a frame whose dynamic evidence is
+    // deliberately discarded is not evidence of stillness either. A genuinely map-fixed obstacle
+    // produces none of the three (progressive revelation cannot move both edges of an axis the
+    // same way), so its detection latency is unchanged.
+    bool static_entry_exclusion_enable{true};
+    // Upper bound on how long the ego-transient term alone may deny STATIC entry. On a race car
+    // |accel| crosses the suppression threshold for most of every braking zone, so an unbounded
+    // term would keep newly seen obstacles out of /confirmed_static_obs for seconds at a time --
+    // exactly while the car is braking towards them. Past this many seconds of transient-only
+    // blocking the term yields: a track that has shown no translation and no dynamic vote for that
+    // long is a static obstacle whatever the ego is doing. The translation and dynamic-vote terms
+    // are never time-limited; they are evidence about the object itself. 0 disables the bound.
+    double static_entry_exclusion_max_transient_sec{1.0};
     double dt_max{0.5};           // [s] clamp for prediction step
     // Per-scan AABB extents flap (square box vs real shape). Smooth their magnitude
     // fast-grow/slow-shrink: expand immediately, relax over ~1/alpha matched frames.
@@ -220,6 +241,9 @@ struct Track
     std::deque<MeasuredAabbSample> measured_aabb_history;
     double provable_translation_m{std::numeric_limits<double>::quiet_NaN()};
     bool dynamic_evidence_suppressed{false};
+    // Scan stamp at which the ego-motion transient became the ONLY term denying STATIC entry.
+    // NaN whenever some other term also blocks, or nothing blocks.
+    double static_entry_transient_block_since{std::numeric_limits<double>::quiet_NaN()};
     double static_confidence{0.0};
     double time_since_last_measurement{0.0};
     // Raw Frenet centre and timestamp from the most recently associated detection. Unlike x,

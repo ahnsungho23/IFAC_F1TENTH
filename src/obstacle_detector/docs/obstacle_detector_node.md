@@ -201,6 +201,43 @@ dynamic 임계값을 넘긴다. 그러면 실제로는 가만히 있는 장애�
 - `DYNAMIC → STATIC`: DYNAMIC 진입 후 measurement 20개 이상, 최근 static vote 15개,
   `position_rms <= 0.08 m`를 모두 요구한다.
 
+#### STATIC 진입 배타 조건 (2026-08-17 개정)
+
+위 조건만으로는 두 판정이 **공정한 경주가 아니다.** STATIC 진입은 measurement 15개만 있으면
+되는데 250 Hz에서 이는 **0.06 s**다. 반면 DYNAMIC 진입은 vote 외에 병진까지 증명해야 한다.
+그래서 STATIC이 항상 먼저 결승선을 통과했고, 지나가던 상대차가 `/confirmed_static_obs`로
+새어 들어갔다. 더 나쁜 것은 그 다음이다 — `Confirmed` + `STATIC`이 되는 순간 그 track은
+occlusion hold 자격까지 얻어(`holdEligibleWhileUnmeasured()`), 상대차가 떠난 뒤에도
+`static_lost_hold_sec` 동안 마지막 위치에 유령으로 재발행된다. 그동안 planner는 계속 회피
+경로를 만들고 state_machine은 `AVOID`에서 나오지 못한다.
+
+해법으로 두 판정의 latency를 맞추지는 **않았다.** 그렇게 하면 정적 장애물 감지가 0.06 s에서
+0.20 s로 느려지는데, 이는 대가가 너무 크다. 대신 두 진입을 **같은 증거 위에서 배타적으로**
+만들었다. `static_entry_exclusion_enable`이 켜져 있으면 다음 중 하나라도 성립할 때
+`UNKNOWN → STATIC`과 `DYNAMIC → STATIC`이 모두 거부된다.
+
+| 배타 조건 | 시간 상한 | 의미 |
+|---|---|---|
+| 증명된 병진 >= `dynamic_min_translation_m` | 없음 | 이 물체는 실제로 이동했다 |
+| 최근 dynamic vote가 1표 이상 | 없음 | 같은 창이 이미 운동 증거를 담고 있다 |
+| ego 기인 억제 발동 중 | `static_entry_exclusion_max_transient_sec` | dynamic 증거를 의도적으로 버리는 frame은 **정지의 증거도 아니다** |
+
+세 번째 항목에만 시간 상한이 있는 이유: 앞의 두 개는 **물체 자체에 대한 증거**라 시간이
+지난다고 무효가 되지 않지만, ego 억제는 ego 상태일 뿐이다. 실차 레이싱에서는 제동 구간
+내내 `|가속도| > 2.0`이므로 상한이 없으면 **차가 장애물을 향해 제동하는 동안** 새 장애물이
+몇 초씩 `/confirmed_static_obs`에 들어오지 못한다. 상한을 넘도록 병진도 dynamic vote도
+없었던 track은 ego가 무엇을 하든 정적 장애물로 인정한다
+(`EgoTransientCannotDenyStaticEntryForever`가 고정).
+
+세 번째 항목이 핵심이다. 개정 전에는 억제 중에 dynamic vote만 막고 static vote는 그대로
+쌓았는데, head-to-head처럼 자차가 계속 가감속하는 상황에서는 이 비대칭이 상시로 작동해
+상대차를 STATIC으로 밀어넣었다.
+
+진짜 map 고정 물체는 셋 중 어느 것도 성립하지 않는다. 점진적 노출은 한 축의 양 edge를 같은
+방향으로 움직일 수 없으므로 병진 증거를 만들지 못하고, 따라서 dynamic vote도 생기지 않는다.
+**정적 장애물의 감지 속도는 변하지 않는다** — 이 불변식은
+`ObstacleTrackerClassification.StaticEntryLatencyUnchangedForMapFixedObstacle`가 고정한다.
+
 따라서 잠시 멈춘 상대차는 곧바로 STATIC이 되지 않는다. Measurement miss는 vote와 위치 이력을
 추가하지 않고 `static_confidence`만 forgetting factor로 감소시킨다. Confidence는 static
 evidence, 작은 위치 RMS, 반복 association에서 증가하고 dynamic evidence와 큰 RMS에서 감소한다.
@@ -369,8 +406,25 @@ record/replay 원인 분석용 출력일 뿐 planner 입력이 아니다. 일반
    map frame에서 병진한 것처럼 보여 chi2와 병진 증거를 동시에 넘고 DYNAMIC으로 넘어가
    `/static_obs`에서 사라졌다. 해결: ego odom twist의 지수평활 가속도(`ego_accel_smoothing_sec`)가
    `dynamic_vote_ego_accel_suppress_mps2`를 넘으면 스파이크 후 `dynamic_vote_suppress_hold_sec`
-   동안 **dynamic vote만 Uncertain으로 보류**한다. static vote·존재 확인·Kalman 갱신은 그대로
-   진행되므로 실제 상대 차량의 DYNAMIC 진입은 hold 길이만큼만 늦어진다.
+   동안 **dynamic vote를 Uncertain으로 보류**한다. 존재 확인·Kalman 갱신은 그대로 진행된다.
+   ⚠️ 2026-08-17 개정: 이 억제는 이제 **STATIC 진입도 함께** 막는다(위 "STATIC 진입 배타 조건").
+   dynamic 증거만 버리고 static 증거는 그대로 받던 종전 동작이 head-to-head에서 상대차를
+   STATIC으로 굳히는 원인이었다.
+3. **위치추정 점프를 임계값으로 흡수하던 문제**: `dynamic_min_translation_m`이 0.30 m이던 이유는
+   "실차 MCL 지터 상한 0.27 m 바로 위"였다. 즉 track별 임계값을 부풀려 위치추정 잡음을
+   흡수하는 방식이었고, 그 대가를 모든 프레임이 치렀다 — 0.2 s 창에서 0.30 m을 증명하려면
+   상대차가 최소 1.5 m/s여야 했고, 그보다 느린 상대차는 DYNAMIC 진입이 사실상 불가능했다.
+   해결: MCL 지터는 track별 잡음이 아니라 **모든 track에 공통으로 걸리는 common-mode**이므로
+   그 프레임을 직접 골라낸다. ego odom의 pose 증분이 twist로 설명 가능한 거리보다
+   `localization_jump_position_m` 이상 크면 점프로 보고 `localization_jump_hold_sec` 동안
+   dynamic vote를 보류한다. 비교는 **벡터 차**다 — 크기만 비교하면 진행 반대 방향 보정을
+   놓친다(5 m/s로 0.13 m 전진하는 동안 0.27 m 후방 점프가 들어오면 측정 증분이 0.14 m로
+   *줄어들어* "예상보다 덜 움직였다"로 읽히는데, 이 보정이야말로 모든 track을 앞으로
+   솟구치게 만드는 유형이다). 예상 증분은 구간 시작 헤딩으로 잡으므로 선회 오차는 한 주기에
+   회전한 요의 절반 수준(5 m/s·4 rad/s에서 0.01 m 미만)에 그친다.
+   잡음원을 직접 제거했으므로 임계값은 **0.10 m**로 내렸고,
+   3 m/s 상대차 기준 0.033 s면 증명된다 — STATIC 진입(0.06 s)보다 빠르다.
+   두 억제기를 모두 끈 채 임계값을 0.30 미만으로 두면 노드가 기동 시 경고한다.
 
 ## 3. 구독 토픽
 
@@ -414,7 +468,9 @@ record/replay 원인 분석용 출력일 뿐 planner 입력이 아니다. 일반
 | 분류 | `motion_classification.dynamic_chi2_threshold`, `static_chi2_threshold`, `dynamic_vote_*`, `static_vote_*` | map 속도의 통계적 evidence와 최근 voting |
 | 위치 지속성 | `motion_classification.position_history_size`, `static_min_observations`, `static_max_position_rms`, `dynamic_to_static_*` | STATIC 진입과 보수적인 DYNAMIC→STATIC 복귀 |
 | 병진 확인 | `motion_classification.translation_corroboration_enable`, `translation_window_sec`, `translation_history_max_samples`, `dynamic_min_translation_m` | 부분 노출로 자라는 AABB를 이동으로 오판하지 않도록 dynamic vote에 실제 병진 증거를 요구 |
-| ego 가속 transient 억제 | `motion_classification.dynamic_vote_ego_accel_suppress_mps2`, `dynamic_vote_suppress_hold_sec`, `ego_accel_smoothing_sec` | 급제동·런치킥의 위치추정 jitter 구간에서 dynamic vote만 보류 (0.0이면 비활성) |
+| ego 가속 transient 억제 | `motion_classification.dynamic_vote_ego_accel_suppress_mps2`, `dynamic_vote_suppress_hold_sec`, `ego_accel_smoothing_sec` | 급제동·런치킥의 위치추정 jitter 구간에서 dynamic vote 보류 (0.0이면 비활성) |
+| 위치추정 점프 억제 | `motion_classification.localization_jump_position_m`, `localization_jump_hold_sec` | pose 증분이 twist로 설명되지 않으면 MCL 점프로 보고 dynamic vote 보류 (0.0이면 비활성) |
+| STATIC 진입 배타 | `motion_classification.static_entry_exclusion_enable` | 병진 증거·dynamic vote·ego 기인 억제 중에는 STATIC 진입을 거부 (false면 개정 전 동작) |
 | 분류 수치 안정성 | `motion_classification.covariance_regularization_epsilon`, `minimum_velocity_covariance`, `static_score_forgetting_factor` | 속도 공분산 regularization과 confidence decay |
 | 레이어 병합 | `layer_merge_enable`, `layer_merge_gap_s/d` | tracking 후 같은 레이어 객체 병합 |
 | 상대차 간섭 | `interference_check_enable`, `interference_distance_m`, `interference_distance_margin_ratio`, `interference_time_horizon_sec`, `interference_min_closing_speed_mps`, `interference_lateral_margin_m`, `interference_ego_half_width_m`, `interference_ego_front_offset_m` | ego corridor 횡겹침과 현재/예측 후면 간격으로 `is_interfering` 판정. 기본 1.0 m 진입, 같은 ID는 1.2 m에서 해제 |
