@@ -90,7 +90,7 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /static_obs/markers
+        Value: /confirmed_static_obs/markers
       Value: true
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true

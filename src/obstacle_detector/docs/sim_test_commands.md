@@ -73,7 +73,7 @@ python3 src/obstacle_detector/test/synthetic_opponent_test.py
 14. 모든 객체의 `s_start/s_end/d_right/d_left`가 유한하고 `d_right <= d_left`이며, visible
     객체의 경계는 같은 Cartesian AABB 전체를 투영한 결과다. 폐루프 wrap의
     `s_start > s_end`는 허용한다.
-15. `/static_obs/markers`와 `/opp_obs/markers`에 최종 Frenet 경계 기반 `LINE_STRIP`이 나타난다.
+15. `/confirmed_static_obs/markers`와 `/opp_obs/markers`에 최종 Frenet 경계 기반 `LINE_STRIP`이 나타난다.
 
 테스트가 끝난 뒤 터미널 A의 detector를 `Ctrl+C`로 종료한다.
 
@@ -107,7 +107,7 @@ ros2 topic echo /static_obs --no-arr
 ros2 topic echo /opp_obs --no-arr
 ros2 topic hz /static_obs
 ros2 topic hz /opp_obs
-ros2 topic echo /static_obs/markers --no-arr
+ros2 topic echo /confirmed_static_obs/markers --no-arr
 ros2 topic echo /opp_obs/markers --no-arr
 ```
 
@@ -129,7 +129,7 @@ ros2 topic echo /opp_obs/markers --no-arr
 | 후단에서 Cartesian 장애물을 거부함 | `has_cartesian`, AABB min/max, 중심, 양수 `radius` 확인 |
 | 후단에서 Frenet 장애물을 거부함 | Frenet 경계 유한성, `d_right <= d_left`, global waypoint 준비 여부 확인 |
 | miss 이후 Cartesian 장애물이 과거 위치에 남음 | predicted-only 출력이 `has_cartesian=false`인지 확인 |
-| RViz 장애물과 local planner 판단 영역이 다름 | `/static_obs/markers`를 표시 중인지 확인하고 기존 `/perception/obstacles/markers` display 제거 |
+| RViz 장애물과 local planner 판단 영역이 다름 | `/confirmed_static_obs/markers`를 표시 중인지 확인하고 기존 `/perception/obstacles/markers` display 제거 |
 | RViz에서 scan과 map이 어긋남 | scan header frame, map→scan TF, ROS domain의 중복 TF publisher 확인 |
 
 ## Perception 진단 로그 확인
