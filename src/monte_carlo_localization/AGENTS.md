@@ -33,6 +33,11 @@ This document defines package-specific developer rules and guidelines for `monte
   - `publish_extrapolation_sec` (double, default `0.0` in code; real YAML `0.09`, sim YAML `0.0`):
     forward-extrapolates the PUBLISHED `/pf/pose/odom` position along heading by `v × this`
     to compensate the measured ~90 ms end-to-end output lag.
+  - `publish_yaw_extrapolation_sec` (double, default `0.0` everywhere = no-op, clamp [0, 0.05]):
+    yaw counterpart of the above — leads the PUBLISHED heading by `wz × this`. Keep 0.0:
+    0818 measurement shows no heading lag (τ* 2.5 ms). Enable with the measured τ* ONLY when
+    `tools/heading_lag_check.py` reports 🔴 (|τ*|>10 ms AND r(Δψ,wz)>+0.5) —
+    see `docs/heading_lag_compensation_proposal.md`.
 
 ## Launch Policy
 

@@ -129,6 +129,11 @@ particle_filter:
     # ⚠️ 2026-08-15에 0.00으로 껐다가 되돌렸다. 끄면 위 90 ms 지연이 그대로 컨트롤러 피드백
     #    경로에 실려 L1 감쇠를 깎는다(같은 날 pose_lpf 58 ms와 합쳐 0.9 Hz 횡진동으로 나타남).
     publish_extrapolation_sec: 0.09
+    # 발행 yaw 외삽 [s]: 병진 외삽과 대칭인 헤딩 리드 (0=off). 🔴 기본 0.0 유지 —
+    # 0818 실측(τ* 2.5 ms) 헤딩 지연 없음, 지금 켜면 코너 오차 주입. 헤딩 지연 재발
+    # (tools/heading_lag_check.py 🔴: |τ*|>10ms AND r>+0.5) 시에만 τ* 값으로.
+    # docs/heading_lag_compensation_proposal.md 참고. 코드가 [0, 0.05]로 클램프.
+    publish_yaw_extrapolation_sec: 0.0
     viz: true                          # Enable particle visualization
     timer_frequency: 40.0              # MCL update frequency (Hz) - increased for simulation
     

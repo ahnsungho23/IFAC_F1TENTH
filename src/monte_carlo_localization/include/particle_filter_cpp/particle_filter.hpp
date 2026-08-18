@@ -130,6 +130,7 @@ class ParticleFilter : public rclcpp::Node
     bool PUBLISH_ODOM;
     // /pf/pose/odom 발행 시 병진 전방 외삽 시간 [s] (0=off). 출력 지연 보상 — cpp 선언부 주석 참고.
     double PUBLISH_EXTRAPOLATION_SEC{0.0};
+    double PUBLISH_YAW_EXTRAPOLATION_SEC{0.0};  // 발행 yaw 리드 [s], 0=off
     bool PUBLISH_MAP_ODOM_TF;
     bool PUBLISH_ODOM_BASE_TF;
     bool DO_VIZ;

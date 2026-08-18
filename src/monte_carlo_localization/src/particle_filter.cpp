@@ -92,6 +92,12 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
     // 벽 방향 오차에 투영돼 코너 p95 0.101/최악 0.158을 만들었고, 90 ms 외삽만으로 코너
     // p95 0.000/최악 0.050이 된다. 필터 내부는 불변, 발행 직전 마지막 단계만 보정.
     this->declare_parameter("publish_extrapolation_sec", 0.0);
+    // 발행 yaw 외삽(2026-08-18): 병진 외삽과 대칭인 **헤딩** 리드 보상 [s]. 기본 0.0 = off.
+    // 0818 실측(rosbag2_2026_08_18-11_06_49)은 헤딩 지연이 없어(τ* 2.5 ms) 켜면 오히려
+    // 코너에서 오차를 주입한다. 헤딩 지연 재발(tools/heading_lag_check.py 판정 🔴:
+    // |τ*|>10 ms AND r(Δψ,wz)>+0.5) 시에만 τ* 값으로 켤 것 —
+    // docs/heading_lag_compensation_proposal.md 참고.
+    this->declare_parameter("publish_yaw_extrapolation_sec", 0.0);
     this->declare_parameter("viz", true);
     this->declare_parameter("timer_frequency", 100.0);
     
@@ -173,6 +179,8 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
     PUBLISH_ODOM = this->get_parameter("publish_odom").as_bool();
     PUBLISH_EXTRAPOLATION_SEC =
         std::clamp(this->get_parameter("publish_extrapolation_sec").as_double(), 0.0, 0.15);
+    PUBLISH_YAW_EXTRAPOLATION_SEC =
+        std::clamp(this->get_parameter("publish_yaw_extrapolation_sec").as_double(), 0.0, 0.05);
     DO_VIZ = this->get_parameter("viz").as_bool();
     TIMER_FREQUENCY = this->get_parameter("timer_frequency").as_double();
 
@@ -1905,8 +1913,9 @@ void ParticleFilter::publish_tf(const Eigen::Vector3d &pose, const rclcpp::Time 
         odom.header.frame_id = MAP_FRAME;
         odom.child_frame_id = BASE_FRAME;
         // 병진 전방 외삽 (publish_extrapolation_sec, 0=off): 파이프라인 지연 보상.
-        // 부호 있는 v라 후진도 올바른 방향으로 밀린다. 요(헤딩)는 실측상 지연이 없어
-        // 건드리지 않는다. 필터/TF/EKF 상태는 불변 — 이 메시지의 위치만 민다.
+        // 부호 있는 v라 후진도 올바른 방향으로 밀린다. 요(헤딩)는 아래 yaw 외삽이 따로
+        // 담당한다 — 실측상 지연이 없어 **기본 0.0(off)**이고, 여기서는 위치만 민다.
+        // 필터/TF/EKF 상태는 불변 — 이 메시지만 보정한다(TF는 위에서 원본으로 발행됨).
         double px = base_link_pose[0];
         double py = base_link_pose[1];
         if (PUBLISH_EXTRAPOLATION_SEC > 0.0)
@@ -1916,7 +1925,15 @@ void ParticleFilter::publish_tf(const Eigen::Vector3d &pose, const rclcpp::Time 
         }
         odom.pose.pose.position.x = px;
         odom.pose.pose.position.y = py;
-        odom.pose.pose.orientation = utils::geometry::yaw_to_quaternion(pose[2]);
+        // yaw 외삽 (publish_yaw_extrapolation_sec, 0=off — 기본): 병진 외삽과 대칭.
+        // 헤딩 지연 재발 시에만 ω×τ만큼 리드. current_angular_vel_ 은 odom twist wz
+        // (모션모델이 쓰는 것과 같은 소스). 필터/TF/EKF 상태 불변 — 이 메시지만 민다.
+        double pyaw = pose[2];
+        if (PUBLISH_YAW_EXTRAPOLATION_SEC > 0.0)
+        {
+            pyaw += current_angular_vel_ * PUBLISH_YAW_EXTRAPOLATION_SEC;
+        }
+        odom.pose.pose.orientation = utils::geometry::yaw_to_quaternion(pyaw);
         odom.twist.twist.linear.x = current_velocity_;
         odom_pub_->publish(odom);
     }

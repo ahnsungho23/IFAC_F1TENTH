@@ -104,6 +104,7 @@ particle_filter:
     # 스캔 나이) 몫이라 시뮬엔 해당 없고, CMA 락스텝 결정론(비트 재현)이 이 값 0에 의존한다.
     # 실차 값·근거는 mcl_config.yaml 참고.
     publish_extrapolation_sec: 0.0
+    publish_yaw_extrapolation_sec: 0.0   # 발행 yaw 리드 [s] — 시뮬 0 고정 (지연 없음)
     viz: true                          # Enable particle visualization
     timer_frequency: 30.0              # MCL update frequency (Hz) - increased for simulation
     

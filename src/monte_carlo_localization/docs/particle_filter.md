@@ -102,6 +102,10 @@
   - `use_pose_ekf` (`bool`, 기본값: `true`): 출력단 pose fusion EKF 활성화 (false = 구 EMA)
   - `ekf_trans_error_rate` (`double`, 기본값: `0.01`): 주행거리 대비 휠 odom 병진 오차율
   - `ekf_meas_long_inflation` (`double`, 기본값: `25.0`): 차체 종방향 측정 불신 배율
+  - `publish_yaw_extrapolation_sec` (`double`, 기본 `0.0` = no-op, clamp [0, 0.05]):
+    위 병진 외삽의 **yaw 대응** — 발행 헤딩만 `wz × 이 값`만큼 리드. 🔴 0.0 유지가 기본:
+    0818 실측 헤딩 지연 없음(τ* 2.5 ms). 지연 재발 시(`tools/heading_lag_check.py` 🔴 판정)
+    측정된 τ*로만 켠다 — `docs/heading_lag_compensation_proposal.md` 참고.
   - `publish_extrapolation_sec` (`double`, 코드 기본 `0.0` / 실차 YAML `0.09` / 시뮬 YAML `0.0`):
     발행 직전 `/pf/pose/odom`의 **위치만** 진행방향으로 `v × 이 값`만큼 전방 외삽.
     2026-08-14 실측 진단 — 출력 병진이 실제보다 ~90 ms 지연(스캔 나이 + 연산 + 타이머
