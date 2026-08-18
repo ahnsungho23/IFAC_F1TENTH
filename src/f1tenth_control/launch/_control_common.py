@@ -21,11 +21,11 @@ def declare_common_args(sector_scale_enable_default='false'):
 
         # ── 조향 스케일러 (가감속/속도 구간별 조향 게인 완화) ──
         DeclareLaunchArgument(
-            'acceleration_scaler_for_steering', default_value='1.0',
+            'acceleration_scaler_for_steering', default_value='1.1',
             description='가속 중(acc_mean>=1.0) 조향각에 곱하는 스케일러'
         ),
         DeclareLaunchArgument(
-            'deceleration_scaler_for_steering', default_value='0.85',
+            'deceleration_scaler_for_steering', default_value='0.90',
             description='감속 중(acc_mean<=-1.0) 조향각에 곱하는 스케일러'
         ),
         DeclareLaunchArgument(
@@ -73,7 +73,7 @@ def declare_common_args(sector_scale_enable_default='false'):
             'closest_idx_max_heading_err', default_value='1.40',
             description='경로 접선과 차량 헤딩의 허용 오차 [rad]. 0이면 게이트 비활성(구 거동)'
         ),
-        DeclareLaunchArgument(  
+        DeclareLaunchArgument(
             'l1_offset', default_value='0.6',
             description='L1 룩어헤드 거리의 **절편** [m] (공식: l1_offset + v*l1_speed_gain). '
                         '구 이름 l1_gain'
@@ -308,7 +308,7 @@ def declare_common_args(sector_scale_enable_default='false'):
         # 고하중 좌커브(코너2)가 0.008로는 살짝 부족 → 주 대역(4~6) 실측치 0.010으로 조정.
         # 되돌리기: 둘 다 -1.0 (= 공용 understeer_gradient로 폴백).
         DeclareLaunchArgument(
-            'understeer_gradient_left', default_value='0.010',
+            'understeer_gradient_left', default_value='0.011',
             description='좌회전 K_us [rad/(m/s^2)]. <=0 = 공용 understeer_gradient 사용'
         ),
         DeclareLaunchArgument(
