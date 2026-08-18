@@ -8,6 +8,11 @@ state_machine_node:
     global_waypoints_topic: "/global_waypoints"
     avoid_waypoints_topic: "/avoid_waypoints"
     opponent_topic: "/opp_obs"
+    # 안전정지 회귀 판정에 쓰는 정적 장애물 입력. **플래너(local_planning)의
+    # obstacles_topic과 반드시 같은 토픽**이어야 합니다 — 두 노드가 서로 다른 검출 계층을
+    # 보면 같은 장애물을 두고 다른 결론을 낼 수 있습니다(옛 구현이 /static_obs를 보다가
+    # 플래너와 어긋났던 이유).
+    static_obstacles_topic: "/confirmed_static_obs"
 
     frame_id: "map"
     default_state: "global"
@@ -57,3 +62,28 @@ state_machine_node:
     # 영원히 AVOID에 고정하는 것만 막는 장치이며, 플래너가 정지 경로라도 계속 발행하는
     # 한 발동하지 않습니다(장애물 앞 정지는 올바른 상태).
     avoid_path_liveness_timeout_sec: 2.0
+
+    # ── 안전정지(safe-stop) 회귀 ─────────────────────────────────────────────
+    # 정지 경로(마지막 waypoint vx<=stopped_path_speed_threshold_mps)는 enter_to_global이
+    # 의도적으로 거부하고(홀드 중 AVOID↔GLOBAL 요동 방지), 플래너가 그 경로를 계속
+    # 발행하는 한 liveness 탈출도 걸리지 않습니다. 그래서 장애물이 실제로 치워졌거나
+    # 애초에 유령이었던 경우 차가 영원히 서 있게 됩니다. 이 보험만 그 경우를 풉니다.
+    #
+    # 기준은 **시간(초)이 아니라 연속 관측 횟수**입니다. 검출기는 /scan 1장마다
+    # static_obstacles_topic을 정확히 한 번(빈 배열이어도) 발행하므로, 여기서 세는 수가
+    # 곧 "n번 연속으로 검출되지 않았다"입니다. 초 기준이면 검출기가 느려지거나 멈춘
+    # 동안에도 시계가 흘러 관측 없이 복귀할 수 있습니다.
+    #
+    # 40 Hz LiDAR 기준 20회 ≈ 0.5 s. 스캔 주파수를 바꾸면 이 값도 같이 조정하십시오.
+    stopped_path_clear_min_count: 20
+    # 카운트가 유효하려면 검출기 스트림 자체가 살아 있어야 합니다. stale이면 옛 카운트로
+    # 복귀하지 않습니다.
+    static_obstacles_stale_timeout_sec: 0.3
+    # 이 값 이하의 마지막 waypoint 속도를 "정지 경로"로 봅니다.
+    stopped_path_speed_threshold_mps: 0.01
+    # 전방 corridor 확인 거리 [m] (ego s로부터의 전방 호 길이).
+    stopped_path_obstacle_lookahead_m: 3.0
+    # corridor 횡반폭 [m]. corridor는 ego의 현재 d **와** 정지 경로가 lookahead 안에서
+    # 지나갈 d의 합집합입니다 — ego가 회피 오프셋에 서 있을 때 라인 위 장애물을 놓치던
+    # 옛 구현(ego d 하나만 사용)의 오판을 막습니다.
+    stopped_path_ego_half_width_m: 0.16
