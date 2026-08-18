@@ -270,6 +270,20 @@ class ObstacleDetectorNode : public rclcpp::Node
     double ego_last_speed_stamp_{-1.0};
     double ego_accel_smoothed_{0.0};
     double ego_motion_transient_until_{-1.0};
+    // Localization-jump detection. An MCL pose correction teleports the ego, and because every
+    // track is expressed in map frame the whole scene appears to translate by the jump. That is
+    // the noise floor dynamic_min_translation_m used to absorb by being set above the measured
+    // jitter, which cost every frame the ability to see a slow opponent. Detecting the jump
+    // directly is cheaper: compare the pose increment against the distance the twist says the car
+    // could have covered, and withhold dynamic votes only for the frames that actually jumped.
+    // The residual is a magnitude comparison, so it needs no yaw and no map-frame heading.
+    double localization_jump_position_m_{0.15};
+    double localization_jump_hold_sec_{0.30};
+    double ego_last_pose_x_{std::numeric_limits<double>::quiet_NaN()};
+    double ego_last_pose_y_{std::numeric_limits<double>::quiet_NaN()};
+    double ego_last_pose_yaw_{std::numeric_limits<double>::quiet_NaN()};
+    double ego_last_pose_stamp_{-1.0};
+    double localization_jump_until_{-1.0};
     nav_msgs::msg::Odometry::SharedPtr lockstep_odom_msg_;
     sensor_msgs::msg::LaserScan::SharedPtr lockstep_pending_scan_;
     ScanProcessingStats diagnostics_scan_totals_;

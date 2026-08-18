@@ -220,21 +220,62 @@ obstacle_detector:
       translation_corroboration_enable: true
       translation_window_sec: 0.20        # 증명 구간 [s]. LiDAR 250 Hz 기준 약 50 scan
       translation_history_max_samples: 64 # window 내 보관 AABB 최대 개수 (메모리 상한)
-      # 0.30 = 실차 MCL 지터 상한(0.27, 2026-08-14 새 트랙 4개 백 실측) 바로 위.
-      # 0.10이던 시절 접근 중 MCL 점프(양 에지 동시 이동)가 게이트를 뚫어 정적 박스가
-      # /opp_obs로 이탈 → 커밋 무효화 → 저속 접촉 (run_0814_010624 t=317, id42 재현).
-      # 실제 상대차는 0.2 s 창에서 0.3 m 이상 병진하므로 (>=1.5 m/s) 검출 지연 영향 없음.
-      dynamic_min_translation_m: 0.30     # window 내 증명된 병진이 이 값 미만이면 vote 보류
+      # 0.30이던 값을 0.10으로 내렸습니다 (2026-08-17). 0.30의 근거는 "실차 MCL 지터 상한
+      # 0.27 m(2026-08-14 실측) 바로 위"였습니다. 즉 track별 임계값을 부풀려서 위치추정
+      # 잡음을 흡수하는 방식이었고, 그 대가를 **모든 프레임이** 치렀습니다 — 0.2 s 창에서
+      # 0.30 m을 증명하려면 상대차가 >=1.5 m/s여야 하고, 그보다 느리거나 정면으로 접근해
+      # 박스가 자라기만 하는 상대차는 DYNAMIC 진입이 영영 불가능했습니다. 그 결과 상대차가
+      # STATIC으로 굳어 /confirmed_static_obs로 새고, hold까지 걸려 유령이 남았습니다.
+      #
+      # MCL 지터는 track별 잡음이 아니라 **모든 track에 공통으로 걸리는 common-mode**이므로
+      # 아래 localization_jump_position_m이 그 프레임만 골라내 dynamic vote를 보류합니다.
+      # 잡음원을 직접 제거했으므로 임계값은 실제 물체 운동만 보면 됩니다.
+      # 0.10 m = 3 m/s 상대차 기준 0.033 s — STATIC 진입(15샘플, 250 Hz에서 0.06 s)보다 빠름.
+      dynamic_min_translation_m: 0.10     # window 내 증명된 병진이 이 값 미만이면 vote 보류
 
-      # 급제동·런치킥 순간에는 위치추정 자체가 흔들려 모든 track이 map frame에서 병진한
-      # 것처럼 보입니다(2026-08-12 21:11 run: 정지/재출발 시각마다 STATIC track이 DYNAMIC
-      # blip으로 /static_obs에서 사라짐). ego odom twist의 평활 가속도가 임계값을 넘으면
-      # 그 스파이크 이후 hold 시간 동안 dynamic vote만 보류합니다. static vote와 나머지
-      # 갱신은 그대로 진행되므로 실제 상대 차량의 DYNAMIC 진입이 hold만큼만 늦어집니다.
-      # 0.0이면 비활성.
+      # === EGO 기인 겉보기 병진 억제 (두 가지, 같은 플래그로 합쳐짐) ===
+      # 둘 다 "이 프레임의 map-frame 겉보기 병진이 장애물 운동이 아니라 ego 기인인가"를
+      # 묻습니다. 발동 중에는 dynamic vote뿐 아니라 **STATIC 진입도 함께** 보류됩니다
+      # (static_entry_exclusion_enable 참고) — 한쪽만 막으면 그게 바로 오분류의 원인이었습니다.
+      #
+      # (1) 위치추정 점프 직접 검출: pose 증분이 twist로 설명 가능한 거리보다 이 값 이상
+      #     크면 MCL 보정 점프로 간주합니다. 크기(magnitude)만 비교하므로 yaw가 필요 없고,
+      #     선회 시 현(chord)은 호(arc)보다 짧아지므로 오검출 방향으로 작용하지 않습니다.
+      #     0.0이면 비활성 — 그 경우 dynamic_min_translation_m을 0.30 이상으로 되돌리십시오
+      #     (둘 다 끄면 노드가 기동 시 경고합니다).
+      localization_jump_position_m: 0.15
+      localization_jump_hold_sec: 0.30    # 점프 이후 vote 보류 시간 [s]
+      #
+      # (2) 급제동·런치킥 대리 지표: ego odom twist의 평활 가속도가 임계를 넘으면 hold 동안
+      #     보류합니다(2026-08-12 21:11 run: 정지/재출발마다 STATIC track이 DYNAMIC blip).
+      #     (1)이 직접 관측인 반면 이쪽은 상관 기반 대리 지표라 head-to-head 가감속에서
+      #     자주 발동하지만, 이제 STATIC 진입도 같이 막으므로 비대칭을 만들지 않습니다.
+      #     0.0이면 비활성.
       dynamic_vote_ego_accel_suppress_mps2: 2.0
       dynamic_vote_suppress_hold_sec: 0.5
       ego_accel_smoothing_sec: 0.15       # 가속도 지수 평활 시정수 [s]
+
+      # === STATIC 진입 배타 조건 ===
+      # STATIC 진입은 15샘플(250 Hz에서 0.06 s)만 있으면 되는 반면 DYNAMIC 진입은 병진까지
+      # 증명해야 해서, 두 판정은 애초에 공정한 경주가 아니었습니다. STATIC이 늘 먼저 이겨
+      # 지나가던 상대차가 /confirmed_static_obs로 굳고, Confirmed STATIC이 되는 순간 hold
+      # 자격까지 얻어 static_lost_hold_sec 동안 유령으로 재발행됐습니다.
+      # 해법은 두 판정의 latency를 맞추는 것이 아니라(그러면 정적 감지가 느려짐) **같은
+      # 증거로 배타적으로** 만드는 것입니다. 아래 중 하나라도 성립하면 STATIC 진입을 막습니다:
+      #   - 증명된 병진 >= dynamic_min_translation_m
+      #   - 최근 dynamic vote가 1표라도 있음
+      #   - ego 기인 억제(위 (1)(2)) 발동 중 — dynamic 증거를 버리는 프레임은 정지의 증거도 아님
+      # 진짜 map 고정 물체는 셋 다 성립하지 않으므로(점진적 노출은 한 축의 양 edge를 같은
+      # 방향으로 움직일 수 없음) **정적 장애물 감지 속도는 변하지 않습니다.**
+      # false면 개정 전 동작으로 복귀합니다.
+      static_entry_exclusion_enable: true
+      # 단, 세 번째 항목(ego 기인 억제)만은 시간 상한을 둡니다. 실차 레이싱에서는 제동 구간
+      # 내내 |가속도|가 2.0을 넘으므로, 상한이 없으면 **차가 장애물을 향해 제동하는 동안**
+      # 새 장애물이 몇 초씩 /confirmed_static_obs에 못 들어옵니다. 이 시간 동안 병진도
+      # dynamic vote도 전혀 없었던 track은 ego가 무엇을 하든 정적 장애물로 봅니다.
+      # 앞의 두 항목(병진·vote)은 물체 자체에 대한 증거이므로 시간 제한이 없습니다.
+      # 0이면 상한 비활성(= ego 억제가 무기한 STATIC 진입을 막음).
+      static_entry_exclusion_max_transient_sec: 1.0
 
       # 모든 confirmed track의 status, map velocity, Tv, vote, RMS, confidence, 마지막
       # measurement 경과시간을 한 로그로 throttle해 출력합니다.

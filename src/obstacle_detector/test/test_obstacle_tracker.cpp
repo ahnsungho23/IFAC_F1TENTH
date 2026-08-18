@@ -891,5 +891,116 @@ TEST(ObstacleTrackerClassification, EgoMotionTransientWithholdsDynamicVotes)
         << "dynamic votes must be withheld while ego acceleration is transient";
 }
 
+// Cadence shared by the two static-entry exclusion tests: a 250 Hz scan stream in which the
+// object advances `step_m` per scan while ego motion withholds dynamic votes. That is the
+// head-to-head geometry -- 15 map positions span only 0.06 s, so the position RMS stays inside
+// static_max_position_rms and STATIC entry used to win the race against DYNAMIC entry outright.
+MotionStatus classifySuppressedRun(double step_m, bool exclusion_enabled, int scans)
+{
+    TrackerParams params = testParams();
+    params.static_entry_exclusion_enable = exclusion_enabled;
+    // Production noise from config/obstacle_detector.yaml. testParams() uses a near-noiseless
+    // filter, which makes the map-frame velocity certain almost immediately and hides the very
+    // race this test is about: with the real process noise the velocity covariance stays wide
+    // long enough for a moving object to bank a full run of Static votes.
+    params.meas_var_s = 0.002;
+    params.meas_var_d = 0.002;
+    params.process_var_vs = 2.0;
+    params.process_var_vd = 8.0;
+    ObstacleTracker tracker;
+    tracker.configure(params, nullptr);
+
+    double stamp = 0.0;
+    double s = 10.0;
+    MotionStatus reached = MotionStatus::Unknown;
+    for (int i = 0; i < scans; ++i)
+    {
+        tracker.update({makeDetection(s)}, stamp, 0.0, true, true);
+        if (!tracker.tracks().empty() &&
+            tracker.tracks().front().motion_status == MotionStatus::Static)
+        {
+            reached = MotionStatus::Static;
+            break;
+        }
+        stamp += 0.004;
+        s += step_m;
+    }
+    return reached;
+}
+
+TEST(ObstacleTrackerClassification, StaticEntryIsDeniedWhileEvidenceContradictsIt)
+{
+    // 2 m/s at 250 Hz -- measured to promote on scan 11 without the exclusion. The control run
+    // proves the cadence really does reach STATIC, so the treatment run demonstrates the
+    // exclusion rather than an inert scenario.
+    EXPECT_EQ(classifySuppressedRun(0.008, false, 60), MotionStatus::Static)
+        << "regression witness: a moving object under vote suppression must reach STATIC "
+           "without the exclusion, otherwise this test proves nothing";
+    EXPECT_EQ(classifySuppressedRun(0.008, true, 60), MotionStatus::Unknown)
+        << "a translating object was still admitted to STATIC, which puts an opponent on "
+           "/confirmed_static_obs and makes it hold-eligible";
+}
+
+TEST(ObstacleTrackerClassification, EgoTransientCannotDenyStaticEntryForever)
+{
+    // A stationary obstacle first seen inside a braking zone. The ego transient stays asserted the
+    // whole time, so the exclusion's third term blocks STATIC entry -- but only up to its bound.
+    // Without the bound the obstacle never reaches /confirmed_static_obs, which is the worst
+    // possible moment to hide it: the car is braking towards it.
+    const auto reaches_static = [](double max_transient_sec) {
+        TrackerParams params = testParams();
+        params.static_entry_exclusion_max_transient_sec = max_transient_sec;
+        ObstacleTracker tracker;
+        tracker.configure(params, nullptr);
+        double stamp = 0.0;
+        for (int i = 0; i < 500; ++i)
+        {
+            tracker.update({makeDetection(10.0)}, stamp, 0.0, true, true);
+            if (!tracker.tracks().empty() &&
+                tracker.tracks().front().motion_status == MotionStatus::Static)
+            {
+                return true;
+            }
+            stamp += 0.004;
+        }
+        return false;
+    };
+    EXPECT_FALSE(reaches_static(0.0))
+        << "regression witness: with the bound disabled a permanent transient must keep the "
+           "obstacle out of STATIC, otherwise this test proves nothing";
+    EXPECT_TRUE(reaches_static(0.2))
+        << "the ego-transient term denied STATIC entry past its bound, hiding a stationary "
+           "obstacle from /confirmed_static_obs for as long as the ego keeps braking";
+}
+
+TEST(ObstacleTrackerClassification, StaticEntryLatencyUnchangedForMapFixedObstacle)
+{
+    // The exclusion must buy its correctness without costing static detection speed. A stationary
+    // obstacle produces no corroborated translation and no dynamic vote, so both configurations
+    // must promote it on exactly the same scan.
+    const auto scans_to_static = [](bool exclusion_enabled) {
+        TrackerParams params = testParams();
+        params.static_entry_exclusion_enable = exclusion_enabled;
+        ObstacleTracker tracker;
+        tracker.configure(params, nullptr);
+        double stamp = 0.0;
+        for (int i = 0; i < 200; ++i)
+        {
+            tracker.update({makeDetection(10.0)}, stamp, 0.0, true, false);
+            if (!tracker.tracks().empty() &&
+                tracker.tracks().front().motion_status == MotionStatus::Static)
+            {
+                return i;
+            }
+            stamp += 0.004;
+        }
+        return -1;
+    };
+    const int baseline = scans_to_static(false);
+    ASSERT_GE(baseline, 0) << "regression witness: a stationary obstacle must reach STATIC";
+    EXPECT_EQ(scans_to_static(true), baseline)
+        << "the static-entry exclusion delayed a genuinely map-fixed obstacle";
+}
+
 }  // namespace
 }  // namespace obstacle_detector
