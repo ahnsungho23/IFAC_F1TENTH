@@ -39,7 +39,9 @@ def generate_launch_description():
     default_reference_map = os.path.join(
         get_package_share_directory('particle_filter_cpp'),
         'maps',
-        os.environ.get('F1_MAP', 'ifac_track') + '.yaml',
+        # 기본값 'map' (2026-08-18): ifac_track 맵은 삭제됐다. 세 노드(MCL/global/local)가
+        # 같은 맵을 보도록 global_planning·mcl_launch와 기본값을 맞춘다.
+        os.environ.get('F1_MAP', 'map') + '.yaml',
     )
     local_planner_only_launch = os.path.join(pkg_dir, 'launch', 'local_planner_only.launch.py')
     obstacle_detector_launch = os.path.join(
