@@ -242,8 +242,7 @@ extent로 박스 모서리 간격을 계산하고, 같은 레이어 안에서 �
 - 선택된 상대차의 Frenet 횡영역이 ego corridor와 겹치고 현재 또는 등속 예측 후면 간격이
   `interference_distance_m` 이내이면 `is_interfering=true`로 설정한다. 같은 ID의 간섭 상태는
   `interference_distance_m * (1 + interference_distance_margin_ratio)`까지 유지한다.
-- `/confirmed_static_obs/markers`는 최종 `/confirmed_static_obs`의 Frenet 경계를 파란 테두리로
-  표시한다. `local_planning`이 실제로 구독하는 레이어와 같아야 화면과 주행이 일치한다.
+- `/static_obs/markers`는 최종 `/static_obs`의 Frenet 경계를 파란 테두리로 표시한다.
 - `/opp_obs/markers`는 최종 `/opp_obs`의 Frenet 경계를 빨간 테두리로 표시한다.
 - 마커는 `s_start/s_end/d_right/d_left`에서 직접 만들어지므로 local planner 입력과 같은
   영역을 나타낸다.
@@ -391,7 +390,7 @@ record/replay 원인 분석용 출력일 뿐 planner 입력이 아니다. 일반
 | `static_obs_topic` | `/static_obs` | `f110_msgs/msg/ObstacleArray` | CONFIRMED+UNKNOWN 또는 STATIC 객체의 Frenet 경계와 visible Cartesian AABB |
 | `confirmed_static_obs_topic` | `/confirmed_static_obs` | `f110_msgs/msg/ObstacleArray` | CONFIRMED+STATIC만 포함한 장기 지도 입력 |
 | `opp_obs_topic` | `/opp_obs` | `f110_msgs/msg/ObstacleArray` | 최근접 동적 상대차 최대 1개의 Frenet 경계와 visible Cartesian AABB |
-| `static_markers_topic` | `/confirmed_static_obs/markers` | `visualization_msgs/msg/MarkerArray` | 최종 `/confirmed_static_obs` Frenet 경계의 RViz mirror |
+| `static_markers_topic` | `/static_obs/markers` | `visualization_msgs/msg/MarkerArray` | 최종 `/static_obs` Frenet 경계의 RViz mirror |
 | `opp_markers_topic` | `/opp_obs/markers` | `visualization_msgs/msg/MarkerArray` | 최종 `/opp_obs` Frenet 경계의 RViz mirror |
 | `replay_diagnostics_topic` | `/cma_replay/detector_events` | `std_msgs/msg/String` | default-off scan별 record/replay companion event |
 

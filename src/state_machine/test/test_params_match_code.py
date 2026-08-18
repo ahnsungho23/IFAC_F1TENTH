@@ -27,10 +27,6 @@
      (handoff_ot_line, enter_global_tail_distance_m, avoid_path_liveness_timeout_sec)가
      사라지고, 이미 코드에서 제거된 stopped_path_* 계열 5개와 옛 비율 키가 되살아났다.
      죽은 키 10개 / 누락 3개였는데 노드는 멀쩡히 떴다.
-
-주의: 위 2번의 stopped_path_* 는 그 시점의 이야기다. 2026-08-18에 횟수 기준
-(stopped_path_clear_min_count) 안전정지 회귀가 다시 들어오면서 이 계열 키는 현재 코드와
-yaml 양쪽에 정상적으로 존재한다.
 """
 import pathlib
 import re

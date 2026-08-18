@@ -145,7 +145,7 @@ void ObstacleDetectorNode::declareParameters()
     this->declare_parameter<std::string>(
         "confirmed_static_obs_topic", "/confirmed_static_obs");
     this->declare_parameter<std::string>("opp_obs_topic", "/opp_obs");
-    this->declare_parameter<std::string>("static_markers_topic", "/confirmed_static_obs/markers");
+    this->declare_parameter<std::string>("static_markers_topic", "/static_obs/markers");
     this->declare_parameter<std::string>("opp_markers_topic", "/opp_obs/markers");
     this->declare_parameter<std::string>("map_frame", "map");
 
@@ -1738,15 +1738,11 @@ void ObstacleDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
 
     // RViz mirrors are built from the final published Frenet arrays. They therefore visualize the
     // exact s/d envelopes consumed by downstream planners, including predicted-only objects.
-    //
-    // The static mirror shows /confirmed_static_obs, NOT /static_obs: local_planning subscribes to
-    // the confirmed layer, so mirroring the wider one puts markers on screen for obstacles the
-    // planner is not avoiding and hides which detections actually reached it.
     if (publish_markers_ && static_markers_pub_ && opp_markers_pub_)
     {
         static_markers_pub_->publish(
             buildFrenetObstacleMarkers(
-                confirmed_static_arr, frenet_, "confirmed_static_obs_frenet", 0.2F, 0.6F, 1.0F));
+                static_arr, frenet_, "static_obs_frenet", 0.2F, 0.6F, 1.0F));
         if (ego_s_fresh)
         {
             opp_markers_pub_->publish(

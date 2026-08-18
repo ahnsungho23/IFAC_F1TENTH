@@ -25,7 +25,7 @@
   ├─ /static_obs
   ├─ /confirmed_static_obs
   ├─ /opp_obs
-  ├─ /confirmed_static_obs/markers
+  ├─ /static_obs/markers
   └─ /opp_obs/markers
 ```
 
@@ -68,8 +68,8 @@ Global planner가 같은 `/global_waypoints`를 주기적으로 재발행해도 
 Kalman 예측만 남은 객체는 마지막 측정 Frenet 크기를 예측 중심에 유지하지만 stale raw AABB를
 현재 위치로 오해하지 않도록 `has_cartesian=false`로 발행한다.
 
-RViz용 `/confirmed_static_obs/markers`와 `/opp_obs/markers`는 각각 최종 ObstacleArray의
-`s_start/s_end/d_right/d_left`를 map 좌표로 변환한 테두리다. 따라서 `/confirmed_static_obs/markers`는
+RViz용 `/static_obs/markers`와 `/opp_obs/markers`는 각각 최종 ObstacleArray의
+`s_start/s_end/d_right/d_left`를 map 좌표로 변환한 테두리다. 따라서 `/static_obs/markers`는
 local planner가 실제로 판단하는 정적 장애물 영역과 같다. Predicted-only 객체도 표시하며 현재
 관측 객체보다 옅게 그린다.
 
@@ -84,7 +84,7 @@ local planner가 실제로 판단하는 정적 장애물 영역과 같다. Predi
 | 발행 | `/static_obs` | `f110_msgs/msg/ObstacleArray` |
 | 발행 | `/confirmed_static_obs` | `f110_msgs/msg/ObstacleArray` |
 | 발행 | `/opp_obs` | `f110_msgs/msg/ObstacleArray` |
-| 발행 | `/confirmed_static_obs/markers` | `visualization_msgs/msg/MarkerArray` |
+| 발행 | `/static_obs/markers` | `visualization_msgs/msg/MarkerArray` |
 | 발행 | `/opp_obs/markers` | `visualization_msgs/msg/MarkerArray` |
 
 `simulator:=true`에서는 ego odom 입력이 `/ego_racecar/odom`으로 바뀐다.

@@ -36,15 +36,6 @@ private:
   // (ot_line == handoff_ot_line_). That marker is the planner's statement that NO unfinished
   // blocking cluster remains; it is the sole precondition for the AVOID -> GLOBAL merge checks.
   bool handoff_offered() const;
-  // True while the committed avoid path ends in a zero-speed hold (safe stop). The normal
-  // merge-back is intentionally rejected for such a path, so it needs its own release.
-  bool stopped_path_active() const;
-  // Tri-state front-corridor check against the detector layer the planner also consumes.
-  // nullopt = no usable evidence (stale detector/Frenet/global) — never read as "clear".
-  std::optional<bool> front_corridor_obstacle() const;
-  // Count-based safe-stop release: the corridor must read clear in
-  // stopped_path_clear_min_count CONSECUTIVE detector messages (one per /scan).
-  bool evaluate_stopped_path_clear() const;
   bool validate_global_waypoints(
     const f110_msgs::msg::WpntArray & message,
     std::string * error) const;
@@ -70,7 +61,6 @@ private:
   void on_global_waypoints(const f110_msgs::msg::WpntArray::SharedPtr msg);
   void on_avoid_wpnts(const f110_msgs::msg::OTWpntArray::SharedPtr msg);
   void on_opponent(const f110_msgs::msg::ObstacleArray::SharedPtr msg);
-  void on_static_obstacles(const f110_msgs::msg::ObstacleArray::SharedPtr msg);
 
   uint8_t resolve_requested_state();
   void publish_state_cycle();
@@ -92,7 +82,6 @@ private:
   std::string default_state_name_;
   std::string invalid_local_path_policy_;
   std::string handoff_ot_line_;
-  std::string static_obstacles_topic_;
 
   bool allow_avoid_transition_{true};
   bool allow_cruise_transition_{true};
@@ -108,11 +97,6 @@ private:
   double enter_global_tail_distance_m_{6.0};
   double enter_global_s_gap_tol_m_{0.5};
   double avoid_path_liveness_timeout_sec_{2.0};
-  double static_obstacles_stale_timeout_sec_{0.3};
-  int64_t stopped_path_clear_min_count_{20};
-  double stopped_path_speed_threshold_mps_{0.01};
-  double stopped_path_obstacle_lookahead_m_{3.0};
-  double stopped_path_ego_half_width_m_{0.16};
 
   std::optional<rclcpp::Time> enter_global_ok_since_;
   uint8_t enter_global_eval_state_{f110_msgs::msg::StateMachine::STATE_GLOBAL};
@@ -122,23 +106,17 @@ private:
   bool has_avoid_wpnts_{false};
   bool opponent_seen_{false};
   bool opponent_interfering_{false};
-  // Consecutive clear detector messages while a stopped avoid path is committed.
-  int64_t stopped_path_clear_count_{0};
-  // Set on a safe-stop release so the same stale stop path cannot immediately re-enter AVOID.
-  bool stopped_path_clear_latched_{false};
   rclcpp::Time last_frenet_time_{0, 0, RCL_ROS_TIME};
   rclcpp::Time last_global_receive_time_{0, 0, RCL_ROS_TIME};
   rclcpp::Time last_opponent_time_{0, 0, RCL_ROS_TIME};
   rclcpp::Time last_avoid_receive_time_{0, 0, RCL_ROS_TIME};
   rclcpp::Time last_non_empty_avoid_time_{0, 0, RCL_ROS_TIME};
-  rclcpp::Time last_static_obstacles_time_{0, 0, RCL_ROS_TIME};
   std::optional<uint8_t> last_published_state_;
 
   nav_msgs::msg::Odometry::SharedPtr frenet_odom_msg_;
   f110_msgs::msg::WpntArray::SharedPtr global_wpnts_msg_;
   f110_msgs::msg::OTWpntArray::SharedPtr avoid_wpnts_msg_;
   f110_msgs::msg::OTWpntArray::SharedPtr last_non_empty_avoid_wpnts_msg_;
-  f110_msgs::msg::ObstacleArray::SharedPtr static_obstacles_msg_;
   std::deque<bool> avoid_path_history_;
 
   uint8_t committed_state_{f110_msgs::msg::StateMachine::STATE_GLOBAL};
@@ -150,7 +128,6 @@ private:
   rclcpp::Subscription<f110_msgs::msg::WpntArray>::SharedPtr global_sub_;
   rclcpp::Subscription<f110_msgs::msg::OTWpntArray>::SharedPtr avoid_sub_;
   rclcpp::Subscription<f110_msgs::msg::ObstacleArray>::SharedPtr opponent_sub_;
-  rclcpp::Subscription<f110_msgs::msg::ObstacleArray>::SharedPtr static_obstacles_sub_;
   rclcpp::TimerBase::SharedPtr timer_;
 };
 

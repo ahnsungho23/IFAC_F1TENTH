@@ -7,9 +7,7 @@ State machine package rules. These instructions apply to `src/state_machine`.
 - `state_machine_node` publishes `f110_msgs/msg/StateMachine`, the selected
   `f110_msgs/msg/WpntArray`, and its `nav_msgs/msg/Path` visualization mirror.
 - `state_machine_node` consumes `/car_state/frenet/odom`, `/global_waypoints`,
-  `/avoid_waypoints`, `/opp_obs`, and the planner's own static-obstacle layer
-  (`static_obstacles_topic`, default `/confirmed_static_obs`) for the safe-stop release only;
-  it must not subscribe to `/scan` and must not run its own clustering.
+  `/avoid_waypoints`, and `/opp_obs`; it must not subscribe to `/scan`.
 - This package is the only normal publisher of `/local_waypoints`. Keep
   `local_planning.publish_standalone_local` disabled during integrated operation.
 - Do not reintroduce a separate state-subscriber waypoint relay. State decisions and waypoint
@@ -41,33 +39,15 @@ State machine package rules. These instructions apply to `src/state_machine`.
     evaluate the tail-reach / lateral-error / duration checks. A markerless non-empty path that
     happens to satisfy the geometry must NOT release AVOID: with tightly spaced obstacles the
     middle of an avoidance path can graze |d|<threshold, and releasing there sends the next
-    obstacle down the raw global line. Outside the safe-stop release below, this node must never
-    re-derive obstacle-clearance from a detector topic.
+    obstacle down the raw global line. This node must never re-derive obstacle-clearance from a
+    detector topic — the removed `has_front_static_obstacle`/`stopped_path_clear` machinery judged
+    with the ego's CURRENT d (wrong while offset), a different topic than the planner
+    (`/static_obs` vs `/confirmed_static_obs`), and could disagree with the planner about the
+    same obstacle. Do not reintroduce it.
   - Feed the marker's absence through `evaluate_enter_to_global(local_available=false)` rather
     than short-circuiting around it — the duration timer must reset while the marker is away, or
     the next handoff window inherits a stale start time and skips the debounce.
-  - **Safe-stop release (2026-08-18, count-based).** A stopped avoid path (last waypoint
-    `vx_mps <= stopped_path_speed_threshold_mps`) is deliberately rejected by `enter_to_global()`,
-    and a planner that keeps republishing it never trips liveness either — so a cleared or ghost
-    obstacle would hold the car forever. `evaluate_stopped_path_clear()` releases that case only,
-    forcing GLOBAL (never CRUISE) and latching avoid re-entry until a front obstacle is seen again
-    or a positive-speed path arrives.
-    - The criterion is a COUNT of consecutive clear detector messages
-      (`stopped_path_clear_min_count`), not a duration. The detector publishes exactly one message
-      per `/scan` (empty array included), so the count IS the number of scans in which nothing was
-      detected. A seconds-based gate would keep ticking while the detector is slow or dead and
-      release with no observation behind it. Do not convert this back to a timer.
-    - Count in the subscription callback; reset it to 0 whenever the path is not a stopped path,
-      the corridor reads blocked, or the evidence is unusable. `front_corridor_obstacle()` is
-      tri-state on purpose: `nullopt` (stale detector/Frenet/global) must never be read as clear.
-    - The corridor band is the union of the ego's current `d` AND the stopped path's `d` inside
-      `stopped_path_obstacle_lookahead_m`, widened by `stopped_path_ego_half_width_m`. The old
-      implementation used the ego's current `d` alone and therefore missed on-line obstacles while
-      the ego stood at an avoidance offset.
-    - Read the SAME topic the planner plans on (`local_planning.obstacles_topic`). The old
-      implementation watched `/static_obs` while the planner watched `/confirmed_static_obs`, so
-      the two could disagree about one obstacle. Keep the two parameters equal.
-  - `evaluate_avoid_path_liveness_lost()` is the only publisher-liveness escape: no non-empty avoid
+  - `evaluate_avoid_path_liveness_lost()` is the ONLY non-marker escape: no non-empty avoid
     publication for `avoid_path_liveness_timeout_sec` releases AVOID regardless of obstacles. It
     is a liveness statement about the publisher, not a clearance statement. The old tail-reach
     exhaustion escape is gone — a path withdrawn near its start left the tail unreachable and the

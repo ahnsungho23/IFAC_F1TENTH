@@ -11,7 +11,7 @@ so the `ego_racecar/laser` vs `laser` difference needs no change).
 
 Outputs: /static_obs (Layer 2), /confirmed_static_obs (confirmed Layer 2), /opp_obs (Layer 3),
 and the matching
-/confirmed_static_obs/markers and /opp_obs/markers Frenet-boundary RViz mirrors.
+/static_obs/markers and /opp_obs/markers Frenet-boundary RViz mirrors.
 """
 
 import os

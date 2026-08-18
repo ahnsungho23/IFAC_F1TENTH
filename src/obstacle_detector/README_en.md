@@ -26,7 +26,7 @@ waypoints, or publish driving state.
   ├─ /static_obs
   ├─ /confirmed_static_obs
   ├─ /opp_obs
-  ├─ /confirmed_static_obs/markers
+  ├─ /static_obs/markers
   └─ /opp_obs/markers
 ```
 
@@ -66,7 +66,7 @@ AABB centre and enclosing-circle radius. A predicted-only object keeps the last 
 extent around its predicted centre but sets `has_cartesian=false`, because Kalman prediction does
 not move the last raw scan footprint.
 
-`/confirmed_static_obs/markers` and `/opp_obs/markers` convert the final arrays'
+`/static_obs/markers` and `/opp_obs/markers` convert the final arrays'
 `s_start/s_end/d_right/d_left` envelopes back into map-frame boundary lines. The static marker
 topic therefore mirrors the exact geometry consumed by the local planner. Predicted-only objects
 remain visible with lower alpha.

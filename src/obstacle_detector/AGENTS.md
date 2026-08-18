@@ -25,12 +25,9 @@ explicitly outside this package. Do not add an overtake planner, `/state`, `/avo
 - Use `f110_msgs/msg/ObstacleArray` for `/static_obs`, `/confirmed_static_obs`, and `/opp_obs`;
   do not create a new obstacle message. `/confirmed_static_obs` is the confirmed-only Layer-2
   interface for persistent map consumers; it must not change the existing `/static_obs` contract.
-- Use `visualization_msgs/msg/MarkerArray` only for the RViz mirrors. The static mirror
-  (`/confirmed_static_obs/markers`) must mirror the final `/confirmed_static_obs` Frenet envelopes,
-  NOT the wider `/static_obs`: `local_planning` subscribes to the confirmed layer, so mirroring
-  `/static_obs` draws obstacles the planner is not avoiding and hides which detections actually
-  reached it. `/opp_obs/markers` must mirror the final `/opp_obs` Frenet envelope. Do not build
-  these markers from Cartesian AABB metadata.
+- Use `visualization_msgs/msg/MarkerArray` only for the RViz mirrors. `/static_obs/markers` must
+  mirror the final `/static_obs` Frenet envelopes, and `/opp_obs/markers` must mirror the final
+  `/opp_obs` Frenet envelope. Do not build these markers from Cartesian AABB metadata.
 
 ## Detection pipeline
 

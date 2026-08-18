@@ -31,26 +31,10 @@ Frenet 입력이 멈추면 마지막 index로 경로를 재발행하지 않습�
   스스로 확인한 뒤에만 `ot_line=raceline_global_handoff`(파라미터 `handoff_ot_line`)를
   붙입니다. 이 표식이 있는 동안에만 기존 tail 도달·횡오차·지속시간 검사
   (`enter_to_global`)를 평가하며, 표식 없는 non-empty 경로가 우연히 기하 조건을 만족해도
-  복귀하지 않습니다.
-- **안전정지(safe-stop) 회귀** (2026-08-18 추가): 회피 경로의 마지막 waypoint 속도가
-  `stopped_path_speed_threshold_mps` 이하인 "정지 경로"는 위 합류 검사가 의도적으로
-  거부하고(홀드 중 AVOID↔GLOBAL 요동 방지), 플래너가 그 경로를 계속 발행하는 한 아래
-  liveness 탈출도 걸리지 않습니다. 그래서 장애물이 실제로 치워졌거나 애초에 유령이었으면
-  차가 영원히 서 있게 됩니다. 이 경우에만 보험으로, 전방 corridor가 **연속
-  `stopped_path_clear_min_count`번의 검출기 메시지**에서 비어 있으면 `GLOBAL(0)`으로
-  회귀합니다. 검출기는 `/scan` 1장마다 정확히 한 번(빈 배열이어도) 발행하므로 이 수는
-  곧 "n번 연속 관측되지 않았다"입니다 — **시간(초) 기준이 아닙니다**. 초 기준이면 검출기가
-  느려지거나 멈춘 동안에도 시계가 흘러 관측 없이 복귀할 수 있습니다.
-  - corridor는 ego의 현재 `d` **와** 정지 경로가 전방 lookahead 안에서 지나갈 `d`의
-    합집합에 `stopped_path_ego_half_width_m`를 더한 띠입니다. 옛 구현처럼 ego의 현재 `d`
-    하나만 보면 ego가 회피 오프셋에 서 있을 때 라인 위 장애물을 놓칩니다.
-  - 검출 입력은 플래너(`local_planning`)의 `obstacles_topic`과 **같은 토픽**
-    (`/confirmed_static_obs`)을 씁니다. 서로 다른 검출 계층을 보면 두 노드가 같은 장애물을
-    두고 다른 결론을 낼 수 있습니다.
-  - 검출 스트림이 `static_obstacles_stale_timeout_sec`보다 오래 끊기면 옛 카운트로
-    복귀하지 않습니다. 관측 없음은 "비었다"의 증거가 아닙니다.
-  - 회귀 직후에는 래치가 걸려 AVOID 재진입이 막힙니다. 전방에 장애물이 다시 보이거나
-    속도>0인 회피 경로가 오면 래치가 풀립니다.
+  복귀하지 않습니다. FSM이 `/static_obs`와 ego 횡위치로 같은 것을 중복 판정하던
+  `has_front_static_obstacle` / `stopped_path_clear` 계열은 제거했습니다 — ego가 회피
+  오프셋에 있으면 라인 위 장애물과 겹치지 않아 오판하고, 플래너와 다른 장애물 토픽을
+  봤습니다.
 - 유일한 비표식 탈출은 **liveness**입니다: non-empty 회피 발행이
   `avoid_path_liveness_timeout_sec` 동안 끊기면(빈 경로만 오는 경우 포함) 장애물 여부와
   무관하게 `GLOBAL`로 복귀합니다. 플래너가 정지 경로라도 계속 발행하는 한 발동하지
@@ -81,7 +65,6 @@ GLOBAL 출력은 Frenet odometry의 `child_frame_id`를 최근접 글로벌 segm
 | 구독 | `/global_waypoints` | `f110_msgs/msg/WpntArray` | Reliable + Transient Local, 글로벌 경로 |
 | 구독 | `/avoid_waypoints` | `f110_msgs/msg/OTWpntArray` | Reliable + Volatile, 정적 회피 경로 |
 | 구독 | `/opp_obs` | `f110_msgs/msg/ObstacleArray` | Reliable + Volatile, 동적 상대차 간섭 여부 |
-| 구독 | `/confirmed_static_obs` | `f110_msgs/msg/ObstacleArray` | Reliable + Volatile, 안전정지 회귀용 전방 corridor 확인 |
 | 구독 | `/car_state/frenet/odom` | `nav_msgs/msg/Odometry` | Reliable + Volatile, 위치·발행 트리거 |
 | 발행 | `/state` | `f110_msgs/msg/StateMachine` | Reliable + Transient Local, FSM 상태 |
 | 발행 | `/local_waypoints` | `f110_msgs/msg/WpntArray` | Reliable + Volatile, 제어 입력 경로 |
@@ -111,12 +94,6 @@ GLOBAL 출력은 Frenet odometry의 `child_frame_id`를 최근접 글로벌 segm
 | `enter_global_tail_distance_m` | `6.0` | 경로 끝에서 거꾸로 잰 tail 창 호 길이 [m]. local_planning의 `state_handoff_tail_distance_m`와 동일해야 함 |
 | `enter_global_s_gap_tol_m` | `0.5` | tail 도달 허용 s 거리 [m] |
 | `avoid_path_liveness_timeout_sec` | `2.0` | non-empty 회피 발행 단절 시 AVOID 해제 (liveness 전용) |
-| `static_obstacles_topic` | `/confirmed_static_obs` | 안전정지 회귀용 정적 장애물 입력. 플래너의 `obstacles_topic`과 같아야 함 |
-| `stopped_path_clear_min_count` | `20` | 회귀에 필요한 **연속 clear 검출기 메시지 수**(=/scan 관측 횟수). 40 Hz 기준 ≈ 0.5 s |
-| `static_obstacles_stale_timeout_sec` | `0.3` | 검출 스트림 stale 판정 시간 (stale이면 회귀 금지) |
-| `stopped_path_speed_threshold_mps` | `0.01` | 정지 경로 판정 속도 [m/s] |
-| `stopped_path_obstacle_lookahead_m` | `3.0` | 전방 corridor 확인 거리 [m] |
-| `stopped_path_ego_half_width_m` | `0.16` | corridor 횡반폭 [m] |
 
 현재 `invalid_local_path_policy`는 `global_fallback`만 지원합니다. 파라미터는 기동 시 한 번
 읽으므로 값을 바꾼 뒤 노드를 재시작해야 합니다.
