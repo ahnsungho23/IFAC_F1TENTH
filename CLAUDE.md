@@ -84,6 +84,21 @@ source install/setup.zsh
 ros2 launch f1tenth_gym_ros gym_bridge_launch.py
 ```
 
+🔴 **시뮬 맵은 이 저장소 밖에 있습니다** — `~/f1sim_C/f1tenth_gym_ros/config/sim.yaml`의
+`map_path`가 가리키는 파일로 gym이 **스캔을 만듭니다**. 이 맵이 MCL 맵과 다르면 `/scan`이
+`/map`과 전혀 안 맞고, RViz에서 스캔이 트랙에서 멀리 떨어져 보입니다 (2026-08-18 실측).
+
+트랙이 바뀌면 **세 곳을 같이** 바꿔야 합니다:
+
+| 무엇 | 어디 |
+|---|---|
+| gym 스캔 생성용 맵 | `~/f1sim_C/f1tenth_gym_ros/maps/` + `config/sim.yaml`의 `map_path` |
+| MCL 맵 | `src/monte_carlo_localization/maps/map.{png,yaml}` |
+| raceline | `offline_trajectory_generator/output/map/` |
+
+`sim.yaml`의 스폰 포즈(`sx`/`sy`/`stheta`)도 새 라인 위의 점으로 바꿔야 합니다 — 옛 좌표는
+새 맵에서 벽 안이거나 맵 밖입니다. 현재값은 새 라인 s=5.01(직선 구간)입니다.
+
 ### 터미널 2 — 위치추정 (Monte Carlo Localization)
 
 `/pf/pose/odom`을 발행합니다. 이후 모든 노드가 이 토픽에 의존합니다.
@@ -92,30 +107,32 @@ ros2 launch f1tenth_gym_ros gym_bridge_launch.py
 cd ~/2026_IFAC
 source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
-ros2 launch particle_filter_cpp mcl_launch.py mod:=sim map_name:=ifac_track use_rviz:=true
+ros2 launch particle_filter_cpp mcl_launch.py mod:=sim map_name:=map use_rviz:=true
 ```
 
 | 인자 | 값 | 설명 |
 |---|---|---|
 | `mod` | `sim` | 시뮬레이션 모드 (`/ego_racecar/odom` 사용, sim time 활성) |
-| `map_name` | `ifac_track` | `monte_carlo_localization/maps/ifac_track.yaml` |
+| `map_name` | `map` | `monte_carlo_localization/maps/map.yaml` (기본값이라 생략 가능) |
 | `use_rviz` | `true` | RViz 동시 실행 |
 
 ### 터미널 3 — 글로벌 플래너
 
 `global_waypoints.json`을 읽어 `/global_waypoints`를 발행하고, `/car_state/frenet/odom`을 계산합니다.
 
-⚠️ **`map_name:=ifac_track`을 반드시 넘길 것** — 2026-08-12 팀 merge 이후 기본
-map_name이 `map`(다른 트랙)이라, 인자 없이 띄우면 다른 트랙의 라인이 발행되어
-frenet 투영이 전부 실패합니다 (`CLCS projection failed` 반복). 또한 launch는
-`global_waypoints.json`을 **cwd 상대경로**로 읽으므로 `cd ~/2026_IFAC` 상태에서
+⚠️ **맵 이름은 이제 `map` 하나로 통일됐습니다** (2026-08-18). MCL·global·local 세
+노드의 기본값이 모두 `map`이고, 환경변수 `F1_MAP`으로 한 번에 바꿉니다. 옛 `ifac_track`
+맵은 삭제됐으니 그 이름을 넘기면 파일을 못 찾습니다. **젯슨 `~/.zshrc`에 `F1_MAP=ifac_track`이
+남아 있지 않은지 확인하십시오** — 남아 있으면 세 노드가 다시 어긋납니다.
+
+launch는 `global_waypoints.json`을 **cwd 상대경로**로 읽으므로 `cd ~/2026_IFAC` 상태에서
 실행해야 합니다.
 
 ```bash
 cd ~/2026_IFAC
 source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
-ros2 launch global_planning global_planning.launch.py map_name:=ifac_track
+ros2 launch global_planning global_planning.launch.py
 ```
 
 ### 터미널 4 — 장애물 검출기 (⚠️ 기본 생략)
