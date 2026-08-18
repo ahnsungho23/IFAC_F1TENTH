@@ -77,7 +77,7 @@ source install/setup.zsh
 
 # Standalone run (the launch must always pass waypoints_csv)
 ros2 launch lap_referee lap_referee.launch.py \
-  waypoints_csv:=$HOME/2026_IFAC/offline_trajectory_generator/output/ifac_track/global_waypoints.csv \
+  waypoints_csv:=$HOME/2026_IFAC/offline_trajectory_generator/output/map/global_waypoints.csv \
   output_dir:=/tmp/lap_referee output_prefix:=rollout
 ```
 

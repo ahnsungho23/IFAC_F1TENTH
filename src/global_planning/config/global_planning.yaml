@@ -41,6 +41,12 @@ frenet_odom_node:
     velocity_frame: "body"
     covariance_mode: "zero"
     use_path_preprocessing: true
+    # --- Frenet d/vd EMA 스무더 (dbf2a54, 2026-08-16) ---
+    # ⚠️ 예전엔 코드 declare_parameter 기본값에만 있어 --show-args/launch 인자로 안 보였다.
+    # 여기 노출해 두면 현장에서 enable_smoothing:=false 하나로 즉시 A/B 가능하다.
+    enable_smoothing: true
+    d_alpha: 0.5     # d(횡편차) EMA 게인. 낮을수록 느림(τ = Δt·(1-α)/α, 40Hz·0.5 ≈ 25ms)
+    vd_alpha: 0.5    # v_d EMA 게인. d_alpha와 반드시 맞출 것(운동학적 일관성, 위 코드 주석 참고)
     # --- Monotonic s-window tracking (closed-loop wrap) ---
     # After the first fix only [s_prev - backward_tolerance, s_prev +
     # forward_window] (mod track length) is searched, so branches that are
@@ -56,7 +62,10 @@ frenet_odom_node:
     # Euclidean gate for tracked fixes only. Must exceed the largest
     # legitimate |d| (avoidance excursions ~1.1 m) and stay below the
     # smallest branch gap (hairpin legs 1.41 m).
-    tracked_max_projection_distance: 1.5
+    # ⚠️ 2026-08-16: was 1.5, which is ABOVE the 1.41 m branch gap this comment says to stay
+    # under — the gate couldn't distinguish a legitimate large-|d| avoidance excursion from a
+    # snap to the opposite hairpin leg. Lowered to 1.3 (margin on both sides: 1.1 < 1.3 < 1.41).
+    tracked_max_projection_distance: 1.3
     reacquire_after_misses: 5      # ~0.17 s at 30 Hz odom
     max_projection_distance: 2.5
     projection_domain_limit: 2.7

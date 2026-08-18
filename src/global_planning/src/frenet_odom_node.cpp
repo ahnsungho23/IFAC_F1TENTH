@@ -147,6 +147,16 @@ private:
     declare_parameter<double>("initial_seed_window", 0.0);
     declare_parameter<double>("tracked_max_projection_distance", 1.5);
     declare_parameter<int>("reacquire_after_misses", 15);
+
+    // Frenet d / vd Output Smoothing Filter
+    declare_parameter<bool>("enable_smoothing", true);
+    declare_parameter<double>("d_alpha", 0.5);
+    // ⚠️ 2026-08-16: 0.3(d_alpha 0.5보다 느림) → d_alpha와 같은 0.5로. v_d는 odom body twist를
+    // 기준선 법선에 투영한 기구학적 값이라(수치 미분이 아님) 필터링 이득이 원래 없다 — 그런데
+    // d보다 느린 시상수를 주면 d와 v_d가 서로 다른 지연으로 필터링돼 "d의 미분 ≠ v_d"인
+    // 운동학적으로 비일관된 신호 쌍이 된다(현재는 소비자가 없어 무해하지만, 훗날 예측
+    // d+v_d·Δt 같은 용도로 v_d를 쓰기 시작하면 그대로 문제가 된다). d_alpha와 맞춘다.
+    declare_parameter<double>("vd_alpha", 0.5);
   }
 
   void loadParameters()
@@ -187,6 +197,10 @@ private:
       get_parameter("tracked_max_projection_distance").as_double();
     config_.reacquire_after_misses =
       static_cast<int>(get_parameter("reacquire_after_misses").as_int());
+
+    enable_smoothing_ = get_parameter("enable_smoothing").as_bool();
+    d_alpha_ = std::clamp(get_parameter("d_alpha").as_double(), 0.05, 1.0);
+    vd_alpha_ = std::clamp(get_parameter("vd_alpha").as_double(), 0.05, 1.0);
 
     if (!std::isfinite(config_.forward_window) || config_.forward_window <= 0.0) {
       RCLCPP_WARN(
@@ -259,6 +273,10 @@ private:
       path_version_ = stats.path_version;
       // Progress (s_prev) belongs to the old path; re-acquire on the new one.
       continuity_state_ = ClcsContinuityState{};
+      // ⚠️ 2026-08-16: EMA도 함께 리셋해야 한다. 안 하면 새 라인 기준 d가 옛 라인 기준
+      // smoothed_d_/smoothed_vd_와 섞여 1~4 사이클(25~100ms) 동안 혼합값이 나온다 — 라인은
+      // 자주 재생성되므로(같은 날 하루에도 여러 번) 이 창이 실제로 자주 열린다.
+      has_smoothed_state_ = false;
     }
 
     RCLCPP_INFO(
@@ -320,6 +338,8 @@ private:
         "Monotonic s-window re-acquired via global search after %d consecutive "
         "misses (s=%.2f).",
         config_.reacquire_after_misses, conversion.s);
+      // d가 전역 재탐색으로 큰 폭 점프하는데 EMA는 옛 값을 물고 있으면 안 되므로 리셋한다.
+      has_smoothed_state_ = false;
     }
     if (!conversion.valid) {
       handleProjectionFailure(*odom, conversion);
@@ -334,13 +354,30 @@ private:
 
   nav_msgs::msg::Odometry buildOutputOdometry(
     const nav_msgs::msg::Odometry & input,
-    const ClcsConversionResult & conversion) const
+    const ClcsConversionResult & conversion)
   {
     nav_msgs::msg::Odometry output = input;
     output.header.frame_id = frenet_frame_id_;
     output.child_frame_id = std::to_string(conversion.segment_index);
     output.pose.pose.position.x = conversion.s;
-    output.pose.pose.position.y = conversion.d;
+
+    double filtered_d = conversion.d;
+    double filtered_vd = conversion.v_d;
+
+    if (enable_smoothing_) {
+      if (!has_smoothed_state_) {
+        smoothed_d_ = conversion.d;
+        smoothed_vd_ = conversion.v_d;
+        has_smoothed_state_ = true;
+      } else {
+        smoothed_d_ = d_alpha_ * conversion.d + (1.0 - d_alpha_) * smoothed_d_;
+        smoothed_vd_ = vd_alpha_ * conversion.v_d + (1.0 - vd_alpha_) * smoothed_vd_;
+      }
+      filtered_d = smoothed_d_;
+      filtered_vd = smoothed_vd_;
+    }
+
+    output.pose.pose.position.y = filtered_d;
     output.pose.pose.position.z = 0.0;
 
     if (!compatibility_mode_ && publish_heading_error_) {
@@ -349,7 +386,7 @@ private:
 
     if (!compatibility_mode_ && config_.publish_frenet_velocity) {
       output.twist.twist.linear.x = conversion.v_s;
-      output.twist.twist.linear.y = conversion.v_d;
+      output.twist.twist.linear.y = filtered_vd;
       output.twist.twist.angular.z = conversion.yaw_rate;
     }
 
@@ -399,6 +436,12 @@ private:
   bool use_path_preprocessing_{true};
   bool continuity_enabled_{true};
   bool has_last_valid_odom_{false};
+  bool enable_smoothing_{true};
+  double d_alpha_{0.5};
+  double vd_alpha_{0.3};
+  double smoothed_d_{0.0};
+  double smoothed_vd_{0.0};
+  bool has_smoothed_state_{false};
   std::uint64_t path_version_{0};
 
   std::string odom_topic_;

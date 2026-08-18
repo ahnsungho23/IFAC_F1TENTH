@@ -83,7 +83,7 @@ source install/setup.zsh   # zsh 기준 (alias: sc)
 
 ```bash
 ros2 launch lap_referee lap_referee.launch.py \
-  waypoints_csv:=$HOME/2026_IFAC/offline_trajectory_generator/output/ifac_track/global_waypoints.csv \
+  waypoints_csv:=$HOME/2026_IFAC/offline_trajectory_generator/output/map/global_waypoints.csv \
   output_dir:=/tmp/lap_referee output_prefix:=rollout
 ```
 
@@ -92,7 +92,7 @@ ros2 launch lap_referee lap_referee.launch.py \
 ```bash
 ros2 run lap_referee lap_referee --ros-args \
   --params-file $(ros2 pkg prefix lap_referee)/share/lap_referee/config/lap_referee.yaml \
-  -p waypoints_csv:=$HOME/2026_IFAC/offline_trajectory_generator/output/ifac_track/global_waypoints.csv \
+  -p waypoints_csv:=$HOME/2026_IFAC/offline_trajectory_generator/output/map/global_waypoints.csv \
   -p output_dir:=/tmp/lap_referee -p output_prefix:=rollout
 ```
 
