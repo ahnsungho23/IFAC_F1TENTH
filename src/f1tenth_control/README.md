@@ -202,7 +202,7 @@ $$\delta = a_{lat}\left(\frac{L}{v^2} + K_{us}(|a_{lat}|)\right)$$
 
 | 파라미터 | 기본값 | 설명 |
 |---|---|---|
-| `steering_fb_gain` | **1.0** | FF/FB 분리 게인. **1.0 = 분리 전과 수학적 동일** |
+| `steering_fb_gain` | **0.9** | FF/FB 분리 게인. **1.0 = 분리 전과 수학적 동일**. 2026-08-18에 1.0 → 0.9 |
 | `curvature_ff_preview` | 0.0 | FF가 곡률을 읽을 전방 거리 [m]. 0 = 최근접점 |
 | `understeer_gradient_adapt_gain` | **0.0** | K_us 온라인 적응. **0 = 관측 전용** |
 | `understeer_adapt_min_lat_acc` | 3.0 | K_us 학습 게이트 [m/s²] (코너 전용) |

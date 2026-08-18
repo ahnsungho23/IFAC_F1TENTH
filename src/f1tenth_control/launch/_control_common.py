@@ -174,12 +174,16 @@ def declare_common_args(sector_scale_enable_default='false'):
 
         # ── 조향 생성: 자전거 역모델 + FF/FB 분리 (②-p) ───────────────────────
         # 구 LUT 역조회는 2026-08-17에 삭제됐다(롤백은 git 0d16173 — 메모리 참고).
+        # 🟢 2026-08-18: 1.0 → 0.9 (사용자 지정). FF는 100% 유지하고 오차 보정분만 90%로
+        #    줄인다. 곡률 일정 구간에서는 pure pursuit 기하상 lat_acc = κ·v² = a_ff 라
+        #    FB항이 0 → 정상 선회 거동은 바뀌지 않고, 직선 횡오차 복구와 코너 진입 선행분만
+        #    10% 약해진다. ⚠️ 저속 셰이크다운부터 확인할 것(작업 시 주의사항 참고).
         DeclareLaunchArgument(
-            'steering_fb_gain', default_value='1.0',
+            'steering_fb_gain', default_value='0.9',
             description='FF/FB 분리 게인 (bicycle 모델 전용). L1 명령 중 경로 곡률로 '
                         '설명되지 않는 보정분에만 곱한다. 1.0 = 분리 전과 수학적으로 동일 '
-                        '(안전한 출발점). 낮추면 경로 추종은 FF가, 오차 보정은 L1이 맡아 '
-                        'l1_offset의 "정확도 vs 횡진동" 트레이드오프가 분리된다'
+                        '(안전한 출발점), 현재 기본 0.9. 낮추면 경로 추종은 FF가, 오차 보정은 '
+                        'L1이 맡아 l1_offset의 "정확도 vs 횡진동" 트레이드오프가 분리된다'
         ),
         DeclareLaunchArgument(
             'curvature_ff_preview', default_value='0.0',
