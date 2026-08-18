@@ -156,7 +156,7 @@ class Harness(Node):
         self.sub_opp = self.create_subscription(
             ObstacleArray, "/opp_obs", self.on_opp, 10)
         self.sub_static_markers = self.create_subscription(
-            MarkerArray, "/static_obs/markers", self.on_static_markers, 10)
+            MarkerArray, "/confirmed_static_obs/markers", self.on_static_markers, 10)
         self.sub_opp_markers = self.create_subscription(
             MarkerArray, "/opp_obs/markers", self.on_opp_markers, 10)
 
@@ -467,7 +467,7 @@ class Harness(Node):
               f"{not self.visible_cartesian_missing and not self.invalid_cartesian}", flush=True)
         print(f"  every published obstacle has valid Frenet AABB bounds:     "
               f"{not self.invalid_frenet}", flush=True)
-        print(f"  /static_obs/markers mirrors a Frenet boundary:             "
+        print(f"  /confirmed_static_obs/markers mirrors a Frenet boundary:   "
               f"{self.saw_static_frenet_marker}", flush=True)
         print(f"  /opp_obs/markers mirrors a Frenet boundary:                "
               f"{self.saw_opp_frenet_marker}", flush=True)

@@ -56,6 +56,7 @@ StateMachineNode::StateMachineNode()
   declare_parameter<std::string>("default_state", "global");
   declare_parameter<std::string>("invalid_local_path_policy", "global_fallback");
   declare_parameter<std::string>("handoff_ot_line", "raceline_global_handoff");
+  declare_parameter<std::string>("static_obstacles_topic", "/confirmed_static_obs");
 
   declare_parameter<double>("publish_rate_hz", 100.0);
   declare_parameter<int>("waypoint_num", 50);
@@ -73,6 +74,11 @@ StateMachineNode::StateMachineNode()
   declare_parameter<double>("enter_global_tail_distance_m", 6.0);
   declare_parameter<double>("enter_global_s_gap_tol_m", 0.5);
   declare_parameter<double>("avoid_path_liveness_timeout_sec", 2.0);
+  declare_parameter<double>("static_obstacles_stale_timeout_sec", 0.3);
+  declare_parameter<int64_t>("stopped_path_clear_min_count", 20);
+  declare_parameter<double>("stopped_path_speed_threshold_mps", 0.01);
+  declare_parameter<double>("stopped_path_obstacle_lookahead_m", 3.0);
+  declare_parameter<double>("stopped_path_ego_half_width_m", 0.16);
 
   state_topic_ = get_parameter("state_topic").as_string();
   local_waypoints_topic_ = get_parameter("local_waypoints_topic").as_string();
@@ -81,6 +87,7 @@ StateMachineNode::StateMachineNode()
   default_state_name_ = get_parameter("default_state").as_string();
   invalid_local_path_policy_ = get_parameter("invalid_local_path_policy").as_string();
   handoff_ot_line_ = get_parameter("handoff_ot_line").as_string();
+  static_obstacles_topic_ = get_parameter("static_obstacles_topic").as_string();
 
   allow_avoid_transition_ = get_parameter("allow_avoid_transition").as_bool();
   allow_cruise_transition_ = get_parameter("allow_cruise_transition").as_bool();
@@ -103,6 +110,15 @@ StateMachineNode::StateMachineNode()
   enter_global_s_gap_tol_m_ = get_parameter("enter_global_s_gap_tol_m").as_double();
   avoid_path_liveness_timeout_sec_ =
     get_parameter("avoid_path_liveness_timeout_sec").as_double();
+  static_obstacles_stale_timeout_sec_ =
+    get_parameter("static_obstacles_stale_timeout_sec").as_double();
+  stopped_path_clear_min_count_ = get_parameter("stopped_path_clear_min_count").as_int();
+  stopped_path_speed_threshold_mps_ =
+    get_parameter("stopped_path_speed_threshold_mps").as_double();
+  stopped_path_obstacle_lookahead_m_ =
+    get_parameter("stopped_path_obstacle_lookahead_m").as_double();
+  stopped_path_ego_half_width_m_ =
+    get_parameter("stopped_path_ego_half_width_m").as_double();
 
   if (waypoint_num <= 0 || waypoint_num > std::numeric_limits<int>::max()) {
     throw std::invalid_argument("waypoint_num must be in the range [1, INT_MAX]");
@@ -134,6 +150,21 @@ StateMachineNode::StateMachineNode()
     avoid_path_liveness_timeout_sec_ <= 0.0)
   {
     throw std::invalid_argument("avoid_path_liveness_timeout_sec must be finite and positive");
+  }
+  if (!std::isfinite(static_obstacles_stale_timeout_sec_) ||
+    static_obstacles_stale_timeout_sec_ <= 0.0 ||
+    stopped_path_clear_min_count_ < 1 ||
+    !std::isfinite(stopped_path_speed_threshold_mps_) ||
+    stopped_path_speed_threshold_mps_ < 0.0 ||
+    !std::isfinite(stopped_path_obstacle_lookahead_m_) ||
+    stopped_path_obstacle_lookahead_m_ <= 0.0 ||
+    !std::isfinite(stopped_path_ego_half_width_m_) ||
+    stopped_path_ego_half_width_m_ < 0.0)
+  {
+    throw std::invalid_argument("invalid stopped path clear parameter value");
+  }
+  if (static_obstacles_topic_.empty()) {
+    throw std::invalid_argument("static_obstacles_topic must be non-empty");
   }
   if (handoff_ot_line_.empty()) {
     throw std::invalid_argument("handoff_ot_line must be non-empty");
@@ -168,6 +199,10 @@ StateMachineNode::StateMachineNode()
     get_parameter("opponent_topic").as_string(),
     volatile_qos,
     std::bind(&StateMachineNode::on_opponent, this, std::placeholders::_1));
+  static_obstacles_sub_ = create_subscription<f110_msgs::msg::ObstacleArray>(
+    static_obstacles_topic_,
+    volatile_qos,
+    std::bind(&StateMachineNode::on_static_obstacles, this, std::placeholders::_1));
 
   const auto period = std::chrono::duration_cast<std::chrono::nanoseconds>(
     std::chrono::duration<double>(1.0 / publish_rate_hz));
@@ -308,7 +343,10 @@ bool StateMachineNode::validate_global_waypoints(
 
 bool StateMachineNode::can_enter_avoid() const
 {
-  if (!allow_avoid_transition_) {
+  // stopped_path_clear_latched_: 안전정지 해제로 GLOBAL에 복귀한 직후다. 같은 정지 경로가
+  // 아직 발행되고 있으면 M-of-N이 즉시 다시 차서 AVOID↔GLOBAL 요동이 된다. 새 장애물이
+  // 보이거나 속도>0인 경로가 오기 전까지는 재진입을 막는다.
+  if (!allow_avoid_transition_ || stopped_path_clear_latched_) {
     return false;
   }
   // 핸드오프 루프는 AVOID 요청이 아니다 (히스토리에서도 이미 제외되지만, 최신 메시지
@@ -368,6 +406,13 @@ void StateMachineNode::on_avoid_wpnts(const f110_msgs::msg::OTWpntArray::SharedP
   if (non_empty) {
     last_non_empty_avoid_wpnts_msg_ = msg;
     last_non_empty_avoid_time_ = last_avoid_receive_time_;
+    if (msg->wpnts.back().vx_mps > stopped_path_speed_threshold_mps_) {
+      // 다시 달릴 수 있는 경로가 왔다 = 안전정지 복귀 래치를 풀어 AVOID 재진입을 허용한다.
+      stopped_path_clear_latched_ = false;
+    }
+  }
+  if (!stopped_path_active()) {
+    stopped_path_clear_count_ = 0;
   }
   if (!non_empty) {
     RCLCPP_WARN_THROTTLE(
@@ -388,6 +433,103 @@ void StateMachineNode::on_opponent(const f110_msgs::msg::ObstacleArray::SharedPt
     msg->obstacles.begin(), msg->obstacles.end(),
     [](const auto & obstacle) {return !obstacle.is_static && obstacle.is_interfering;});
   last_opponent_time_ = now();
+}
+
+void StateMachineNode::on_static_obstacles(
+  const f110_msgs::msg::ObstacleArray::SharedPtr msg)
+{
+  if (msg == nullptr) {
+    return;
+  }
+  static_obstacles_msg_ = msg;
+  last_static_obstacles_time_ = now();
+
+  // 카운터는 **메시지 단위**로 센다. 검출기는 /scan 1장마다 이 토픽을 정확히 한 번
+  // 발행하므로(빈 배열이어도 발행) 여기서 세는 수 = 스캔 횟수다. 시간 기준(초)으로
+  // 세면 검출기가 느려지거나 멈춘 동안에도 시계가 흘러 "장애물이 사라졌다"는 결론이
+  // 나지만, 스캔 횟수는 실제로 그만큼 관측했을 때만 늘어난다.
+  const std::optional<bool> obstacle_ahead = front_corridor_obstacle();
+  if (obstacle_ahead.value_or(false)) {
+    // 전방에 실제로 장애물이 보였다 = 안전정지가 옳다. 복귀 래치도 여기서 푼다.
+    stopped_path_clear_latched_ = false;
+  }
+  if (!stopped_path_active() || !obstacle_ahead.has_value() || obstacle_ahead.value()) {
+    // 정지 경로가 아니거나, 증거가 없거나(stale), 장애물이 보이면 연속 카운트는 0이다.
+    stopped_path_clear_count_ = 0;
+    return;
+  }
+  ++stopped_path_clear_count_;
+}
+
+bool StateMachineNode::stopped_path_active() const
+{
+  return has_avoid_wpnts() && avoid_wpnts_msg_ != nullptr &&
+         !avoid_wpnts_msg_->wpnts.empty() &&
+         avoid_wpnts_msg_->wpnts.back().vx_mps <= stopped_path_speed_threshold_mps_;
+}
+
+std::optional<bool> StateMachineNode::front_corridor_obstacle() const
+{
+  if (static_obstacles_msg_ == nullptr ||
+    !is_fresh(last_static_obstacles_time_, static_obstacles_stale_timeout_sec_) ||
+    !has_fresh_frenet() || !has_valid_global())
+  {
+    return std::nullopt;   // 증거 없음은 "비었다"의 증거가 아니다.
+  }
+  const double track_length = track_length_from(*global_wpnts_msg_);
+  if (!(track_length > 0.0)) {
+    return std::nullopt;
+  }
+
+  const double ego_s = frenet_odom_msg_->pose.pose.position.x;
+  const double ego_d = frenet_odom_msg_->pose.pose.position.y;
+  if (!std::isfinite(ego_s) || !std::isfinite(ego_d)) {
+    return std::nullopt;
+  }
+
+  // corridor는 ego의 **현재 d 하나**가 아니라, ego의 d와 committed 정지 경로가 전방
+  // lookahead 안에서 지나갈 d 전체의 합집합이다. 옛 구현은 ego의 현재 d만 봤는데, ego가
+  // 회피 오프셋에 서 있으면 라인 위 장애물과 겹치지 않아 "비었다"고 잘못 판정했다.
+  double band_min = ego_d - stopped_path_ego_half_width_m_;
+  double band_max = ego_d + stopped_path_ego_half_width_m_;
+  if (avoid_wpnts_msg_ != nullptr) {
+    for (const auto & waypoint : avoid_wpnts_msg_->wpnts) {
+      if (!std::isfinite(waypoint.s_m) || !std::isfinite(waypoint.d_m)) {
+        continue;
+      }
+      if (forward_s_distance(ego_s, waypoint.s_m, track_length) >
+        stopped_path_obstacle_lookahead_m_)
+      {
+        continue;
+      }
+      band_min = std::min(band_min, waypoint.d_m - stopped_path_ego_half_width_m_);
+      band_max = std::max(band_max, waypoint.d_m + stopped_path_ego_half_width_m_);
+    }
+  }
+
+  return std::any_of(
+    static_obstacles_msg_->obstacles.begin(), static_obstacles_msg_->obstacles.end(),
+    [&, track_length](const auto & obstacle) {
+      if (obstacle.is_actually_a_gap || !std::isfinite(obstacle.s_center) ||
+        !std::isfinite(obstacle.d_right) || !std::isfinite(obstacle.d_left))
+      {
+        return false;
+      }
+      const double forward = forward_s_distance(ego_s, obstacle.s_center, track_length);
+      const double obstacle_right = std::min(obstacle.d_right, obstacle.d_left);
+      const double obstacle_left = std::max(obstacle.d_right, obstacle.d_left);
+      return forward <= stopped_path_obstacle_lookahead_m_ &&
+             obstacle_left >= band_min && obstacle_right <= band_max;
+    });
+}
+
+bool StateMachineNode::evaluate_stopped_path_clear() const
+{
+  // 시간이 아니라 **연속 관측 횟수**가 기준이다. 검출기 스트림이 stale이면 옛 카운트를
+  // 근거로 풀지 않는다(스트림이 죽은 동안 카운트가 얼어붙어 있을 수 있다).
+  return stopped_path_active() &&
+         is_fresh(last_static_obstacles_time_, static_obstacles_stale_timeout_sec_) &&
+         stopped_path_clear_count_ >= stopped_path_clear_min_count_;
 }
 
 bool StateMachineNode::handoff_offered() const
@@ -544,10 +686,16 @@ uint8_t StateMachineNode::resolve_requested_state()
           has_avoid_wpnts() && handoff_offered(),
           avoid_wpnts_msg_);
         const bool liveness_lost = evaluate_avoid_path_liveness_lost();
-        if (!(merged_to_global || liveness_lost)) {
+        // 안전정지 회귀: 끝점 vx=0인 정지 경로는 enter_to_global이 의도적으로 거부하므로
+        // (홀드 중 요동 방지) 플래너가 정지 경로를 계속 발행하는 한 liveness도 걸리지
+        // 않는다. 장애물이 실제로 치워졌거나 유령이었으면 차는 영원히 서 있게 된다.
+        // 그 경우에만, 전방 corridor가 **연속 stopped_path_clear_min_count번의 검출기
+        // 메시지(=/scan 관측)**에서 비어 있을 때 GLOBAL로 회귀한다.
+        const bool stopped_path_clear = evaluate_stopped_path_clear();
+        if (!(merged_to_global || liveness_lost || stopped_path_clear)) {
           break;
         }
-        committed_state_ = cruise_requested && !liveness_lost ?
+        committed_state_ = cruise_requested && !liveness_lost && !stopped_path_clear ?
           f110_msgs::msg::StateMachine::STATE_CRUISE :
           f110_msgs::msg::StateMachine::STATE_GLOBAL;
         RCLCPP_INFO(
@@ -555,13 +703,18 @@ uint8_t StateMachineNode::resolve_requested_state()
           committed_state_ == f110_msgs::msg::StateMachine::STATE_CRUISE ?
           "STATE_CRUISE" : "STATE_GLOBAL",
           liveness_lost ? "avoid publisher liveness lost" :
-          "handoff offered and merged to global line");
-        if (liveness_lost) {
+          (stopped_path_clear ? "stopped path with front corridor clear for N scans" :
+          "handoff offered and merged to global line"));
+        if (liveness_lost || stopped_path_clear) {
           avoid_path_history_.clear();
           has_avoid_wpnts_ = false;
           avoid_wpnts_msg_.reset();
           last_non_empty_avoid_wpnts_msg_.reset();
         }
+        if (stopped_path_clear) {
+          stopped_path_clear_latched_ = true;
+        }
+        stopped_path_clear_count_ = 0;
       }
       break;
 

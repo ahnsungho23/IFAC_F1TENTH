@@ -21,7 +21,8 @@ obstacle_detector:
     static_obs_topic: "/static_obs"            # Layer 2 output (ObstacleArray, is_static=true)
     confirmed_static_obs_topic: "/confirmed_static_obs" # confirmed-only Layer 2 output
     opp_obs_topic: "/opp_obs"                  # Layer 3 output (ObstacleArray, <=1 opponent)
-    static_markers_topic: "/static_obs/markers" # RViz mirror of the final /static_obs Frenet bounds
+    # RViz mirror of the /confirmed_static_obs Frenet bounds — the layer local_planning consumes.
+    static_markers_topic: "/confirmed_static_obs/markers"
     opp_markers_topic: "/opp_obs/markers"       # RViz mirror of the final /opp_obs Frenet bounds
     map_frame: "map"
 
