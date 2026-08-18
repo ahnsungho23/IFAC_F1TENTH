@@ -295,7 +295,25 @@ def declare_common_args(sector_scale_enable_default='false'):
         ),
         DeclareLaunchArgument(
             'understeer_gradient', default_value='0.014',
-            description='언더스티어 그래디언트 K_us [rad/(m/s^2)]. 0이면 조향 권한 캡 비활성'
+            description='언더스티어 그래디언트 K_us [rad/(m/s^2)]. 0이면 조향 권한 캡 비활성. '
+                        '좌/우 분리값(_left/_right)이 양수면 조향·캡·트림은 그쪽을 쓰고 '
+                        '이 값은 방향 미상(κ=0)일 때만 남는다'
+        ),
+        # ── 좌/우 분리 K_us (2026-08-18, rosbag2_..-20_34_05 실측) ──────────────
+        # 정상상태 요레이트 전달률 역산: 좌 ≈0.008 / 우 ≈0.024. 공용 0.014는 그 중간이라
+        # 우코너 FF가 만성 부족 → 매 랩 s25~31 우커브 탈출에서 +1.05 m 와이드(좌벽 0.38 m
+        # 스침), 복구 오버슈트로 s38.5 좌커브 진입이 밀려 우벽 스침/접촉의 직접 원인.
+        # 21:43 검증 런(67랩, 좌0.008/우0.024): 코너1 d +0.88→+0.32, 좌벽 0.25→0.67 m로
+        # 해결 확인. 대신 좌 하중별 실측이 0.0140(2~4)/0.0103(4~6)/0.0063(6~9)로 나와
+        # 고하중 좌커브(코너2)가 0.008로는 살짝 부족 → 주 대역(4~6) 실측치 0.010으로 조정.
+        # 되돌리기: 둘 다 -1.0 (= 공용 understeer_gradient로 폴백).
+        DeclareLaunchArgument(
+            'understeer_gradient_left', default_value='0.010',
+            description='좌회전 K_us [rad/(m/s^2)]. <=0 = 공용 understeer_gradient 사용'
+        ),
+        DeclareLaunchArgument(
+            'understeer_gradient_right', default_value='0.024',
+            description='우회전 K_us [rad/(m/s^2)]. <=0 = 공용 understeer_gradient 사용'
         ),
         DeclareLaunchArgument(
             'steer_authority_ratio', default_value='0.95',
@@ -396,6 +414,8 @@ def build_control_map_node(*, odom_topic, max_speed, max_lateral_accel, base_max
             'min_speed': LaunchConfiguration('min_speed'),
             'max_lateral_accel': max_lateral_accel,
             'understeer_gradient': LaunchConfiguration('understeer_gradient'),
+            'understeer_gradient_left': LaunchConfiguration('understeer_gradient_left'),
+            'understeer_gradient_right': LaunchConfiguration('understeer_gradient_right'),
             'steer_authority_ratio': LaunchConfiguration('steer_authority_ratio'),
             'curvature_lookahead_count': ParameterValue(
                 LaunchConfiguration('curvature_lookahead_count'), value_type=int),

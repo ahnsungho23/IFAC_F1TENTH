@@ -265,6 +265,18 @@ public:
             static_cast<size_t>(declare_parameter<int>("curvature_lookahead_count", 60));
         max_lateral_accel_ = declare_parameter<double>("max_lateral_accel", 6.0);
         understeer_gradient_ = declare_parameter<double>("understeer_gradient", 0.019);
+        // ── 좌/우 분리 K_us (2026-08-18) ─────────────────────────────────────
+        // rosbag2_..-20_34_05 실측: 정상상태 요레이트 전달률을 K_us로 역산하면
+        // 좌 ≈0.008 / 우 ≈0.024 — 공용 스칼라는 정확히 그 중간이라 우코너(s25~31)에서
+        // FF가 만성 부족했고, 매 랩 +1.05 m 와이드 → 벽 스침의 직접 원인이었다.
+        // 젯슨의 서보 좌우 게인 분리(08-03)와는 층위가 다르다: 그건 '명령각→서보',
+        // 이건 '바퀴각→요레이트'(차량동역학) 비대칭이다. ≤0 이면 공용값을 따른다(구 거동).
+        understeer_gradient_left_ =
+            declare_parameter<double>("understeer_gradient_left", -1.0);
+        if (understeer_gradient_left_ <= 0.0) understeer_gradient_left_ = understeer_gradient_;
+        understeer_gradient_right_ =
+            declare_parameter<double>("understeer_gradient_right", -1.0);
+        if (understeer_gradient_right_ <= 0.0) understeer_gradient_right_ = understeer_gradient_;
         // 적응 추정의 출발점은 런치가 준 정적값이다 — 학습 전/게이트가 안 열린 구간에서는
         // 정확히 구 거동으로 떨어진다. (범위 클램프는 파라미터 선언부에서 이미 읽었다.)
         understeer_gradient_adapted_ =
@@ -454,9 +466,10 @@ public:
         // 조향 파라미터를 기동 시 1회 남긴다 — bag만 보고 "그 주행이 어떤 설정이었나"를
         // 되짚을 수 있어야 한다(0816 사후분석에서 파라미터 이력을 git으로 캐야 했던 교훈).
         RCLCPP_INFO(this->get_logger(),
-                    "🟢 조향: 자전거 역모델 δ=a_lat·(L/v²+K_us) | K_us %.5f | "
+                    "🟢 조향: 자전거 역모델 δ=a_lat·(L/v²+K_us) | K_us 좌 %.5f / 우 %.5f | "
                     "FF/FB 분리 게인 %.2f%s | FF 곡률 프리뷰 %.2f m",
-                    understeer_gradient_eff(), steering_fb_gain_,
+                    understeer_gradient_eff(+1.0), understeer_gradient_eff(-1.0),
+                    steering_fb_gain_,
                     (std::abs(steering_fb_gain_ - 1.0) < 1e-9) ? "(=순수 L1과 동일)" : "",
                     curvature_ff_preview_);
         if (understeer_adapt_gain_ > 0.0) {
@@ -595,8 +608,14 @@ private:
 
     // 지금 유효한 K_us(하중 무관 스칼라). 적응이 꺼져 있으면(기본) 런치 파라미터 그대로다.
     // ⚠️ 조향 권한 캡·트림 추정이 **이 하나를 쓴다**(모델 일원화).
-    double understeer_gradient_eff() const {
-        return (understeer_adapt_gain_ > 0.0) ? understeer_gradient_adapted_ : understeer_gradient_;
+    // turn_sign: 좌회전(κ>0, a_lat>0, ψ̇>0) 양수 / 우회전 음수 / 0 = 방향 미상(공용값).
+    // ⚠️ 적응(gain>0)이 켜지면 적응 스칼라가 좌우 공용으로 우선한다 — 추정기가 방향을
+    //    분리하지 않으므로 좌/우 분리값과 동시에 쓸 수 없다.
+    double understeer_gradient_eff(double turn_sign = 0.0) const {
+        if (understeer_adapt_gain_ > 0.0) return understeer_gradient_adapted_;
+        if (turn_sign > 0.0) return understeer_gradient_left_;
+        if (turn_sign < 0.0) return understeer_gradient_right_;
+        return understeer_gradient_;
     }
 
     // ── K_us(a_lat) 곡선 (②-q) ────────────────────────────────────────────────
@@ -610,8 +629,10 @@ private:
 
     // |a_lat|에서 곡선을 읽는다. 빈 사이는 선형보간, 양 끝은 그 값으로 평평하게 유지
     // (외삽 금지 — 관측 못 한 하중대에서 조향이 튀는 것이 LUT의 실패 방식이었다).
-    double understeer_from_curve(double a_lat_abs) const {
-        const double base = understeer_gradient_eff();
+    // 부호는 좌/우 base 선택에만 쓴다 — 학습 빈은 방향 혼합이라 곡선을 켜면 빈이 찬
+    // 하중대에서 좌/우 분리가 곡선값으로 대체된다(폴백 빈은 분리값 유지).
+    double understeer_from_curve(double a_lat_signed) const {
+        const double base = understeer_gradient_eff(a_lat_signed);
         if (!understeer_curve_enable_) return base;
 
         // 학습된 빈만 쓴다. 부족하면 그 빈은 스칼라값으로 대체 = 구 거동으로 폴백.
@@ -629,7 +650,7 @@ private:
         //    (LUT는 이 제약이 없어서 그립피크 이후 접혀 NaN이 됐다.)
         for (int i = 1; i < kUsBins; ++i) k[i] = std::max(k[i], k[i - 1]);
 
-        const double a = std::abs(a_lat_abs);
+        const double a = std::abs(a_lat_signed);
         if (a <= kUsBinCenter[0]) return k[0];
         if (a >= kUsBinCenter[kUsBins - 1]) return k[kUsBins - 1];
         for (int i = 1; i < kUsBins; ++i) {
@@ -664,7 +685,7 @@ private:
     double bicycle_steer_from_lat_acc(double a_lat, double v) const {
         // v=0에서 a_lat도 0이므로(∝v²) 이 하한은 0/0 방어일 뿐 거동을 바꾸지 않는다.
         const double v2 = std::max(v * v, 1e-4);
-        return a_lat * (wheelbase_ / v2 + understeer_from_curve(std::abs(a_lat)));
+        return a_lat * (wheelbase_ / v2 + understeer_from_curve(a_lat));
     }
 
     // FF가 참조할 경로 곡률. 노이즈가 그대로 조향에 실리지 않도록 **평활 곡률**을 쓴다.
@@ -789,7 +810,7 @@ private:
 
         // 실측 요레이트가 함의하는 바퀴각 → 명령 공간으로 환산.
         const double delta_wheel =
-            yaw_rate_now_ * (wheelbase_ / v + understeer_gradient_eff() * v);
+            yaw_rate_now_ * (wheelbase_ / v + understeer_gradient_eff(yaw_rate_now_) * v);
         const double e = past - delta_wheel / std::max(0.3, steering_reach_ratio_);
         steering_trim_ += steering_trim_gain_ * (e - steering_trim_) * dt;
         steering_trim_ = std::clamp(steering_trim_, -steering_trim_limit_, steering_trim_limit_);
@@ -1139,7 +1160,8 @@ private:
                 // ⚠️ 조향 생성과 **같은** K_us를 쓴다(understeer_gradient_eff). 이 일원화가
                 //    ②-p의 핵심이다 — 종방향이 "이 속도면 꺾인다"고 판단하는 근거와 실제
                 //    조향을 만드는 근거가 다르면, 그 차이만큼 코너에서 조향이 모자란다.
-                const double kus = understeer_gradient_eff();
+                //    좌/우 분리도 같은 이유로 부호 있는 곡률로 그 코너의 K_us를 고른다.
+                const double kus = understeer_gradient_eff(wps[i].smoothed_curvature_signed);
                 if (kus > 1e-6) {                                                   // (b) 조향 권한
                     // ⚠️ 좌우 중 **작은** 한계를 쓰고, 거기에 도달각 비율까지 곱한다 —
                     //    캡은 "바퀴가 실제로 꺾이는 각"으로 계산해야 의미가 있다(0.379를 다
@@ -1799,6 +1821,8 @@ private:
     size_t curvature_lookahead_count_;
     double max_lateral_accel_;
     double understeer_gradient_ = 0.019;     // K_us [rad/(m/s²)] — 조향 권한 캡, 0이면 비활성
+    double understeer_gradient_left_ = 0.019;   // 좌회전 K_us (생성자에서 해소, ≤0 = 공용값)
+    double understeer_gradient_right_ = 0.019;  // 우회전 K_us (실측상 좌보다 크다 — 0818)
     double steer_authority_ratio_ = 0.85;
 
     // 좌우 조향 한계 [rad]. 둘 다 같으면 기존 대칭 거동과 동일.
