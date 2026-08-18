@@ -15,6 +15,11 @@ particle_filter:
     max_range: 10.0                    # Set laser max range 
     max_pose_range: 10000.0           # Maximum valid pose coordinate range (m)
     
+    # === ESS RESAMPLING & CLUSTER POSE ESTIMATION (T5, T6) ===
+    ess_threshold: 0.5                 # Resample only when ESS/N < threshold (T5)
+    cluster_radius: 0.5                # Radius around max-weight particle for pose averaging (m) (T6)
+    cluster_yaw_thres: 0.5             # Yaw tolerance around max-weight particle for pose averaging (rad) (T6)
+    
     # === MODE & TF CONTROL ===
     publish_map_odom_tf: true          # Publish map->odom transform (real mode only)
     publish_odom_base_tf: false        # Let F1Tenth stack handle odom->base_link

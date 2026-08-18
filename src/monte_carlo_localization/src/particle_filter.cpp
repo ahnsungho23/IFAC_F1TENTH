@@ -39,6 +39,11 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
     this->declare_parameter("smoothing_alpha_gain", 0.4);
     this->declare_parameter("smoothing_alpha_max", 0.8);
 
+    // ESS Resampling & Cluster Pose parameters (T5, T6)
+    this->declare_parameter("ess_threshold", 0.5);
+    this->declare_parameter("cluster_radius", 0.5);
+    this->declare_parameter("cluster_yaw_thres", 0.5);
+
     // Pose fusion EKF (odom 예측 + MCL 보정) — 헤더 주석 참고
     this->declare_parameter("use_pose_ekf", true);
     this->declare_parameter("ekf_trans_error_rate", 0.003);
@@ -123,6 +128,10 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
     SMOOTHING_ALPHA_GAIN = this->get_parameter("smoothing_alpha_gain").as_double();
     SMOOTHING_ALPHA_MAX = this->get_parameter("smoothing_alpha_max").as_double();
 
+    ESS_THRESHOLD = this->get_parameter("ess_threshold").as_double();
+    CLUSTER_RADIUS = this->get_parameter("cluster_radius").as_double();
+    CLUSTER_YAW_THRES = this->get_parameter("cluster_yaw_thres").as_double();
+
     USE_POSE_EKF = this->get_parameter("use_pose_ekf").as_bool();
     EKF_TRANS_ERROR_RATE = this->get_parameter("ekf_trans_error_rate").as_double();
     EKF_TRANS_FLOOR_MPS = this->get_parameter("ekf_trans_floor_mps").as_double();
@@ -185,6 +194,10 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
     auto_init_from_waypoints_ = this->get_parameter("auto_init_from_waypoints").as_bool();
     auto_init_done_ = false;
 
+    // Callback groups initialization for multi-threading (T3)
+    update_cb_group_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+    map_viz_cb_group_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+
     // State initialization
     MAX_RANGE_PX = 0;
     iters_ = 0;
@@ -203,6 +216,10 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
     has_new_lidar_data_ = false;
     last_lidar_time_ = rclcpp::Time(0);
     mcl_processing_time_ = 0.0;
+    was_resampled_in_last_step_ = true;
+    bimodality_ratio_ = 0.0;
+    last_publish_gap_ms_ = 0.0;
+    last_pose_pub_stamp_ = rclcpp::Time(0);
     
     // Odometry tracking
     odom_pose_ = Eigen::Vector3d::Zero();
@@ -256,6 +273,9 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
         odom_pub_ = this->create_publisher<nav_msgs::msg::Odometry>("/pf/pose/odom", 1);
     }
 
+    // Health publisher (T4)
+    health_pub_ = this->create_publisher<std_msgs::msg::String>("/pf/health", 1);
+
     // Map publisher
     map_pub_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>("/map", rclcpp::QoS(1).transient_local());
 
@@ -264,26 +284,38 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
     tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
     tf_listener_ = std::make_unique<tf2_ros::TransformListener>(*tf_buffer_);
 
-    // Subscribers
+    // Subscription options with Callback Groups
+    rclcpp::SubscriptionOptions update_sub_opts;
+    update_sub_opts.callback_group = update_cb_group_;
+
+    rclcpp::SubscriptionOptions map_viz_sub_opts;
+    map_viz_sub_opts.callback_group = map_viz_cb_group_;
+
+    // Subscribers with callback group wiring (T3)
     laser_sub_ = this->create_subscription<sensor_msgs::msg::LaserScan>(
         this->get_parameter("scan_topic").as_string(), 1,
-        std::bind(&ParticleFilter::lidarCB, this, std::placeholders::_1));
+        std::bind(&ParticleFilter::lidarCB, this, std::placeholders::_1),
+        update_sub_opts);
 
     odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
         this->get_parameter("odom_topic").as_string(), 1,
-        std::bind(&ParticleFilter::odomCB, this, std::placeholders::_1));
+        std::bind(&ParticleFilter::odomCB, this, std::placeholders::_1),
+        update_sub_opts);
 
     pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
-        "/initialpose", 1, std::bind(&ParticleFilter::clicked_pose, this, std::placeholders::_1));
+        "/initialpose", 1, std::bind(&ParticleFilter::clicked_pose, this, std::placeholders::_1),
+        map_viz_sub_opts);
 
     click_sub_ = this->create_subscription<geometry_msgs::msg::PointStamped>(
-        "/clicked_point", 1, std::bind(&ParticleFilter::clicked_point, this, std::placeholders::_1));
+        "/clicked_point", 1, std::bind(&ParticleFilter::clicked_point, this, std::placeholders::_1),
+        map_viz_sub_opts);
 
     if (auto_init_from_waypoints_)
     {
         waypoints_sub_ = this->create_subscription<f110_msgs::msg::WpntArray>(
             "/global_waypoints", rclcpp::QoS(1).transient_local(),
-            std::bind(&ParticleFilter::waypointsCB, this, std::placeholders::_1));
+            std::bind(&ParticleFilter::waypointsCB, this, std::placeholders::_1),
+            map_viz_sub_opts);
     }
 
     // Map service client
@@ -291,12 +323,7 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
 
     // Load map
     get_omap();
-    // ⚠️ get_omap()은 map_server 응답을 기다리며 스핀한다. 그 사이 transient_local인
-    // /global_waypoints 콜백이 먼저 도착해 시작 포즈로 파티클을 이미 좁게 초기화할 수 있고,
-    // 그때 무조건 initialize_global()을 부르면 **정답 포즈를 랜덤 분산으로 덮어써** MCL이
-    // 끝내 수렴하지 못한다(2026-08-14: 시뮬 통합 검증 7회 중 4회가 이 경합으로 오차
-    // 4.2~12.7 m에 고정. 성공 런은 "글로벌 초기화 → 웨이포인트 초기화" 순서, 실패 런은
-    // 그 반대였다). 이미 초기화됐으면 건너뛴다.
+
     if (auto_init_done_ || pose_initialized_from_rviz_)
     {
         RCLCPP_INFO(this->get_logger(),
@@ -312,17 +339,27 @@ ParticleFilter::ParticleFilter(const rclcpp::NodeOptions &options)
     // Update timer - use slower frequency during startup to reduce resource contention
     double startup_frequency = std::min(TIMER_FREQUENCY, 15.0);  // Cap at 15Hz during startup
     int timer_interval_ms = static_cast<int>(1000.0 / startup_frequency);
+
     update_timer_ = this->create_wall_timer(
         std::chrono::milliseconds(timer_interval_ms),
-        std::bind(&ParticleFilter::timer_update, this)
+        std::bind(&ParticleFilter::timer_update, this),
+        update_cb_group_
     );
     startup_timer_interval_ = timer_interval_ms;
     full_timer_interval_ = static_cast<int>(1000.0 / TIMER_FREQUENCY);
 
-    // Map publisher timer
+    // Map publisher timer - 2000 ms (0.5 Hz) (T2)
     map_timer_ = this->create_wall_timer(
-        std::chrono::milliseconds(200),
-        std::bind(&ParticleFilter::publish_map_periodically, this)
+        std::chrono::milliseconds(2000),
+        std::bind(&ParticleFilter::publish_map_periodically, this),
+        map_viz_cb_group_
+    );
+
+    // Health monitoring timer - 1000 ms (1 Hz) (T4)
+    health_timer_ = this->create_wall_timer(
+        std::chrono::milliseconds(1000),
+        std::bind(&ParticleFilter::publish_health, this),
+        map_viz_cb_group_
     );
 
 
@@ -567,29 +604,40 @@ void ParticleFilter::clicked_pose(const geometry_msgs::msg::PoseWithCovarianceSt
 {
     Eigen::Vector3d pose(msg->pose.pose.position.x, msg->pose.pose.position.y,
                          utils::geometry::quaternion_to_yaw(msg->pose.pose.orientation));
-    
-    // Initialize particle filter around clicked pose
+
+    // Initialize particle filter around clicked pose (자체 락을 잡고 반환 시 해제한다)
     initialize_particles_pose(pose);
 
-    // Initialize odometry-based tracking from this pose
-    initialize_odom_tracking(pose);
+    // ⚠️ 이 콜백은 map_viz 콜백그룹(별도 스레드)에서 돈다 — 아래 상태는 MCL 갱신
+    //    스레드(timer_update)와 공유되므로 한 락으로 묶는다(C2). initialize_particles_pose가
+    //    이미 자기 락을 반환한 뒤라 재귀 데드락 없음.
+    {
+        std::lock_guard<std::mutex> lock(state_lock_);
 
-    // Pose EKF는 다음 MCL 측정(laser frame)에서 재시드 — RViz 포즈(base_link)를 그대로
-    // 시드하면 lidar 오프셋만큼 종방향 편차로 시작해 종방향 저게인 탓에 오래 남는다.
-    ekf_initialized_ = false;
+        // Initialize odometry-based tracking from this pose
+        initialize_odom_tracking(pose);
 
-    // Set inferred pose immediately for visualization
-    inferred_pose_ = pose;
+        // Pose EKF는 다음 MCL 측정(laser frame)에서 재시드 — RViz 포즈(base_link)를 그대로
+        // 시드하면 lidar 오프셋만큼 종방향 편차로 시작해 종방향 저게인 탓에 오래 남는다.
+        ekf_initialized_ = false;
 
-    // Enable aggressive convergence mode for next 20 iterations
-    fast_convergence_mode_ = true;
-    fast_convergence_remaining_ = 20;
+        // Set inferred pose immediately for visualization
+        inferred_pose_ = pose;
+
+        // Enable aggressive convergence mode for next 20 iterations
+        fast_convergence_mode_ = true;
+        fast_convergence_remaining_ = 20;
+    }
 
     RCLCPP_INFO(this->get_logger(), "Pose initialized from RViz at [%.3f, %.3f, %.3f] - fast convergence enabled",
                 pose[0], pose[1], pose[2]);
 
-    // Trigger immediate visualization update
-    visualize(this->get_clock()->now());
+    // Trigger immediate visualization update (visualize()는 락 없는 순수 읽기 함수라
+    // 여기서 감싸야 particles_/weights_/rng_를 갱신 스레드와 안전하게 공유한다)
+    {
+        std::lock_guard<std::mutex> lock(state_lock_);
+        visualize(this->get_clock()->now());
+    }
 }
 
 void ParticleFilter::clicked_point(const geometry_msgs::msg::PointStamped::SharedPtr /*msg*/)
@@ -617,16 +665,24 @@ void ParticleFilter::waypointsCB(const f110_msgs::msg::WpntArray::ConstSharedPtr
                 "Auto-initializing particles from global waypoints start pose: [%.3f, %.3f, %.3f rad (%.1f deg)]",
                 start_pose[0], start_pose[1], start_pose[2], start_pose[2] * 180.0 / M_PI);
 
-    initialize_particles_pose(start_pose);
-    initialize_odom_tracking(start_pose, false);
-    ekf_initialized_ = false;   // 다음 MCL 측정(laser frame)에서 시드
+    initialize_particles_pose(start_pose);   // 자체 락을 잡고 반환 시 해제한다
 
-    inferred_pose_ = start_pose;
-    fast_convergence_mode_ = true;
-    fast_convergence_remaining_ = 30;
-    auto_init_done_ = true;
+    // ⚠️ waypointsCB도 map_viz 콜백그룹 스레드에서 돈다 — clicked_pose와 같은 이유로 묶는다.
+    {
+        std::lock_guard<std::mutex> lock(state_lock_);
+        initialize_odom_tracking(start_pose, false);
+        ekf_initialized_ = false;   // 다음 MCL 측정(laser frame)에서 시드
 
-    visualize(this->get_clock()->now());
+        inferred_pose_ = start_pose;
+        fast_convergence_mode_ = true;
+        fast_convergence_remaining_ = 30;
+        auto_init_done_ = true;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(state_lock_);
+        visualize(this->get_clock()->now());
+    }
 }
 
 // ================================================================================================
@@ -988,7 +1044,12 @@ void ParticleFilter::calculate_particle_weights(const std::vector<float> &obs, i
             }
         }
 
-        weights[i] = std::pow(weight, squash_factor);
+        double sensor_w = std::pow(weight, squash_factor);
+        if (was_resampled_in_last_step_) {
+            weights[i] = sensor_w;
+        } else {
+            weights[i] *= sensor_w;
+        }
     }
 }
 
@@ -1064,11 +1125,11 @@ float ParticleFilter::cast_ray(double x, double y, double angle)
 /**
  * @brief Main Monte Carlo Localization algorithm implementation
  *
- * Implements the complete MCL cycle:
- * 1. Particle resampling based on previous weights
- * 2. Motion model prediction with adaptive noise
- * 3. Sensor model likelihood evaluation
- * 4. Weight normalization with diversity monitoring
+ * Implements the complete MCL cycle with ESS gate resampling (T5):
+ * 1. Motion model prediction with adaptive noise
+ * 2. Sensor model likelihood evaluation (with weight accumulation)
+ * 3. ESS calculation and gate checking
+ * 4. Conditional multinomial resampling when ESS ratio < ESS_THRESHOLD
  * 5. Emergency recovery for high-speed scenarios
  *
  * @param motion_cmd Motion command for particle prediction
@@ -1078,91 +1139,166 @@ void ParticleFilter::MCL(const MotionCommand &motion_cmd, const std::vector<floa
 {
     auto mcl_start = std::chrono::high_resolution_clock::now();
     
-    // 1. Multinomial resampling - using pre-allocated memory
-    auto resample_start = std::chrono::high_resolution_clock::now();
-    std::discrete_distribution<int> particle_dist(weights_.begin(), weights_.end());
-
-    for (int i = 0; i < MAX_PARTICLES; ++i)
-    {
-        int idx = particle_dist(rng_);
-        proposal_distribution_.row(i) = particles_.row(idx);
-    }
-    auto resample_end = std::chrono::high_resolution_clock::now();
-    timing_stats_.resampling_time += std::chrono::duration<double, std::milli>(resample_end - resample_start).count();
-
-    // 2. Motion prediction
+    // 1. Motion prediction
     auto motion_start = std::chrono::high_resolution_clock::now();
-    motion_model(proposal_distribution_, motion_cmd);
+    motion_model(particles_, motion_cmd);
     auto motion_end = std::chrono::high_resolution_clock::now();
     timing_stats_.motion_model_time += std::chrono::duration<double, std::milli>(motion_end - motion_start).count();
 
-    // 3. Sensor likelihood evaluation
-    sensor_model(proposal_distribution_, observation, weights_);
+    // 2. Sensor likelihood evaluation (updates/accumulates weights_)
+    sensor_model(particles_, observation, weights_);
 
-    // 4. Weight normalization with particle diversity check
+    // 3. Weight normalization with particle diversity check
     double sum_weights = std::accumulate(weights_.begin(), weights_.end(), 0.0);
-    if (sum_weights > 0)
+    if (sum_weights > 0.0)
     {
         for (double &w : weights_)
         {
             w /= sum_weights;
         }
+    }
+    else
+    {
+        std::fill(weights_.begin(), weights_.end(), 1.0 / MAX_PARTICLES);
+    }
 
-        // Check effective sample size for high-speed recovery
-        double effective_particles = 0.0;
-        for (const double &w : weights_) {
-            effective_particles += w * w;
+    // Calculate Effective Sample Size (ESS)
+    double effective_particles = 0.0;
+    for (const double &w : weights_) {
+        effective_particles += w * w;
+    }
+    effective_particles = (effective_particles > 0.0) ? (1.0 / effective_particles) : 1.0;
+    ess_ratio_ = effective_particles / MAX_PARTICLES;   // 스캔 품질 연동 R 및 헬스 출력용
+
+    // 리샘플 **전**(= 센서로 informed된 가중치)에 포즈를 캐시한다. 리샘플이 일어나면
+    // weights_가 전부 1/N으로 균등화돼 expected_pose()가 사실상 무작위 입자 하나를
+    // 가리키게 되므로(대칭 복도·다봉 분포에서 발행 포즈가 사이클마다 모드 사이를 무작위로
+    // 점프하는 원인), 그 전에 한 번 계산해 둔 이 값을 아래 긴급복구와 MCL() 호출자가 쓴다.
+    pre_resample_pose_ = expected_pose(weights_);
+
+    // 4. ESS Gate Resampling (T5)
+    bool should_resample = (ess_ratio_ < ESS_THRESHOLD) || (fast_convergence_mode_ && fast_convergence_remaining_ > 0);
+
+    if (should_resample)
+    {
+        auto resample_start = std::chrono::high_resolution_clock::now();
+        std::discrete_distribution<int> particle_dist(weights_.begin(), weights_.end());
+
+        for (int i = 0; i < MAX_PARTICLES; ++i)
+        {
+            int idx = particle_dist(rng_);
+            proposal_distribution_.row(i) = particles_.row(idx);
         }
-        effective_particles = 1.0 / effective_particles;
-        ess_ratio_ = effective_particles / MAX_PARTICLES;   // 스캔 품질 연동 R 입력용으로 보존
 
-        // Emergency recovery: inject random particles during high-speed maneuvers if diversity is too low
-        if (effective_particles < MAX_PARTICLES * 0.15 && std::abs(current_velocity_) > 4.0) {
-            // Replace 10% of particles with random samples around current estimate
-            int recovery_count = MAX_PARTICLES / 10;
-            Eigen::Vector3d current_pose = expected_pose();
+        particles_.swap(proposal_distribution_);
+        std::fill(weights_.begin(), weights_.end(), 1.0 / MAX_PARTICLES);
+        was_resampled_in_last_step_ = true;
 
-            std::uniform_int_distribution<int> particle_idx_dist(0, MAX_PARTICLES - 1);
-            for (int i = 0; i < recovery_count; ++i) {
-                int idx = particle_idx_dist(rng_);
-                // Add particles around current pose with moderate spread
-                proposal_distribution_(idx, 0) = current_pose[0] + normal_dist_(rng_) * 1.0;
-                proposal_distribution_(idx, 1) = current_pose[1] + normal_dist_(rng_) * 1.0;
-                proposal_distribution_(idx, 2) = current_pose[2] + normal_dist_(rng_) * 0.5;
-                proposal_distribution_(idx, 2) = utils::geometry::normalize_angle(proposal_distribution_(idx, 2));
-                weights_[idx] = 1.0 / MAX_PARTICLES;
-            }
+        auto resample_end = std::chrono::high_resolution_clock::now();
+        timing_stats_.resampling_time += std::chrono::duration<double, std::milli>(resample_end - resample_start).count();
+    }
+    else
+    {
+        was_resampled_in_last_step_ = false;
+    }
+
+    // 5. Emergency recovery: inject random particles during high-speed maneuvers if diversity is too low
+    if (effective_particles < MAX_PARTICLES * 0.15 && std::abs(current_velocity_) > 4.0) {
+        int recovery_count = MAX_PARTICLES / 10;
+        // ⚠️ 이 조건(effective_particles < 0.15N)은 ESS_THRESHOLD(통상 0.5N)보다 훨씬 낮으므로
+        //    이 분기에 도달했다는 것 자체가 이번 사이클에 이미 리샘플이 일어났다는 뜻이다 —
+        //    즉 weights_는 이미 균등화된 상태다. expected_pose()를 다시 부르면 위 C1 버그가
+        //    재발하므로(무작위 입자 주변에 재시드), 리샘플 전에 캐시해 둔 값을 쓴다.
+        Eigen::Vector3d current_pose = pre_resample_pose_;
+
+        std::uniform_int_distribution<int> particle_idx_dist(0, MAX_PARTICLES - 1);
+        for (int i = 0; i < recovery_count; ++i) {
+            int idx = particle_idx_dist(rng_);
+            particles_(idx, 0) = current_pose[0] + normal_dist_(rng_) * 1.0;
+            particles_(idx, 1) = current_pose[1] + normal_dist_(rng_) * 1.0;
+            particles_(idx, 2) = current_pose[2] + normal_dist_(rng_) * 0.5;
+            particles_(idx, 2) = utils::geometry::normalize_angle(particles_(idx, 2));
+            weights_[idx] = 1.0 / MAX_PARTICLES;
         }
     }
 
-    // 5. Update particle set - using efficient swap
-    particles_.swap(proposal_distribution_);
-    
     auto mcl_end = std::chrono::high_resolution_clock::now();
     timing_stats_.total_mcl_time += std::chrono::duration<double, std::milli>(mcl_end - mcl_start).count();
     timing_stats_.measurement_count++;
 }
 
+Eigen::Vector3d ParticleFilter::expected_pose(const std::vector<double> &weights)
+{
+    if (MAX_PARTICLES <= 0 || weights.empty()) {
+        return Eigen::Vector3d::Zero();
+    }
+
+    // 1. 최고 가중치 파티클 (Highest Weight Particle) 탐색 (T6)
+    // ⚠️ 가중치가 균등(예: 리샘플 직후 1/N)이면 이 탐색은 "최고 가중치"가 아니라 단순히
+    //    첫 번째 입자(인덱스 0)로 고정된다 — 그 상태로 이 함수를 부르면 안 된다. 호출부는
+    //    반드시 리샘플 **전**(센서로 informed된) 가중치를 넘길 것. MCL()이 그 시점의
+    //    pre_resample_pose_를 캐시해 두므로 외부에서는 그걸 쓰고, 이 함수를 직접
+    //    weights_로 다시 부르지 말 것(무인자 오버로드 참고).
+    int max_idx = 0;
+    double max_weight = -1.0;
+    for (int i = 0; i < MAX_PARTICLES; ++i) {
+        if (weights[i] > max_weight) {
+            max_weight = weights[i];
+            max_idx = i;
+        }
+    }
+
+    const double ref_x = particles_(max_idx, 0);
+    const double ref_y = particles_(max_idx, 1);
+    const double ref_theta = particles_(max_idx, 2);
+
+    // 2. Primary Cluster (최고 가중치 주변 반경 CLUSTER_RADIUS, 각도 CLUSTER_YAW_THRES) 가중 평균
+    double cluster_weight_sum = 0.0;
+    double sum_x = 0.0;
+    double sum_y = 0.0;
+    double sum_sin = 0.0;
+    double sum_cos = 0.0;
+
+    for (int i = 0; i < MAX_PARTICLES; ++i) {
+        double dx = particles_(i, 0) - ref_x;
+        double dy = particles_(i, 1) - ref_y;
+        double dist = std::hypot(dx, dy);
+        double dtheta = std::abs(utils::geometry::normalize_angle(particles_(i, 2) - ref_theta));
+
+        if (dist <= CLUSTER_RADIUS && dtheta <= CLUSTER_YAW_THRES) {
+            const double w = weights[i];
+            cluster_weight_sum += w;
+            sum_x += w * particles_(i, 0);
+            sum_y += w * particles_(i, 1);
+            sum_sin += w * std::sin(particles_(i, 2));
+            sum_cos += w * std::cos(particles_(i, 2));
+        }
+    }
+
+    // 3. 다봉성 지표 (Primary Cluster 외 파티클 가중치 합 비율)
+    bimodality_ratio_ = std::clamp(1.0 - cluster_weight_sum, 0.0, 1.0);
+
+    // 4. Primary Cluster 가중 평균 포즈 결정
+    Eigen::Vector3d pose;
+    if (cluster_weight_sum > 1e-9) {
+        pose[0] = sum_x / cluster_weight_sum;
+        pose[1] = sum_y / cluster_weight_sum;
+        pose[2] = std::atan2(sum_sin, sum_cos);
+    } else {
+        pose[0] = ref_x;
+        pose[1] = ref_y;
+        pose[2] = ref_theta;
+    }
+
+    return pose;
+}
+
+// 하위 호환용 무인자 오버로드. 현재 멤버 weights_ 기준으로 계산한다 — 리샘플 직후(균등
+// 가중치) 호출하면 위 경고대로 무의미해지니, MCL 루프 내부에서는 pre_resample_pose_를
+// 우선 쓰고 이 오버로드는 진단(헬스 토픽 등) 용도로만 남긴다.
 Eigen::Vector3d ParticleFilter::expected_pose()
 {
-    Eigen::Vector3d pose = Eigen::Vector3d::Zero();
-    double sum_sin = 0.0, sum_cos = 0.0;
-    
-    // Weighted mean for x, y
-    for (int i = 0; i < MAX_PARTICLES; ++i)
-    {
-        pose[0] += weights_[i] * particles_(i, 0);  // x
-        pose[1] += weights_[i] * particles_(i, 1);  // y
-        
-        // Circular mean for angles
-        sum_sin += weights_[i] * std::sin(particles_(i, 2));
-        sum_cos += weights_[i] * std::cos(particles_(i, 2));
-    }
-    
-    // Final angle calculation
-    pose[2] = std::atan2(sum_sin, sum_cos);
-    
-    return pose;
+    return expected_pose(weights_);
 }
 
 // ================================================================================================
@@ -1448,7 +1584,12 @@ void ParticleFilter::timer_update()
 
     bool mcl_executed = false;  // Track if MCL was executed this cycle
 
-    if (state_lock_.try_lock()) {
+    // ⚠️ 예전엔 수동 try_lock()/unlock()이었다 — 이 블록 안에서 예외가 던져지면(힙 할당,
+    //    Eigen 연산, 로거가 전부 있다) unlock()이 스킵돼 이후 모든 사이클의 try_lock이
+    //    영구히 실패한다(= MCL이 조용히 멈추는데 아래 stale pose 발행 경로는 계속 살아있어
+    //    "겉보기엔 정상"으로 보임). RAII로 바꿔 예외가 나도 스코프 탈출 시 반드시 풀린다.
+    std::unique_lock<std::mutex> mcl_state_lock(state_lock_, std::try_to_lock);
+    if (mcl_state_lock.owns_lock()) {
 
         // Pose EKF 예측 — 라이다 유무와 무관하게 원시 odom 포즈 델타로 매 주기 전파
         if (USE_POSE_EKF && has_odom && apply_motion) {
@@ -1475,7 +1616,8 @@ void ParticleFilter::timer_update()
                 update_timer_.reset();
                 update_timer_ = this->create_wall_timer(
                     std::chrono::milliseconds(full_timer_interval_),
-                    std::bind(&ParticleFilter::timer_update, this)
+                    std::bind(&ParticleFilter::timer_update, this),
+                    update_cb_group_
                 );
                 RCLCPP_INFO(this->get_logger(), "Timer frequency increased to %.1f Hz", TIMER_FREQUENCY);
             }
@@ -1495,7 +1637,10 @@ void ParticleFilter::timer_update()
             auto observation = downsampled_ranges_;
             // Execute MCL pipeline
             MCL(motion_cmd, observation);
-            Eigen::Vector3d raw_pose = expected_pose();
+            // ⚠️ 여기서 expected_pose()를 다시 부르지 않는다 — MCL()이 이미 리샘플 전에
+            //    pre_resample_pose_로 캐시해 뒀다. 지금 다시 부르면 이번 사이클에 리샘플이
+            //    있었을 때 균등가중치로 계산돼(C1 버그) 무작위 입자를 반환한다.
+            Eigen::Vector3d raw_pose = pre_resample_pose_;
             // 실측 지연(스캔 시각 → 지금). 스캔 스윕+전송+타이머 큐 대기+MCL 연산을 모두 포함하므로
             // 별도 계수 없이 그대로 쓴다 (delay_compensation_factor 은퇴 — 곱하던 base인
             // mcl_processing_time_은 실제 지연과 무관했다).
@@ -1625,7 +1770,21 @@ void ParticleFilter::timer_update()
             }
         }
 
-        state_lock_.unlock();
+    }
+    // 🔴 여기서 **반드시 명시적으로** 푼다 (2026-08-17 데드락 수정).
+    //    mcl_state_lock 은 if 문 **밖**에 선언돼 있어(위 `std::unique_lock ...
+    //    std::try_to_lock`) **함수 스코프**다 — 방금 닫은 `}` 는 if 블록만 닫을 뿐 락을
+    //    풀지 않는다. 그 상태로 아래 publish 블록이 같은 std::mutex 를 다시 잠그면
+    //    **같은 스레드의 재귀 lock** 이고, std::mutex 는 non-recursive 라 그 자리에서
+    //    영구 정지한다(표준상 UB, glibc 에서는 데드락).
+    //    ⚠️ 실제로 이것 때문에 노드가 통째로 멈췄다: 초기화 로그(`Odometry tracking
+    //       initialized`)까지 전부 찍힌 뒤 timer_update 첫 호출에서 정지 → update/map/
+    //       health 타이머가 **전부** 같은 실행기에서 멈춰 전 토픽 발행 0 → map->odom TF
+    //       미발행 → RViz `Frame [map] does not exist` → 고정 프레임이 없으니 2D Pose
+    //       Estimate 클릭도 발행되지 않아(교착) 스택 전체가 뜨지 않았다.
+    //    (try_lock 이 실패해 애초에 안 잡았으면 owns_lock()==false 라 no-op)
+    if (mcl_state_lock.owns_lock()) {
+        mcl_state_lock.unlock();
     }
 
     // Always update steady time for next calculation
@@ -1633,26 +1792,32 @@ void ParticleFilter::timer_update()
 
     // Publish TF and odometry with appropriate timestamp
     if (map_initialized_) {
+        // ⚠️ get_current_pose()/publish_tf()/visualize()가 읽는 상태(ekf_state_, odom_pose_,
+        //    inferred_pose_, particles_, weights_, rng_, last_pose_, odom_initialized_, ...)는
+        //    전부 위 mcl_state_lock이 보호하던 것과 같은 상태다. 이 지점은 **바로 위에서
+        //    명시적으로 unlock 한 뒤**라, clicked_pose/waypointsCB(별도 콜백그룹 스레드)가
+        //    같은 상태를 락 없이 동시에 쓰던 것과 경합할 수 있었다(찢어진 읽기·RNG 동시
+        //    소비). 세 호출 전체를 한 락으로 묶어 그 창을 닫는다. (하위 호출들은 내부에서
+        //    다시 락을 잡지 않으므로 재귀 데드락 없음 — publish_tf/visualize/get_current_pose
+        //    는 전부 락 없는 순수 읽기 함수다.)
+        std::lock_guard<std::mutex> publish_lock(state_lock_);
+
         Eigen::Vector3d current_pose = get_current_pose();
 
-        // Safely read timestamps - protected by mutex
         rclcpp::Time timestamp;
-        {
-            std::lock_guard<std::mutex> lock(state_lock_);
-            if (USE_POSE_EKF && has_odom && last_stamp_.nanoseconds() != 0) {
-                // EKF 모드: 내용이 odom 최신 시각(≈now)이므로 stamp도 odom 시각으로 맞춘다
-                timestamp = last_stamp_;
-            } else if (mcl_executed && last_lidar_time_.nanoseconds() != 0) {
-                // Use compensated timestamp: LiDAR time + processing time
-                int64_t compensation_ns = static_cast<int64_t>(mcl_processing_time_ * 1e9);
-                timestamp = last_lidar_time_ + rclcpp::Duration::from_nanoseconds(compensation_ns);
-            } else if (has_odom && last_stamp_.nanoseconds() != 0) {
-                // Use odometry timestamp for odom-based updates
-                timestamp = last_stamp_;
-            } else {
-                // Fallback to current time
-                timestamp = current_time;
-            }
+        if (USE_POSE_EKF && has_odom && last_stamp_.nanoseconds() != 0) {
+            // EKF 모드: 내용이 odom 최신 시각(≈now)이므로 stamp도 odom 시각으로 맞춘다
+            timestamp = last_stamp_;
+        } else if (mcl_executed && last_lidar_time_.nanoseconds() != 0) {
+            // Use compensated timestamp: LiDAR time + processing time
+            int64_t compensation_ns = static_cast<int64_t>(mcl_processing_time_ * 1e9);
+            timestamp = last_lidar_time_ + rclcpp::Duration::from_nanoseconds(compensation_ns);
+        } else if (has_odom && last_stamp_.nanoseconds() != 0) {
+            // Use odometry timestamp for odom-based updates
+            timestamp = last_stamp_;
+        } else {
+            // Fallback to current time
+            timestamp = current_time;
         }
 
         publish_tf(current_pose, timestamp);
@@ -1755,6 +1920,13 @@ void ParticleFilter::publish_tf(const Eigen::Vector3d &pose, const rclcpp::Time 
         odom.twist.twist.linear.x = current_velocity_;
         odom_pub_->publish(odom);
     }
+
+    // 직전 발행 시각 기반 포즈 공백 (ms) 기록
+    rclcpp::Time pub_now = this->get_clock()->now();
+    if (last_pose_pub_stamp_.nanoseconds() != 0) {
+        last_publish_gap_ms_ = (pub_now - last_pose_pub_stamp_).seconds() * 1000.0;
+    }
+    last_pose_pub_stamp_ = pub_now;
 }
 
 
@@ -1960,6 +2132,65 @@ Eigen::Vector3d ParticleFilter::apply_tf_offset(const Eigen::Vector3d& pose_in_l
     return base_link_pose;
 }
 
+// ================================================================================================
+// HEALTH MONITORING (T4)
+// ================================================================================================
+void ParticleFilter::publish_health()
+{
+    if (!health_pub_)
+        return;
+
+    std::lock_guard<std::mutex> lock(state_lock_);
+
+    // 1. 입자 상태 통계 계산 (위치 및 헤딩 표준편차)
+    // pre_resample_pose_ 재사용 — expected_pose()를 여기서 다시 부르면 리샘플 직후 균등
+    // 가중치로 계산돼(C1) 무의미해지고, 락을 쥔 채 O(N) 재계산을 한 번 더 하게 된다(M5).
+    Eigen::Vector3d mean_p = pre_resample_pose_;
+    double var_x = 0.0, var_y = 0.0, var_th = 0.0;
+    double sum_w = 0.0;
+
+    for (int i = 0; i < MAX_PARTICLES; ++i) {
+        double w = weights_[i];
+        sum_w += w;
+        double dx = particles_(i, 0) - mean_p[0];
+        double dy = particles_(i, 1) - mean_p[1];
+        double dth = utils::geometry::normalize_angle(particles_(i, 2) - mean_p[2]);
+
+        var_x += w * dx * dx;
+        var_y += w * dy * dy;
+        var_th += w * dth * dth;
+    }
+
+    if (sum_w > 0.0) {
+        var_x /= sum_w;
+        var_y /= sum_w;
+        var_th /= sum_w;
+    }
+
+    double sigma_x = std::sqrt(std::max(0.0, var_x));
+    double sigma_y = std::sqrt(std::max(0.0, var_y));
+    double sigma_pos = std::hypot(sigma_x, sigma_y);
+    double sigma_theta_deg = std::sqrt(std::max(0.0, var_th)) * 180.0 / M_PI;
+
+    // 2. 타이밍 정보 (평균 MCL 주기 타임 ms)
+    double p50_ms = timing_stats_.total_mcl_time;
+    if (timing_stats_.measurement_count > 0) {
+        p50_ms /= timing_stats_.measurement_count;
+    }
+
+    // 3. JSON 규격 메시지 생성 및 발행
+    char buf[512];
+    std::snprintf(buf, sizeof(buf),
+        "{\"cycle_p50_ms\":%.2f,\"last_gap_ms\":%.1f,\"ess_ratio\":%.3f,"
+        "\"sigma_pos_m\":%.3f,\"sigma_yaw_deg\":%.2f,\"bimodality\":%.3f,\"outlier_ratio\":%.3f}",
+        p50_ms, last_publish_gap_ms_, ess_ratio_,
+        sigma_pos, sigma_theta_deg, bimodality_ratio_, outlier_fraction_);
+
+    std_msgs::msg::String health_msg;
+    health_msg.data = buf;
+    health_pub_->publish(health_msg);
+}
+
 
 } // namespace particle_filter_cpp
 
@@ -1969,7 +2200,13 @@ Eigen::Vector3d ParticleFilter::apply_tf_offset(const Eigen::Vector3d& pose_in_l
 int main(int argc, char *argv[])
 {
     rclcpp::init(argc, argv);
-    rclcpp::spin(std::make_shared<particle_filter_cpp::ParticleFilter>());
+    
+    // MultiThreadedExecutor 적용으로 40 Hz MCL 루프와 Map/Viz 타이머 직렬 블로킹 예방 (T3)
+    rclcpp::executors::MultiThreadedExecutor executor;
+    auto node = std::make_shared<particle_filter_cpp::ParticleFilter>();
+    executor.add_node(node);
+    executor.spin();
+
     rclcpp::shutdown();
     return 0;
 }

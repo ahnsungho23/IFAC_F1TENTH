@@ -17,6 +17,7 @@
 #include <nav_msgs/srv/get_map.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/laser_scan.hpp>
+#include <std_msgs/msg/string.hpp>
 #include <tf2_ros/transform_broadcaster.hpp>
 #include <tf2_ros/transform_listener.hpp>
 #include <tf2_ros/buffer.hpp>
@@ -73,6 +74,11 @@ class ParticleFilter : public rclcpp::Node
     void calculate_particle_weights(const std::vector<float> &obs, int num_rays,
                                    std::vector<double> &weights);
 
+    // weights 인자를 명시로 받는 버전 — 리샘플 여부와 무관하게 "센서로 실제 informed된"
+    // 가중치로 계산하고 싶을 때 쓴다(예: 리샘플 직전 캐시). 무인자 오버로드는 현재 멤버
+    // weights_ 기준(하위 호환용, 리샘플 직후 호출하면 균등가중치라 무의미해진다 — 아래
+    // pre_resample_pose_ 캐시를 우선 쓸 것).
+    Eigen::Vector3d expected_pose(const std::vector<double> &weights);
     Eigen::Vector3d expected_pose();
     Eigen::Vector3d smooth_pose(const Eigen::Vector3d &raw_pose);
 
@@ -136,6 +142,11 @@ class ParticleFilter : public rclcpp::Node
     double SMOOTHING_ALPHA_GAIN;          // 최대 속도에서 base alpha에 더해지는 폭
     double SMOOTHING_ALPHA_MAX;           // 속도 적응 alpha 상한
 
+    // ------------------------- ESS & CLUSTER PARAMETERS (T5, T6) -------------------------
+    double ESS_THRESHOLD;                 // ESS/N < threshold 일 때만 리샘플링
+    double CLUSTER_RADIUS;                // 최고 가중치 주변 클러스터 포즈 추정 반경 (m)
+    double CLUSTER_YAW_THRES;             // 최고 가중치 주변 클러스터 포즈 추정 각도 범위 (rad)
+
     // ------------------------- POSE FUSION EKF (odom 예측 + MCL 보정) -------------------------
     // 복도처럼 진행방향 관측성이 없는 구간에서 파티클 기대값이 종방향으로 표류하는 문제를
     // 출력단에서 해결한다: odom(주행거리 대비 ~0.3% 오차)으로 매 주기 예측하고, MCL 기대
@@ -175,7 +186,7 @@ class ParticleFilter : public rclcpp::Node
     // --------------------------------- SENSOR MODEL PARAMETERS ---------------------------------
     double Z_SHORT, Z_MAX, Z_RAND, Z_HIT, SIGMA_HIT;
 
-    // --------------------------------- SCAN ROBUSTNESS (다이낯믹 환경 대응) ---------------------------------
+    // --------------------------------- SCAN ROBUSTNESS & HEALTH ---------------------------------
     double RAY_LIKELIHOOD_FLOOR_RATIO;      // per-ray likelihood 하한 (열 최댓값 대비, 0=비활성)
     std::vector<double> sensor_model_col_max_;  // 센서 모델 열(기대 거리)별 최댓값
     bool USE_SCAN_QUALITY_R;                // 스캔 품질 연동 측정 노이즈 부풀림
@@ -185,6 +196,17 @@ class ParticleFilter : public rclcpp::Node
     double SCAN_QUALITY_ESS_START;          // ess0
     double outlier_fraction_ = 0.0;         // 최대 가중치 파티클 기준 outlier 레이 비율
     double ess_ratio_ = 1.0;                // ESS / N
+    bool was_resampled_in_last_step_ = true;// 가중치 누적 vs 리셋 추적용
+    double bimodality_ratio_ = 0.0;         // 클러스터 외 파티클 가중치 비율 (다봉성 지표)
+    // 리샘플 직전(= 센서로 실제 informed된 가중치)에 계산해 캐시한 포즈. 리샘플이 일어나면
+    // weights_가 전부 1/N으로 균등화되는데, 그 상태에서 expected_pose()를 부르면 "최고
+    // 가중치 파티클"이 실질적으로 discrete_distribution이 뽑은 순서상 첫 슬롯(입자 0번 자리)
+    // 으로 고정돼 매 사이클 무작위 표본 하나를 추정 포즈로 쓰게 된다(대칭 복도·다봉 분포에서
+    // 발행 포즈가 사이클마다 모드 사이를 무작위로 점프하는 원인). MCL()이 리샘플 전에 채우고,
+    // 외부 호출자(및 긴급복구 리시드)는 반드시 이 값을 쓴다.
+    Eigen::Vector3d pre_resample_pose_ = Eigen::Vector3d::Zero();
+    double last_publish_gap_ms_ = 0.0;      // 포즈 발행 마지막 공백 (ms)
+    rclcpp::Time last_pose_pub_stamp_{0};   // 직전 포즈 발행 타임스탬프
 
     // --------------------------------- MOTION MODEL PARAMETERS ---------------------------------
     double MOTION_DISPERSION_X, MOTION_DISPERSION_Y, MOTION_DISPERSION_THETA;
@@ -255,6 +277,10 @@ class ParticleFilter : public rclcpp::Node
     std::vector<float> obs_px_;              // Pre-allocated for sensor model
     std::vector<float> ranges_px_;           // Pre-allocated for sensor model
 
+    // --------------------------------- CALLBACK GROUPS ---------------------------------
+    rclcpp::CallbackGroup::SharedPtr update_cb_group_;
+    rclcpp::CallbackGroup::SharedPtr map_viz_cb_group_;
+
     // --------------------------------- ROS2 INTERFACES ---------------------------------
     // Subscribers
     rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr laser_sub_;
@@ -272,6 +298,7 @@ class ParticleFilter : public rclcpp::Node
     rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pose_pub_;
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub_;
     rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr map_pub_;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr health_pub_;
 
     // Services and TF
     rclcpp::Client<nav_msgs::srv::GetMap>::SharedPtr map_client_;
@@ -282,6 +309,7 @@ class ParticleFilter : public rclcpp::Node
     // Timers
     rclcpp::TimerBase::SharedPtr update_timer_;
     rclcpp::TimerBase::SharedPtr map_timer_;
+    rclcpp::TimerBase::SharedPtr health_timer_;
 
     // --------------------------------- THREADING ---------------------------------
     std::mutex state_lock_;
@@ -309,6 +337,7 @@ class ParticleFilter : public rclcpp::Node
     // --------------------------------- UPDATE CONTROL ---------------------------------
     void timer_update();
     void publish_map_periodically();
+    void publish_health();
 };
 
 } // namespace particle_filter_cpp

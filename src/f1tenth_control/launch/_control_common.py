@@ -5,8 +5,6 @@ from launch_ros.parameter_descriptions import ParameterValue
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 from launch.conditions import IfCondition
-from launch.substitutions import PathJoinSubstitution
-from launch_ros.substitutions import FindPackageShare
 
 IMU_LINEAR_SCALE_REAL = 9.80665      # g → m/s². VESC가 g로 발행(2026-07-19 소스 확인)
 IMU_LINEAR_SCALE_SIM  = 1.0          # sim_imu_bridge_node는 0 고정
@@ -21,30 +19,22 @@ def declare_common_args(sector_scale_enable_default='false'):
     """두 런치파일에서 동일하게 쓰는 인자 선언 목록."""
     return [
 
-        # ── CMA 락스텝 하니스 (tools/cmaes_tuning — 실주행은 기본 false로 완전 비활성) ──
-        DeclareLaunchArgument(
-            'lockstep_mode', default_value='false',
-            description='CMA 결정론 하니스 전용: wall timer 대신 stamp 일치 시 1사이클 실행'
-        ),
-        DeclareLaunchArgument(
-            'lockstep_period_sec', default_value='0.01',
-            description='락스텝 논리 제어 주기 [s] (dt로 사용)'
-        ),
-        DeclareLaunchArgument(
-            'cruise_enable', default_value='true',
-            description='/opp_obs 기반 종방향 cruise speed cap 사용'
-        ),
-
         # ── 조향 스케일러 (가감속/속도 구간별 조향 게인 완화) ──
         DeclareLaunchArgument(
             'acceleration_scaler_for_steering', default_value='1.0',
             description='가속 중(acc_mean>=1.0) 조향각에 곱하는 스케일러'
         ),
         DeclareLaunchArgument(
-            'deceleration_scaler_for_steering', default_value='0.95',
+            'deceleration_scaler_for_steering', default_value='0.85',
             description='감속 중(acc_mean<=-1.0) 조향각에 곱하는 스케일러'
         ),
         DeclareLaunchArgument(
+            # ⚠️ 2026-08-16 08-15 실측 트랙 기준(최고 5.7~6.96 m/s)으로 3.2/4.6로 낮췄던 값을
+            # 0814 확정값(7.0/8.0)으로 되돌린다. 3.2~4.6은 그립 캡이 아직 안 걸린 코너
+            # 진입(턴인) 구간과 겹쳐 상시 -15% 다운스케일이 걸렸고, 같은 창에서 들어온 L1
+            # 확장(avoidance_l1_damping)과 겹쳐 코너 탈출에서 바깥쪽(언더스티어 방향) 정상상태
+            # 오차를 키웠다(추정 +0.11~0.21 m, 벽 여유 p5 0.145 m 섹터 마진의 대부분 소진).
+            # 재도입하려면 턴인 구간(그립 캡이 걸리기 전 속도대)을 피해서 재측정할 것.
             'start_scale_speed', default_value='7.0',
             description='속도 비례 조향 다운스케일 시작 속도 [m/s]'
         ),
@@ -74,13 +64,13 @@ def declare_common_args(sector_scale_enable_default='false'):
             'closest_idx_max_heading_err', default_value='1.40',
             description='경로 접선과 차량 헤딩의 허용 오차 [rad]. 0이면 게이트 비활성(구 거동)'
         ),
-        DeclareLaunchArgument(
+        DeclareLaunchArgument(  
             'l1_offset', default_value='0.6',
             description='L1 룩어헤드 거리의 **절편** [m] (공식: l1_offset + v*l1_speed_gain). '
                         '구 이름 l1_gain'
         ),
         DeclareLaunchArgument(
-            'l1_speed_gain', default_value='0.3',
+            'l1_speed_gain', default_value='0.4',
             description='L1 룩어헤드 거리의 **속도 계수** [s] (공식: l1_offset + v*l1_speed_gain). '
                         '구 이름 l1_distance'
         ),
@@ -103,7 +93,7 @@ def declare_common_args(sector_scale_enable_default='false'):
         ),
         DeclareLaunchArgument(
             'steering_speed_cap_measured', default_value='true',
-            description='조향용 속도(횡가속 게인+LUT 조회)를 실측 속도로 상한. '
+            description='조향용 속도(횡가속 게인+자전거 역모델)를 실측 속도로 상한. '
                         'false면 구 거동(프로파일 속도만 사용) — 롤백용'
         ),
         DeclareLaunchArgument(
@@ -130,7 +120,7 @@ def declare_common_args(sector_scale_enable_default='false'):
                         '[track_length, (s0,s1,scale)×N], transient_local)'
         ),
         DeclareLaunchArgument(
-            'sector_scale_max', default_value='1.5',
+            'sector_scale_max', default_value='1.3',
             description='허용 최대 scale. 이보다 큰 값이 오면 테이블 전체를 버린다'
         ),
         DeclareLaunchArgument(
@@ -182,10 +172,62 @@ def declare_common_args(sector_scale_enable_default='false'):
                         '연습에서 뽑아 결선 sectors.yaml로 쓰는 것이 의도된 흐름'
         ),
 
+        # ── 조향 생성: 자전거 역모델 + FF/FB 분리 (②-p) ───────────────────────
+        # 구 LUT 역조회는 2026-08-17에 삭제됐다(롤백은 git 0d16173 — 메모리 참고).
         DeclareLaunchArgument(
-            'steering_reach_ratio', default_value='0.85',
+            'steering_fb_gain', default_value='1.0',
+            description='FF/FB 분리 게인 (bicycle 모델 전용). L1 명령 중 경로 곡률로 '
+                        '설명되지 않는 보정분에만 곱한다. 1.0 = 분리 전과 수학적으로 동일 '
+                        '(안전한 출발점). 낮추면 경로 추종은 FF가, 오차 보정은 L1이 맡아 '
+                        'l1_offset의 "정확도 vs 횡진동" 트레이드오프가 분리된다'
+        ),
+        DeclareLaunchArgument(
+            'curvature_ff_preview', default_value='0.0',
+            description='FF가 곡률을 읽을 전방 거리 [m]. 0 = 최근접점(정상상태 정의). '
+                        '조향→요레이트 지연 실측 140 ms 보상이 필요하면 v*0.14 부근부터'
+        ),
+        DeclareLaunchArgument(
+            'understeer_gradient_adapt_gain', default_value='0.0',
+            description='K_us 온라인 적응 LPF 게인 1/τ [1/s]. **0 = 관측 전용**(추정·로그만 '
+                        '하고 적용 안 함 — 기본). ⚠️ 켜면 조향 생성뿐 아니라 조향 권한 캡'
+                        '(코너 진입속도)까지 함께 지배하므로, 관측 로그로 수렴을 먼저 볼 것'
+        ),
+        DeclareLaunchArgument(
+            'understeer_adapt_min_lat_acc', default_value='3.0',
+            description='K_us 학습 관측성 게이트 [m/s²]. 이보다 큰 횡가속에서만 배운다 '
+                        '(코너 전용) — 직선에서 배우는 조향 트림 추정기와 영역을 갈라 둔 것'
+        ),
+        DeclareLaunchArgument(
+            'steering_speed_floor', default_value='0.5',
+            description='조향 계산에 쓰는 속도의 하한 [m/s]. local_planning이 safe stop으로 '
+                        'vx_mps=0을 발행하면 조향까지 0이 되어 굴러가는 중에 바퀴가 곧게 '
+                        '펴진다(코너 비상정지 = 바깥 벽 직진). 0 = 구 거동'
+        ),
+        DeclareLaunchArgument(
+            'understeer_curve_enable', default_value='false',
+            description='K_us를 하중별 곡선 K_us(a_lat)로 쓴다 (②-q). **false = 관측 전용**'
+                        '(빈별 학습·로그만, 조향엔 스칼라 사용 — 기본). LUT가 담으려던 타이어 '
+                        '비선형성의 1차원 대체다. 켜면 고하중에서 조향이 커지므로 저속부터'
+        ),
+        DeclareLaunchArgument(
+            'understeer_curve_min_samples', default_value='300',
+            description='K_us 곡선 빈을 실제로 쓰기까지 필요한 빈당 샘플 수. 미달 빈은 '
+                        '스칼라값으로 폴백하므로 학습이 덜 된 하중대에선 정확히 구 거동이다'
+        ),
+
+        DeclareLaunchArgument(
+            # ⚠️ 2026-08-16: 0.9(그리고 그 직전 1.0)는 근거 문서·주석 없이 08-15~16에
+            # 들어왔다가 08-16에 0.9로 되돌아온 값이다. 08-07에 "실측치(≈1.0)로 올리자"는
+            # 제안이 검토 후 기각되고 0.85로 확정된 결정을 근거 없이 뒤집은 것 — 0.85로 복귀.
+            # 🔴 ②-p 주의: LUT가 전 속도에서 12~36% 덜 꺾고 있었고 1/0.85=+17.6%가 그
+            # 범위 한복판이다 — 이 값이 링키지 손실이 아니라 **LUT 부족분**을 보정해 왔을
+            # 가능성이 있다(07-31 각도기 실측은 링키지 정상 1.003). steering_model:=bicycle
+            # 로 전환하면 그 부족분이 사라지므로 이 값도 재검토 대상이다. 단 δ_avail(조향
+            # 권한 캡)까지 같이 움직이니 반드시 저속 A/B로 확인하고 단독으로 바꾸지 말 것.
+            'steering_reach_ratio', default_value='1.0',
             description='명령 조향각 중 바퀴가 실제 도달하는 비율. 보상(1/ratio)과 조향권한 캡을 '
-                        '동시 지배. 1.0 = 보상 없음(2026-07-31 실측: 링키지 정상)'
+                        '동시 지배. 1.0 = 보상 없음(2026-07-31 실측: 링키지 정상, 단 08-07에 '
+                        '"하중 걸린 주행 마진 아님"으로 상향 기각됨 — 실측만으로 다시 올리지 말 것)'
         ),
         # 50Hz에서 20 rad/s = 사이클당 0.4 rad = 풀락까지 2 사이클 = 구 하드코딩과 동일(무제한).
         # 서보 물리 속도(~7 rad/s 추정)로 낮추면 고주파 채터링을 막지만 실측 전이라 중립 유지.
@@ -257,7 +299,7 @@ def declare_common_args(sector_scale_enable_default='false'):
             description='곡률 룩어헤드 스캔 거리 하한 (×0.1m). 80 = 8m'
         ),
         DeclareLaunchArgument(
-            'min_speed', default_value='2.0',
+            'min_speed', default_value='1.2',
             description='최저 순항 속도 [m/s] (곡률 감속 하한). 장애물 정지엔 미적용(0까지 허용)'
         ),
 
@@ -296,7 +338,7 @@ def declare_common_args(sector_scale_enable_default='false'):
             description='관통 실패 시 포기까지 최대 펀치 시간 [s]'
         ),
         DeclareLaunchArgument(
-            'launch_exit_speed', default_value='1.2',
+            'launch_exit_speed', default_value='0.9',
             description='실측이 이 속도[m/s] 넘으면 관통 성공 판정 → 킥 종료(데드존 상단 0.59보다 위)'
         ),
         DeclareLaunchArgument(
@@ -305,10 +347,10 @@ def declare_common_args(sector_scale_enable_default='false'):
         ),
 
         # IMU 보정 on/off. 끄면 조향 가감속 스케일러가 중립(acc_mean=0)으로 떨어져
-        # 순수 L1+LUT(시뮬 검증 상태)가 된다.
+        # 순수 L1(시뮬 검증 상태)이 된다.
         DeclareLaunchArgument(
             'use_imu', default_value='true',
-            description='IMU 종가속(조향 가감속 스케일러) 사용 여부. false면 순수 L1+LUT 주행'
+            description='IMU 종가속(조향 가감속 스케일러) 사용 여부. false면 스케일러 중립'
         ),
 
     ]
@@ -316,7 +358,7 @@ def declare_common_args(sector_scale_enable_default='false'):
 def build_control_map_node(*, odom_topic, max_speed, max_lateral_accel, base_max_accel,
                            imu_linear_scale, imu_angular_scale,
                            max_steering_left, max_steering_right,
-                           lookup_table_file: Any = '', remappings: Optional[list] = None):
+                           remappings: Optional[list] = None):
     """control_map_node — 환경별로 다른 값만 인자로 받고 나머지는 공용 정의.
 
     remappings: 실차에서만 필요한 토픽 리매핑(예: vesc_driver의 sensors/imu/raw →
@@ -332,9 +374,6 @@ def build_control_map_node(*, odom_topic, max_speed, max_lateral_accel, base_max
         parameters=[{
             'odom_topic': odom_topic,
             'wheelbase': 0.33,
-            'lockstep_mode': ParameterValue(
-                LaunchConfiguration('lockstep_mode'), value_type=bool),
-            'lockstep_period_sec': LaunchConfiguration('lockstep_period_sec'),
             'l1_offset': LaunchConfiguration('l1_offset'),
             'l1_speed_gain': LaunchConfiguration('l1_speed_gain'),
             't_clip_min': LaunchConfiguration('t_clip_min'),
@@ -368,6 +407,18 @@ def build_control_map_node(*, odom_topic, max_speed, max_lateral_accel, base_max
             'max_steering_left': max_steering_left,
             'max_steering_right': max_steering_right,
             'steering_reach_ratio': LaunchConfiguration('steering_reach_ratio'),
+            'steering_fb_gain': LaunchConfiguration('steering_fb_gain'),
+            'curvature_ff_preview': LaunchConfiguration('curvature_ff_preview'),
+            'understeer_gradient_adapt_gain':
+                LaunchConfiguration('understeer_gradient_adapt_gain'),
+            'understeer_adapt_min_lat_acc':
+                LaunchConfiguration('understeer_adapt_min_lat_acc'),
+            'steering_speed_floor':
+                LaunchConfiguration('steering_speed_floor'),
+            'understeer_curve_enable': ParameterValue(
+                LaunchConfiguration('understeer_curve_enable'), value_type=bool),
+            'understeer_curve_min_samples': ParameterValue(
+                LaunchConfiguration('understeer_curve_min_samples'), value_type=int),
             'max_steering_rate': LaunchConfiguration('max_steering_rate'),
             'steering_trim_adapt_gain': LaunchConfiguration('steering_trim_adapt_gain'),
             'steering_trim_limit': LaunchConfiguration('steering_trim_limit'),
@@ -381,12 +432,17 @@ def build_control_map_node(*, odom_topic, max_speed, max_lateral_accel, base_max
             'drive_mode_topic': LaunchConfiguration('drive_mode_topic'),
             'engaged_mode_value': LaunchConfiguration('engaged_mode_value'),
             'drive_mode_timeout': LaunchConfiguration('drive_mode_timeout'),
-            'lookup_table_file': lookup_table_file,
             'use_imu': ParameterValue(LaunchConfiguration('use_imu'), value_type=bool),
             'imu_linear_scale': imu_linear_scale,
             'imu_angular_scale': imu_angular_scale,
-            'curvature_ff_blend': 0.0,
-            'heading_damping_gain': 0.2,
+            # ⚠️ 2026-08-05 "sync: 08/05" 커밋(LUT calibrator 툴 변경이 메인이었던 커밋)에
+            # 묻혀 0.0→0.2로 미문서화 변경됐던 것을 [오늘 날짜]에 원복. 코드 기본값
+            # (control_map_node.cpp declare_parameter)도 0.0이고 CLAUDE.md도 "기본 비활성"
+            # 이라 기록해온 값과 여기 하드코딩이 어긋나 있었다. 0816 크래시 재구성에서, 슬립이
+            # 시작된 순간 이 항이 헤딩오차에 비례해 최대 −0.220 rad을 더해 조향을 풀락에
+            # 박고 유지시키는 증폭 경로로 확인됨(단 08-14 7.7 m/s 무사고 run에도 0.2였으므로
+            # 이것만으로 크래시 원인 전체를 설명하진 않음 — 슬립 자체의 원인은 별도).
+            'heading_damping_gain': 0.0,
             'acceleration_scaler_for_steering': LaunchConfiguration('acceleration_scaler_for_steering'),
             'deceleration_scaler_for_steering': LaunchConfiguration('deceleration_scaler_for_steering'),
             'start_scale_speed': LaunchConfiguration('start_scale_speed'),
@@ -396,11 +452,6 @@ def build_control_map_node(*, odom_topic, max_speed, max_lateral_accel, base_max
             'speed_lookahead_for_steering': LaunchConfiguration('speed_lookahead_for_steering'),
             'local_fresh_timeout': LaunchConfiguration('local_fresh_timeout'),
             'closest_idx_max_heading_err': LaunchConfiguration('closest_idx_max_heading_err'),
-            'cruise_limit_enable': ParameterValue(
-                LaunchConfiguration('cruise_enable'), value_type=bool),
-            'cruise_speed_limit_topic': '/cruise_speed_limit',
-            'cruise_speed_limit_timeout': 0.15,
-            'cruise_stale_speed': 1.5,
             # 섹터별 횡가속 권한 스케일 (기본 꺼짐 — 켜기 전 bag_analyzer 판정 필수)
             'sector_scale_enable': LaunchConfiguration('sector_scale_enable'),
             'sector_scale_topic': LaunchConfiguration('sector_scale_topic'),
@@ -412,22 +463,6 @@ def build_control_map_node(*, odom_topic, max_speed, max_lateral_accel, base_max
             'sector_scale_state_timeout': LaunchConfiguration('sector_scale_state_timeout'),
             'sector_scale_timeout': LaunchConfiguration('sector_scale_timeout'),
         }]
-    )
-
-def build_cruise_controller_node(*, max_speed):
-    """전방 상대차 간격을 속도 상한으로 변환하는 종방향 보조 노드."""
-    config_file = PathJoinSubstitution([
-        FindPackageShare('f1tenth_control'), 'config', 'cruise_controller.yaml'
-    ])
-    return Node(
-        package='f1tenth_control',
-        executable='cruise_controller_node',
-        name='cruise_controller_node',
-        output='screen',
-        condition=IfCondition(LaunchConfiguration('cruise_enable')),
-        parameters=[config_file, {
-            'maximum_speed': ParameterValue(max_speed, value_type=float),
-        }],
     )
 
 def build_sector_learner_node():

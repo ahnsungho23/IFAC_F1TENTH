@@ -29,16 +29,8 @@ find_package(f110_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(ament_index_cpp REQUIRED)
 
-add_library(cruise_controller_lib
-  control_code/cruise_controller.cpp
-)
-target_include_directories(cruise_controller_lib PUBLIC
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  $<INSTALL_INTERFACE:include>
-)
-
 # ==============================================================================
-# 2. Control MAP 노드 빌드 (L1 Guidance + Steering LUT)
+# 2. Control MAP 노드 빌드 (L1 Guidance + 정상상태 자전거 역모델 조향)
 # ==============================================================================
 add_executable(control_map_node
   control_code/control_map_node.cpp
@@ -56,21 +48,6 @@ target_link_libraries(control_map_node
   ${f110_msgs_TARGETS}
   ${visualization_msgs_TARGETS}
   ament_index_cpp::ament_index_cpp
-)
-
-add_executable(cruise_controller_node
-  control_code/cruise_controller_node.cpp
-)
-target_include_directories(cruise_controller_node PUBLIC
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  $<INSTALL_INTERFACE:include>
-)
-target_link_libraries(cruise_controller_node
-  cruise_controller_lib
-  rclcpp::rclcpp
-  ${nav_msgs_TARGETS}
-  ${std_msgs_TARGETS}
-  ${f110_msgs_TARGETS}
 )
 
 # ==============================================================================
@@ -104,28 +81,12 @@ install(TARGETS
   drive_source_selector
   odom_calib_node
   control_map_node
-  cruise_controller_node
   sim_imu_bridge_node
   DESTINATION lib/${PROJECT_NAME}
 )
 
-install(TARGETS cruise_controller_lib
-  ARCHIVE DESTINATION lib
-  LIBRARY DESTINATION lib
-)
-
-install(DIRECTORY include/
-  DESTINATION include
-)
-
 install(DIRECTORY launch
   DESTINATION share/${PROJECT_NAME}
-)
-
-# Steering Lookup Table(LUT) CSV — 패키지 share에 설치해 이식성 있는 ament 경로로 로드
-# (control_map_node가 get_package_share_directory("f1tenth_control")+"/cfg/..."로 조회)
-install(FILES control_code/LUT_calibrated.csv
-  DESTINATION share/${PROJECT_NAME}/cfg
 )
 
 # 섹터 스케일 테이블 — scripts/sector_learner.py가 읽어 /sector_scales로 발행한다.
@@ -135,24 +96,8 @@ install(FILES config/sectors.yaml
   DESTINATION share/${PROJECT_NAME}/config
 )
 
-install(FILES config/cruise_controller.yaml
-  DESTINATION share/${PROJECT_NAME}/config
-)
-
-install(DIRECTORY docs
-  DESTINATION share/${PROJECT_NAME}
-)
-
 install(PROGRAMS scripts/sector_learner.py
   DESTINATION lib/${PROJECT_NAME}
 )
-
-if(BUILD_TESTING)
-  find_package(ament_cmake_gtest REQUIRED)
-  ament_add_gtest(test_cruise_controller test/test_cruise_controller.cpp)
-  if(TARGET test_cruise_controller)
-    target_link_libraries(test_cruise_controller cruise_controller_lib)
-  endif()
-endif()
 
 ament_package()
