@@ -96,8 +96,14 @@ ros2 launch f1tenth_gym_ros gym_bridge_launch.py
 | MCL 맵 | `src/monte_carlo_localization/maps/map.{png,yaml}` |
 | raceline | `offline_trajectory_generator/output/map/` |
 
-`sim.yaml`의 스폰 포즈(`sx`/`sy`/`stheta`)도 새 라인 위의 점으로 바꿔야 합니다 — 옛 좌표는
-새 맵에서 벽 안이거나 맵 밖입니다. 현재값은 새 라인 s=5.01(직선 구간)입니다.
+🔴 **스폰 포즈는 raceline의 `wpnts[0]`과 정확히 같아야 합니다.** MCL은
+`auto_init_from_waypoints: true`로 **`wpnts[0]`에 파티클을 뿌립니다**(`particle_filter.cpp`
+의 `start_wp = msg->wpnts[0]`). gym 스폰이 그와 다르면 MCL이 그 차이만큼 어긋난 채
+시작하고 수렴하지 못합니다 — 2026-08-18에 스폰을 s=5.01로 두었더니 정확히 4.84 m
+(= wpnts[0]까지 거리)만큼 틀어졌습니다.
+
+현재값은 `sx: -0.706042, sy: 15.188966, stheta: -2.469165` = 새 라인 `wpnts[0]`입니다.
+라인을 다시 만들면 이 세 값도 새 `wpnts[0]`으로 같이 바꾸십시오.
 
 ### 터미널 2 — 위치추정 (Monte Carlo Localization)
 
