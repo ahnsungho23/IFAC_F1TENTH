@@ -76,13 +76,13 @@ map_creator_node:
     max_ray_length_m: 5.0         # beyond this: wall_not_found -> abort
 
     # ---- regeneration (driver = same gui_params.yaml values as the GUI) ----
-    generator_driver: "offline_trajectory_generator/regenerate_obstacle_map.py"
+    generator_driver: "offline_trajectory_generator/bin/regenerate_obstacle_map"
     gui_params_yaml: "offline_trajectory_generator/gui_params.yaml"
     output_base_dir: "offline_trajectory_generator/output"
     output_map_name: "obstacle_map"
     baseline_map_name: "map"
     reseed_on_startup: true       # start every session from the baseline copy
-    python_executable: "python3"
+    python_executable: ""          # empty = run the C++ driver binary directly
     generation_timeout_sec: 120.0
     initial_smooth_sigma: 2.0     # first generation pass
     retry_safety_width: 0.4       # keep the same safety width; retry changes smoothing only

@@ -21,7 +21,24 @@
 
 저장소 루트에서 실행한다.
 
-GUI로 파라미터를 조정하면서 확인하려면 다음 명령을 사용한다.
+### 빌드 (최초 1회)
+
+생성 엔진은 C++ 바이너리다. 처음 사용하거나 소스가 바뀌었으면 먼저 빌드한다.
+x86_64와 arm64(Jetson) 모두에서 그대로 빌드된다.
+
+```bash
+cd offline_trajectory_generator
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j$(nproc)
+```
+
+빌드 결과는 `offline_trajectory_generator/bin/`에 `generate_global_trajectory`,
+`regenerate_obstacle_map` 두 바이너리로 생성된다. GUI와 map_creator 노드가 이 경로를 사용한다.
+
+### GUI
+
+GUI로 파라미터를 조정하면서 확인하려면 다음 명령을 사용한다. GUI는 파라미터가 바뀔 때마다
+C++ 바이너리를 호출해 결과 파일을 읽어 미리보기를 그린다.
 
 ```bash
 python3 offline_trajectory_generator/trajectory_gui.py
@@ -60,7 +77,7 @@ python3 offline_trajectory_generator/trajectory_gui.py \
 CLI로 바로 파일만 생성하려면 다음 명령을 사용한다.
 
 ```bash
-python3 offline_trajectory_generator/generate_global_trajectory.py \
+offline_trajectory_generator/bin/generate_global_trajectory \
   --map-yaml monte_carlo_localization/maps/slam_map.yaml \
   --output-dir /tmp/offline_traj_slam_map \
   --velocity-limits-csv offline_trajectory_generator/config/velocity_limits.csv \
@@ -189,13 +206,21 @@ CSV의 `x_m`, `y_m`은 선택한 ROS map YAML의 `resolution`과 `origin`이 적
 
 ## 6. 의존성
 
-생성기는 `numpy`, `opencv`, `PyYAML`, `scipy`를 사용한다.
+생성 엔진(C++)은 `OpenCV`, `yaml-cpp`, `Eigen3`, `nlohmann-json`을 사용하며, 최소 곡률
+최적화는 저장소에 포함된 헤더 온리 `LBFGSpp`(`third_party/LBFGSpp`, L-BFGS-B)를 쓴다.
+전부 아키텍처 중립이라 Jetson(arm64)에서도 같은 명령으로 빌드된다.
+
+```bash
+sudo apt install libopencv-dev libyaml-cpp-dev libeigen3-dev nlohmann-json3-dev
+```
+
+GUI(Python)는 `numpy`, `opencv-python`, `PyYAML`만 사용한다(`scipy` 불필요).
 
 centerline 추출은 노이즈에 강건하게 동작한다: ① `--min-track-width`보다 좁은 영역의 skeleton은
 노이즈로 보고 제거하고, ② 후보 루프 중 **둘러싼 면적이 가장 큰 폐곡선**(=실제 트랙 루프)을
-선택하며(길이 기준이 아님 — 가늘고 긴 노이즈 낙서가 이기지 못한다), ③ opencv contrib
-(`ximgproc.thinning`)가 없으면 내장 Zhang-Suen thinning으로 대체하므로 추가 설치 없이도
-스켈레톤 루프가 연결된 상태로 추출된다. 또한 ④ **map cleanup(median/morph close)은 실측 벽을
+선택하며(길이 기준이 아님 — 가늘고 긴 노이즈 낙서가 이기지 못한다), ③ OpenCV가 ximgproc
+없이 빌드된 환경에서는 내장 Zhang-Suen thinning으로 대체(컴파일 타임 분기)하므로 추가 설치
+없이도 스켈레톤 루프가 연결된 상태로 추출된다. 또한 ④ **map cleanup(median/morph close)은 실측 벽을
 절대 지우지 못한다** — 큰 morph 커널이 얇은 내부 벽(예: 트랙 가운데 칸막이)을 free-space로
 삼켜 경로가 벽을 관통하는 문제를 막기 위해, 정리 후 원본 occupied 픽셀을 다시 새긴다(스페클
 크기 이하의 점 노이즈는 제외). 최종 경로는 웨이포인트 사이 구간까지 ~2픽셀 간격으로 조밀하게

@@ -4,6 +4,10 @@
 from __future__ import annotations
 
 import argparse
+import json
+import shutil
+import subprocess
+import tempfile
 import threading
 import time
 import traceback
@@ -18,21 +22,100 @@ import tkinter.font as tkfont
 import yaml
 from tkinter import filedialog, messagebox, ttk
 
-from generate_global_trajectory import (
-    DEFAULT_VELOCITY_LIMITS_CSV,
-    GenerationResult,
-    default_output_dir,
-    generate_trajectory,
-    write_debug_image,
-    write_outputs,
-    world_to_pixel,
-)
-
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent
 DEFAULT_PARAMS_YAML = SCRIPT_DIR / "gui_params.yaml"
+DEFAULT_VELOCITY_LIMITS_CSV = SCRIPT_DIR / "config" / "velocity_limits.csv"
+GENERATOR_BIN = SCRIPT_DIR / "bin" / "generate_global_trajectory"
 NO_GENERATE_KEYS = {"output_dir", "debug_image", "show_centerline", "show_rt_lane"}
+# Files the C++ generator writes; "Save outputs" copies these from the work dir.
+OUTPUT_FILES = ("centerline.csv", "global_waypoints.csv", "global_waypoints.json", "metadata.json")
+
+
+def default_output_dir(map_yaml: Path) -> Path:
+    return SCRIPT_DIR / "output" / map_yaml.stem
+
+
+@dataclass(frozen=True)
+class MapInfo:
+    resolution: float
+    origin_x: float
+    origin_y: float
+    height: int
+    width: int
+
+
+@dataclass(frozen=True)
+class Polyline:
+    points_xy: np.ndarray
+
+
+@dataclass(frozen=True)
+class GenerationResult:
+    """Preview payload parsed from the C++ generator's output files."""
+
+    map_info: MapInfo
+    image: np.ndarray
+    center_traj: Polyline
+    global_traj: Polyline
+    lap_time: float
+    flip_y: bool
+    off_map_wpnts: int = 0
+    kappa_violations: int = 0
+    max_abs_kappa: float = 0.0
+
+
+def world_to_pixel(points_xy: np.ndarray, info: MapInfo, flip_y: bool) -> np.ndarray:
+    col = (points_xy[:, 0] - info.origin_x) / info.resolution
+    if flip_y:
+        row = (info.height - 1) - (points_xy[:, 1] - info.origin_y) / info.resolution
+    else:
+        row = (points_xy[:, 1] - info.origin_y) / info.resolution
+    return np.column_stack([col, row])
+
+
+def run_generator(cli_args: list[str], output_dir: Path) -> GenerationResult:
+    """Run the C++ generator binary and parse its outputs for the preview."""
+    if not GENERATOR_BIN.is_file():
+        raise RuntimeError(
+            f"generator binary not found: {GENERATOR_BIN}. "
+            "Build it first: cmake -B build && cmake --build build"
+        )
+    command = [str(GENERATOR_BIN), *cli_args, "--output-dir", str(output_dir), "--debug-image"]
+    proc = subprocess.run(command, capture_output=True, text=True)
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout).strip().splitlines()
+        raise RuntimeError(detail[-1] if detail else f"generator exited with {proc.returncode}")
+
+    meta = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
+    image = cv2.imread(meta["map_image"], cv2.IMREAD_GRAYSCALE)
+    if image is None:
+        raise RuntimeError(f"could not read map image: {meta['map_image']}")
+    info = MapInfo(
+        resolution=float(meta["resolution"]),
+        origin_x=float(meta["origin"][0]),
+        origin_y=float(meta["origin"][1]),
+        height=int(image.shape[0]),
+        width=int(image.shape[1]),
+    )
+    center_xy = np.loadtxt(
+        output_dir / "centerline.csv", delimiter=",", skiprows=1, usecols=(0, 1)
+    )
+    global_xy = np.loadtxt(
+        output_dir / "global_waypoints.csv", delimiter=",", skiprows=1, usecols=(2, 3)
+    )
+    return GenerationResult(
+        map_info=info,
+        image=image,
+        center_traj=Polyline(center_xy),
+        global_traj=Polyline(global_xy),
+        lap_time=float(meta["estimated_lap_time_sec"]),
+        flip_y=not bool(meta["args"]["no_flip_y"]),
+        off_map_wpnts=int(meta.get("off_map_wpnts", 0)),
+        kappa_violations=int(meta.get("kappa_violations", 0)),
+        max_abs_kappa=float(meta.get("max_abs_kappa", 0.0)),
+    )
 
 
 @dataclass(frozen=True)
@@ -193,7 +276,8 @@ def save_gui_params(path: Path, values: dict[str, Any]) -> None:
         yaml.safe_dump(serializable, stream, sort_keys=False, allow_unicode=True)
 
 
-def make_namespace(values: dict[str, Any]) -> argparse.Namespace:
+def build_cli_args(values: dict[str, Any]) -> tuple[list[str], Path]:
+    """Validate GUI values and build the C++ generator's CLI argument list."""
     values = normalize_gui_values(values)
     map_yaml_text = str(values["map_yaml"]).strip()
     if not map_yaml_text:
@@ -210,47 +294,16 @@ def make_namespace(values: dict[str, Any]) -> argparse.Namespace:
     if not velocity_limits_csv.is_file():
         raise ValueError(f"velocity limits CSV does not exist: {velocity_limits_csv}")
 
-    return argparse.Namespace(
-        map_yaml=map_yaml,
-        output_dir=Path(values["output_dir"]).expanduser() if values.get("output_dir") else None,
-        waypoint_step=float(values["waypoint_step"]),
-        optimizer_step=float(values["optimizer_step"]),
-        raceline_smooth_sigma=float(values["raceline_smooth_sigma"]),
-        safety_width=float(values["safety_width"]),
-        boundary_margin=float(values["boundary_margin"]),
-        max_width_distance=float(values["max_width_distance"]),
-        width_mode=str(values["width_mode"]),
-        max_speed=float(values["max_speed"]),
-        min_speed=float(values["min_speed"]),
-        velocity_limits_csv=velocity_limits_csv,
-        max_curvature=float(values["max_curvature"]),
-        smooth_sigma=float(values["smooth_sigma"]),
-        median_kernel=int(values["median_kernel"]),
-        morph_kernel=int(values["morph_kernel"]),
-        morph_open_iterations=int(values["morph_open_iterations"]),
-        morph_close_iterations=int(values["morph_close_iterations"]),
-        skeleton_prune_iterations=int(values["skeleton_prune_iterations"]),
-        min_skeleton_component_area=int(values["min_skeleton_component_area"]),
-        min_track_width=float(values["min_track_width"]),
-        min_centerline_angle=float(values["min_centerline_angle"]),
-        spike_filter_iterations=int(values["spike_filter_iterations"]),
-        optimizer=str(values["optimizer"]),
-        max_optimizer_iter=int(values["max_optimizer_iter"]),
-        curvature_weight=float(values["curvature_weight"]),
-        smooth_weight=float(values["smooth_weight"]),
-        length_weight=float(values["length_weight"]),
-        d_ratio=float(values["d_ratio"]),
-        d_ratio_alpha_smooth_sigma=float(values["d_ratio_alpha_smooth_sigma"]),
-        straight_kappa_threshold=float(values["straight_kappa_threshold"]),
-        straight_min_length=float(values["straight_min_length"]),
-        straight_clearance_margin=float(values["straight_clearance_margin"]),
-        straight_blend_length=float(values["straight_blend_length"]),
-        reverse=bool(values["reverse"]),
-        straighten_straights=bool(values["straighten_straights"]),
-        no_flip_y=bool(values["no_flip_y"]),
-        unknown_as_free=bool(values["unknown_as_free"]),
-        debug_image=bool(values.get("debug_image", False)),
-    )
+    cli = ["--map-yaml", str(map_yaml), "--velocity-limits-csv", str(velocity_limits_csv)]
+    for spec in NUMERIC_SPECS:
+        cli += [f"--{spec.key.replace('_', '-')}", str(values[spec.key])]
+    cli += ["--optimizer", str(values["optimizer"]), "--width-mode", str(values["width_mode"])]
+    if not values["straighten_straights"]:
+        cli.append("--no-straighten-straights")
+    for flag in ("reverse", "no_flip_y", "unknown_as_free"):
+        if values[flag]:
+            cli.append(f"--{flag.replace('_', '-')}")
+    return cli, map_yaml
 
 
 def draw_polyline(
@@ -336,7 +389,8 @@ class TrajectoryGui:
         self.generation_id = 0
         self.running = False
         self.current_result: GenerationResult | None = None
-        self.current_args: argparse.Namespace | None = None
+        self.current_map_yaml: Path | None = None
+        self.work_dir = Path(tempfile.mkdtemp(prefix="trajectory_gui_"))
         self.photo: tk.PhotoImage | None = None
         self.last_render_size = (0, 0)
         self.params_path = params_path
@@ -833,7 +887,7 @@ class TrajectoryGui:
         self.pending_after = None
         values = self.collect_values()
         try:
-            args = make_namespace(values)
+            cli_args, map_yaml = build_cli_args(values)
         except (TypeError, ValueError) as exc:
             self.status_var.set(f"Invalid parameter: {exc}")
             return
@@ -846,7 +900,7 @@ class TrajectoryGui:
         def worker() -> None:
             started = time.perf_counter()
             try:
-                result = generate_trajectory(args)
+                result = run_generator(cli_args, self.work_dir)
             except Exception as exc:  # noqa: BLE001 - GUI reports calculation failures to the user.
                 # Bind `exc` as a default argument: Python clears the `except`
                 # target when the block exits, so a plain closure would raise
@@ -855,7 +909,9 @@ class TrajectoryGui:
                 self.root.after(0, lambda error=exc: self.finish_error(generation_id, error))
                 return
             elapsed = time.perf_counter() - started
-            self.root.after(0, lambda: self.finish_generate(generation_id, args, result, elapsed))
+            self.root.after(
+                0, lambda: self.finish_generate(generation_id, map_yaml, result, elapsed)
+            )
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -870,14 +926,14 @@ class TrajectoryGui:
     def finish_generate(
         self,
         generation_id: int,
-        args: argparse.Namespace,
+        map_yaml: Path,
         result: GenerationResult,
         elapsed: float,
     ) -> None:
         if generation_id != self.generation_id:
             return
         self.running = False
-        self.current_args = args
+        self.current_map_yaml = map_yaml
         self.current_result = result
         off_map = int(getattr(result, "off_map_wpnts", 0))
         kappa_bad = int(getattr(result, "kappa_violations", 0))
@@ -961,36 +1017,28 @@ class TrajectoryGui:
         self.last_render_size = (width, height)
 
     def save_outputs(self) -> None:
-        if self.current_result is None or self.current_args is None:
+        if self.current_result is None or self.current_map_yaml is None:
             messagebox.showwarning("Save", "No trajectory has been generated yet.")
             return
         output_dir_text = self.variables["output_dir"].get().strip()
         output_dir = (
             Path(output_dir_text).expanduser()
             if output_dir_text
-            else default_output_dir(self.current_args.map_yaml)
+            else default_output_dir(self.current_map_yaml)
         )
-        args = self.current_args
-        args.output_dir = output_dir
-        args.debug_image = bool(self.variables["debug_image"].get())
         try:
-            write_outputs(
-                output_dir,
-                self.current_result.map_info,
-                self.current_result.center_traj,
-                self.current_result.global_traj,
-                self.current_result.lap_time,
-                args,
+            output_dir.mkdir(parents=True, exist_ok=True)
+            for name in OUTPUT_FILES:
+                shutil.copy2(self.work_dir / name, output_dir / name)
+            # Keep the saved metadata pointing at the saved location, not the
+            # GUI's temporary work directory.
+            metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
+            metadata["args"]["output_dir"] = str(output_dir)
+            (output_dir / "metadata.json").write_text(
+                json.dumps(metadata, indent=2), encoding="utf-8"
             )
-            if args.debug_image:
-                write_debug_image(
-                    output_dir,
-                    self.current_result.image,
-                    self.current_result.map_info,
-                    self.current_result.center_traj.points_xy,
-                    self.current_result.global_traj.points_xy,
-                    self.current_result.flip_y,
-                )
+            if bool(self.variables["debug_image"].get()):
+                shutil.copy2(self.work_dir / "debug_overlay.png", output_dir / "debug_overlay.png")
         except Exception as exc:  # noqa: BLE001 - GUI reports filesystem failures.
             messagebox.showerror("Save failed", str(exc))
             return
@@ -1048,7 +1096,9 @@ def run_render_test(map_yaml: Path, output_png: Path) -> int:
             "debug_image": False,
         }
     )
-    result = generate_trajectory(make_namespace(values))
+    cli_args, _ = build_cli_args(values)
+    with tempfile.TemporaryDirectory(prefix="trajectory_render_test_") as tmp:
+        result = run_generator(cli_args, Path(tmp))
     image_rgb = render_preview_rgb(result, None, True, True)
     output_png.parent.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(str(output_png), cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR))

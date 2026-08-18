@@ -137,7 +137,7 @@ python3 offline_trajectory_generator/trajectory_gui.py \
 **③ 헤드리스로 생성** (재현·스윕용)
 ```bash
 cd ~/2026_IFAC
-python3 offline_trajectory_generator/generate_global_trajectory.py \
+offline_trajectory_generator/bin/generate_global_trajectory \
   --map-yaml src/monte_carlo_localization/maps/map.yaml \
   --output-dir offline_trajectory_generator/output/map \
   --optimizer mincurv --width-mode hybrid \

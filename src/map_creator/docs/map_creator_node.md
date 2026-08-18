@@ -14,7 +14,7 @@
 
 ```text
 IDLE ──(lap_count ≥ trigger, 원장 freeze)──▶ 판정+페인팅+저장 ──▶ GENERATING
-  드라이버(regenerate_obstacle_map.py) 완료·물리 게이트 통과 ──▶ ARMED
+  드라이버(bin/regenerate_obstacle_map, C++) 완료·물리 게이트 통과 ──▶ ARMED
   lap_count 다음 갱신 ──▶ reload 호출 ──▶ MONITORING
   (authoritative 스냅샷에서 사라진 뒤 2랩 → 원장 제거 → 재생성 /
   전부 소실 → baseline 재시딩 + reload)

@@ -117,11 +117,11 @@ ROS 2 Jazzy workspace for the 2026 IFAC F1TENTH stack. ROS packages live under `
 │   ├── package.xml
 │   └── README.md
 │
-├── offline_trajectory_generator/ # offline global-trajectory + centerline generator (standalone Python, GUI)
-│   ├── generate_global_trajectory.py
+├── offline_trajectory_generator/ # offline global-trajectory + centerline generator (C++ engine + Python GUI)
+│   ├── src/                      # trajectory_core + generate/regenerate CLIs (C++)
+│   ├── bin/                      # built binaries (cmake -B build && cmake --build build) — gitignored
 │   ├── trajectory_gui.py
 │   ├── gui_params.yaml
-│   ├── requirements.txt
 │   ├── output/                   # generated maps (e.g. ifac_track/: global_waypoints.{csv,json}, centerline.csv, metadata.json) — gitignored
 │   ├── AGENTS.md
 │   └── README.md / README_en.md
@@ -518,7 +518,7 @@ map_name: "map"          # 실차 기본값. F1_MAP 환경변수(launch 인자)�
 
 ```bash
 cd ~/2026_IFAC
-python3 offline_trajectory_generator/generate_global_trajectory.py \
+offline_trajectory_generator/bin/generate_global_trajectory \
   --map-yaml src/monte_carlo_localization/maps/ifac_track.yaml \
   --output-dir offline_trajectory_generator/output/ifac_track \
   --optimizer mincurv --raceline-smooth-sigma 3.0 \

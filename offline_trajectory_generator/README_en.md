@@ -60,7 +60,7 @@ python3 offline_trajectory_generator/trajectory_gui.py \
 To generate only the files directly via the CLI, use the following command.
 
 ```bash
-python3 offline_trajectory_generator/generate_global_trajectory.py \
+offline_trajectory_generator/bin/generate_global_trajectory \
   --map-yaml monte_carlo_localization/maps/slam_map.yaml \
   --output-dir /tmp/offline_traj_slam_map \
   --velocity-limits-csv offline_trajectory_generator/config/velocity_limits.csv \
@@ -113,7 +113,7 @@ offline_trajectory_generator/output/<map_yaml_file_name>/
 - `--reverse`: Flips the driving direction of the generated waypoints to the opposite.
 - `--debug-image`: Saves a PNG with the centerline and global trajectory drawn over the map image.
 - `--optimizer centerline`: The default. Works stably on SLAM maps.
-- `--optimizer mincurv`: Attempts scipy-based minimum curvature correction. May require tuning depending on map quality.
+- `--optimizer mincurv`: L-BFGS-B minimum curvature correction (vendored LBFGSpp). May require tuning depending on map quality.
 - `--optimizer d_ratio`: Shifts the centerline laterally by a fixed ratio. See
   `docs/proposal_d_ratio_raceline.md` for the design and safety rationale.
 - `--d-ratio`: Shift ratio for the `d_ratio` optimizer (`-1.0`–`+1.0`, default `0.0`).
@@ -190,7 +190,10 @@ The CSV's `x_m` and `y_m` are map frame coordinates with the `resolution` and `o
 
 ## 6. Dependencies
 
-In the current environment, `numpy`, `opencv`, `PyYAML`, and `scipy` are used.
+The C++ engine uses `OpenCV`, `yaml-cpp`, `Eigen3`, and `nlohmann-json` (plus the vendored
+header-only `LBFGSpp`); build once with `cmake -B build && cmake --build build` inside
+`offline_trajectory_generator/` (works on x86_64 and arm64/Jetson alike — binaries land in `bin/`).
+The Python GUI only needs `numpy`, `opencv-python`, and `PyYAML`.
 
 ROS 2, `rclpy`, `quadprog`, and `skimage` are not required.
 

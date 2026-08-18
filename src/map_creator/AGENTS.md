@@ -20,9 +20,9 @@ map_creator package rules. These instructions apply to `src/map_creator`.
   `map_yaml`). Never paint the MCL map or the local_planning wall-only reference map.
 - Every paint session starts from the pristine base map (immutable baseline).
   Never repaint on top of a previously painted obstacle_map.
-- Regeneration runs `offline_trajectory_generator/regenerate_obstacle_map.py`
-  (loads gui_params.yaml through the same `load_gui_params` the GUI uses).
-  Do not invoke `trajectory_gui.py` as a process.
+- Regeneration runs the C++ driver `offline_trajectory_generator/bin/regenerate_obstacle_map`
+  (loads gui_params.yaml with the same defaults/sanitizing as the GUI; build it with
+  cmake in offline_trajectory_generator first). Do not invoke `trajectory_gui.py` as a process.
 - The first regeneration pass overrides smoothing with `initial_smooth_sigma` and the free-mask
   cleanup with `initial_morph_kernel`. The single retry keeps `retry_safety_width` and overrides
   with `retry_smooth_sigma` / `retry_morph_kernel`. A morph value <= 0 keeps the gui_params

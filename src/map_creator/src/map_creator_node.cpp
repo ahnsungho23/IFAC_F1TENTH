@@ -167,7 +167,7 @@ private:
     declare_parameter<double>("max_ray_length_m", 5.0);
 
     declare_parameter<std::string>(
-      "generator_driver", "offline_trajectory_generator/regenerate_obstacle_map.py");
+      "generator_driver", "offline_trajectory_generator/bin/regenerate_obstacle_map");
     declare_parameter<std::string>(
       "gui_params_yaml", "offline_trajectory_generator/gui_params.yaml");
     declare_parameter<std::string>(
@@ -175,7 +175,8 @@ private:
     declare_parameter<std::string>("output_map_name", "obstacle_map");
     declare_parameter<std::string>("baseline_map_name", "map");
     declare_parameter<bool>("reseed_on_startup", true);
-    declare_parameter<std::string>("python_executable", "python3");
+    // Interpreter prefix for the driver; empty = run the driver binary directly.
+    declare_parameter<std::string>("python_executable", "");
     declare_parameter<double>("generation_timeout_sec", 120.0);
     declare_parameter<double>("initial_smooth_sigma", 4.1);
     declare_parameter<double>("retry_safety_width", 0.4);
@@ -566,8 +567,13 @@ private:
     const int morph_kernel) const
   {
     std::ostringstream cmd;
-    cmd << "timeout " << static_cast<int>(generation_timeout_sec_) << " "
-        << python_executable_ << " " << generator_driver_
+    cmd << "timeout " << static_cast<int>(generation_timeout_sec_) << " ";
+    // Empty python_executable runs the driver directly (the C++ binary);
+    // a non-empty value keeps supporting script drivers.
+    if (!python_executable_.empty()) {
+      cmd << python_executable_ << " ";
+    }
+    cmd << generator_driver_
         << " --map-yaml " << outputDir() << "/" << output_map_name_ << ".yaml"
         << " --gui-params " << gui_params_yaml_
         << " --output-dir " << outputDir()
