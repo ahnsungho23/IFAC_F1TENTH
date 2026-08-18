@@ -213,10 +213,11 @@ def generate_launch_description():
         #    발행자가 마지막이었나"에 따라 갈린다 → 로컬플래닝이 장애물을 map 프레임으로
         #    옮길 때마다 90 Hz 톱니 8.5 cm 가 실린다(코너 MCL 오차 13 cm 에 맞먹는다).
         #    ⚠️ map->odom(publish_map_odom_tf)은 MCL 만 내므로 real=true 그대로 둘 것.
-        # 🔴 파이썬 bool 이어야 한다 (2026-08-18). 'false' 라는 **문자열**을 주면
-        #    launch_ros 가 문자열 파라미터로 그대로 넘기고, 노드는 이 이름을 bool 로
-        #    선언해 두었으므로 InvalidParameterTypeException 으로 즉시 죽는다.
-        #    위 publish_map_odom_tf 는 PythonExpression(=치환)이라 launch_ros 가 타입을
+        # 🔴 파이썬 bool 이어야 한다 (2026-08-18, nhw_ifac 가져올 때마다 재적용).
+        #    'false' 라는 **문자열**을 주면 launch_ros 가 문자열 파라미터로 그대로 넘기고,
+        #    노드는 이 이름을 bool 로 선언해 두었으므로(particle_filter.cpp:110)
+        #    InvalidParameterTypeException 으로 즉시 죽는다 — /pf/pose/odom 이 아예 안 나온다.
+        #    바로 위 publish_map_odom_tf 는 PythonExpression(=치환)이라 launch_ros 가 타입을
         #    추론해 주지만, 평범한 파이썬 문자열에는 그 추론이 걸리지 않는다.
         'publish_odom_base_tf': False,
 
