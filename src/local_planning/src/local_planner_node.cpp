@@ -445,6 +445,8 @@ void LocalPlannerNode::initializeParameters()
     declare_parameter<int>("commitment_soft_violation_confirm_cycles", 3);
   chain_release_distance_m_ =
     declare_parameter<double>("chain_release_distance_m", 0.20);
+  handoff_latch_commit_distance_m_ =
+    declare_parameter<double>("handoff_latch_commit_distance_m", 8.0);
   guard_parameters_.uncertainty_sigma_scale =
     declare_parameter<double>("uncertainty_sigma_scale", 3.0);
   guard_parameters_.minimum_longitudinal_inflation_m =
@@ -578,6 +580,8 @@ void LocalPlannerNode::initializeParameters()
     planner_parameters_.commitment_retention_reserve_fraction > 1.0 ||
     !std::isfinite(planner_parameters_.localization_reserve_m) ||
     !std::isfinite(planner_parameters_.entry_discontinuity_min_budget_m) ||
+    !std::isfinite(handoff_latch_commit_distance_m_) ||
+    handoff_latch_commit_distance_m_ < 0.0 ||
     planner_parameters_.entry_discontinuity_min_budget_m < 0.0 ||
     planner_parameters_.localization_reserve_m < 0.0 ||
     !std::isfinite(planner_parameters_.wall_safety_margin_m) ||
@@ -1335,6 +1339,34 @@ double LocalPlannerNode::maneuverCollisionHorizon(const EgoFrenetState & ego) co
   // 통과시킨 경로를 재검증이 매번 기각해 수렴하지 않는다(2026-08-15 run18).
   return planner_.maneuverScopeEnd(
     ego, buildCurrentManeuverInput(ego), cluster_ids, cluster_end_forward);
+}
+
+// 커밋한 장애물이 전방 래치 거리 안에 남아 있는가 (2026-08-20).
+// 여기서 라인으로 복귀하는 것은 회피 포기가 아니라 충돌이다 — 근거는 헤더의
+// handoff_latch_commit_distance_m_ 주석 참고.
+//
+// ⚠️ 판정에 **현재 프레임의 관측을 쓰지 않는다**. 쓰면 래치의 목적(미검출을 견디는 것)이
+//    사라진다. 커밋이 얼려 둔 committed_obstacle_guards_ 의 봉투로만 본다.
+bool LocalPlannerNode::committedObstacleWithinLatch(const EgoFrenetState & ego) const
+{
+  if (!(handoff_latch_commit_distance_m_ > 0.0) || !has_commitment_ ||
+    committed_obstacle_guards_.empty())
+  {
+    return false;
+  }
+  const double half_track = 0.5 * planner_.trackLength();
+  for (const auto & entry : committed_obstacle_guards_) {
+    // 장애물의 **뒤쪽 경계**까지의 전방거리. 이것이 양수인 동안은 아직 안 지나간 것이다.
+    const double rear_forward = planner_.forwardDistance(ego.s, entry.second.s_end) +
+      planner_parameters_.obstacle_longitudinal_padding_m;
+    if (rear_forward > half_track) {
+      continue;   // 이미 지나쳤다(원형거리로 반 바퀴 넘음) — 래치 대상이 아니다.
+    }
+    if (rear_forward <= handoff_latch_commit_distance_m_) {
+      return true;
+    }
+  }
+  return false;
 }
 
 bool LocalPlannerNode::activeManeuverObstacleCleared(const EgoFrenetState & ego) const
@@ -3105,6 +3137,20 @@ void LocalPlannerNode::runP0PlanningCycle(const P3CallbackSnapshot * snapshot)
   // 핸드오프 루프를 발행한다 — 그 루프는 tail이 ego에 놓이고 d=0이라 FSM의 tail/횡오차
   // 게이트를 곧바로 만족시켜 정상 경로로 GLOBAL 복귀를 확정시킨다. GLOBAL이 확인되면
   // 위쪽 handoff 릴리즈 분기가 커밋을 지우고 다시 빈 경로로 돌아간다.
+  // 🔴 커밋 래치 (2026-08-20). 커밋한 장애물이 전방 래치 거리 안에 있으면 이번 프레임에
+  // 안 보여도 핸드오프(= d 오프셋 0)로 넘어가지 않는다. 커밋을 그대로 유지하면 위쪽
+  // buildCurrentManeuverInput() 의 기존 되살림 장치(committed_obstacle_guards_)가
+  // 장애물을 다시 세워 회피 경로가 계속 나온다 — 그 장치는 이미 있었는데 이 분기가
+  // 먼저 return 해서 도달하지 못하고 있었다.
+  if (committedObstacleWithinLatch(ego)) {
+    RCLCPP_WARN_THROTTLE(
+      get_logger(), *get_clock(), 1000,
+      "커밋 장애물이 아직 전방 %.1f m 안에 있어 미검출 프레임을 핸드오프로 처리하지 않는다 "
+      "(래치 유지). 지나가면 자동으로 풀린다.",
+      handoff_latch_commit_distance_m_);
+    publishResult(committed_result_);
+    return;
+  }
   if (result.kind == SplinePlanKind::kNoObstacle && has_state_ &&
     current_state_ == f110_msgs::msg::StateMachine::STATE_AVOID &&
     activateGlobalHandoff(ego))

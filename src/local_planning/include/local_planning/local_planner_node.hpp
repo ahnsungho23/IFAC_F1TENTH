@@ -164,6 +164,9 @@ private:
     const SafeStopCycleDecision & decision);
   void handleSafeStopLatch(const EgoFrenetState & ego);
   bool commitmentComplete(const EgoFrenetState & ego);
+  // 커밋한 장애물이 전방 handoff_latch_commit_distance_m_ 안에 남아 있는가.
+  // true 면 이번 프레임에 그 장애물이 안 보여도 핸드오프로 넘어가지 않는다.
+  bool committedObstacleWithinLatch(const EgoFrenetState & ego) const;
   void resetCommitmentViolationConfirmation();
   void logObstacleCollision(
     const std::string & severity,
@@ -298,6 +301,25 @@ private:
   double initial_observation_max_wait_sec_{0.35};
   int commitment_soft_violation_confirm_cycles_{3};
   double chain_release_distance_m_{0.20};
+  // 🔴 커밋 래치 거리 [m] (2026-08-20 신설). 커밋한 장애물이 전방 이 거리 안에 있으면
+  // "이번 프레임 미검출"을 이유로 글로벌 핸드오프(= d 오프셋 0 인 라인)로 넘어가지 않는다.
+  //
+  // 근거 — 2026-08-19 run_034444 실차(자율 343 s):
+  //   원거리 LiDAR 각해상도의 물리적 한계로 클러스터가 min_cluster_points(5) 문턱을
+  //   넘나든다. 폭 0.45 m 물체가 10 m 에서 각폭 2.6° = 약 10 빔뿐이고, 코너 차체 롤
+  //   6~12° 가 그중 일부를 빗나가게 한다. 실측 미검출률(직전 1 s 내 관측 기준):
+  //     3~5 m 42.2%   5~7 m 47.7%   7~10 m 65.9%   (3~10 m 전체 50.9%)
+  //   깜빡임 자체는 못 없앤다. 문제는 플래너가 그 한 프레임을 "장애물 없음"으로 읽고
+  //   d=0 핸드오프를 발행하는 것이고, 재검출돼도 그 id 는 buildNextManeuverInput() 의
+  //   excluded 에 있어 재회피가 막힌다 — 그대로 정면 충돌한다.
+  //   실제로 장애물 0.35~1.35 m 앞까지 오프셋 0 을 유지한 정면 충돌이 5 건이었다
+  //   (t=244.1 / 276.6 / 278.3 / 341.2 / 545.2, 3.8~5.7 m/s).
+  //
+  // 값 8.0: 미검출이 시작되는 거리대(3~10 m)를 덮고, 5 m/s 정지거리(6~7 m)보다 크다.
+  // edge_test 의 avoid_planner 는 같은 개념을 latch_commit_distance_m 5.0 으로 넣었는데,
+  // 그쪽 미검출률은 7.9% 로 우리(50.9%)의 1/6 이라 더 크게 잡는다.
+  // 0 이면 래치가 꺼지고 종전 거동(미검출 즉시 핸드오프)으로 돌아간다.
+  double handoff_latch_commit_distance_m_{8.0};
   double commitment_lock_lateral_threshold_m_{0.10};
   double commitment_lock_longitudinal_m_{0.50};
 

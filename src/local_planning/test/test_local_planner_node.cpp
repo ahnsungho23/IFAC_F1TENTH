@@ -22,6 +22,7 @@
 //   source_stamp_ns              the accepted array's stamp
 //   global_reference_generation  advances only when a NEW reference is adopted
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -32,6 +33,8 @@
 #include "gtest/gtest.h"
 
 #include <f110_msgs/msg/obstacle_array.hpp>
+#include <f110_msgs/msg/ot_wpnt_array.hpp>
+#include <f110_msgs/msg/state_machine.hpp>
 #include <f110_msgs/msg/wpnt_array.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <rclcpp/rclcpp.hpp>
@@ -143,6 +146,15 @@ protected:
       "/confirmed_static_obs", volatile_qos);
     odometry_pub_ =
       helper_->create_publisher<nav_msgs::msg::Odometry>("/car_state/frenet/odom", volatile_qos);
+    state_pub_ =
+      helper_->create_publisher<f110_msgs::msg::StateMachine>("/state", global_qos);
+    avoid_sub_ = helper_->create_subscription<f110_msgs::msg::OTWpntArray>(
+      "/avoid_waypoints", rclcpp::QoS(50).reliable(),
+      [this](const f110_msgs::msg::OTWpntArray::SharedPtr message) {
+        last_avoid_line_ = message->ot_line;
+        last_avoid_points_ = message->wpnts.size();
+        avoid_lines_.push_back(message->ot_line);
+      });
     diagnostics_sub_ = helper_->create_subscription<std_msgs::msg::String>(
       "/local_planning/p3_shadow", rclcpp::QoS(1000).reliable(),
       [this](const std_msgs::msg::String::SharedPtr message) {last_diagnostic_ = message->data;});
@@ -203,6 +215,19 @@ protected:
     return false;
   }
 
+  void publishState(std::uint8_t state)
+  {
+    f110_msgs::msg::StateMachine message;
+    message.header.stamp = helper_->now();
+    message.state = state;
+    state_pub_->publish(message);
+  }
+
+  rclcpp::Publisher<f110_msgs::msg::StateMachine>::SharedPtr state_pub_;
+  rclcpp::Subscription<f110_msgs::msg::OTWpntArray>::SharedPtr avoid_sub_;
+  std::string last_avoid_line_;
+  std::size_t last_avoid_points_{0};
+  std::vector<std::string> avoid_lines_;
   std::shared_ptr<local_planning::LocalPlannerNode> planner_;
   std::shared_ptr<rclcpp::Node> helper_;
   rclcpp::Publisher<f110_msgs::msg::WpntArray>::SharedPtr waypoints_pub_;
@@ -217,6 +242,19 @@ protected:
 // An array whose every entry fails the Frenet validity check is degraded perception. Accepting it
 // would store an empty snapshot indistinguishable from the explicitly-empty array that IS allowed
 // to erase the retained obstacle memory.
+// ⚠️ 커밋 래치(handoff_latch_commit_distance_m)의 단위 테스트는 **의도적으로 넣지 않았다**
+// (2026-08-20). 시도했으나 이 하네스로는 문제의 분기(local_planner_node.cpp 의
+// "No blocking obstacle remains while /state is still AVOID" 핸드오프 진입)에 도달하지
+// 못했다 — 링 레퍼런스 + 장애물 주입만으로는 P3 무효화 → 안전정지 해제 → kNoObstacle 로
+// 이어지는 실차 순서가 재현되지 않고, 래치를 코드에서 빼도 테스트가 그대로 통과했다.
+// 통과하든 말든 결과가 같은 테스트는 없느니만 못하므로 지웠다.
+//
+// 실차 검증 방법: 래치가 발동하면 노드가 1 초 throttle 로 이 WARN 을 찍는다 —
+//   "커밋 장애물이 아직 전방 N m 안에 있어 미검출 프레임을 핸드오프로 처리하지 않는다"
+// 이 로그가 있으면 래치가 실제로 미검출 프레임을 막은 것이고, 없으면 발동한 적이 없다.
+// 함께 볼 것: /avoid_waypoints 의 ot_line 이 raceline_global_handoff 로 바뀌는 빈도와,
+// 그때 커밋 장애물까지의 전방거리.
+
 TEST_F(LocalPlannerNodeTest, AllInvalidObstacleArrayRetainsThePreviousSnapshot)
 {
   waypoints_pub_->publish(ringReference());
