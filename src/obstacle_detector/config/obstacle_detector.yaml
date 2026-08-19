@@ -120,8 +120,13 @@ obstacle_detector:
     lockstep_scan_offset_x_m: 0.275
 
     # === TRACKING (constant-velocity Kalman, Frenet state [s, vs, d, vd]) ===
-    meas_var_s: 0.002
-    meas_var_d: 0.002
+    # nhw_ifac 유지 (2026-08-19 가져옴): dbf2a54가 코드 declare_parameter 기본값만
+    # 0.002→0.01로 바꾸고 이 YAML을 안 고쳐서, 런치가 YAML을 넘기는 실제 실행에서는
+    # 튜닝이 완전히 무효였다. 0.002로 되돌리면 그 회귀가 재발한다.
+    # 단위는 분산(m^2)이다 — 0.01은 검출 중심의 표준편차 10 cm 를 뜻하고,
+    # 0.002는 4.5 cm 다. 라이다 클러스터 중심의 실제 흔들림을 생각하면 10 cm 쪽이 맞다.
+    meas_var_s: 0.01
+    meas_var_d: 0.01
     process_var_vs: 2.0
     process_var_vd: 8.0
     assoc_gate: 0.5                            # Frenet association gate (m)
