@@ -5,7 +5,8 @@ local_planner_node:
     # 8 m 간격 재가속 구간의 접근 램프가 지평에 몰려 매 랩 안전정지 래치가 걸렸다.
     detection_lookahead_m: 15.0
     obstacle_cluster_gap_m: 0.8
-    obstacle_longitudinal_padding_m: 0.4149924657737441
+    # [PROTOTYPE] 원래 0.41499 — 장애물 종방향 패딩. 제거.
+    obstacle_longitudinal_padding_m: 0.0
 
     # 장애물 경계는 raw detector geometry이므로 실제 차량 반폭, 물리 안전 마진, 실측
     # 추종오차 reserve를 모두 정확히 한 번 적용합니다.
@@ -28,8 +29,10 @@ local_planner_node:
     # wall_safety_margin_m는 CMA-ES 검증값 0.0369943 m를 운영값 0.04 m로 올림했습니다.
     vehicle_length_m: 0.56
     vehicle_half_width_m: 0.1435
-    safety_margin_m: 0.014789254299520768
-    tracking_error_reserve_m: 0.140
+    # [PROTOTYPE] 원래 0.0147865 — 물리 클리어런스 위의 여유분. 제거.
+    safety_margin_m: 0.0
+    # [PROTOTYPE] 원래 0.140 — LUT 무효 시 폴백. LUT를 비웠으므로 이 값이 실제로 쓰인다.
+    tracking_error_reserve_m: 0.0
     # values는 speed-major row-major입니다. 즉 한 speed 행마다 curvature bin 5개가 연속됩니다.
     # 범위 밖 입력은 가장 가까운 끝 셀로 clamp합니다.
     #
@@ -140,17 +143,11 @@ local_planner_node:
     # 재생성:
     #   python3 tools/cmaes_tuning/tracking_error_lut_from_traces.py ~/lut_traces/*_trace.csv \
     #       --waypoints ~/lut_traces/live_global_waypoints.csv --quantile 0.95 --safety-factor 1.25
-    tracking_error_lut_speed_bins_mps: [0.0, 1.0, 1.6, 2.2, 2.9, 4.5, 7.0]
-    tracking_error_lut_curvature_bins_radpm: [0.0, 0.1, 0.2, 0.35, 0.46]
-    tracking_error_lut_values_m: [
-      0.095, 0.095, 0.095, 0.130, 0.130,
-      0.100, 0.165, 0.165, 0.165, 0.165,
-      0.100, 0.165, 0.165, 0.165, 0.165,
-      0.145, 0.165, 0.190, 0.230, 0.230,
-      0.275, 0.275, 0.310, 0.365, 0.365,
-      0.275, 0.275, 0.310, 0.365, 0.365,
-      0.275, 0.275, 0.310, 0.365, 0.365
-    ]
+    # [PROTOTYPE] LUT 비활성 — 세 배열이 모두 비면 trackingErrorReserve() 는
+    #              tracking_error_reserve_m + localization_reserve_m (= 0) 을 쓴다.
+    tracking_error_lut_speed_bins_mps: []
+    tracking_error_lut_curvature_bins_radpm: []
+    tracking_error_lut_values_m: []
     # upstream/jazzy_main의 offline_trajectory_generator/config/velocity_limits.csv
     # (commit 3d5fb38)에서 speed와 max_lateral_accel 열을 옮긴 표입니다. 회피 spline의
     # 재계산 곡률에 v^2*|kappa| <= a_lat,max(v)를 만족하도록 waypoint 속도를 제한하고,
@@ -228,7 +225,8 @@ local_planner_node:
     # 지연을 안은 채 0.06을 쓰면 플래너가 추종오차 예약을 과소평가해 경로가 낙관적으로
     # 검증되고 벽 위험이 커지므로 0.12를 쓴다.
     # ⚠️ 외삽이 있는 MCL로 되돌아가면 이 값도 0.06으로 함께 내릴 것.
-    localization_reserve_m: 0.12
+    # [PROTOTYPE] 원래 0.12 — 위치추정 예비량. 제거.
+    localization_reserve_m: 0.0
     # 🔴 0.04 → 0.10 (2026-08-14 저녁). 08/14 실차 벽 접촉 30건을 실측 점유격자로 되짚은
     # 결과, 접촉 순간 "차체 옆면 → 실측 벽" 여유가 중앙값 +0.096 m, p10 +0.011 m였다.
     # 즉 계획상으로는 벽에 닿을 이유가 없었는데 실제로는 닿았다. 차이는 계획 자세와 실제
@@ -385,8 +383,10 @@ local_planner_node:
     # 종방향 불확실성은 접근 및 정지 시점을 보수적으로 잡는 용도로 유지합니다. 횡방향은 detector
     # raw d_right/d_left를 그대로 사용하도록 최소/최대 팽창을 모두 0으로 둡니다. 따라서 횡방향
     # 검사는 raw AABB + 차량 반폭 + safety_margin + tracking-error LUT만 적용합니다.
-    uncertainty_sigma_scale: 3.0
-    uncertainty_min_longitudinal_inflation_m: 0.05
+    # [PROTOTYPE] 원래 3.0 — 불확실성 가드. 제거.
+    uncertainty_sigma_scale: 0.0
+    # [PROTOTYPE] 원래 0.05 — 가드 종방향 팽창. 제거.
+    uncertainty_min_longitudinal_inflation_m: 0.0
     # 횡방향 Guard 팽창 (2026-08-16, 종전 0/0): 측면 통과 중에는 라이다가 통과측 면만
     # 보게 되어 raw face가 통과측으로 드리프트한다(13:52 백 실측 12 cm: -0.209→-0.332).
     # 팽창 0이면 그 드리프트가 동결 Guard를 즉시 벗어나고 raw 재검증이 리텐션 기준
@@ -409,8 +409,10 @@ local_planner_node:
     # 그래서 팽창을 면별 실측으로 바꾼다(uncertainty_measured_lateral_floor_m 이하).
     # 아래 두 값은 이제 **면 이력이 아직 부족할 때의 사전분포**로만 쓰인다 — 위 문단의
     # 커밋 중도사망 방지 논리는 그대로 유효하므로 값은 유지한다.
-    uncertainty_min_lateral_inflation_m: 0.10
-    uncertainty_max_lateral_inflation_m: 0.15
+    # [PROTOTYPE] 원래 0.10 — 가드 횡방향 팽창. 제거.
+    uncertainty_min_lateral_inflation_m: 0.0
+    # [PROTOTYPE] 원래 0.15 — 가드 횡방향 상한. 제거.
+    uncertainty_max_lateral_inflation_m: 0.0
     # 면 이력이 충분히 쌓인 뒤의 팽창 = clamp(3σ_면, floor, max 0.15).
     # floor가 0.10이 아니라 0.02인 이유: 바닥이 더 이상 "트랙에서 가장 잡음이 큰 면"을
     # 커버할 필요가 없다. 잡음이 큰 면은 자기 σ로 커버되고(장애물 0 반대쪽 3σ=0.34 →

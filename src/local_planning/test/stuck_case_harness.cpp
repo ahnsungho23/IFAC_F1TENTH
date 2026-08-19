@@ -108,11 +108,12 @@ RacelineSplineParameters operationalParameters()
 {
   RacelineSplineParameters p;
   p.detection_lookahead_m = 15.0;
-  p.obstacle_longitudinal_padding_m = 0.4149924657737441;
+  // [PROTOTYPE] 마진 제거 — config/local_planning.yaml 과 일치해야 한다(params_match_yaml).
+  p.obstacle_longitudinal_padding_m = 0.0;
   p.vehicle_half_width_m = 0.1435;
   p.vehicle_length_m = 0.56;
-  p.safety_margin_m = 0.014789254299520768;
-  p.tracking_error_reserve_m = 0.14;
+  p.safety_margin_m = 0.0;
+  p.tracking_error_reserve_m = 0.0;
   p.tracking_error_lut_speed_bins_mps = {0.0, 1.5, 3.0, 4.5, 6.5};
   p.tracking_error_lut_curvature_bins_radpm = {0.0, 0.2, 0.5, 0.9, 1.316266519079011};
   p.tracking_error_lut_values_m = {
@@ -130,7 +131,7 @@ RacelineSplineParameters operationalParameters()
   p.approach_feasibility_decel_mps2 = 2.0;
   p.approach_feasibility_decel_max_mps2 = 3.5;
   p.commitment_retention_reserve_fraction = 0.5;
-  p.localization_reserve_m = 0.12;
+  p.localization_reserve_m = 0.0;
   p.wall_safety_margin_m = 0.10;
   p.fallback_track_half_width_m = 1.50;
   p.pre_apex_distances_m = {11.442, 7.628, 3.814};
