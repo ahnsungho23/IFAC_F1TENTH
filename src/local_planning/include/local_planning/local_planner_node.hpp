@@ -167,6 +167,11 @@ private:
   // 커밋한 장애물이 전방 handoff_latch_commit_distance_m_ 안에 남아 있는가.
   // true 면 이번 프레임에 그 장애물이 안 보여도 핸드오프로 넘어가지 않는다.
   bool committedObstacleWithinLatch(const EgoFrenetState & ego) const;
+
+  // 활성 기동이 참조하는 장애물들의 뒤끝 s 를 최신 관측으로 갱신한다(미검출은 유지).
+  void rememberManeuverObstacleRears(const std::vector<int> & obstacle_ids);
+  // 기억해 둔 뒤끝 중 아직 자차 앞에 남아 있는 것의 최대 전방거리. 없으면 음수.
+  double maneuverObstacleRearAhead(const EgoFrenetState & ego) const;
   void resetCommitmentViolationConfirmation();
   void logObstacleCollision(
     const std::string & severity,
@@ -320,6 +325,17 @@ private:
   // 그쪽 미검출률은 7.9% 로 우리(50.9%)의 1/6 이라 더 크게 잡는다.
   // 0 이면 래치가 꺼지고 종전 거동(미검출 즉시 핸드오프)으로 돌아간다.
   double handoff_latch_commit_distance_m_{8.0};
+
+  // 🔴 기동 장애물의 **마지막으로 관측된 뒤끝 s** [id -> s_end] (2026-08-20).
+  // committed_obstacle_guards_ 는 commitAvoidance() 에서만 채워지므로 P3 가 경로를
+  // 소유하는 동안에는 비어 있다 — 그래서 완료 판정에 쓸 수 없다. 이 맵은 P3/P0 구분 없이
+  // 활성 기동이 참조하는 id 를 매 콜백 갱신하고, 미검출 프레임에는 마지막 값을 유지한다.
+  // 완료·핸드오프 판정이 "장애물을 실제로 지났는가"를 물으려면 이 기억이 필요하다.
+  std::map<int, double> maneuver_obstacle_rear_s_;
+  // 완료 보류가 시작된 시각. 보류가 이 시간을 넘으면 강제로 완료시킨다 — 차가 멈춰 있으면
+  // 장애물을 영영 못 지나므로 보류가 풀리지 않고 FSM 이 AVOID 에 갇힌다.
+  std::optional<rclcpp::Time> completion_deferred_since_;
+  double completion_defer_max_sec_{3.0};
   double commitment_lock_lateral_threshold_m_{0.10};
   double commitment_lock_longitudinal_m_{0.50};
 

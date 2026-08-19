@@ -447,6 +447,8 @@ void LocalPlannerNode::initializeParameters()
     declare_parameter<double>("chain_release_distance_m", 0.20);
   handoff_latch_commit_distance_m_ =
     declare_parameter<double>("handoff_latch_commit_distance_m", 8.0);
+  completion_defer_max_sec_ =
+    declare_parameter<double>("completion_defer_max_sec", 3.0);
   guard_parameters_.uncertainty_sigma_scale =
     declare_parameter<double>("uncertainty_sigma_scale", 3.0);
   guard_parameters_.minimum_longitudinal_inflation_m =
@@ -581,6 +583,8 @@ void LocalPlannerNode::initializeParameters()
     !std::isfinite(planner_parameters_.localization_reserve_m) ||
     !std::isfinite(planner_parameters_.entry_discontinuity_min_budget_m) ||
     !std::isfinite(handoff_latch_commit_distance_m_) ||
+    !std::isfinite(completion_defer_max_sec_) ||
+    completion_defer_max_sec_ < 0.0 ||
     handoff_latch_commit_distance_m_ < 0.0 ||
     planner_parameters_.entry_discontinuity_min_budget_m < 0.0 ||
     planner_parameters_.localization_reserve_m < 0.0 ||
@@ -944,6 +948,8 @@ void LocalPlannerNode::clearCommitment()
   resetNextManeuverStabilization();
   resetCommitmentViolationConfirmation();
   completed_obstacle_ids_.clear();
+  maneuver_obstacle_rear_s_.clear();
+  completion_deferred_since_.reset();
   has_commitment_ = false;
   committed_result_ = RacelineSplineResult();
   clearSafeStopLatch();
@@ -1339,6 +1345,41 @@ double LocalPlannerNode::maneuverCollisionHorizon(const EgoFrenetState & ego) co
   // 통과시킨 경로를 재검증이 매번 기각해 수렴하지 않는다(2026-08-15 run18).
   return planner_.maneuverScopeEnd(
     ego, buildCurrentManeuverInput(ego), cluster_ids, cluster_end_forward);
+}
+
+// 활성 기동이 참조하는 장애물의 뒤끝 s 를 최신 관측으로 갱신한다 (2026-08-20).
+// 미검출 프레임에는 이전 값을 그대로 둔다 — 그것이 이 기억의 존재 이유다.
+void LocalPlannerNode::rememberManeuverObstacleRears(const std::vector<int> & obstacle_ids)
+{
+  if (obstacle_ids.empty()) {
+    return;
+  }
+  const std::set<int> wanted(obstacle_ids.begin(), obstacle_ids.end());
+  for (const auto & obstacle : static_obstacles_) {
+    if (wanted.count(obstacle.id) > 0U && std::isfinite(obstacle.s_end)) {
+      maneuver_obstacle_rear_s_[obstacle.id] = obstacle.s_end;
+    }
+  }
+  // 이번 기동과 무관해진 id 는 버린다(맵이 무한정 자라지 않게).
+  for (auto it = maneuver_obstacle_rear_s_.begin(); it != maneuver_obstacle_rear_s_.end(); ) {
+    it = wanted.count(it->first) > 0U ? std::next(it) : maneuver_obstacle_rear_s_.erase(it);
+  }
+}
+
+// 기억해 둔 뒤끝 중 **아직 자차 앞에 남아 있는 것**의 최대 전방거리. 없으면 -1.
+double LocalPlannerNode::maneuverObstacleRearAhead(const EgoFrenetState & ego) const
+{
+  double ahead = -1.0;
+  const double half_track = 0.5 * planner_.trackLength();
+  for (const auto & entry : maneuver_obstacle_rear_s_) {
+    const double forward = planner_.forwardDistance(ego.s, entry.second) +
+      planner_parameters_.obstacle_longitudinal_padding_m;
+    if (forward > half_track) {
+      continue;   // 원형거리로 반 바퀴 넘음 = 이미 지나쳤다.
+    }
+    ahead = std::max(ahead, forward);
+  }
+  return ahead;
 }
 
 // 커밋한 장애물이 전방 래치 거리 안에 남아 있는가 (2026-08-20).
@@ -2666,7 +2707,68 @@ void LocalPlannerNode::onPlanningTimer()
     return;
   }
 
+  rememberManeuverObstacleRears(lifecycle.obstacle_ids);
+
   if (lifecycle.complete) {
+    // 🔴 완료 게이트 (2026-08-20). 아래 블록은 커밋을 지우고 d 오프셋 0 인 핸드오프 루프를
+    // 발행하며, 그 장애물 id 를 completed_obstacle_ids_ 에 넣어 **재회피를 영구 차단**한다.
+    // 그런데 완료 판정(commitmentComplete / P3 lifecycle)은 merge_s 도달 여부로만 하고
+    // "장애물을 실제로 지났는가"는 묻지 않는다.
+    //
+    // 2026-08-19 run_045534 실측(자율 322 s): 이 분기가 41 회 실행됐고, 장애물이 특정된
+    // 13 건 중 **11 건(85%)이 아직 안 지나간 상태**였다(뒤끝까지 전방거리 p50 +0.32 m,
+    // p90 +7.53 m; 5~10 m 앞에 두고 완료한 것이 3 건). 그 직후 d=0 루프를 따라가다
+    // 장애물을 정면으로 들이받았다 — t=79.2 에 id12 를 6.98 m 앞에 두고 완료 선언한 뒤
+    // 1.2 초간 6.0 m/s 로 오프셋 0 을 유지하다 t=80.4 에 충돌한 것이 대표 사례다.
+    //
+    // ⚠️ 여기서 쓰는 것은 committed_obstacle_guards_ 가 아니라 maneuver_obstacle_rear_s_ 다.
+    //    guards 는 commitAvoidance() 에서만 채워져 P3 가 경로를 소유하는 동안 비어 있다
+    //    (그래서 이 자리에 처음 걸었던 래치가 실차에서 0 회 발동했다).
+    const double rear_ahead = maneuverObstacleRearAhead(active_snapshot.maneuver.ego);
+    const rclcpp::Time defer_now = eventNow();
+    const auto deferredSeconds = [this](const rclcpp::Time & now) {
+        return completion_deferred_since_.has_value() ?
+               (now - completion_deferred_since_.value()).seconds() : 0.0;
+      };
+    bool defer = rear_ahead > chain_release_distance_m_;
+    if (!defer) {
+      completion_deferred_since_.reset();
+    } else if (!completion_deferred_since_.has_value()) {
+      completion_deferred_since_ = defer_now;
+    } else if (deferredSeconds(defer_now) > completion_defer_max_sec_) {
+      // 차가 멈춰 있으면 장애물을 영영 못 지난다. 그대로 두면 FSM 이 AVOID 에 갇히므로
+      // 상한을 넘기면 종전 거동(완료 → 핸드오프)으로 넘긴다.
+      RCLCPP_WARN(
+        get_logger(),
+        "P3 완료 보류가 %.1f s 를 넘겨 강제 완료한다 (장애물 뒤끝 전방 %.2f m). "
+        "차가 정지해 있었을 가능성이 크다.",
+        completion_defer_max_sec_, rear_ahead);
+      defer = false;
+    }
+    if (defer) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 1000,
+        "P3 완료 선언을 보류한다: 기동 장애물의 뒤끝이 아직 전방 %.2f m 에 있다 "
+        "(해제 문턱 %.2f m). 핸드오프로 넘어가면 오프셋 0 으로 그대로 들이받는다.",
+        rear_ahead, chain_release_distance_m_);
+      current_path_owner_ = "P0_BACKUP_ONLY";
+      publishP3CycleDiagnostic(
+        active_snapshot, evaluation, lifecycle, current_path_owner_, true);
+      // 보류 중에는 직전에 검증된 경로를 계속 낸다. 커밋이 비어 있으면 마지막으로 유효했던
+      // 유도 경로를 쓴다 — 빈 경로를 내보내면 FSM 이 AVOID 에 갇히고(복귀 판정이
+      // non-empty 를 전제로만 실행됨) 제어는 아무것도 못 받는다.
+      if (!committed_result_.path.wpnts.empty()) {
+        publishResult(committed_result_);
+      } else if (!last_valid_guidance_path_.wpnts.empty()) {
+        RacelineSplineResult hold;
+        hold.kind = SplinePlanKind::kAvoidance;
+        hold.path = last_valid_guidance_path_;
+        hold.merge_s = active_snapshot.maneuver.ego.s;
+        hold.reason = "completion deferred: maneuver obstacle still ahead";
+        publishResult(hold);
+      }
+      return;
+    }
     // Route the post-obstacle handback through the SAME closed global handoff loop the P0 flow
     // uses: anchored at the current ego pose and released by the existing STATE_GLOBAL
     // confirmation in the P0 pipeline below. The previous immutable frozen-tail handoff was
