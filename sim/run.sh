@@ -137,7 +137,8 @@ case "$role" in
   local|avoid)                             # Terminal 4 — local planner (obstacle avoidance)
     source "$IFAC/install/setup.zsh" 2>/dev/null
     kill_pattern "${PAT_LOCAL[@]}"
-    cmd=(ros2 launch local_planning local_planning.launch.py)
+    # simulator:=true 는 명시해야 한다 — 런치 기본값은 실차(false)다 (2026-08-20).
+    cmd=(ros2 launch local_planning local_planning.launch.py simulator:=true)
     delay=8
     ;;
   state)                                   # Terminal 5 — state machine -> /state

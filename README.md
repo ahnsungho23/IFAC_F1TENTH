@@ -63,7 +63,7 @@ ros2 launch obstacle_detector obstacle_detector.launch.py
 cd ~/2026_IFAC
 source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
-ros2 launch local_planning local_planning.launch.py
+ros2 launch local_planning local_planning.launch.py simulator:=true
 ```
 
 터미널5
@@ -363,7 +363,7 @@ ros2 launch obstacle_detector obstacle_detector.launch.py simulator:=true use_si
 cd ~/2026_IFAC
 source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
-ros2 launch local_planning local_planning.launch.py
+ros2 launch local_planning local_planning.launch.py simulator:=true
 ```
 
 ### 터미널 6 — 상태 머신 (state machine)

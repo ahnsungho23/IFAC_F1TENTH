@@ -57,8 +57,24 @@ def generate_launch_description():
     )
     simulator_arg = DeclareLaunchArgument(
         'simulator',
-        default_value='true',
-        description='Use gym ego odometry for the perception node',
+        # 🔴 기본값은 false 다 (2026-08-20 수정). true 는 obstacle_detector 의 ego odom 을
+        # /ego_racecar/odom(gym 전용)으로 바꾸는데, 실차에는 그 토픽이 없다.
+        #
+        # 기본값이 true 이던 동안 실차 백 10 개 · DIAG 창 4262 개에서 예외 없이
+        #   motion(fresh=false),  view 기각 합계 0,  "Ego odometry not received yet" 반복
+        # 이 찍혔다. 경고 문구가 전부 "not received yet"(= ego_s_ < 0)이고 "stale" 이 단
+        # 한 번도 없었다 — 늦게 온 게 아니라 한 번도 안 온 것이다.
+        # 그 결과 detector 의 시야창 게이트(`if (ego_s_ >= 0.0)` 안에 있다)가 통째로 꺼져
+        # 있었고, /opp_obs 는 전면 억제됐다.
+        #
+        # 같은 인자의 기본값이 obstacle_detector 쪽 런치 두 개에서는 이미 false 였다.
+        # 이 파일만 true 로 덮어써서 실차 실행을 깨뜨리고 있었다.
+        # 시뮬에서는 simulator:=true 를 **명시적으로** 넘긴다 (sim/run.sh, CLAUDE.md 참고).
+        default_value='false',
+        description=(
+            'true: gym ego odometry(/ego_racecar/odom) for the perception node. '
+            'false (default): real vehicle(/pf/pose/odom)'
+        ),
     )
     use_sim_time_arg = DeclareLaunchArgument(
         'use_sim_time',

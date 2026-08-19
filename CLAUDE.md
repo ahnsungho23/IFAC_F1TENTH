@@ -161,11 +161,15 @@ ros2 launch obstacle_detector obstacle_detector.launch.py simulator:=true use_si
 
 `/map`의 점유 격자에서 장애물을 찾아 최소자승 3차 스플라인 회피 경로를 만듭니다.
 
+🔴 **`simulator:=true`를 반드시 붙이십시오** (2026-08-20). 런치 기본값이 실차(`false`)로
+바뀌었습니다. 빠뜨리면 검출기가 `/pf/pose/odom`을 구독해 시뮬에서 ego odom을 못 받습니다.
+반대로 **실차에서는 인자 없이** 띄우면 됩니다.
+
 ```bash
 cd ~/2026_IFAC
 source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
-ros2 launch local_planning local_planning.launch.py
+ros2 launch local_planning local_planning.launch.py simulator:=true
 ```
 
 ### 터미널 6 — 상태 머신 (state machine)
