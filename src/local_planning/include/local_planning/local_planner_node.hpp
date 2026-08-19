@@ -279,38 +279,6 @@ private:
   };
   std::map<int, FaceObservationWindow> face_observation_windows_;
 
-  // ── 확정 정적 장애물 기억 ───────────────────────────────────────────────────────────
-  //
-  // 왜 (2026-08-17): 오늘 실패의 전부가 "짧은 지평에서 현재 위치로부터 급하게 계획하기"가
-  // 뿌리였다 — cluster_start <= 0, 램프가 병목 관통, 격자가 실현 구간을 건너뜀, 가림 때문에
-  // 폭이 마지막 순간에 3.5배로 뜀. 한 랩 전에 장애물 위치를 알면 이 넷이 통째로 사라진다.
-  //
-  // 대회 규정: 20랩 중 선두 차량이 10랩을 완주하면 장애물이 제거된다. 1~2랩 학습 후
-  // 3~10랩이 이득 구간이다(최대 8랩, 10랩 경기면 8/10).
-  //
-  // 🔴 제거 시점은 **상대차 진행**에 달려 있다. 우리 랩 카운터로는 맞출 수 없다. 그래서
-  // 인지로 감지한다 — 그 자리를 시야 확보한 채 지났는데 검출기가 확정하지 못하면 제거다.
-  //
-  // 좌표 변환이 없다: /confirmed_static_obs 를 이미 Frenet(s/d)으로 받으므로 그대로 기억한다.
-  // (static_obstacle_map 은 map 좌표 x/y AABB만 다루므로 이 용도에는 재투영이 필요하고,
-  //  지금 스택에서 실행되지도 않는다 — 그래서 쓰지 않는다.)
-  struct RememberedObstacle
-  {
-    f110_msgs::msg::Obstacle obstacle;
-    std::uint64_t last_confirmed_sequence{0};
-    // 시야가 확보된 채 지나쳤는데 확정하지 못한 횟수. 임계에 닿으면 제거로 본다.
-    int unconfirmed_passes{0};
-    // 이번 통과에서 이미 판정했는지. 한 번 지날 때 여러 번 세지 않기 위한 것.
-    bool pass_pending{false};
-  };
-  std::vector<RememberedObstacle> remembered_obstacles_;
-  bool remembered_obstacle_enable_{true};
-  // 2 (2026-08-17): 통과 순간 검출 한 프레임 누락으로 진짜 장애물을 지우던 회귀 수리.
-  int remembered_obstacle_removal_passes_{2};
-  double remembered_obstacle_visibility_margin_m_{2.0};
-  double remembered_obstacle_match_tolerance_m_{0.60};
-  void updateRememberedObstacles();
-  std::vector<f110_msgs::msg::Obstacle> obstaclesWithMemory() const;
   std::size_t face_observation_window_size_{40};
   std::size_t face_observation_min_samples_{12};
   void updateFaceObservationWindows();

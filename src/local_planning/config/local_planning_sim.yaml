@@ -348,23 +348,6 @@ local_planner_node:
     merge_confirm_cycles: 15
     # safe-stop 진입은 즉시 수행합니다. 이 8회는 동일 obstacle의 selectable hard-valid avoidance
     # 또는 정지 후 explicit corridor-clear 관측의 보조 debounce이며, empty array는 집계하지 않습니다.
-    # ── 확정 정적 장애물 기억 (2026-08-17) ──────────────────────────────────────────
-    # 1~2랩에 본 장애물을 Frenet 그대로 기억해, 검출기가 아직 못 본 것도 미리 알고 계획한다.
-    # 대회 규정상 선두 차량이 10랩을 완주하면 장애물이 제거되는데, 그 시점이 **상대차 진행**에
-    # 달려 있어 랩 카운터로는 맞출 수 없다. 그래서 인지로 감지한다 — 시야 확보한 채 지나쳤는데
-    # 확정하지 못하면 제거로 본다.
-    # ⚠️ 2026-08-18 mongsen에서 false. 기억을 빼고 검출기 출력만으로 주행이 되는지
-    #    먼저 확인한다(유령 정지 원인 분리). 검증 뒤 다시 true로 되돌릴 것.
-    remembered_obstacle_enable: false
-    # 시야 안에서 몇 번 지나쳐야 제거로 볼지. 1 -> 2 (2026-08-17 16:17 백 실측 — 근거는
-    # 운영 YAML 주석 참고). 이 파일은 LUT와 localization_reserve 둘만 오버레이하므로
-    # 이 값은 운영 YAML과 항상 같아야 한다.
-    remembered_obstacle_removal_passes: 2
-    # 이 거리 안까지 접근했으면 "볼 기회가 있었다"고 본다. 멀리서 스친 것을 근거로 지우면
-    # 가림 때문에 못 본 것까지 지워버린다.
-    remembered_obstacle_visibility_margin_m: 2.0
-    # 같은 장애물로 볼 s 거리. 검출 지터로 s가 흔들려도 같은 것으로 묶는다.
-    remembered_obstacle_match_tolerance_m: 0.60
 
     safe_stop_release_cycles: 8
     planning_period_ms: 25
