@@ -92,16 +92,10 @@ kinematic_localization:
     watchdog_enable: true
     watchdog_rate_hz: 40.0
     scan_timeout_sec: 0.15
-    # 2026-08-19: 2.0 -> 0.4.  run_0819_115512에서 라이다가 8.04초 죽었을 때(header
-    # 타임스탬프까지 8038.7 ms 점프 = 드라이버가 스캔을 못 만든 것) 이 값이 2.0이라
-    # **7.9 -> 4.0 m/s로 2초를 눈감고 달렸고**, 그 뒤 컨트롤러 odom 워치독(0.5s)이
-    # 더해져 총 2.5초 / 약 14 m를 무보정 주행한 뒤 벽 앞 7 cm에서 멈췄다.
-    # 0.4의 근거: 정상 주행 5개 bag(약 30,000 스캔, 0817~0819)의 **스캔 header 간격
-    # 최대가 50.0 ms**이고 0.25초를 넘는 건 0건이다 -> 0.4는 8배 여유.
-    # 이제 최악 블라인드 = 0.4(KICP) + odom_timeout(0.35) = 0.75초.
-    # ⚠️ 라이다 링크가 고쳐졌다고 이 값을 되돌리지 말 것 — 되돌릴 이유는
-    #    "정상 주행에서 0.4를 넘는 스캔 공백이 관측됐다"뿐이다.
-    max_dead_reckoning_sec: 0.4
+    # 2026-08-19: edge_test 값(2.0)으로 되돌림 (parkm 요청 — 설정 차이는 edge_test 기준).
+    # 직전 값 0.4는 run_0819_115512 라이다 8초 정지 사고 근거로 낮춘 것이었다
+    # — 그 분석·근거는 git history(8be08ec 부근) 참고.
+    max_dead_reckoning_sec: 2.0
     watchdog_trans_error_rate: 0.03
     watchdog_rot_error_rate: 0.10
 
@@ -156,7 +150,17 @@ kinematic_localization:
     # shrinking it to 0.25 narrowed the convergence basin to ~0.3 m and the
     # run_0818 replay diverged up to 2.5 m. The registration source is
     # densified separately via source_voxel_size below.
-    max_range: 30.0
+    # 30.0 -> 12.0 (2026-08-19 replay A/B on rosbag2_2026_08_19-10_15_17,
+    # map_0818_track, N=412). max_range feeds sigma_odom via
+    # 2*max_range*sin(theta/2), so on a ~17 m indoor track 30.0 inflated the
+    # adaptive threshold tau (3.31 -> 2.31) and let far/spurious returns stay
+    # inliers. Heading error (1 s, IMU gyro reference):
+    #   30.0: p50 1.29 p90 4.56 p99 16.57 max 42.19 deg, notconv 7.3%
+    #   12.0: p50 1.21 p90 3.81 p99 13.23 max 23.78 deg, notconv 6.6%
+    # i.e. the tail collapses (-44% max, -20% p99) with no cost elsewhere.
+    # 12.0 still covers the whole track diagonal; raise it before running on a
+    # larger map. Rollback: -p max_range:=30.0
+    max_range: 12.0
     min_range: 0.1
     voxel_size: 1.0
     # Registration-source-only downsample (core patch). With voxel_size 1.0
