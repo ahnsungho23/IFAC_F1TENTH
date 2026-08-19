@@ -1,4 +1,10 @@
-map_yaml: /home/sungho/2026_IFAC/src/monte_carlo_localization/maps/map.yaml
+# 🔴 2026-08-20: maps/map.yaml → maps/map_kissmap_render.yaml.
+# map.yaml(165x385, origin -0.741,-1.626)은 런타임 /map(438x190, origin -19.934,-2.016)과
+# 다른 렌더다. 그쪽으로 뽑은 라인은 d_left/d_right 가 런타임 맵보다 p50 +0.100 m 낙관적이었고
+# (172점 중 49.4%가 0.10 m 초과), 그 낙관이 좌우 판정을 흔들었다.
+# 런타임 렌더로 뽑으니 낙관 편향 0%, 벽 최소 0.450 → 0.492 m 가 됐다(랩타임은 8.47 → 8.62 s).
+# ⚠️ map.kissmap 을 다시 뜨면 map_kissmap_render.{pgm,yaml} 도 다시 만들고 라인을 재생성할 것.
+map_yaml: src/kinematic_localization/maps/map_kissmap_render.yaml
 output_dir: ~/2026_IFAC/offline_trajectory_generator/output/map
 optimizer: mincurv
 width_mode: hybrid
