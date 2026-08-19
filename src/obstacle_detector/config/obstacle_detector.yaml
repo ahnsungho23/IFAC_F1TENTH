@@ -33,6 +33,15 @@ obstacle_detector:
     lambda_deg: 10.0                           # min reliable incidence angle (deg)
     cluster_sigma: 0.03                        # LiDAR range noise std (m)
     min_2_points_dist: 0.01                    # floor on the breakpoint threshold (m)
+    # 🔴 3 으로 낮추지 말 것 (2026-08-20 실측으로 기각). run_063551 의 120 s 자율 구간을
+    # 실제 검출기로 재생해 5 와 3 을 A/B 했다 (같은 스캔·같은 TF·다른 파라미터만):
+    #   detection 총량은 3834 -> 10189 (2.7배) 로 늘지만, **진짜 장애물 지점의 검출률은
+    #   떨어진다.** 통과 회차 기준 검출률 p50 (검출 1회 이상인 pass 만):
+    #     장애물 s=20.39 : 46% -> 27%   s=40.5 : 46% -> 19% (최대 미검출 공백 4.14 -> 8.80 m)
+    #   ego odom 을 수리한 조건에서도 같은 방향이었다: s=40.5 41% -> 25% (4.13 -> 6.53 m).
+    # 작은 파편 클러스터가 늘면 트래커 연관이 흔들려(euclid_reject 급증) 진짜 장애물의
+    # 트랙이 envelope 안정 게이트를 통과하지 못하고 STATIC 으로 승격되지 않는다.
+    # 검출 단절의 해법은 이 문턱이 아니다.
     min_cluster_points: 5                      # discard clusters with fewer points
     max_obs_size: 0.8                          # max box size (m); > diagonal of a 0.5x0.5 obstacle
                                                #   (0.707) so car-sized static obstacles pass

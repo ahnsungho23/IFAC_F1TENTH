@@ -172,6 +172,17 @@ private:
   void rememberManeuverObstacleRears(const std::vector<int> & obstacle_ids);
   // 기억해 둔 뒤끝 중 아직 자차 앞에 남아 있는 것의 최대 전방거리. 없으면 음수.
   double maneuverObstacleRearAhead(const EgoFrenetState & ego) const;
+  // 기동 장애물을 아직 안 지났으면 이번 콜백을 붙잡는다 (2026-08-20 확장).
+  // true 를 돌려주면 이번 콜백은 여기서 끝난다 — 경로를 발행했거나 안전정지를 걸었다.
+  //
+  // ⚠️ complete 뿐 아니라 IDLE/무효화까지 덮는다. 앞선 판(597e6f8)은 lifecycle.complete
+  //    분기에만 걸려 있었는데, 실차에서는 보류가 걸린 바로 다음 콜백에 lifecycle 이
+  //    IDLE 로 떨어져 기동이 통째로 사라졌다 (run_062020 t=537.80 보류 → 537.83 IDLE →
+  //    538.00 옛 경로 재발행 → 538.5 벽). 한 콜백만 막은 셈이었다.
+  bool holdForManeuverObstacleAhead(
+    const P3CallbackSnapshot & snapshot,
+    const P3ShadowResult & evaluation,
+    const P3ManeuverLifecycleDecision & lifecycle);
   void resetCommitmentViolationConfirmation();
   void logObstacleCollision(
     const std::string & severity,

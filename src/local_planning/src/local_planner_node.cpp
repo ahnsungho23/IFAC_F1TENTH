@@ -1382,6 +1382,82 @@ double LocalPlannerNode::maneuverObstacleRearAhead(const EgoFrenetState & ego) c
   return ahead;
 }
 
+// 기동 장애물을 아직 안 지났으면 이번 콜백을 붙잡는다 (2026-08-20 확장).
+//
+// ■ 왜 complete 분기만으로는 부족했나
+// 앞선 판(597e6f8)은 lifecycle.complete 안에만 게이트를 뒀다. 실차 run_062020 t=537.80 에
+// 보류가 걸렸지만 **바로 다음 콜백(537.83)에 lifecycle 이 IDLE 로 떨어져** 기동이 통째로
+// 사라졌고, 538.00 에 이미 지나간 구간의 옛 경로가 재발행되면서 0.5 s 뒤 벽이었다.
+// 한 콜백만 막은 셈이다.
+//
+// ■ 실측 근거 (2026-08-20, run_062020 + run_063551 자율 구간)
+// 발행 경로의 max|d| 가 0.10 이상에서 0.05 미만으로 무너지는 '경로 붕괴'가 36 회 / 54 회
+// 있었고, 그중 **20 회(56%) / 41 회(76%)** 는 가장 가까운 장애물의 뒤끝이 아직 앞에 있었다
+// (전방거리 p50 0.84 m / 0.93 m, p90 3.90 m / 4.95 m). 이 게이트가 붙잡는 대상이 그것이다.
+bool LocalPlannerNode::holdForManeuverObstacleAhead(
+  const P3CallbackSnapshot & snapshot,
+  const P3ShadowResult & evaluation,
+  const P3ManeuverLifecycleDecision & lifecycle)
+{
+  const EgoFrenetState & ego = snapshot.maneuver.ego;
+  const double rear_ahead = maneuverObstacleRearAhead(ego);
+  if (!(rear_ahead > chain_release_distance_m_)) {
+    completion_deferred_since_.reset();
+    return false;
+  }
+
+  const rclcpp::Time now = eventNow();
+  if (!completion_deferred_since_.has_value()) {
+    completion_deferred_since_ = now;
+  } else if ((now - completion_deferred_since_.value()).seconds() > completion_defer_max_sec_) {
+    // 차가 멈춰 있으면 장애물을 영영 못 지난다. 그대로 두면 FSM 이 AVOID 에 갇히므로
+    // 상한을 넘기면 기억을 비우고 종전 거동(완료 → 핸드오프)으로 넘긴다.
+    RCLCPP_WARN(
+      get_logger(),
+      "P3 기동 보류가 %.1f s 를 넘겨 해제한다 (장애물 뒤끝 전방 %.2f m). "
+      "차가 정지해 있었을 가능성이 크다.",
+      completion_defer_max_sec_, rear_ahead);
+    completion_deferred_since_.reset();
+    maneuver_obstacle_rear_s_.clear();
+    return false;
+  }
+
+  RCLCPP_WARN_THROTTLE(
+    get_logger(), *get_clock(), 1000,
+    "P3 기동 종료를 보류한다: 기동 장애물의 뒤끝이 아직 전방 %.2f m 에 있다 "
+    "(해제 문턱 %.2f m). 지금 라인으로 복귀하면 오프셋 0 으로 그대로 들이받는다.",
+    rear_ahead, chain_release_distance_m_);
+  current_path_owner_ = "P0_BACKUP_ONLY";
+  publishP3CycleDiagnostic(snapshot, evaluation, lifecycle, current_path_owner_, true);
+
+  // 🔴 보류 중에 발행할 경로는 **지금 이 ego 에 대해 유효한 것만** 쓴다.
+  // 앞선 판은 committed_result_ 를 검증 없이 내보내고, 비어 있으면
+  // last_valid_guidance_path_ 를 그대로 실었다. 그 경로는 이미 지나간 s 구간의 기하일 수
+  // 있고, 실제로 run_062020 t=538.00 에 111 점짜리 옛 경로가 그렇게 재발행됐다.
+  // 자율 발행 표본의 13.2% / 7.0% 가 "발행 경로가 ego 를 못 덮는" 상태였다.
+  // 유효한 경로가 없으면 옛 기하를 명령하는 대신 안전정지가 맞다.
+  std::string hold_error;
+  if (!committed_result_.path.wpnts.empty() &&
+    planner_.validatePath(
+      ego, committed_result_.path, snapshot.maneuver.obstacles, &hold_error))
+  {
+    publishResult(committed_result_);
+    return true;
+  }
+
+  RCLCPP_WARN_THROTTLE(
+    get_logger(), *get_clock(), 1000,
+    "보류 중 유효한 회피 경로가 없다 (%s) — 옛 경로를 내보내지 않고 안전정지한다.",
+    committed_result_.path.wpnts.empty() ? "커밋 경로 없음" : hold_error.c_str());
+  RacelineSplineResult stop;
+  stop.kind = SplinePlanKind::kSafeStop;
+  stop.reason = "maneuver obstacle still ahead and no valid committed path";
+  latchSafeStop(std::move(stop), ego, snapshot.maneuver.obstacles);
+  (void)evaluateSafeStopLifecycle(ego, safe_stop_result_, snapshot.maneuver.obstacles);
+  publishResult(safe_stop_result_);
+  return true;
+}
+
 // 커밋한 장애물이 전방 래치 거리 안에 남아 있는가 (2026-08-20).
 // 여기서 라인으로 복귀하는 것은 회피 포기가 아니라 충돌이다 — 근거는 헤더의
 // handoff_latch_commit_distance_m_ 주석 참고.
@@ -2709,66 +2785,24 @@ void LocalPlannerNode::onPlanningTimer()
 
   rememberManeuverObstacleRears(lifecycle.obstacle_ids);
 
+  // 🔴 complete 뿐 아니라 IDLE/무효화까지 덮는다 — 자세한 근거는 헬퍼 본문 주석 참고.
+  //    여기보다 위에 있는 (has_output && suffix_hard_valid) 분기는 이미 return 했으므로,
+  //    이 지점에 도달했다는 것은 이번 콜백에 쓸 유효한 P3 출력이 없다는 뜻이다.
+  if (holdForManeuverObstacleAhead(active_snapshot, evaluation, lifecycle)) {
+    return;
+  }
+
   if (lifecycle.complete) {
-    // 🔴 완료 게이트 (2026-08-20). 아래 블록은 커밋을 지우고 d 오프셋 0 인 핸드오프 루프를
-    // 발행하며, 그 장애물 id 를 completed_obstacle_ids_ 에 넣어 **재회피를 영구 차단**한다.
-    // 그런데 완료 판정(commitmentComplete / P3 lifecycle)은 merge_s 도달 여부로만 하고
-    // "장애물을 실제로 지났는가"는 묻지 않는다.
+    // 이 블록은 커밋을 지우고 d 오프셋 0 인 핸드오프 루프를 발행하며, 그 장애물 id 를
+    // completed_obstacle_ids_ 에 넣어 **재회피를 영구 차단**한다. 완료 판정 자체는
+    // merge_s 도달 여부로만 하고 "장애물을 실제로 지났는가"는 묻지 않는다.
+    // 그 물음은 위의 holdForManeuverObstacleAhead() 가 담당한다 — 여기에 도달했다는 것은
+    // 장애물을 지났거나 보류 상한을 넘겼다는 뜻이다.
     //
     // 2026-08-19 run_045534 실측(자율 322 s): 이 분기가 41 회 실행됐고, 장애물이 특정된
     // 13 건 중 **11 건(85%)이 아직 안 지나간 상태**였다(뒤끝까지 전방거리 p50 +0.32 m,
     // p90 +7.53 m; 5~10 m 앞에 두고 완료한 것이 3 건). 그 직후 d=0 루프를 따라가다
-    // 장애물을 정면으로 들이받았다 — t=79.2 에 id12 를 6.98 m 앞에 두고 완료 선언한 뒤
-    // 1.2 초간 6.0 m/s 로 오프셋 0 을 유지하다 t=80.4 에 충돌한 것이 대표 사례다.
-    //
-    // ⚠️ 여기서 쓰는 것은 committed_obstacle_guards_ 가 아니라 maneuver_obstacle_rear_s_ 다.
-    //    guards 는 commitAvoidance() 에서만 채워져 P3 가 경로를 소유하는 동안 비어 있다
-    //    (그래서 이 자리에 처음 걸었던 래치가 실차에서 0 회 발동했다).
-    const double rear_ahead = maneuverObstacleRearAhead(active_snapshot.maneuver.ego);
-    const rclcpp::Time defer_now = eventNow();
-    const auto deferredSeconds = [this](const rclcpp::Time & now) {
-        return completion_deferred_since_.has_value() ?
-               (now - completion_deferred_since_.value()).seconds() : 0.0;
-      };
-    bool defer = rear_ahead > chain_release_distance_m_;
-    if (!defer) {
-      completion_deferred_since_.reset();
-    } else if (!completion_deferred_since_.has_value()) {
-      completion_deferred_since_ = defer_now;
-    } else if (deferredSeconds(defer_now) > completion_defer_max_sec_) {
-      // 차가 멈춰 있으면 장애물을 영영 못 지난다. 그대로 두면 FSM 이 AVOID 에 갇히므로
-      // 상한을 넘기면 종전 거동(완료 → 핸드오프)으로 넘긴다.
-      RCLCPP_WARN(
-        get_logger(),
-        "P3 완료 보류가 %.1f s 를 넘겨 강제 완료한다 (장애물 뒤끝 전방 %.2f m). "
-        "차가 정지해 있었을 가능성이 크다.",
-        completion_defer_max_sec_, rear_ahead);
-      defer = false;
-    }
-    if (defer) {
-      RCLCPP_WARN_THROTTLE(
-        get_logger(), *get_clock(), 1000,
-        "P3 완료 선언을 보류한다: 기동 장애물의 뒤끝이 아직 전방 %.2f m 에 있다 "
-        "(해제 문턱 %.2f m). 핸드오프로 넘어가면 오프셋 0 으로 그대로 들이받는다.",
-        rear_ahead, chain_release_distance_m_);
-      current_path_owner_ = "P0_BACKUP_ONLY";
-      publishP3CycleDiagnostic(
-        active_snapshot, evaluation, lifecycle, current_path_owner_, true);
-      // 보류 중에는 직전에 검증된 경로를 계속 낸다. 커밋이 비어 있으면 마지막으로 유효했던
-      // 유도 경로를 쓴다 — 빈 경로를 내보내면 FSM 이 AVOID 에 갇히고(복귀 판정이
-      // non-empty 를 전제로만 실행됨) 제어는 아무것도 못 받는다.
-      if (!committed_result_.path.wpnts.empty()) {
-        publishResult(committed_result_);
-      } else if (!last_valid_guidance_path_.wpnts.empty()) {
-        RacelineSplineResult hold;
-        hold.kind = SplinePlanKind::kAvoidance;
-        hold.path = last_valid_guidance_path_;
-        hold.merge_s = active_snapshot.maneuver.ego.s;
-        hold.reason = "completion deferred: maneuver obstacle still ahead";
-        publishResult(hold);
-      }
-      return;
-    }
+    // 장애물을 정면으로 들이받았다.
     // Route the post-obstacle handback through the SAME closed global handoff loop the P0 flow
     // uses: anchored at the current ego pose and released by the existing STATE_GLOBAL
     // confirmation in the P0 pipeline below. The previous immutable frozen-tail handoff was
