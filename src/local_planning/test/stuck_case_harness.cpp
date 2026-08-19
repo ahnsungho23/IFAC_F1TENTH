@@ -126,6 +126,13 @@ RacelineSplineParameters operationalParameters()
   {0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0};
   p.avoidance_velocity_limit_lateral_accel_mps2 =
   {7.0, 7.0, 7.0, 7.0, 7.0, 7.0, 6.5, 6.5, 6.5, 6.5};
+  // 종방향 한계표 — velocity_limits.csv 의 max_accel / max_decel 열.
+  // test/test_velocity_limits_match_csv.py 가 YAML ↔ csv 일치를 검사한다.
+  p.avoidance_velocity_limit_accel_mps2 =
+  {6.4, 6.3, 5.9, 3.7, 3.7, 3.47, 3.33, 3.0, 3.0, 3.0};
+  p.avoidance_velocity_limit_decel_mps2 =
+  {3.0, 3.0, 3.0, 3.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0};
+  p.longitudinal_launch_speed_floor_mps = 1.0;
   p.avoidance_minimum_speed_mps = 1.0;
   p.margin_pass_speed_cap_mps = 2.0;
   p.approach_feasibility_decel_mps2 = 2.0;

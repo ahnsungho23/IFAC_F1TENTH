@@ -343,6 +343,18 @@ void LocalPlannerNode::initializeParameters()
     declare_parameter<std::vector<double>>(
     "avoidance_velocity_limit_lateral_accel_mps2",
     std::vector<double>{7.0, 7.0, 7.0, 7.0, 7.0, 7.0, 6.5, 6.5, 6.5, 6.5});
+  // 종방향 한계표 (2026-08-19). 기본값은 offline_trajectory_generator/config/velocity_limits.csv
+  // 의 max_accel / max_decel 열 그대로다 — 라인 생성기와 로컬 플래너가 같은 차량 모델을 쓴다.
+  planner_parameters_.avoidance_velocity_limit_accel_mps2 =
+    declare_parameter<std::vector<double>>(
+    "avoidance_velocity_limit_accel_mps2",
+    std::vector<double>{6.4, 6.3, 5.9, 3.7, 3.7, 3.47, 3.33, 3.0, 3.0, 3.0});
+  planner_parameters_.avoidance_velocity_limit_decel_mps2 =
+    declare_parameter<std::vector<double>>(
+    "avoidance_velocity_limit_decel_mps2",
+    std::vector<double>{3.0, 3.0, 3.0, 3.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0});
+  planner_parameters_.longitudinal_launch_speed_floor_mps =
+    declare_parameter<double>("longitudinal_launch_speed_floor_mps", 1.0);
   planner_parameters_.avoidance_minimum_speed_mps =
     declare_parameter<double>("avoidance_minimum_speed_mps", 1.0);
   planner_parameters_.margin_pass_speed_cap_mps =
@@ -545,6 +557,9 @@ void LocalPlannerNode::initializeParameters()
     planner_parameters_.tracking_error_reserve_m < 0.0 ||
     !planner_parameters_.trackingErrorLutValid() ||
     !planner_parameters_.avoidanceVelocityLimitValid() ||
+    !planner_parameters_.longitudinalVelocityLimitValid() ||
+    !std::isfinite(planner_parameters_.longitudinal_launch_speed_floor_mps) ||
+    planner_parameters_.longitudinal_launch_speed_floor_mps < 0.0 ||
     !std::isfinite(planner_parameters_.avoidance_minimum_speed_mps) ||
     planner_parameters_.avoidance_minimum_speed_mps < 0.0 ||
     !std::isfinite(planner_parameters_.margin_pass_speed_cap_mps) ||
