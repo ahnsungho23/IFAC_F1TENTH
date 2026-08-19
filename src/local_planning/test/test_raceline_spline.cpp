@@ -415,7 +415,7 @@ RacelineSplineParameters fieldParameters()
   RacelineSplineParameters parameters;
   parameters.detection_lookahead_m = 15.0;
   parameters.obstacle_longitudinal_padding_m = 0.4149924657737441;
-  parameters.vehicle_half_width_m = 0.1435;
+  parameters.vehicle_half_width_m = 0.15;
   parameters.vehicle_length_m = 0.56;
   parameters.safety_margin_m = 0.014789254299520768;
   parameters.tracking_error_lut_speed_bins_mps = {0.0, 1.5, 3.0, 4.5, 6.5};
@@ -442,6 +442,7 @@ RacelineSplineParameters fieldParameters()
   parameters.maximum_target_offset_m = 1.50;
   parameters.target_d_candidate_count = 5;
   parameters.maximum_lateral_slope = 0.8;
+  parameters.entry_discontinuity_min_budget_m = 0.20;
   parameters.maximum_curvature_radpm = 1.316266519079011;
   parameters.maximum_curvature_rate_radpm2 = 20.0;
   return parameters;
@@ -507,6 +508,67 @@ TEST(RacelineSplinePlanner, PathDiscontinuousFromEgoIsRejected)
 //
 // 판정은 간격을 **추종 예산**(trackingErrorReserve, localization_reserve_m 포함)과 먼저
 // 비교하고, 예산을 넘으면서 기울기도 한계를 넘을 때만 불연속으로 본다.
+// 🔴 0 마진 구성 회귀 (2026-08-20). 위 테스트는 fieldParameters() 가 localization_reserve_m
+// 0.06 을 쓰기 때문에 예산이 항상 양수였고, 그래서 **마진을 전부 0 으로 둔 운영 구성을 한
+// 번도 밟지 않았다**. 그 구성에서는 예산이 0 이 되어 검사의 AND 첫 조건이 상시 참이 되고,
+// 판정이 기울기 하나로 무너진다 — 진입점이 자차 앞 몇 cm 라 분모가 작아 정상 추종오차도
+// 불연속으로 기각된다.
+//
+// 실해(2026-08-19 run_001453, 자율 327.3 s): P3 기동 무효화 36 건 중 24 건(67%)이 이 검사였고
+// 생성 후 p50 110 ms 만에 무효화됐다. 안전정지가 자율 시간의 24%(28 구간, 최장 11.6 s),
+// 0.8 초에 커밋 5 회 교체, 경로 d 부호 전환 43 회(차가 1 초에 0.29 m 좌우로 끌림)로 이어졌다.
+//
+// entry_discontinuity_min_budget_m 하한이 그 붕괴를 막는다. 이 테스트는 마진을 전부 0 으로
+// 둔 채 위 테스트와 같은 배치를 태운다.
+TEST(RacelineSplinePlanner, ZeroMarginConfigStillHonoursTheTrackingBudgetFloor)
+{
+  auto parameters = fieldParameters();
+  // 운영 프로토타입 구성: 장애물 마진을 전부 제거한다.
+  parameters.localization_reserve_m = 0.0;
+  parameters.tracking_error_reserve_m = 0.0;
+  parameters.tracking_error_lut_speed_bins_mps = {0.0, 7.0};
+  parameters.tracking_error_lut_curvature_bins_radpm = {0.0, 0.46};
+  parameters.tracking_error_lut_values_m = {0.0, 0.0, 0.0, 0.0};
+  ASSERT_DOUBLE_EQ(parameters.trackingErrorReserve(3.0, 0.0), 0.0)
+    << "이 테스트는 마진 예산이 0 일 때만 의미가 있다";
+  ASSERT_GT(parameters.entry_discontinuity_min_budget_m, 0.0);
+
+  RacelineSplinePlanner planner(parameters);
+  const auto reference = makeStraightReference(300, 0.25, 1.20, 1.20);
+  ASSERT_TRUE(planner.setReference(reference));
+
+  const EgoFrenetState ego{5.0, 0.212, 2.96};
+  // 하한 안쪽의 정상 추종오차. 진입점은 자차 0.01 m 앞이라 기울기는 발산한다.
+  const double tracking_error = 0.5 * parameters.entry_discontinuity_min_budget_m;
+  f110_msgs::msg::WpntArray path;
+  path.header = reference.header;
+  for (std::size_t index = 0; index < 20U; ++index) {
+    f110_msgs::msg::Wpnt waypoint;
+    waypoint.id = static_cast<std::int32_t>(index);
+    waypoint.s_m = 5.01 + 0.25 * static_cast<double>(index);
+    waypoint.d_m = ego.d + tracking_error;
+    waypoint.x_m = waypoint.s_m;
+    waypoint.y_m = waypoint.d_m;
+    waypoint.vx_mps = 3.0;
+    path.wpnts.push_back(waypoint);
+  }
+  ASSERT_GT(tracking_error / 0.01, parameters.maximum_lateral_slope)
+    << "기울기가 한계를 넘지 않으면 회귀를 재현하지 못한다";
+  std::string reason;
+  EXPECT_TRUE(planner.validatePath(ego, path, {}, &reason))
+    << "0 마진 구성에서 정상 추종오차가 불연속으로 기각됐다: " << reason;
+
+  // 하한을 넘는 진짜 불연속은 그대로 걸려야 한다 (검사가 무력화되면 안 된다).
+  for (auto & waypoint : path.wpnts) {
+    waypoint.d_m = ego.d + 0.447;      // 코드 주석이 명시한 실해 사례 간격
+    waypoint.y_m = waypoint.d_m;
+  }
+  reason.clear();
+  EXPECT_FALSE(planner.validatePath(ego, path, {}, &reason))
+    << "진짜 진입 불연속이 통과했다 — 하한이 검사를 무력화했다";
+  EXPECT_NE(reason.find("discontinuous"), std::string::npos) << reason;
+}
+
 TEST(RacelineSplinePlanner, NormalTrackingErrorOverATinyBaselineIsNotADiscontinuity)
 {
   auto parameters = fieldParameters();

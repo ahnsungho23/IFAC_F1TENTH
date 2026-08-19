@@ -2176,8 +2176,12 @@ bool RacelineSplinePlanner::validateCandidate(
     if (entry_index < path.wpnts.size() && entry_forward <= 0.5 * track_length_) {
       const auto & entry = path.wpnts[entry_index];
       const double entry_lateral = std::abs(entry.d_m - ego.d);
-      const double tracking_budget_m =
-        parameters_.trackingErrorReserve(ego.speed, entry.kappa_radpm);
+      // 예산에는 마진 정책과 무관한 하한을 건다 (2026-08-20). 예산이 0 이면 아래 AND 의
+      // 첫 조건이 상시 참이 되어 오탐 방지 장치가 사라지고, 검사가 기울기 하나로 무너진다
+      // — 자세한 근거는 entry_discontinuity_min_budget_m 선언부 주석 참고.
+      const double tracking_budget_m = std::max(
+        parameters_.trackingErrorReserve(ego.speed, entry.kappa_radpm),
+        std::max(0.0, parameters_.entry_discontinuity_min_budget_m));
       const bool beyond_tracking_budget = entry_lateral > tracking_budget_m;
       const bool excessive_entry_slope =
         entry_lateral / entry_forward > parameters_.maximum_lateral_slope;

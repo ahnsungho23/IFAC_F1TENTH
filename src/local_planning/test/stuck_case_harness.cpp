@@ -110,7 +110,7 @@ RacelineSplineParameters operationalParameters()
   p.detection_lookahead_m = 15.0;
   // [PROTOTYPE] 마진 제거 — config/local_planning.yaml 과 일치해야 한다(params_match_yaml).
   p.obstacle_longitudinal_padding_m = 0.0;
-  p.vehicle_half_width_m = 0.1435;
+  p.vehicle_half_width_m = 0.15;
   p.vehicle_length_m = 0.56;
   p.safety_margin_m = 0.0;
   p.tracking_error_reserve_m = 0.0;
@@ -149,6 +149,7 @@ RacelineSplineParameters operationalParameters()
   p.maximum_target_offset_m = 1.50;
   p.target_d_candidate_count = 5;
   p.maximum_lateral_slope = 0.8;
+  p.entry_discontinuity_min_budget_m = 0.20;
   p.maximum_curvature_radpm = 1.316266519079011;
   p.maximum_curvature_rate_radpm2 = 20.0;
   // 🔴 2026-08-16: 아래 8개는 종전에 하니스가 설정하지 않아 **구조체 기본값**이 쓰였다.

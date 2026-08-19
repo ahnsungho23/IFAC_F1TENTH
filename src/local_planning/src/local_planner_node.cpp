@@ -313,7 +313,7 @@ void LocalPlannerNode::initializeParameters()
   planner_parameters_.vehicle_length_m =
     declare_parameter<double>("vehicle_length_m", 0.56);
   planner_parameters_.vehicle_half_width_m =
-    declare_parameter<double>("vehicle_half_width_m", 0.1435);
+    declare_parameter<double>("vehicle_half_width_m", 0.15);
   planner_parameters_.safety_margin_m =
     declare_parameter<double>("safety_margin_m", 0.03);
   planner_parameters_.tracking_error_reserve_m =
@@ -405,6 +405,8 @@ void LocalPlannerNode::initializeParameters()
     declare_parameter<int>("target_d_candidate_count", 5);
   planner_parameters_.maximum_lateral_slope =
     declare_parameter<double>("maximum_lateral_slope", 0.65);
+  planner_parameters_.entry_discontinuity_min_budget_m =
+    declare_parameter<double>("entry_discontinuity_min_budget_m", 0.20);
   planner_parameters_.maximum_curvature_radpm =
     declare_parameter<double>("maximum_curvature_radpm", 3.20);
   planner_parameters_.maximum_curvature_rate_radpm2 =
@@ -575,6 +577,8 @@ void LocalPlannerNode::initializeParameters()
     planner_parameters_.commitment_retention_reserve_fraction < 0.0 ||
     planner_parameters_.commitment_retention_reserve_fraction > 1.0 ||
     !std::isfinite(planner_parameters_.localization_reserve_m) ||
+    !std::isfinite(planner_parameters_.entry_discontinuity_min_budget_m) ||
+    planner_parameters_.entry_discontinuity_min_budget_m < 0.0 ||
     planner_parameters_.localization_reserve_m < 0.0 ||
     !std::isfinite(planner_parameters_.wall_safety_margin_m) ||
     planner_parameters_.wall_safety_margin_m < 0.0 ||
