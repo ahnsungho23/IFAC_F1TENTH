@@ -1,0 +1,181 @@
+kinematic_localization:
+  ros__parameters:
+    use_sim_time: false
+
+    # Topics / frames (drop-in compatible with particle_filter_cpp MCL)
+    lidar_topic: /scan
+    odom_topic: /odom
+    pose_topic: /pf/pose/odom
+    initial_pose_topic: /initialpose
+    map_frame: map
+    odom_frame: odom
+    base_frame: base_link
+    publish_map_odom_tf: true
+
+    # Frozen map: share/kinematic_localization/maps/<map_name>.kissmap
+    # (an absolute path is used as-is). Empty = pure odometry (no frozen map).
+    # Ignored when slam_mode is true.
+    map_name: ""
+
+    # MCL(particle_filter_cpp) parity: initialize once from the first
+    # /global_waypoints entry (the start-line pose) so switching localization
+    # does not change the operator workflow -- MCL had auto_init_from_waypoints
+    # on by default. A human /initialpose always wins and disables auto-init.
+    # Only correct when the car actually starts near the start line (the ICP
+    # convergence basin is ~voxel_size = 1.0 m). If you stage the car elsewhere,
+    # set this false: the node then publishes nothing until /initialpose, and
+    # the controller odom watchdog keeps the car stopped (fail-safe).
+    auto_init_from_waypoints: true
+    auto_init_topic: /global_waypoints
+    # Auto-init validation (manual /initialpose is never gated -- a human saw it).
+    # Publishing is withheld for this many registered frames after an auto-init;
+    # if the median residual_rms exceeds the threshold the pose is rejected, the
+    # node returns to "waiting for /initialpose" and publishes nothing.
+    # Grounded on the run_0818_182531 replay (40-frame medians): a correct init
+    # gives residual_rms 0.19 (worst observed 0.275), an init 4.7 m off the start
+    # line gives 0.45-0.54 -- a 2.3x separation that holds at any warmup. The
+    # wrong init never recovered (9-16 m off for the whole 60 s), which is what
+    # makes this gate necessary rather than nice-to-have. 0.35 sits midway; bias
+    # low, because a false reject only costs one 2D Pose Estimate click (exactly
+    # the pre-port workflow) while a false accept costs a wall.
+    # 0 disables the gate (publish immediately, edge_test behaviour).
+    auto_init_validate_frames: 40
+    auto_init_max_residual: 0.35
+
+    # Online SLAM mode: no frozen map, KISS local map is built from scans,
+    # pose auto-initializes to identity on the first scan (map frame = start
+    # pose, /initialpose still overrides). The accumulated map is saved to
+    # map_output_file via the ~/save_map service or automatically on shutdown,
+    # and published on ~/map_points every map_publish_period_sec (0 = off).
+    slam_mode: false
+    map_output_file: "slam_map.kissmap"
+    map_publish_period_sec: 10.0
+
+    # Output smoothing: complementary filter between the wheel-odometry
+    # prediction and the raw ICP pose. Raw ICP output steps ~8-10 mm/frame
+    # (p50, 38.7 Hz) on the real car with 5 cm+ jumps in 19-26% of frames;
+    # wheel odometry is ~10x smoother, so the pose is predicted with the odom
+    # delta and pulled toward ICP with alpha:
+    #   alpha = clamp(smoothing_alpha + smoothing_alpha_gain * min(v/v_full, 1),
+    #                 0, smoothing_alpha_max)
+    # These are starting values for real-car tuning, not final constants.
+    # smoothing_alpha_rot: rotation-only gain (no velocity boost). Cornering
+    # bags (run_0818, 4 m/s) measured the raw ICP yaw at 0.7-2.7 deg/frame vs
+    # 0.06 deg/frame for the wheel-odom prediction, so yaw is pulled ~4x more
+    # gently than translation (time constant ~0.2 s at 40 Hz). < 0 = follow
+    # the translation alpha (legacy uniform filter).
+    smoothing_enable: true
+    smoothing_alpha: 0.2
+    smoothing_alpha_gain: 0.3
+    smoothing_velocity_full_mps: 3.0
+    smoothing_alpha_max: 0.8
+    smoothing_alpha_rot: 0.12
+
+    # Built-in /map occupancy server: the (frozen or accumulated) map points
+    # are rasterized to a nav_msgs/OccupancyGrid so RViz tools like 2D Pose
+    # Estimate work without a separate map_server. Frozen mode publishes once
+    # (latched); slam_mode refreshes every map_publish_period_sec.
+    # map_grid_resolution matches the source occupancy map's resolution (m/cell);
+    # each point is painted as a disk of radius map_point_dilation_m.
+    map_topic: /map
+    map_grid_resolution: 0.05
+    map_point_dilation_m: 0.15
+
+    # --- Robustness (kicp_robustness_plan) -----------------------------------
+    # NaN guard (§1) has no toggle: it is always on (core + node deep defense).
+
+    # §2 Watchdog: during scan gaps keep publishing the wheel-odometry
+    # extrapolation (odom-only dead reckoning) so /pf/pose/odom and the
+    # map->odom TF never freeze. Covariance grows with the un-corrected span
+    # (std += error_rate * gap_sec); output stops after max_dead_reckoning_sec.
+    # Forced off in slam_mode.
+    watchdog_enable: true
+    watchdog_rate_hz: 40.0
+    scan_timeout_sec: 0.15
+    # 2026-08-19: 2.0 -> 0.4.  run_0819_115512에서 라이다가 8.04초 죽었을 때(header
+    # 타임스탬프까지 8038.7 ms 점프 = 드라이버가 스캔을 못 만든 것) 이 값이 2.0이라
+    # **7.9 -> 4.0 m/s로 2초를 눈감고 달렸고**, 그 뒤 컨트롤러 odom 워치독(0.5s)이
+    # 더해져 총 2.5초 / 약 14 m를 무보정 주행한 뒤 벽 앞 7 cm에서 멈췄다.
+    # 0.4의 근거: 정상 주행 5개 bag(약 30,000 스캔, 0817~0819)의 **스캔 header 간격
+    # 최대가 50.0 ms**이고 0.25초를 넘는 건 0건이다 -> 0.4는 8배 여유.
+    # 이제 최악 블라인드 = 0.4(KICP) + odom_timeout(0.35) = 0.75초.
+    # ⚠️ 라이다 링크가 고쳐졌다고 이 값을 되돌리지 말 것 — 되돌릴 이유는
+    #    "정상 주행에서 0.4를 넘는 스캔 공백이 관측됐다"뿐이다.
+    max_dead_reckoning_sec: 0.4
+    watchdog_trans_error_rate: 0.03
+    watchdog_rot_error_rate: 0.10
+
+    # §3 Registration diagnostics on ~/diagnostics (diagnostic_msgs/
+    # DiagnosticArray): inlier_ratio, residual_rms, tau, beta, iterations,
+    # converged, final_dx_norm, speed, alpha, dead_reckoning_sec, gate flags.
+    # WARN log after 10 consecutive frames below min_inlier_ratio_warn.
+    diagnostics_enable: true
+    diagnostics_topic: "~/diagnostics"
+    min_inlier_ratio_warn: 0.3
+
+    # §4 Pose validity: WARN + diagnostics flag when no non-occupied cell lies
+    # within permissible_radius_m of the pose (buried inside a wall blob).
+    # Never rejects a pose by itself — it only blocks the gate force-accept.
+    # Forced off in slam_mode.
+    pose_check_enable: true
+    permissible_radius_m: 0.13
+
+    # §5 Mahalanobis gate — ON since 2026-08-18, activation grounded per plan:
+    # nominal distributions measured on run_0818_140819 (212 s, 4.1 m/s:
+    # residual_rms p99 0.21, inlier p1 1.00, 0 non-converged frames) and the
+    # replay with chi2 11.34 (3-DoF, with lateral_dof_enable) rejected 0/8401
+    # frames. gate_chi2: 9.21 = 2-DoF 99% (use with lateral off), 11.34 =
+    # 3-DoF 99%. Rejected frames publish the odom prediction and roll the
+    # core back; after gate_force_accept consecutive rejections the ICP pose
+    # is force-accepted unless it lies inside a wall.
+    gate_enable: true
+    gate_chi2: 11.34
+    gate_trans_error_rate: 0.03
+    gate_rot_error_rate: 0.10
+    gate_meas_std_floor: 0.02
+    gate_force_accept: 20
+
+    # §6 Soft lateral DoF — ON since 2026-08-18 (with the §5 gate, per plan).
+    # Symptom measured in the field (docs §9): at 5-6.7 m/s^2 lateral accel
+    # the 2-DoF arc constraint cannot express tire slip, so the pose reads
+    # ~inside of the true position in corners — the controller believes it is
+    # on the raceline while the car physically runs wide (MCL, which has no
+    # such constraint, drove tight with identical control params). Replay
+    # validation: cornering yaw jitter unchanged (6.4 -> 6.1 deg/s), corner
+    # pose shifted outward +6 cm (slip now expressed; lower bound — map bias),
+    # trajectory stability improved. beta_lat = max(floor / tau^2,
+    # scale * beta). Forced off in slam_mode. Rollback:
+    # -p lateral_dof_enable:=false -p gate_enable:=false
+    lateral_dof_enable: true
+    lateral_regularization_scale: 1.0
+    lateral_regularization_floor_tau2: 1.0
+
+    # Kinematic-ICP tuning (verified on run_0803_210100, 51 s, up to 5.1 m/s)
+    # voxel_size sets the map hash grid, the correspondence search reach
+    # (adjacent voxels) and the adaptive-threshold floor — keep it 1.0:
+    # shrinking it to 0.25 narrowed the convergence basin to ~0.3 m and the
+    # run_0818 replay diverged up to 2.5 m. The registration source is
+    # densified separately via source_voxel_size below.
+    max_range: 30.0
+    min_range: 0.1
+    voxel_size: 1.0
+    # Registration-source-only downsample (core patch). With voxel_size 1.0
+    # the 0.5x/1.5x cascade collapses the 1081-point indoor scan to a 9-25
+    # point source — the dominant cause of cornering yaw jitter (run_0818:
+    # ICP yaw noise 0.33 deg/frame straight, 0.71-2.65 in corners). 0.25
+    # keeps ~50 source points without touching the map grid or search reach.
+    # < 0 = follow voxel_size (upstream behavior).
+    source_voxel_size: 0.25
+    max_points_per_voxel: 20
+    use_adaptive_threshold: true
+    fixed_threshold: 1.0
+    max_num_iterations: 30
+    convergence_criterion: 0.001
+    max_num_threads: 4
+    use_adaptive_odometry_regularization: true
+    fixed_regularization: 0.0
+    deskew: true
+
+    # Fixed covariance published on /pf/pose/odom
+    position_covariance: 0.1
+    orientation_covariance: 0.1
