@@ -371,7 +371,10 @@ public:
         //    (실효 L1 offset 0.6→0.81, ②-m이 확정한 0.6 결론을 조용히 무효화). 진짜 회피 신호인
         //    `/state`(STATE_GLOBAL 아님)로 바꾼다 — 회피 판정은 아래 avoiding_now() 참고.
         avoidance_l1_damping_enable_ = declare_parameter<bool>("avoidance_l1_damping_enable", true);
-        avoidance_l1_scale_max_ = declare_parameter<double>("avoidance_l1_scale_max", 1.35);
+        // 🔴 2026-08-20: 1.35 → 1.0. 1.35 에는 실측 근거가 없었다(런치에서 넘기지도 않아
+        //    이 기본값이 그대로 쓰였다). 실측 근거와 되돌리기는 _control_common.py 의
+        //    avoidance_l1_scale_max 인자 주석 참고.
+        avoidance_l1_scale_max_ = declare_parameter<double>("avoidance_l1_scale_max", 1.0);
 
         // 좌우 조향 한계. 둘 다 같으면 기존 대칭 거동과 100% 동일.
         max_steering_left_ =
@@ -1940,7 +1943,7 @@ private:
     double heading_damping_gain_;
     bool l1_use_actual_distance_ = true;
     bool avoidance_l1_damping_enable_ = true;
-    double avoidance_l1_scale_max_ = 1.35;
+    double avoidance_l1_scale_max_ = 1.0;
     bool steering_speed_cap_measured_ = true;  // 조향용 속도를 실측 속도로 상한
     int status_log_period_ms_ = 2000;          // 상태 한 줄 로그 주기 [ms], 0 = 끔
     size_t last_global_sig_ = 0;               // 글로벌 경로 재발행 중복 로그 억제용 서명
