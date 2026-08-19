@@ -143,11 +143,15 @@ local_planner_node:
     # 재생성:
     #   python3 tools/cmaes_tuning/tracking_error_lut_from_traces.py ~/lut_traces/*_trace.csv \
     #       --waypoints ~/lut_traces/live_global_waypoints.csv --quantile 0.95 --safety-factor 1.25
-    # [PROTOTYPE] LUT 비활성 — 세 배열이 모두 비면 trackingErrorReserve() 는
-    #              tracking_error_reserve_m + localization_reserve_m (= 0) 을 쓴다.
-    tracking_error_lut_speed_bins_mps: []
-    tracking_error_lut_curvature_bins_radpm: []
-    tracking_error_lut_values_m: []
+    # [PROTOTYPE] LUT 를 0 으로 채워 추종오차 예약을 없앤다.
+    # 🔴 빈 배열 [] 을 쓰면 안 된다 — YAML 의 빈 시퀀스는 타입을 알 수 없어 ROS 가
+    #    "No parameter value set" 으로 처리하고, declare_parameter<vector<double>> 가
+    #    InvalidParameterValueException 을 던져 노드가 기동 즉시 죽는다
+    #    (2026-08-19 실차에서 겪음: local_planner_node exit code -6, /rosout 에 로그 0줄).
+    #    all_empty 경로는 C++ 기본값으로 셋 다 비었을 때만 유효하고 YAML 로는 못 만든다.
+    tracking_error_lut_speed_bins_mps: [0.0, 7.0]
+    tracking_error_lut_curvature_bins_radpm: [0.0, 0.46]
+    tracking_error_lut_values_m: [0.0, 0.0, 0.0, 0.0]
     # upstream/jazzy_main의 offline_trajectory_generator/config/velocity_limits.csv
     # (commit 3d5fb38)에서 speed와 max_lateral_accel 열을 옮긴 표입니다. 회피 spline의
     # 재계산 곡률에 v^2*|kappa| <= a_lat,max(v)를 만족하도록 waypoint 속도를 제한하고,
