@@ -311,6 +311,26 @@ public:
         // 1.0 = 구 거동(보정 예산 0). 값은 CLAUDE.md ②-y 참고.
         steering_accel_margin_ =
             std::max(1.0, declare_parameter<double>("steering_accel_margin", 1.0));
+        // ── U1 그립 권한 속도 클램프 (2026-08-21 재작업, run_220742·run_013203 충돌) ──
+        // a_cmd 클램프는 조향 요구를 권한 안으로 자르지만 **속도는 아무도 안 줄였다**.
+        // 요구 곡률(κ_L1 = 2|sinη|/L1, 추종오차 보정 포함)이 예산을 넘으면 목표 속도를
+        // v ≤ √(예산/κ_L1) 로 캡한다. 검토 계약(2026-08-21):
+        //  - 예산은 **마진 없는 MLA × grip_speed_clamp_margin(0.9)** — 조향 클램프의
+        //    steering_accel_margin(1.15)은 얹지 않는다. "계획 속도는 보수적으로, 보정
+        //    권한은 넉넉히"의 분리를 속도 쪽에서도 지키기 위함이다.
+        //  - 필터는 **빠른 제한·느린 해제**: 요구가 튀면 즉시 물고(안전 기능의 진입을
+        //    늦추지 않는다), 풀릴 때만 시상수를 둔다(경로 전환 스파이크 후 과감속 방지).
+        //  - 하한 없음 — 안전 계산값이 항상 이긴다. 정지 권한은 플래너의 것이지만,
+        //    이 캡은 감속 요구일 뿐 정지를 만들지 않는다(κ 가드로 0 나누기만 방지).
+        //  - 적용 위치는 target_speed 단계 — 기존 종방향 램프(base_max_decel)가 감속을
+        //    실현 가능하게 다듬은 뒤 나가고, 램프가 못 따라가면 deficit 경고를 남긴다.
+        // 🔴 기본 false — 단독 셰이크다운(저속 2랩 → 정상 3랩)에서 검증 후 켠다.
+        grip_speed_clamp_enable_ =
+            declare_parameter<bool>("grip_speed_clamp_enable", false);
+        grip_clamp_margin_ = std::clamp(
+            declare_parameter<double>("grip_speed_clamp_margin", 0.9), 0.5, 1.0);
+        grip_clamp_release_alpha_ = std::clamp(
+            declare_parameter<double>("grip_speed_clamp_release_alpha", 0.05), 0.005, 1.0);
         understeer_gradient_ = declare_parameter<double>("understeer_gradient", 0.019);
         // ── 좌/우 분리 K_us (2026-08-18 실측, 2026-08-19 이 저장소로 이식) ──────
         // `rosbag2_2026_08_18-20_34_05` 정상상태 요레이트 전달률 역산: 좌 ≈0.008 /
@@ -1557,6 +1577,55 @@ private:
         global_speed = std::min(global_speed, max_speed_);
         double target_speed = global_speed;
 
+        // 7-a. U1 그립 권한 속도 클램프 (계약은 선언부 주석 참고, 기본 비활성).
+        //      target_speed 단계 적용이라 아래 8번 램프가 감속률을 실현 가능하게 다듬고,
+        //      램프가 못 따라가는 판(진입이 이미 과속)은 deficit 카운트로 드러난다.
+        {
+            const bool engaged_now = !(engage_gate_active() && !is_engaged_);
+            if (following_local != grip_prev_following_local_ || !engaged_now) {
+                // 경로 세대 전환(로컬↔글로벌)·미체결 구간: 이전 경로의 요구 곡률을
+                // 새 경로에 물려주지 않는다 (검토 계약: 전환 시 필터 리셋).
+                grip_demand_kappa_filt_ = 0.0;
+            }
+            grip_prev_following_local_ = following_local;
+            const double demand_kappa = 2.0 * std::abs(sin_eta) / l1_denom;
+            if (demand_kappa > grip_demand_kappa_filt_) {
+                grip_demand_kappa_filt_ = demand_kappa;   // 빠른 제한 — 진입을 늦추지 않는다
+            } else {
+                grip_demand_kappa_filt_ +=
+                    grip_clamp_release_alpha_ * (demand_kappa - grip_demand_kappa_filt_);
+            }
+            if (grip_speed_clamp_enable_ && engaged_now &&
+                grip_demand_kappa_filt_ > 1e-4)
+            {
+                const double budget =
+                    ((wps[closest_idx].mla > 0.0) ? wps[closest_idx].mla
+                                                  : max_lateral_accel_) * grip_clamp_margin_;
+                const double v_grip = std::sqrt(budget / grip_demand_kappa_filt_);
+                if (v_grip < target_speed) {
+                    if (target_speed - v_grip > 0.3) {
+                        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                            "그립 클램프: 목표 %.2f → %.2f m/s (κ_L1 %.3f, 예산 %.2f m/s², "
+                            "누적 %lu)",
+                            target_speed, v_grip, grip_demand_kappa_filt_, budget,
+                            static_cast<unsigned long>(grip_clamp_count_));
+                    }
+                    target_speed = v_grip;
+                    ++grip_clamp_count_;
+                }
+                const double v_meas = std::max(0.0, current_speed_);
+                if (v_meas * v_meas * grip_demand_kappa_filt_ > budget * 1.15) {
+                    // 실측이 이미 예산 밖 = 진입 과속을 램프가 못 따라간 것. 진단 전용.
+                    ++grip_decel_deficit_count_;
+                    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 3000,
+                        "그립 클램프 감속 부족: 실측 %.2f m/s 요구 %.2f > 예산 %.2f m/s² "
+                        "(누적 %lu)",
+                        v_meas, v_meas * v_meas * grip_demand_kappa_filt_, budget,
+                        static_cast<unsigned long>(grip_decel_deficit_count_));
+                }
+            }
+        }
+
         // 8. 명령 속도 램프
         double final_speed = ramp_speed(last_target_speed_, target_speed, dt,
                                         base_max_accel_, base_max_decel_);
@@ -2075,6 +2144,14 @@ private:
     double max_lateral_accel_;
     // 조향 클램프 = mla × 이 값. 1.0이면 구 거동(보정 예산 0). ②-y
     double steering_accel_margin_ = 1.0;
+    // U1 그립 권한 속도 클램프 상태 (선언부 주석 참고)
+    bool grip_speed_clamp_enable_ = false;
+    double grip_clamp_margin_ = 0.9;
+    double grip_clamp_release_alpha_ = 0.05;
+    double grip_demand_kappa_filt_ = 0.0;
+    bool grip_prev_following_local_ = false;
+    uint64_t grip_clamp_count_ = 0;
+    uint64_t grip_decel_deficit_count_ = 0;
     double understeer_gradient_ = 0.019;     // K_us [rad/(m/s²)] — 조향 권한 캡, 0이면 비활성
     double understeer_gradient_left_ = 0.019;   // 좌회전 K_us (생성자에서 해소, ≤0 = 공용값)
     double understeer_gradient_right_ = 0.019;  // 우회전 K_us (실측상 좌보다 크다 — 0818)

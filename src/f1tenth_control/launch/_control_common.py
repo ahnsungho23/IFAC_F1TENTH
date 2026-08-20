@@ -458,6 +458,24 @@ def declare_common_args(sector_scale_enable_default='false'):
             description='조향 한계 중 곡률 추종에 배정할 비율. 나머지는 횡오차·요레이트 보정 여유 '
                         '(1.0이면 보정 여력이 0)'
         ),
+        # ── U1 그립 권한 속도 클램프 (2026-08-21 재작업) ─────────────────────────
+        # 요구 곡률 κ_L1 = 2|sinη|/L1 이 예산(마진 없는 MLA × margin)을 넘으면 목표
+        # 속도를 v ≤ √(예산/κ_L1) 로 캡한다. target_speed 단계 적용(종방향 램프 통과),
+        # 빠른 제한·느린 해제 필터, 하한 없음(안전 계산이 이김), 경로 전환 시 리셋.
+        # 🔴 기본 false — 단독 셰이크다운(저속 2랩 → 정상 3랩, 포화 경고 감소·진동 없음
+        #    확인) 후에만 켠다: grip_speed_clamp_enable:=true
+        DeclareLaunchArgument(
+            'grip_speed_clamp_enable', default_value='false',
+            description='U1: L1 요구 횡가속이 예산을 넘으면 목표 속도를 캡 (기본 꺼짐)'
+        ),
+        DeclareLaunchArgument(
+            'grip_speed_clamp_margin', default_value='0.9',
+            description='속도 예산 = 마진 없는 MLA × 이 값 (조향 클램프의 1.15 마진과 분리)'
+        ),
+        DeclareLaunchArgument(
+            'grip_speed_clamp_release_alpha', default_value='0.05',
+            description='요구 곡률 해제 필터 계수 (제한 진입은 즉시, 해제만 τ≈0.4 s)'
+        ),
         # 전방 곡률 스캔 거리 = max(count*0.1, v²/(2·prebrake_decel)). count는 저속 하한.
         DeclareLaunchArgument(
             'curvature_lookahead_count', default_value='80',
@@ -571,6 +589,11 @@ def build_control_map_node(*, odom_topic, max_speed, max_lateral_accel, base_max
             'understeer_gradient_left': LaunchConfiguration('understeer_gradient_left'),
             'understeer_gradient_right': LaunchConfiguration('understeer_gradient_right'),
             'steer_authority_ratio': LaunchConfiguration('steer_authority_ratio'),
+            'grip_speed_clamp_enable': ParameterValue(
+                LaunchConfiguration('grip_speed_clamp_enable'), value_type=bool),
+            'grip_speed_clamp_margin': LaunchConfiguration('grip_speed_clamp_margin'),
+            'grip_speed_clamp_release_alpha':
+                LaunchConfiguration('grip_speed_clamp_release_alpha'),
             'curvature_lookahead_count': ParameterValue(
                 LaunchConfiguration('curvature_lookahead_count'), value_type=int),
             'base_max_accel': base_max_accel,
