@@ -858,6 +858,7 @@ commitment는 지우지 않으므로 odometry가 회복되면 다시 검증한 �
 | 구독 | `/confirmed_static_obs` | `f110_msgs/msg/ObstacleArray` | Layer 2 confirmed-only(STATIC 확정) authoritative Frenet 경계와 `s_var/d_var` 중심 위치 분산. 파라미터 `obstacles_topic`으로 `/static_obs`로 되돌릴 수 있습니다 |
 | 구독 | `/car_state/frenet/odom` | `nav_msgs/msg/Odometry` | `x=s`, `y=d` ego 상태 |
 | 구독 | `/state` | `f110_msgs/msg/StateMachine` | AVOID 진입 및 GLOBAL handoff 완료 확인 |
+| 구독 | `/static_obs` | `f110_msgs/msg/ObstacleArray` | **B1 감속 힌트 전용** (2026-08-20). 기하·커밋·정지에는 쓰지 않습니다. 파라미터 `raw_slowdown_topic` |
 | 발행 | `/avoid_waypoints` | `f110_msgs/msg/OTWpntArray` | ego부터 글로벌 합류 뒤 lookahead까지의 회피 세그먼트 |
 | 발행 | `/local_planning/path` | `nav_msgs/msg/Path` | RViz용 현재 안전 경로 |
 | 발행(진단) | `/local_planning/p3_shadow` | `std_msgs/msg/String` | `SHADOW`/`TEST_ACTIVE` callback별 P3 후보·validator·lifecycle·actual path owner JSON |
@@ -868,6 +869,34 @@ commitment는 지우지 않으므로 odometry가 회복되면 다시 검증한 �
 회피일 때 `raceline_local_d_offset_spline`, 허용된 회피 방향이 모두 막힌 감속 경로일 때
 `raceline_static_safe_stop`입니다.
 
+### 3.x B1 raw 감속 힌트 · A1/A2 무효화 정리 (2026-08-20)
+
+**B1 raw 감속 힌트.** confirmed 관점에서 트랙이 비어 있어도(`kNoObstacle`), raw(`/static_obs`)
+장애물이 전방 `raw_slowdown_trigger_distance_m` 안에서 라인(d=0)을 물고 있으면 침묵/핸드오프
+대신 `kPreparation` 힌트 경로를 발행합니다.
+
+1. 기하는 검증된 글로벌 핸드오프 루프(복귀 램프·벽 협착 클램프 포함)를 그대로 씁니다.
+2. 속도만 다시 씁니다: 장애물 앞끝에서 `raw_slowdown_speed_cap_mps`(기본 2.8)에 닿도록
+   `approach_feasibility_decel_mps2` 램프로 줄이고, 스팬+1 m 동안 cap 유지 후 글로벌 속도로
+   되돌립니다.
+3. raw 가 스트릭 리셋으로 한두 프레임 빠져도 `raw_slowdown_hold_sec`(기본 1.0 s) 동안
+   기억한 위치로 힌트를 유지합니다 (깜빡임 브리지).
+4. 근거 (3개 백 실측): raw 는 4.5~11 m 전방에서 잡히는데 confirmed 승격은 시간 기준이라,
+   접근 속도를 미리 깎으면 승격 지연이 잡아먹는 거리가 절반이 되고(5→2.8 m/s), 승격이
+   무산된 패스(run_080532 에서 14/107)도 저속 통과가 됩니다.
+5. 힌트는 절대 정지를 만들지 않고, 라인을 물지 않는 물체에는 발동하지 않습니다. 위험
+   대응(회피·정지)은 종전대로 confirmed 전용입니다.
+
+**A1 — 무효화 시 커밋 정리.** P3 수명주기가 무효화되면 보류 게이트가 실행되기 **전에**
+`invalidateCommitment()` 로 커밋을 지웁니다. 무효화 이후의 `committed_result_` 는 관리자
+없는 기하라, 검출 구멍 프레임에서 스냅샷 검증이 통과해 직전 기동의 가속 꼬리가 그대로
+재발행됐습니다 (run_192006 접촉 #4: 명령 2.0→6.0 m/s). 재회피 차단 기억·보류 기억·safe-stop
+래치는 보존합니다.
+
+**A2 — safe-stop 래치 우선.** 래치가 살아 있는 동안은 `handleSafeStopLatch` 가 유일한
+발행자입니다 (보류 게이트 안에서도). 해제는 기존 사다리(유효 회피 / 장애물 통과 / 정지 후
+회랑 clear)로만 합니다.
+
 ## 5. 주요 파라미터
 
 모든 운영값은 `config/local_planning.yaml`에 있습니다.
@@ -877,6 +906,9 @@ commitment는 지우지 않으므로 odometry가 회복되면 다시 검증한 �
 - 물리 footprint: `vehicle_length_m=0.56`, `vehicle_half_width_m=0.1435`
 - 추종오차 LUT: `tracking_error_lut_speed_bins_mps`,
   `tracking_error_lut_curvature_bins_radpm`, `tracking_error_lut_values_m`
+- B1 raw 감속 힌트: `raw_slowdown_enable`, `raw_slowdown_topic`,
+  `raw_slowdown_trigger_distance_m`, `raw_slowdown_speed_cap_mps`, `raw_slowdown_hold_sec`,
+  `raw_slowdown_lateral_margin_m`
 - 회피속도 제한표: `avoidance_velocity_limit_speed_bins_mps`,
   `avoidance_velocity_limit_lateral_accel_mps2`
 - LUT fallback: `tracking_error_reserve_m` (세 LUT 배열이 모두 비었을 때만 사용)

@@ -478,6 +478,22 @@ void LocalPlannerNode::initializeParameters()
   obstacles_topic_ =
     declare_parameter<std::string>(
     "obstacles_topic", "/confirmed_static_obs");
+  // B1 raw 감속 힌트 (2026-08-20). confirmed 승격(정지 표 10/15)이 끝나기 전에도
+  // raw(/static_obs) 는 4.5~11 m 전방에서 이미 잡힌다 (run_080532·161657·192006 실측).
+  // 승격 지연은 시간 기준이라, 접근 속도를 미리 깎으면 지연이 잡아먹는 거리가 그만큼
+  // 줄고 (5→2.8 m/s 면 절반), 승격이 아예 무산된 패스(080532 에서 14/107)에서도 저속
+  // 통과가 된다. 기하·커밋·정지는 만들지 않는 속도 전용 힌트다.
+  raw_slowdown_enable_ = declare_parameter<bool>("raw_slowdown_enable", true);
+  raw_slowdown_topic_ =
+    declare_parameter<std::string>("raw_slowdown_topic", "/static_obs");
+  raw_slowdown_trigger_distance_m_ = std::max(
+    0.0, declare_parameter<double>("raw_slowdown_trigger_distance_m", 12.0));
+  raw_slowdown_speed_cap_mps_ = std::max(
+    0.5, declare_parameter<double>("raw_slowdown_speed_cap_mps", 2.8));
+  raw_slowdown_hold_sec_ = std::max(
+    0.0, declare_parameter<double>("raw_slowdown_hold_sec", 1.0));
+  raw_slowdown_lateral_margin_m_ = std::max(
+    0.0, declare_parameter<double>("raw_slowdown_lateral_margin_m", 0.25));
   frenet_odom_topic_ =
     declare_parameter<std::string>("frenet_odom_topic", "/car_state/frenet/odom");
   state_topic_ =
@@ -651,6 +667,12 @@ void LocalPlannerNode::initializeInterfaces()
   obstacles_sub_ = create_subscription<f110_msgs::msg::ObstacleArray>(
     obstacles_topic_, volatile_qos,
     std::bind(&LocalPlannerNode::onObstacles, this, std::placeholders::_1), planning_options);
+  if (raw_slowdown_enable_ && raw_slowdown_topic_ != obstacles_topic_) {
+    raw_obstacles_sub_ = create_subscription<f110_msgs::msg::ObstacleArray>(
+      raw_slowdown_topic_, volatile_qos,
+      std::bind(&LocalPlannerNode::onRawObstacles, this, std::placeholders::_1),
+      planning_options);
+  }
   frenet_odometry_sub_ = create_subscription<nav_msgs::msg::Odometry>(
     frenet_odom_topic_, volatile_qos,
     std::bind(&LocalPlannerNode::onFrenetOdometry, this, std::placeholders::_1), odometry_options);
@@ -863,6 +885,113 @@ void LocalPlannerNode::onObstacles(const f110_msgs::msg::ObstacleArray::SharedPt
   }
 }
 
+// B1 (2026-08-20): raw 스냅샷은 속도 힌트에만 쓴다. 계획 콜백 그룹에서 직렬 실행되므로
+// 잠금이 필요 없다 (onObstacles 와 동일 계약). 계획 사이클을 트리거하지 않는다.
+void LocalPlannerNode::onRawObstacles(const f110_msgs::msg::ObstacleArray::SharedPtr message)
+{
+  if (!message->header.frame_id.empty() && message->header.frame_id != frame_id_) {
+    return;
+  }
+  latest_raw_obstacles_.clear();
+  latest_raw_obstacles_.reserve(message->obstacles.size());
+  for (const auto & obstacle : message->obstacles) {
+    RawHintObstacle raw;
+    raw.s_start = obstacle.s_start;
+    raw.s_end = obstacle.s_end;
+    raw.d_left = obstacle.d_left;
+    raw.d_right = obstacle.d_right;
+    latest_raw_obstacles_.push_back(raw);
+  }
+}
+
+bool LocalPlannerNode::maybePublishRawSlowdownHint(const EgoFrenetState & ego)
+{
+  if (!raw_slowdown_enable_ || !has_global_waypoints_) {
+    return false;
+  }
+  const double track_length = planner_.trackLength();
+  if (!(track_length > 0.0)) {
+    return false;
+  }
+  const rclcpp::Time now = eventNow();
+  const double half_track = 0.5 * track_length;
+  double best_front = std::numeric_limits<double>::infinity();
+  double best_span = 0.0;
+  bool found = false;
+  for (const auto & obstacle : latest_raw_obstacles_) {
+    // 횡 간섭 필터: 팽창 봉투 [d_right−margin, d_left+margin] 가 라인(d=0)을 물어야
+    // 한다. 라인 밖(벽가) 물체 때문에 감속하지 않기 위한 것 — margin-pass 의
+    // "물리 클리어런스가 d=0 에 닿는가" 판정과 같은 취지의 값싼 근사다.
+    if (obstacle.d_right - raw_slowdown_lateral_margin_m_ > 0.0 ||
+      obstacle.d_left + raw_slowdown_lateral_margin_m_ < 0.0)
+    {
+      continue;
+    }
+    const double span = planner_.forwardDistance(obstacle.s_start, obstacle.s_end);
+    if (span >= half_track) {
+      continue;  // 봉투가 깨진 메시지
+    }
+    const double front_to_start = planner_.forwardDistance(ego.s, obstacle.s_start);
+    const double front_to_end = planner_.forwardDistance(ego.s, obstacle.s_end);
+    double front = 0.0;
+    if (front_to_start < half_track) {
+      front = front_to_start;                       // 앞끝이 전방
+    } else if (front_to_end < half_track) {
+      front = 0.0;                                  // 스팬 안 (앞끝은 이미 뒤)
+    } else {
+      continue;                                     // 완전히 지나감
+    }
+    if (front > raw_slowdown_trigger_distance_m_ || front >= best_front) {
+      continue;
+    }
+    best_front = front;
+    best_span = front > 0.0 ? span : front_to_end;
+    raw_hint_s_start_ = obstacle.s_start;
+    raw_hint_s_end_ = obstacle.s_end;
+    found = true;
+  }
+  if (found) {
+    raw_hint_hold_until_ = now + rclcpp::Duration::from_seconds(raw_slowdown_hold_sec_);
+  } else if (raw_hint_hold_until_.has_value() && now < raw_hint_hold_until_.value()) {
+    // 깜빡임 브리지: 스트릭 리셋으로 raw 가 한두 프레임 빠져도, 기억한 위치를 지나칠
+    // 때까지는 힌트를 유지한다. 이것이 없으면 힌트↔핸드오프가 프레임 단위로 교대한다.
+    const double front_to_start = planner_.forwardDistance(ego.s, raw_hint_s_start_);
+    const double front_to_end = planner_.forwardDistance(ego.s, raw_hint_s_end_);
+    if (front_to_start < half_track) {
+      best_front = front_to_start;
+      best_span = planner_.forwardDistance(raw_hint_s_start_, raw_hint_s_end_);
+    } else if (front_to_end < half_track) {
+      best_front = 0.0;
+      best_span = front_to_end;
+    } else {
+      raw_hint_hold_until_.reset();
+      return false;
+    }
+    if (best_front > raw_slowdown_trigger_distance_m_) {
+      return false;
+    }
+    found = true;
+  } else {
+    return false;
+  }
+  RacelineSplineResult hint;
+  hint.kind = SplinePlanKind::kPreparation;
+  hint.path = planner_.buildRawSlowdownPath(
+    ego, state_handoff_tail_distance_m_, best_front, best_span,
+    raw_slowdown_speed_cap_mps_, planner_parameters_.approach_feasibility_decel_mps2);
+  if (hint.path.wpnts.empty()) {
+    return false;
+  }
+  hint.reason = "raw obstacle slowdown hint";
+  RCLCPP_INFO_THROTTLE(
+    get_logger(), *get_clock(), 2000,
+    "B1 raw 감속 힌트: 전방 %.2f m (스팬 %.2f m) — confirmed 승격 전 접근 속도를 "
+    "%.1f m/s 까지 미리 깎는다.",
+    best_front, best_span, raw_slowdown_speed_cap_mps_);
+  publishResult(hint);
+  return true;
+}
+
 void LocalPlannerNode::onFrenetOdometry(const nav_msgs::msg::Odometry::SharedPtr message)
 {
   if (!finiteOdometry(*message)) {
@@ -944,15 +1073,30 @@ void LocalPlannerNode::tryRunLockstepCycle()
 
 void LocalPlannerNode::clearCommitment()
 {
-  resetInitialStabilization();
-  resetNextManeuverStabilization();
-  resetCommitmentViolationConfirmation();
+  invalidateCommitment();
   completed_obstacle_ids_.clear();
   maneuver_obstacle_rear_s_.clear();
   completion_deferred_since_.reset();
+  clearSafeStopLatch();
+}
+
+// A1 (2026-08-20, run_192006 접촉 #4): 무효화 이후의 committed_result_ 는 관리자가 없는
+// 기하다 — P3 수명주기는 같은 콜백에서 리셋되고, 이후 이 경로를 재발행하는 곳(보류
+// 게이트·백업 파이프라인)은 "현재 스냅샷에 대한 검증"만 한다. 검출 구멍 프레임에서는
+// 스냅샷에 장애물이 없어 그 검증이 항상 통과했고, 직전 기동의 가속 꼬리(vmax 7.16)가
+// 그대로 나가 명령이 2.0→6.0 m/s 로 튀며 장애물을 들이받았다. 무효화 즉시 커밋을 지운다.
+// 단, 다음은 커밋과 수명이 다르므로 보존한다:
+//  - completed_obstacle_ids_      재회피 영구 차단 기억
+//  - maneuver_obstacle_rear_s_    보류 게이트의 "장애물을 아직 안 지났다" 기억
+//  - completion_deferred_since_   보류 상한 타이머
+//  - safe-stop 래치               무효화 직후의 유일한 안전 발행자
+void LocalPlannerNode::invalidateCommitment()
+{
+  resetInitialStabilization();
+  resetNextManeuverStabilization();
+  resetCommitmentViolationConfirmation();
   has_commitment_ = false;
   committed_result_ = RacelineSplineResult();
-  clearSafeStopLatch();
   merge_complete_count_ = 0;
   merge_geometry_confirmed_ = false;
   handoff_active_ = false;
@@ -1429,6 +1573,16 @@ bool LocalPlannerNode::holdForManeuverObstacleAhead(
     rear_ahead, chain_release_distance_m_);
   current_path_owner_ = "P0_BACKUP_ONLY";
   publishP3CycleDiagnostic(snapshot, evaluation, lifecycle, current_path_owner_, true);
+
+  // A2 (2026-08-20, run_192006 접촉 #4): 래치가 살아 있으면 정지 수명주기가 유일한
+  // 발행자다. 이 검사가 없으면 검출 깜빡임의 구멍 프레임(스냅샷에 장애물 없음)마다 아래
+  // validatePath 가 "장애물 없음"으로 통과해, 옛 committed_result_ 와 안전정지가 프레임
+  // 단위로 번갈아 발행됐다. 래치 해제는 handleSafeStopLatch 의 기존 해제 사다리
+  // (유효 회피 / 장애물 통과 / 정지 후 회랑 clear)로만 한다.
+  if (safe_stop_lifecycle_.active()) {
+    handleSafeStopLatch(ego);
+    return true;
+  }
 
   // 🔴 보류 중에 발행할 경로는 **지금 이 ego 에 대해 유효한 것만** 쓴다.
   // 앞선 판은 committed_result_ 를 검증 없이 내보내고, 비어 있으면
@@ -2203,6 +2357,34 @@ void LocalPlannerNode::handleSafeStopLatch(const EgoFrenetState & ego)
     return;
   }
 
+  // 크립 소진 방어 (2026-08-20, run_192006 t≈143 벽충돌). 해제 사다리가 확정되지 않는 동안
+  // 재계획이 kSafeStop 이 아니면 safe_stop_result_ 는 래치 시점의 기하 그대로 남는다. 차가
+  // 크립으로 그 경로 끝을 지나면 조향은 뒤에 남은 꼬리를 쫓아 진동하고, 늦은 핸드오프와
+  // 겹치면 벽이다. 발행 전에 경로가 지금 ego 를 덮는지 확인하고, 안 덮으면 래치 메타데이터
+  // (activation·해제 카운터)는 유지한 채 제동 기하만 현재 ego 에서 재생성한다 —
+  // latchSafeStop 은 lifecycle 이 이미 active 면 activation 을 건드리지 않는다.
+  if (!safe_stop_result_.path.wpnts.empty()) {
+    const auto & stop_wpnts = safe_stop_result_.path.wpnts;
+    const double track_length = planner_.trackLength();
+    double nearest = std::numeric_limits<double>::infinity();
+    for (const auto & waypoint : stop_wpnts) {
+      const double gap = std::abs(waypoint.s_m - ego.s);
+      nearest = std::min(nearest, std::min(gap, track_length - gap));
+    }
+    const double tail_forward = planner_.forwardDistance(ego.s, stop_wpnts.back().s_m);
+    if (nearest > 1.0 || tail_forward >= 0.5 * track_length) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 2000,
+        "래치된 정지 경로가 ego 를 더 이상 덮지 않는다 (최근접 %.2f m, 끝점 전방 %.2f m) "
+        "— 현재 위치에서 제동 기하를 재생성한다.",
+        nearest, tail_forward);
+      RacelineSplineResult regenerated;
+      regenerated.kind = SplinePlanKind::kSafeStop;
+      regenerated.reason = "safe-stop path no longer covers ego; regenerating from current pose";
+      latchSafeStop(std::move(regenerated), ego, planning_obstacles);
+    }
+  }
+
   publishResult(safe_stop_result_);
 }
 
@@ -2785,6 +2967,14 @@ void LocalPlannerNode::onPlanningTimer()
 
   rememberManeuverObstacleRears(lifecycle.obstacle_ids);
 
+  // A1 (2026-08-20): 무효화 콜백에서는 보류 게이트가 committed_result_ 를 보기 **전에**
+  // 커밋을 지운다. 순서가 반대면 방금 무효화된 경로가 보류 게이트의 스냅샷 검증(구멍
+  // 프레임에서는 무조건 통과)을 타고 그대로 재발행된다 — run_192006 접촉 #4 의 기전.
+  // rememberManeuverObstacleRears 는 위에서 이미 실행됐으므로 보류 기억은 남는다.
+  if (lifecycle.invalidated) {
+    invalidateCommitment();
+  }
+
   // 🔴 complete 뿐 아니라 IDLE/무효화까지 덮는다 — 자세한 근거는 헬퍼 본문 주석 참고.
   //    여기보다 위에 있는 (has_output && suffix_hard_valid) 분기는 이미 return 했으므로,
   //    이 지점에 도달했다는 것은 이번 콜백에 쓸 유효한 P3 출력이 없다는 뜻이다.
@@ -3285,6 +3475,13 @@ void LocalPlannerNode::runP0PlanningCycle(const P3CallbackSnapshot * snapshot)
       "(래치 유지). 지나가면 자동으로 풀린다.",
       handoff_latch_commit_distance_m_);
     publishResult(committed_result_);
+    return;
+  }
+  // B1 (2026-08-20): confirmed 관점에서 트랙이 비어도(승격 전) raw 가 전방에서 라인을
+  // 물면 침묵/핸드오프 대신 감속 힌트를 발행한다. 반드시 아래 AVOID-핸드오프 분기보다
+  // 앞이어야 한다 — 뒤에 두면 힌트가 만든 STATE_AVOID 를 다음 사이클의 핸드오프 분기가
+  // 곧장 GLOBAL 로 되돌려 두 발행이 프레임 단위로 교대한다.
+  if (result.kind == SplinePlanKind::kNoObstacle && maybePublishRawSlowdownHint(ego)) {
     return;
   }
   if (result.kind == SplinePlanKind::kNoObstacle && has_state_ &&

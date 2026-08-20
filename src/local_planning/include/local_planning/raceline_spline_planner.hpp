@@ -419,6 +419,17 @@ public:
   // 무관하게 물리적 합류를 계속 게이트한다.
   f110_msgs::msg::WpntArray buildGlobalHandoffPath(
     const EgoFrenetState & ego, double state_tail_distance_m, double speed_cap_mps) const;
+  // B1 raw 감속 힌트 경로 (2026-08-20). confirmed 승격 전의 raw(/static_obs) 장애물을
+  // 향해 접근할 때, 라인 기하는 그대로 두고 속도만 낮춘 글로벌 루프를 만든다:
+  // 전방 obstacle_front_m 지점에서 cap_mps 에 닿도록 decel_mps2 의 실현 가능 램프로
+  // 줄이고, 장애물 스팬+1 m 동안 cap 을 유지한 뒤 글로벌 속도로 되돌린다. 회피 기하·
+  // 커밋·정지는 만들지 않는다 — 이 경로의 역할은 confirmed 승격이 끝나기 전에 접근
+  // 속도를 미리 깎아 (a) 승격 지연이 잡아먹는 거리를 줄이고 (b) 접근 계단 감속을
+  // 없애는 것뿐이다.
+  f110_msgs::msg::WpntArray buildRawSlowdownPath(
+    const EgoFrenetState & ego, double state_tail_distance_m,
+    double obstacle_front_m, double obstacle_span_m,
+    double cap_mps, double decel_mps2) const;
   f110_msgs::msg::WpntArray buildEmergencyStopPath(const EgoFrenetState & ego) const;
   // Truncate `path` from the waypoint nearest ahead of ego and apply a braking profile. Used as
   // the last-resort stop geometry when no collision-free stop prefix exists: braking along the

@@ -109,10 +109,18 @@ private:
 
   bool sameReference(const f110_msgs::msg::WpntArray & message) const;
   void clearCommitment();
+  // 커밋만 지우는 좁은 리셋 (A1, 2026-08-20). clearCommitment() 와 달리
+  // completed_obstacle_ids_ / maneuver_obstacle_rear_s_ / completion_deferred_since_ /
+  // safe-stop 래치는 보존한다 — P3 무효화 직후에 쓴다.
+  void invalidateCommitment();
   void commitAvoidance(
     RacelineSplineResult result,
     const EgoFrenetState & ego,
     const std::vector<f110_msgs::msg::Obstacle> & planning_obstacles);
+  // B1 raw 감속 힌트 (2026-08-20). confirmed 관점에서 트랙이 비었을 때, raw(/static_obs)
+  // 장애물이 전방에서 라인을 물고 있으면 감속 힌트 경로를 발행하고 true 를 돌려준다.
+  void onRawObstacles(const f110_msgs::msg::ObstacleArray::SharedPtr message);
+  bool maybePublishRawSlowdownHint(const EgoFrenetState & ego);
   void resetInitialStabilization();
   std::vector<f110_msgs::msg::Obstacle> buildInitialStabilizationInput() const;
   std::vector<f110_msgs::msg::Obstacle> buildGuardedObstacles(
@@ -202,6 +210,7 @@ private:
   rclcpp::CallbackGroup::SharedPtr odometry_callback_group_;
   rclcpp::Subscription<f110_msgs::msg::WpntArray>::SharedPtr global_waypoints_sub_;
   rclcpp::Subscription<f110_msgs::msg::ObstacleArray>::SharedPtr obstacles_sub_;
+  rclcpp::Subscription<f110_msgs::msg::ObstacleArray>::SharedPtr raw_obstacles_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr frenet_odometry_sub_;
   rclcpp::Subscription<f110_msgs::msg::StateMachine>::SharedPtr state_sub_;
   rclcpp::Publisher<f110_msgs::msg::OTWpntArray>::SharedPtr avoid_waypoints_pub_;
@@ -312,6 +321,25 @@ private:
   int planning_period_ms_{50};
   double state_handoff_tail_distance_m_{6.0};
   double state_handoff_speed_cap_mps_{6.0};
+  // B1 raw 감속 힌트 상태. latest_raw_obstacles_ 는 planning 콜백 그룹에서만 접근한다
+  // (onRawObstacles 와 계획 사이클이 같은 그룹으로 직렬화됨 — onObstacles 와 동일 계약).
+  bool raw_slowdown_enable_{true};
+  std::string raw_slowdown_topic_{"/static_obs"};
+  double raw_slowdown_trigger_distance_m_{12.0};
+  double raw_slowdown_speed_cap_mps_{2.8};
+  double raw_slowdown_hold_sec_{1.0};
+  double raw_slowdown_lateral_margin_m_{0.25};
+  struct RawHintObstacle
+  {
+    double s_start{0.0};
+    double s_end{0.0};
+    double d_left{0.0};
+    double d_right{0.0};
+  };
+  std::vector<RawHintObstacle> latest_raw_obstacles_;
+  std::optional<rclcpp::Time> raw_hint_hold_until_;
+  double raw_hint_s_start_{0.0};
+  double raw_hint_s_end_{0.0};
   int initial_observation_count_{3};
   double initial_observation_min_duration_sec_{0.15};
   double initial_observation_max_wait_sec_{0.35};

@@ -1241,6 +1241,41 @@ f110_msgs::msg::WpntArray RacelineSplinePlanner::buildGlobalHandoffPath(
   return path;
 }
 
+f110_msgs::msg::WpntArray RacelineSplinePlanner::buildRawSlowdownPath(
+  const EgoFrenetState & ego, double state_tail_distance_m,
+  double obstacle_front_m, double obstacle_span_m,
+  double cap_mps, double decel_mps2) const
+{
+  // 기하는 검증된 핸드오프 루프(복귀 램프·벽 협착 클램프 포함)를 그대로 쓰고 속도만
+  // 다시 쓴다. 속도 상한을 무한대로 넘겨 루프의 flat 캡을 무효화한다.
+  f110_msgs::msg::WpntArray path = buildGlobalHandoffPath(
+    ego, state_tail_distance_m, std::numeric_limits<double>::infinity());
+  if (path.wpnts.empty() || !(cap_mps > 0.0) || !(decel_mps2 > 0.0) ||
+    !std::isfinite(obstacle_front_m) || !std::isfinite(obstacle_span_m))
+  {
+    return path;
+  }
+  const double front = std::max(0.0, obstacle_front_m);
+  // 스팬 뒤 1 m 까지 cap 을 유지한다: s_end 은 라이다가 앞면만 봐서 과소평가되는 값이라
+  // (run_192006 접촉 #3), 뒤끝 직후 재가속을 한 박자 늦춘다.
+  const double hold_until = front + std::max(0.0, obstacle_span_m) + 1.0;
+  for (auto & waypoint : path.wpnts) {
+    const double forward = forwardDistance(ego.s, waypoint.s_m);
+    if (forward >= 0.5 * trackLength()) {
+      continue;  // 자차 뒤쪽 절반은 건드리지 않는다
+    }
+    double limit = std::numeric_limits<double>::infinity();
+    if (forward <= front) {
+      // 전방 front 지점에서 정확히 cap 에 닿는 감속 실현 가능 프로파일.
+      limit = std::sqrt(cap_mps * cap_mps + 2.0 * decel_mps2 * (front - forward));
+    } else if (forward <= hold_until) {
+      limit = cap_mps;
+    }
+    waypoint.vx_mps = std::min(waypoint.vx_mps, limit);
+  }
+  return path;
+}
+
 f110_msgs::msg::WpntArray RacelineSplinePlanner::buildEmergencyStopPath(
   const EgoFrenetState & ego) const
 {

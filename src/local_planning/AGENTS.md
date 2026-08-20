@@ -326,6 +326,39 @@
   cap to global handoff geometry; safe-stop keeps its separate braking profile.
 - Handle closed-track `s` wrap explicitly. Never encode a waypoint index in Frenet odometry fields.
 
+## Invalidation and safe-stop authority (A1/A2, 2026-08-20)
+
+- On a P3 lifecycle invalidation the node must call `invalidateCommitment()` BEFORE the
+  maneuver-hold gate runs. A post-invalidation `committed_result_` has no custodian: the hold
+  gate and backup pipeline only re-validate it against the CURRENT obstacle snapshot, and on
+  detection-hole frames that validation trivially passes, republishing the dead maneuver's
+  accelerating tail (run_192006 contact #4: command jumped 2.0 -> 6.0 m/s into the obstacle).
+  `invalidateCommitment()` preserves `completed_obstacle_ids_`, `maneuver_obstacle_rear_s_`,
+  `completion_deferred_since_`, and the safe-stop latch; `clearCommitment()` wipes those too.
+- While the safe-stop latch is active, `handleSafeStopLatch` is the ONLY publisher, including
+  inside `holdForManeuverObstacleAhead`. Never bypass it back to `committed_result_` on frames
+  where the snapshot happens to be empty; release goes through the existing ladder
+  (valid avoidance / obstacle passed / stopped corridor clear).
+
+## Raw slowdown hint (B1, 2026-08-20)
+
+- The planner additionally subscribes `raw_slowdown_topic` (default `/static_obs`) and uses it
+  for SPEED ONLY. Avoidance geometry, commitments, guards, and stops keep consuming
+  `obstacles_topic` (`/confirmed_static_obs`) exclusively.
+- When the confirmed view is empty (plan returns `kNoObstacle`) and a raw obstacle within
+  `raw_slowdown_trigger_distance_m` laterally intersects the race line (envelope inflated by
+  `raw_slowdown_lateral_margin_m`), publish a `kPreparation` path: the vetted global-handoff
+  loop geometry with speeds ramped down at `approach_feasibility_decel_mps2` to
+  `raw_slowdown_speed_cap_mps` at the obstacle front, held through the span + 1 m.
+- Rationale (measured, 3 bags): raw appears 4.5-11 m ahead while confirmed promotion is
+  time-based, so pre-braking halves the distance the promotion latency consumes; passes where
+  promotion never completed (14/107 in run_080532) become slow passes instead of blind hits.
+- The hint check must stay BEFORE the `kNoObstacle && STATE_AVOID -> global handoff` branch,
+  or the two publications alternate frame by frame. `raw_slowdown_hold_sec` bridges detector
+  streak-reset flicker; do not remove it.
+- The hint must never stop the car and never trigger for objects that do not intersect the
+  line — it is a hint, not a hazard response. Hazard responses stay confirmed-only.
+
 ## Interfaces
 
 - Subscribe: `/global_waypoints` (`f110_msgs/msg/WpntArray`).
@@ -338,6 +371,9 @@
   `position.y=d`.
 - Subscribe: `/state` (`f110_msgs/msg/StateMachine`) for explicit AVOID-to-GLOBAL handoff
   acknowledgement.
+- Subscribe: `raw_slowdown_topic` (default `/static_obs`, `f110_msgs/msg/ObstacleArray`) for the
+  B1 speed hint only; see the "Raw slowdown hint" section. Skipped when it equals
+  `obstacles_topic`.
 - Publish: `/avoid_waypoints` (`f110_msgs/msg/OTWpntArray`) as an ego-to-merge segment with
   map-frame Cartesian `x_m/y_m` populated for every waypoint.
 - Publish debug: `/local_planning/path` (`nav_msgs/msg/Path`) only.
