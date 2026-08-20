@@ -1,4 +1,3 @@
-#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <functional>
@@ -8,8 +7,6 @@
 
 #include "rclcpp/rclcpp.hpp"
 #include "f110_msgs/msg/wpnt_array.hpp"
-#include "geometry_msgs/msg/point.hpp"
-#include "std_msgs/msg/color_rgba.hpp"
 #include "std_msgs/msg/float32.hpp"
 #include "std_msgs/msg/string.hpp"
 #include "visualization_msgs/msg/marker.hpp"
@@ -37,19 +34,11 @@ public:
     declare_parameter("map_name", "");
     declare_parameter("map_path", "");
     declare_parameter("publish_period_sec", 2.0);
-    // Marker generation (RViz visualization). The offline generator writes empty
-    // marker arrays, so this node builds them from the waypoints instead.
-    declare_parameter("marker_frame_id", "map");
-    declare_parameter("traj_marker_width", 0.10);
-    declare_parameter("trackbound_marker_width", 0.05);
 
     publish_markers_ = get_parameter("publish_markers").as_bool();
     publish_shortest_path_ = get_parameter("publish_shortest_path").as_bool();
     publish_centerline_ = get_parameter("publish_centerline").as_bool();
     publish_lattice_ = get_parameter("publish_lattice").as_bool();
-    marker_frame_id_ = get_parameter("marker_frame_id").as_string();
-    traj_marker_width_ = get_parameter("traj_marker_width").as_double();
-    trackbound_marker_width_ = get_parameter("trackbound_marker_width").as_double();
 
     const auto latched_qos = rclcpp::QoS(1).reliable().transient_local();
     glb_wpnts_pub_ = create_publisher<f110_msgs::msg::WpntArray>("/global_waypoints", latched_qos);
@@ -97,8 +86,16 @@ public:
         RCLCPP_WARN(get_logger(), "%s", error_msg.c_str());
       } else {
         has_bundle_ = true;
-        generateMarkers();
         RCLCPP_INFO(get_logger(), "loaded global waypoints from %s", map_dir.c_str());
+        // Markers are baked into the JSON by the offline generator; this node builds
+        // none. An older JSON written before that change carries empty arrays, which
+        // would silently leave RViz blank -- say so instead.
+        if (publish_markers_ && bundle_.global_traj_markers_iqp.markers.empty()) {
+          RCLCPP_WARN(
+            get_logger(),
+            "%s has no RViz markers; regenerate it with generate_global_trajectory.py",
+            map_dir.c_str());
+        }
       }
     }
 
@@ -109,151 +106,6 @@ public:
   }
 
 private:
-  // Fill any marker array that the source JSON left empty by building it from the
-  // corresponding waypoint list. Non-empty arrays (if the JSON ever provides them)
-  // are left untouched.
-  void generateMarkers()
-  {
-    if (bundle_.global_traj_markers_iqp.markers.empty()) {
-      bundle_.global_traj_markers_iqp =
-        buildTrajectoryMarkers(bundle_.global_traj_wpnts_iqp, "global_traj_iqp");
-    }
-    if (bundle_.trackbounds_markers.markers.empty()) {
-      bundle_.trackbounds_markers = buildTrackboundMarkers(bundle_.global_traj_wpnts_iqp);
-    }
-    if (publish_centerline_ && bundle_.centerline_markers.markers.empty()) {
-      bundle_.centerline_markers =
-        buildPlainLineMarkers(bundle_.centerline_waypoints, "centerline", 0.5f, 0.5f, 0.5f);
-    }
-  }
-
-  visualization_msgs::msg::Marker makeLineStrip(
-    const std::string & ns, const int id, const double width,
-    const float r, const float g, const float b, const float a) const
-  {
-    visualization_msgs::msg::Marker m;
-    m.header.frame_id = marker_frame_id_;
-    m.ns = ns;
-    m.id = id;
-    m.type = visualization_msgs::msg::Marker::LINE_STRIP;
-    m.action = visualization_msgs::msg::Marker::ADD;
-    m.scale.x = width;
-    m.pose.orientation.w = 1.0;
-    m.color.r = r;
-    m.color.g = g;
-    m.color.b = b;
-    m.color.a = a;
-    return m;
-  }
-
-  // Racing line as a speed-colored LINE_STRIP (green = slow, red = fast).
-  visualization_msgs::msg::MarkerArray buildTrajectoryMarkers(
-    const f110_msgs::msg::WpntArray & wpnts, const std::string & ns) const
-  {
-    visualization_msgs::msg::MarkerArray arr;
-    if (wpnts.wpnts.empty()) {
-      return arr;
-    }
-
-    double vmin = std::numeric_limits<double>::max();
-    double vmax = std::numeric_limits<double>::lowest();
-    for (const auto & w : wpnts.wpnts) {
-      vmin = std::min(vmin, w.vx_mps);
-      vmax = std::max(vmax, w.vx_mps);
-    }
-    const double span = (vmax - vmin) > 1e-6 ? (vmax - vmin) : 1.0;
-
-    auto m = makeLineStrip(ns, 0, traj_marker_width_, 1.0f, 1.0f, 1.0f, 1.0f);
-    m.points.reserve(wpnts.wpnts.size() + 1);
-    m.colors.reserve(wpnts.wpnts.size() + 1);
-    for (const auto & w : wpnts.wpnts) {
-      geometry_msgs::msg::Point p;
-      p.x = w.x_m;
-      p.y = w.y_m;
-      p.z = 0.0;
-      m.points.push_back(p);
-
-      const double t = std::clamp((w.vx_mps - vmin) / span, 0.0, 1.0);
-      std_msgs::msg::ColorRGBA c;
-      c.r = static_cast<float>(t);
-      c.g = static_cast<float>(1.0 - t);
-      c.b = 0.0f;
-      c.a = 1.0f;
-      m.colors.push_back(c);
-    }
-    // Close the loop back to the first waypoint.
-    if (wpnts.wpnts.size() > 2) {
-      m.points.push_back(m.points.front());
-      m.colors.push_back(m.colors.front());
-    }
-
-    arr.markers.push_back(m);
-    return arr;
-  }
-
-  // Left and right track boundaries derived from d_left/d_right offset along the
-  // path normal (psi +/- 90 deg).
-  visualization_msgs::msg::MarkerArray buildTrackboundMarkers(
-    const f110_msgs::msg::WpntArray & wpnts) const
-  {
-    visualization_msgs::msg::MarkerArray arr;
-    if (wpnts.wpnts.empty()) {
-      return arr;
-    }
-
-    auto left = makeLineStrip("trackbound_left", 0, trackbound_marker_width_, 0.2f, 0.6f, 1.0f, 1.0f);
-    auto right = makeLineStrip("trackbound_right", 1, trackbound_marker_width_, 0.2f, 0.6f, 1.0f, 1.0f);
-    left.points.reserve(wpnts.wpnts.size() + 1);
-    right.points.reserve(wpnts.wpnts.size() + 1);
-    for (const auto & w : wpnts.wpnts) {
-      const double s = std::sin(w.psi_rad);
-      const double c = std::cos(w.psi_rad);
-      geometry_msgs::msg::Point lp;
-      lp.x = w.x_m - w.d_left * s;   // left normal = psi + 90 deg -> (-sin, cos)
-      lp.y = w.y_m + w.d_left * c;
-      lp.z = 0.0;
-      geometry_msgs::msg::Point rp;
-      rp.x = w.x_m + w.d_right * s;  // right normal = psi - 90 deg -> (sin, -cos)
-      rp.y = w.y_m - w.d_right * c;
-      rp.z = 0.0;
-      left.points.push_back(lp);
-      right.points.push_back(rp);
-    }
-    if (wpnts.wpnts.size() > 2) {
-      left.points.push_back(left.points.front());
-      right.points.push_back(right.points.front());
-    }
-
-    arr.markers.push_back(left);
-    arr.markers.push_back(right);
-    return arr;
-  }
-
-  // Single flat-colored LINE_STRIP (used for the centerline).
-  visualization_msgs::msg::MarkerArray buildPlainLineMarkers(
-    const f110_msgs::msg::WpntArray & wpnts, const std::string & ns,
-    const float r, const float g, const float b) const
-  {
-    visualization_msgs::msg::MarkerArray arr;
-    if (wpnts.wpnts.empty()) {
-      return arr;
-    }
-    auto m = makeLineStrip(ns, 0, trackbound_marker_width_, r, g, b, 1.0f);
-    m.points.reserve(wpnts.wpnts.size() + 1);
-    for (const auto & w : wpnts.wpnts) {
-      geometry_msgs::msg::Point p;
-      p.x = w.x_m;
-      p.y = w.y_m;
-      p.z = 0.0;
-      m.points.push_back(p);
-    }
-    if (wpnts.wpnts.size() > 2) {
-      m.points.push_back(m.points.front());
-    }
-    arr.markers.push_back(m);
-    return arr;
-  }
-
   void publish_all()
   {
     if (!has_bundle_) {
@@ -285,10 +137,6 @@ private:
   bool publish_shortest_path_{true};
   bool publish_centerline_{false};
   bool publish_lattice_{false};
-
-  std::string marker_frame_id_{"map"};
-  double traj_marker_width_{0.10};
-  double trackbound_marker_width_{0.05};
 
   bool has_bundle_{false};
   GlobalWaypointBundle bundle_;

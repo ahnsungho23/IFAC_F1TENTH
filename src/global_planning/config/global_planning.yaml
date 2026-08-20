@@ -19,10 +19,9 @@ global_trajectory_publisher_node:
     publish_centerline: true
     publish_lattice: false
     publish_period_sec: 2.0
-    # Marker generation (node builds RViz markers from waypoints; JSON has none).
-    marker_frame_id: "map"
-    traj_marker_width: 0.10
-    trackbound_marker_width: 0.05
+    # RViz markers are baked into global_waypoints.json by generate_global_trajectory.py.
+    # This node only republishes them, so marker style lives in the generator constants
+    # (MARKER_FRAME_ID / TRAJ_MARKER_WIDTH / TRACKBOUND_MARKER_WIDTH), not here.
 
 frenet_odom_node:
   ros__parameters:

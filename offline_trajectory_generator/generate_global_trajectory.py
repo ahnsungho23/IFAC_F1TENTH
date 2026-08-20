@@ -1365,6 +1365,112 @@ def wpnt_array(traj: Trajectory) -> dict:
     }
 
 
+# --- RViz marker payloads -------------------------------------------------
+# Baked into global_waypoints.json so global_trajectory_publisher_node can
+# republish them without deriving any geometry at runtime. Styles are module
+# constants on purpose: parameterizing them here would create a second source of
+# truth next to the node's YAML.
+MARKER_FRAME_ID = "map"
+TRAJ_MARKER_WIDTH = 0.10
+TRACKBOUND_MARKER_WIDTH = 0.05
+MARKER_LINE_STRIP = 4  # visualization_msgs/Marker.LINE_STRIP
+MARKER_ADD = 0  # visualization_msgs/Marker.ADD
+
+
+def marker_point(x: float, y: float) -> dict:
+    return {"x": float(x), "y": float(y), "z": 0.0}
+
+
+def marker_color(r: float, g: float, b: float) -> dict:
+    return {"r": float(r), "g": float(g), "b": float(b), "a": 1.0}
+
+
+def line_strip(ns: str, marker_id: int, width: float, color: dict) -> dict:
+    return {
+        "header": {"stamp": {"sec": 0, "nanosec": 0}, "frame_id": MARKER_FRAME_ID},
+        "ns": ns,
+        "id": marker_id,
+        "type": MARKER_LINE_STRIP,
+        "action": MARKER_ADD,
+        "pose": {
+            "position": marker_point(0.0, 0.0),
+            "orientation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0},
+        },
+        "scale": {"x": width, "y": 0.0, "z": 0.0},
+        "color": color,
+        "lifetime": {"sec": 0, "nanosec": 0},
+        "frame_locked": False,
+        "points": [],
+        "colors": [],
+        "text": "",
+        "mesh_resource": "",
+        "mesh_use_embedded_materials": False,
+    }
+
+
+def trajectory_markers(traj: Trajectory) -> dict:
+    """Racing line as a speed-colored LINE_STRIP (green = slow, red = fast)."""
+    n = len(traj.points_xy)
+    if n == 0:
+        return {"markers": []}
+
+    vmin = float(np.min(traj.vx_mps))
+    vmax = float(np.max(traj.vx_mps))
+    span = (vmax - vmin) if (vmax - vmin) > 1e-6 else 1.0
+
+    marker = line_strip("global_traj_iqp", 0, TRAJ_MARKER_WIDTH, marker_color(1.0, 1.0, 1.0))
+    for i, point in enumerate(traj.points_xy):
+        marker["points"].append(marker_point(point[0], point[1]))
+        t = min(max((float(traj.vx_mps[i]) - vmin) / span, 0.0), 1.0)
+        marker["colors"].append(marker_color(t, 1.0 - t, 0.0))
+    if n > 2:  # close the loop back to the first waypoint
+        marker["points"].append(marker["points"][0])
+        marker["colors"].append(marker["colors"][0])
+    return {"markers": [marker]}
+
+
+def trackbound_markers(traj: Trajectory) -> dict:
+    """Left/right bounds offset along the path normal (psi +/- 90 deg)."""
+    n = len(traj.points_xy)
+    if n == 0:
+        return {"markers": []}
+
+    color = marker_color(0.2, 0.6, 1.0)
+    left = line_strip("trackbound_left", 0, TRACKBOUND_MARKER_WIDTH, color)
+    right = line_strip("trackbound_right", 1, TRACKBOUND_MARKER_WIDTH, color)
+    for i, point in enumerate(traj.points_xy):
+        sin_psi = math.sin(float(traj.psi_rad[i]))
+        cos_psi = math.cos(float(traj.psi_rad[i]))
+        d_left = float(traj.d_left[i])
+        d_right = float(traj.d_right[i])
+        left["points"].append(
+            marker_point(point[0] - d_left * sin_psi, point[1] + d_left * cos_psi)
+        )
+        right["points"].append(
+            marker_point(point[0] + d_right * sin_psi, point[1] - d_right * cos_psi)
+        )
+    if n > 2:
+        left["points"].append(left["points"][0])
+        right["points"].append(right["points"][0])
+    return {"markers": [left, right]}
+
+
+def centerline_markers(traj: Trajectory) -> dict:
+    """Single flat-colored LINE_STRIP for the centerline."""
+    n = len(traj.points_xy)
+    if n == 0:
+        return {"markers": []}
+
+    marker = line_strip(
+        "centerline", 0, TRACKBOUND_MARKER_WIDTH, marker_color(0.5, 0.5, 0.5)
+    )
+    for point in traj.points_xy:
+        marker["points"].append(marker_point(point[0], point[1]))
+    if n > 2:
+        marker["points"].append(marker["points"][0])
+    return {"markers": [marker]}
+
+
 def csv_number(value: float) -> str:
     rounded = round(float(value), 6)
     if abs(rounded) < 0.0000005:
@@ -1431,13 +1537,14 @@ def write_outputs(
             )
         },
         "est_lap_time": {"data": lap_time},
-        "centerline_markers": {"markers": []},
+        "centerline_markers": centerline_markers(center_traj),
         "centerline_waypoints": wpnt_array(center_traj),
-        "global_traj_markers_iqp": {"markers": []},
+        "global_traj_markers_iqp": trajectory_markers(global_traj),
         "global_traj_wpnts_iqp": wpnt_array(global_traj),
+        # The republisher never reads sp markers, so leave them empty.
         "global_traj_markers_sp": {"markers": []},
         "global_traj_wpnts_sp": wpnt_array(global_traj),
-        "trackbounds_markers": {"markers": []},
+        "trackbounds_markers": trackbound_markers(global_traj),
     }
     (output_dir / "global_waypoints.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
