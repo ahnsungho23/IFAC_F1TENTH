@@ -331,6 +331,10 @@ private:
   double merge_lateral_tolerance_m_{0.15};
   int merge_confirm_cycles_{15};
   int safe_stop_release_cycles_{8};
+  // 근접 사각 타임아웃 해제 (kStoppedBlindTimeout): 정지 + 기억 위험구간 전방 상태에서
+  // 신선한 빈 프레임이 이 시간만큼 이어지면 크립 캡 핸드오프로 해제. 0 이하 = 비활성.
+  double safe_stop_blind_release_sec_{4.0};
+  double safe_stop_blind_creep_speed_mps_{0.7};
   int planning_period_ms_{50};
   double state_handoff_tail_distance_m_{6.0};
   double state_handoff_speed_cap_mps_{6.0};

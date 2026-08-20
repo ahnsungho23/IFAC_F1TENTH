@@ -432,6 +432,10 @@ void LocalPlannerNode::initializeParameters()
   merge_lateral_tolerance_m_ = declare_parameter<double>("merge_lateral_tolerance_m", 0.15);
   merge_confirm_cycles_ = declare_parameter<int>("merge_confirm_cycles", 15);
   safe_stop_release_cycles_ = declare_parameter<int>("safe_stop_release_cycles", 8);
+  safe_stop_blind_release_sec_ =
+    declare_parameter<double>("safe_stop_blind_release_sec", 4.0);
+  safe_stop_blind_creep_speed_mps_ =
+    declare_parameter<double>("safe_stop_blind_creep_speed_mps", 0.7);
   planning_period_ms_ = declare_parameter<int>("planning_period_ms", 50);
   state_handoff_tail_distance_m_ =
     declare_parameter<double>("state_handoff_tail_distance_m", 6.0);
@@ -575,6 +579,9 @@ void LocalPlannerNode::initializeParameters()
   }
   if (planning_period_ms_ <= 0 || merge_confirm_cycles_ <= 0 ||
     safe_stop_release_cycles_ <= 0 ||
+    !std::isfinite(safe_stop_blind_release_sec_) ||
+    !std::isfinite(safe_stop_blind_creep_speed_mps_) ||
+    !(safe_stop_blind_creep_speed_mps_ > 0.0) ||
     !std::isfinite(planner_parameters_.vehicle_length_m) ||
     !(planner_parameters_.vehicle_length_m > 0.0) ||
     !std::isfinite(planner_parameters_.vehicle_half_width_m) ||
@@ -2060,7 +2067,8 @@ bool LocalPlannerNode::activateGlobalHandoff(
 {
   if (safe_stop_lifecycle_.active() &&
     safe_stop_release_reason != SafeStopReleaseReason::kObstaclePassed &&
-    safe_stop_release_reason != SafeStopReleaseReason::kStoppedCorridorClear)
+    safe_stop_release_reason != SafeStopReleaseReason::kStoppedCorridorClear &&
+    safe_stop_release_reason != SafeStopReleaseReason::kStoppedBlindTimeout)
   {
     RCLCPP_WARN(
       get_logger(),
@@ -2277,12 +2285,16 @@ SafeStopCycleDecision LocalPlannerNode::evaluateSafeStopLifecycle(
   const double stopped_speed_threshold =
     planner_parameters_.safe_stop_deceleration_mps2 *
     static_cast<double>(planning_period_ms_) / 1000.0;
+  const int blind_release_cycles = safe_stop_blind_release_sec_ > 0.0 ?
+    std::max(1, static_cast<int>(std::lround(
+      safe_stop_blind_release_sec_ * 1000.0 / static_cast<double>(planning_period_ms_)))) : 0;
   auto decision = safe_stop_lifecycle_.evaluate(
     input, planner_.trackLength(), planner_parameters_.safe_stop_buffer_m,
-    stopped_speed_threshold, safe_stop_release_cycles_);
+    stopped_speed_threshold, safe_stop_release_cycles_, blind_release_cycles);
   if (!input.replanned_no_obstacle &&
     (decision.release_reason == SafeStopReleaseReason::kObstaclePassed ||
-    decision.release_reason == SafeStopReleaseReason::kStoppedCorridorClear))
+    decision.release_reason == SafeStopReleaseReason::kStoppedCorridorClear ||
+    decision.release_reason == SafeStopReleaseReason::kStoppedBlindTimeout))
   {
     decision.raceline_global_handoff_allowed = false;
   }
@@ -2446,6 +2458,42 @@ void LocalPlannerNode::handleSafeStopLatch(const EgoFrenetState & ego)
       "Safe-stop released after the stopped vehicle observed a persistently clear corridor.");
     publishResult(committed_result_);
     return;
+  }
+
+  // 근접 사각 타임아웃 해제 (2026-08-21 시뮬 교착): 정지 + 기억 위험구간이 코앞(전방)인데
+  // 신선한 빈 프레임만 blind_release_sec 동안 이어졌다. 유령이었거나 실물이 검출 사각에
+  // 있다 — 어느 쪽이든 영구 정지는 최악이므로, 기억 위험구간 위로 크립 캡을 씌운
+  // 핸드오프로 풀어 준다. 실물이 남아 있어도 접촉 속도가 크립으로 상한된다.
+  // ⚠️ activateGlobalHandoff 가 래치(activation)를 지우므로 구간 기하를 먼저 떠 둔다.
+  if (decision.release_reason == SafeStopReleaseReason::kStoppedBlindTimeout &&
+    !replanned_safe_stop && result.kind == SplinePlanKind::kNoObstacle)
+  {
+    const auto & activation = safe_stop_lifecycle_.activation();
+    const double half_track = 0.5 * planner_.trackLength();
+    double danger_front_m =
+      planner_.forwardDistance(ego.s, activation.obstacle_s_start);
+    if (danger_front_m > half_track) {
+      danger_front_m = 0.0;   // 시작점은 이미 지났다 — 구간 위에 서 있는 경우
+    }
+    double danger_span_m =
+      planner_.forwardDistance(activation.obstacle_s_start, activation.obstacle_s_end);
+    if (!(danger_span_m > 0.0) || danger_span_m > half_track) {
+      danger_span_m = 0.5;
+    }
+    if (activateGlobalHandoff(ego, decision.release_reason)) {
+      planner_.applyRawSlowdownProfile(
+        committed_result_.path, ego, danger_front_m, danger_span_m,
+        safe_stop_blind_creep_speed_mps_,
+        planner_parameters_.approach_feasibility_decel_mps2);
+      RCLCPP_WARN(
+        get_logger(),
+        "Safe-stop 근접 사각 타임아웃 해제: %.1f s 동안 관측 없음, 기억 위험구간 전방 "
+        "%.2f m(스팬 %.2f m) — 크립 %.1f m/s 캡 핸드오프로 탈출한다.",
+        safe_stop_blind_release_sec_, danger_front_m, danger_span_m,
+        safe_stop_blind_creep_speed_mps_);
+      publishResult(committed_result_);
+      return;
+    }
   }
 
   // 크립 소진 방어 (2026-08-20, run_192006 t≈143 벽충돌). 해제 사다리가 확정되지 않는 동안

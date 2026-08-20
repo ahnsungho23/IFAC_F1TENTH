@@ -457,9 +457,17 @@ local_planner_node:
     # planning_period_ms=25이므로 15회는 0.375초입니다.
     merge_confirm_cycles: 15
     # safe-stop 진입은 즉시 수행합니다. 이 8회는 동일 obstacle의 selectable hard-valid avoidance
-    # 또는 정지 후 explicit corridor-clear 관측의 보조 debounce이며, empty array는 집계하지 않습니다.
+    # 또는 정지 후 corridor-clear 관측의 보조 debounce입니다. 빈 배열 프레임은 래치 이후의
+    # 신선한 시퀀스이고 기억 위험구간 끝을 ego가 이미 지났을 때에만 clear 증거로 집계합니다
+    # (2026-08-21 run_052119 t=62 교착 수리 — 위험구간이 아직 전방이면 빈 프레임으로는 안 풀림).
 
     safe_stop_release_cycles: 8
+    # 근접 사각 타임아웃 (kStoppedBlindTimeout): 정지 + 기억 위험구간이 아직 전방인데 신선한
+    # 빈 프레임만 이 시간[s] 동안 이어지면, 기억 위험구간 위로 아래 크립 속도 캡을 씌운
+    # 핸드오프로 해제합니다. 유령 검출이면 그냥 통과하고, 실물이 검출 사각에 남아 있어도
+    # 접촉 속도가 크립으로 상한됩니다 — 영구 정지(DNF)보다 낫습니다. 0 이하 = 비활성.
+    safe_stop_blind_release_sec: 4.0
+    safe_stop_blind_creep_speed_mps: 0.7
     planning_period_ms: 25
     # 기하 합류 후 전체 global loop를 회전해 발행하며, 경로 끝에서 이 호 길이[m]만큼의
     # tail 구간 첫 점에 ego를 놓습니다. state_machine의 enter_global_tail_distance_m와

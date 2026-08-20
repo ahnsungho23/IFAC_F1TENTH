@@ -28,6 +28,9 @@ enum class SafeStopReleaseReason
   kObstaclePassed,
   kValidAvoidance,
   kStoppedCorridorClear,
+  // 정지 + 기억 위험구간이 아직 전방 + 신선한 빈 프레임이 장시간 지속(근접 사각 추정).
+  // 해제 시 node 가 기억 위험구간 위로 크립 속도 캡을 씌운다 (2026-08-21 시뮬 교착 근거).
+  kStoppedBlindTimeout,
 };
 
 struct SafeStopActivation
@@ -66,6 +69,7 @@ struct SafeStopCycleDecision
   bool release_condition_c{false};
   int feasible_avoidance_count{0};
   int stopped_clear_count{0};
+  int stopped_blind_count{0};
   bool release_authorized{false};
   SafeStopReleaseReason release_reason{SafeStopReleaseReason::kNone};
   bool raceline_global_handoff_allowed{false};
@@ -79,12 +83,15 @@ public:
   bool active() const;
   const SafeStopActivation & activation() const;
 
+  // blind_release_cycles: 정지 + 위험구간 전방 상태에서 신선한 빈 프레임이 이 횟수만큼
+  // 쌓이면 kStoppedBlindTimeout 으로 해제한다. 0 이하 = 비활성(종전 거동).
   SafeStopCycleDecision evaluate(
     const SafeStopCycleInput & input,
     double track_length_m,
     double obstacle_pass_margin_m,
     double stopped_speed_threshold_mps,
-    int release_confirmation_cycles);
+    int release_confirmation_cycles,
+    int blind_release_cycles = 0);
 
 private:
   bool active_{false};
@@ -92,6 +99,8 @@ private:
   int feasible_avoidance_count_{0};
   int stopped_clear_count_{0};
   std::uint64_t last_counted_clear_sequence_{0};
+  int stopped_blind_count_{0};
+  std::uint64_t last_counted_blind_sequence_{0};
 };
 
 const char * safeStopReleaseReasonName(SafeStopReleaseReason reason);

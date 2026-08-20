@@ -156,6 +156,65 @@ TEST(SafeStopLifecycle, EmptyFramesReleaseStoppedVehicleOncePastLatchedDanger)
   }
 }
 
+TEST(SafeStopLifecycle, BlindTimeoutReleasesStoppedVehicleShortOfLatchedDanger)
+{
+  // 2026-08-21 시뮬 재현: 위험구간(15.0~15.6) 0.5 m 앞(ego 14.5)에 정지, 트랙 소실로
+  // 빈 프레임만 지속. A(전진 필요)·B(kAvoidance 필요)·C(위험구간 미통과)가 전부 봉쇄
+  // → 종전엔 영구 정지. blind_release_cycles 개의 신선한 빈 프레임이 쌓이면
+  // kStoppedBlindTimeout 으로 해제되어야 한다 (node 가 크립 캡을 씌운다).
+  constexpr int kBlindCycles = 20;
+  SafeStopLifecycle lifecycle;
+  lifecycle.activate(activation());
+  SafeStopCycleInput input;
+  input.ego_s = 14.5;
+  input.ego_speed_mps = 0.0;
+  input.static_obstacles_empty = true;
+
+  for (int cycle = 1; cycle <= kBlindCycles; ++cycle) {
+    input.obstacle_sequence = 42 + cycle;
+    const auto decision = lifecycle.evaluate(
+      input, kTrackLength, kPassMargin, kStoppedSpeed, kReleaseCycles, kBlindCycles);
+    EXPECT_FALSE(decision.release_condition_c) << "cycle " << cycle;
+    EXPECT_EQ(decision.release_authorized, cycle == kBlindCycles) << "cycle " << cycle;
+    if (cycle == kBlindCycles) {
+      EXPECT_EQ(decision.release_reason, SafeStopReleaseReason::kStoppedBlindTimeout);
+      EXPECT_TRUE(decision.raceline_global_handoff_allowed);
+    }
+  }
+}
+
+TEST(SafeStopLifecycle, BlindTimeoutDisabledOrInterruptedNeverReleases)
+{
+  // 비활성(blind_release_cycles=0)이면 종전 거동 그대로 영구 홀드. 깜빡임 재출현
+  // (비어 있지 않은 프레임)은 blind 스트릭을 즉시 끊는다.
+  SafeStopLifecycle lifecycle;
+  lifecycle.activate(activation());
+  SafeStopCycleInput input;
+  input.ego_s = 14.5;
+  input.ego_speed_mps = 0.0;
+  input.static_obstacles_empty = true;
+
+  for (int cycle = 1; cycle <= 60; ++cycle) {
+    input.obstacle_sequence = 42 + cycle;
+    const auto decision = lifecycle.evaluate(
+      input, kTrackLength, kPassMargin, kStoppedSpeed, kReleaseCycles, 0);
+    EXPECT_FALSE(decision.release_authorized) << "disabled, cycle " << cycle;
+  }
+
+  SafeStopLifecycle flicker;
+  flicker.activate(activation());
+  constexpr int kBlindCycles = 10;
+  for (int cycle = 1; cycle <= 8 * kBlindCycles; ++cycle) {
+    input.obstacle_sequence = 42 + cycle;
+    // kBlindCycles-1 개 빈 프레임마다 한 번씩 깜빡임(비어 있지 않은 프레임)이 끼어든다.
+    input.static_obstacles_empty = (cycle % kBlindCycles) != 0;
+    input.explicit_forward_corridor_clear = false;
+    const auto decision = flicker.evaluate(
+      input, kTrackLength, kPassMargin, kStoppedSpeed, kReleaseCycles, kBlindCycles);
+    EXPECT_FALSE(decision.release_authorized) << "flicker, cycle " << cycle;
+  }
+}
+
 TEST(SafeStopLifecycle, StaleOrRepeatedEmptyFramesDoNotAccumulateClearEvidence)
 {
   // 빈 프레임 해제의 신선도 계약: 래치 시퀀스(41) 이하의 프레임은 검출기 생존 증거가

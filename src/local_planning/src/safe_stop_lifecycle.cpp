@@ -52,6 +52,8 @@ void SafeStopLifecycle::activate(SafeStopActivation activation)
   feasible_avoidance_count_ = 0;
   stopped_clear_count_ = 0;
   last_counted_clear_sequence_ = 0;
+  stopped_blind_count_ = 0;
+  last_counted_blind_sequence_ = 0;
 }
 
 void SafeStopLifecycle::reset()
@@ -61,6 +63,8 @@ void SafeStopLifecycle::reset()
   feasible_avoidance_count_ = 0;
   stopped_clear_count_ = 0;
   last_counted_clear_sequence_ = 0;
+  stopped_blind_count_ = 0;
+  last_counted_blind_sequence_ = 0;
 }
 
 bool SafeStopLifecycle::active() const
@@ -78,7 +82,8 @@ SafeStopCycleDecision SafeStopLifecycle::evaluate(
   double track_length_m,
   double obstacle_pass_margin_m,
   double stopped_speed_threshold_mps,
-  int release_confirmation_cycles)
+  int release_confirmation_cycles,
+  int blind_release_cycles)
 {
   SafeStopCycleDecision decision;
   if (!active_) {
@@ -133,9 +138,29 @@ SafeStopCycleDecision SafeStopLifecycle::evaluate(
     last_counted_clear_sequence_ = 0;
   }
 
+  // 근접 사각 타임아웃 (2026-08-21 시뮬 재현: 기억 위험구간 0.1~0.2 m 전방에 정지,
+  // 트랙 소실 → A(전진 필요)·B(kAvoidance 필요)·C(위험구간 미통과라 빈 프레임 불인정)가
+  // 전부 봉쇄되어 영구 정지). 정지 상태에서 위험구간이 아직 전방인데 신선한 빈 프레임만
+  // 장시간 이어지면 — 유령이었거나 실물이 근접 사각에 있다 — kStoppedBlindTimeout 으로
+  // 해제한다. node 는 이 사유의 핸드오프에 기억 위험구간 크립 캡을 씌워, 실물이 남아
+  // 있어도 접촉 속도를 크립으로 상한한다. 비어 있지 않은 프레임(깜빡임 재출현)은 즉시
+  // 스트릭을 끊는다.
+  if (decision.vehicle_stopped && input.static_obstacles_empty &&
+    fresh_post_latch_frame && !latched_danger_behind)
+  {
+    if (input.obstacle_sequence != last_counted_blind_sequence_) {
+      ++stopped_blind_count_;
+      last_counted_blind_sequence_ = input.obstacle_sequence;
+    }
+  } else {
+    stopped_blind_count_ = 0;
+    last_counted_blind_sequence_ = 0;
+  }
+
   const int required_cycles = std::max(1, release_confirmation_cycles);
   decision.feasible_avoidance_count = feasible_avoidance_count_;
   decision.stopped_clear_count = stopped_clear_count_;
+  decision.stopped_blind_count = stopped_blind_count_;
   decision.release_condition_a = decision.obstacle_passed;
   decision.release_condition_b = feasible_avoidance_count_ >= required_cycles &&
     input.state_can_select_avoidance;
@@ -154,6 +179,10 @@ SafeStopCycleDecision SafeStopLifecycle::evaluate(
     decision.release_authorized = true;
     decision.release_reason = SafeStopReleaseReason::kStoppedCorridorClear;
     decision.raceline_global_handoff_allowed = true;
+  } else if (blind_release_cycles > 0 && stopped_blind_count_ >= blind_release_cycles) {
+    decision.release_authorized = true;
+    decision.release_reason = SafeStopReleaseReason::kStoppedBlindTimeout;
+    decision.raceline_global_handoff_allowed = true;
   }
   return decision;
 }
@@ -167,6 +196,8 @@ const char * safeStopReleaseReasonName(SafeStopReleaseReason reason)
       return "hard_valid_avoidance_selectable";
     case SafeStopReleaseReason::kStoppedCorridorClear:
       return "stopped_and_forward_corridor_persistently_clear";
+    case SafeStopReleaseReason::kStoppedBlindTimeout:
+      return "stopped_blind_timeout_creep_release";
     case SafeStopReleaseReason::kNone:
     default:
       return "none";
