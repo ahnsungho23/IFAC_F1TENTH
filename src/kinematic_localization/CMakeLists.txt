@@ -56,6 +56,7 @@ install(TARGETS localization_node mapping_node RUNTIME DESTINATION lib/${PROJECT
 install(DIRECTORY config launch maps DESTINATION share/${PROJECT_NAME})
 install(DIRECTORY docs DESTINATION share/${PROJECT_NAME})
 install(PROGRAMS scripts/pgm_to_kissmap.py scripts/compare_trajectory.py scripts/wall_rate.py
+                scripts/param_sweep.py
         DESTINATION lib/${PROJECT_NAME})
 
 if(BUILD_TESTING)

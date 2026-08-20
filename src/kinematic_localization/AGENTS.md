@@ -54,6 +54,12 @@ odometry does (e.g. in reverse driving). Interface is drop-in compatible with
   `max_points_per_voxel` (20) per 1 m voxel.
 - `scripts/wall_rate.py`: wall-alignment metric used to validate localization quality.
 - `scripts/compare_trajectory.py`: TUM trajectory comparison helper (from the KICP evaluation).
+- `scripts/param_sweep.py`: replays an mcap bag against the node with several
+  `smoothing_alpha_rot` values and reports the lag/jitter trade-off. Note: `residual_rms`
+  is blind to this parameter — the smoothing filter is output-only and never feeds back
+  into the ICP core (`last_pose_ = new_pose`), so the script measures published yaw lag
+  against an `alpha_rot = 1.0` reference run instead. ROS 2 Humble has no mcap storage
+  plugin, so the script replays the bag itself rather than calling `ros2 bag play`.
 
 ## Vendored Core
 

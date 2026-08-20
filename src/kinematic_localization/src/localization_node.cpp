@@ -125,6 +125,35 @@ public:
         // 미탐(false accept)의 대가는 벽이므로 **애매하면 거부하는 쪽으로 잡는다.**
         // 실패하면 미초기화로 되돌리고 /initialpose를 기다린다(= 발행 없음 →
         // 컨트롤러 odom 워치독이 차를 세운다, fail-safe).
+        // §8 (2026-08-21): fast-corner free mode. When the corner condition below
+        // holds, this frame is registered with every prior-side constraint
+        // dropped — odometry regularization Omega, the lateral regularization
+        // floor, the iteration cap, the convergence early-exit — and the two
+        // output-side gates (Mahalanobis, smoothing) are bypassed as well.
+        //
+        // Rationale (run_20260821_021805, 200-frame replay): the pose error
+        // scales with yaw rate, not speed — 7.7 cm / 0.72 deg below 0.3 rad/s
+        // vs 16.1 cm / 2.03 deg above 0.8 rad/s.
+        //
+        // 🔴 Signed regression showed the corner error is SCATTER, not bias
+        //    (correlation 0.04-0.15, under 2 % explained). Free mode is a
+        //    "let ICP see the data unconstrained" experiment, NOT a correction:
+        //    it may just as well widen the scatter. Off by default; validate on
+        //    the car before enabling.
+        // 🔴 With Omega = 0 the solve is bare Gauss-Newton and JTJ can be
+        //    singular in a degenerate view. The non-finite rollback below is
+        //    what keeps such frames from poisoning last_pose_ — do not remove it.
+        fast_corner_free_mode_ = declare_parameter<bool>("fast_corner_free_mode", false);
+        corner_yaw_rate_thresh_ = declare_parameter<double>("corner_yaw_rate_thresh", 0.8);
+        corner_speed_thresh_ = declare_parameter<double>("corner_speed_thresh", 3.0);
+        corner_lat_accel_thresh_ = declare_parameter<double>("corner_lat_accel_thresh", 6.0);
+        corner_free_max_iterations_ =
+            declare_parameter<int>("corner_free_max_iterations", 200);
+
+        // §7 (2026-08-21): align the odometry-prior window with the deskew
+        // reference instead of the raw msg stamps. See ProcessScan.
+        odom_window_at_scan_end_ =
+            declare_parameter<bool>("odom_window_at_scan_end", false);
         auto_init_validate_frames_ =
             declare_parameter<int>("auto_init_validate_frames", 40);
         auto_init_max_residual_ =
@@ -581,30 +610,62 @@ private:
         const auto &timestamps = std::get<2>(processed);
         const rclcpp::Time out_stamp = std::get<1>(processed);  // scan end (deskew reference)
         const rclcpp::Time stamp(msg->header.stamp);
+        // Window used for the wheel-odometry prior. Upstream ends it at the raw
+        // msg stamp, which is one scan duration (~25 ms) *before* the deskew
+        // reference (out_stamp). While cornering that offset feeds ICP a prior
+        // rotated by yaw_rate * scan_duration: 2.4 rad/s x 25 ms = 3.4 deg.
+        // Measured on run_20260821_021805: the residual pose correction scales
+        // with yaw rate (0.72 deg below 0.3 rad/s -> 2.03 deg above 0.8 rad/s)
+        // and not with speed, which is the signature of exactly this offset.
+        // odom_window_at_scan_end aligns the window with the deskew reference.
+        // 🔴 MEASURED AND REFUTED (2026-08-21, run_20260821_021805 334-375 s replay).
+        // Turning it on makes everything worse, roughly 2x:
+        //   corner yaw correction 2.84 -> 5.18 deg, corner position 15.5 -> 23.4 cm,
+        //   scan-to-map p50 0.096 -> 0.107 m, outliers >0.3 m 15.0 -> 21.9 %,
+        //   iterations 6 -> 10, yaw jerk 31 -> 64.
+        // Cause: OdomAt() clamps to the newest message once the end stamp runs
+        // past it, so the prior is *truncated* rather than shifted, and a
+        // truncated prior is worse than an offset one. Keep this false. The
+        // parameter is retained only so the experiment is not repeated blind.
+        const rclcpp::Time window_end = odom_window_at_scan_end_ ? out_stamp : stamp;
         const rclcpp::Time begin_stamp =
-            last_scan_stamp_.nanoseconds() > 0 ? last_scan_stamp_ : stamp;
-        last_scan_stamp_ = stamp;
+            last_odom_window_end_.nanoseconds() > 0 ? last_odom_window_end_ : window_end;
+        last_odom_window_end_ = window_end;
+        last_scan_stamp_ = stamp;  // watchdog anchor stays on the raw msg stamp
 
         // Wheel odometry prior from the /odom history, interpolated to the
         // window boundaries (nearest-message matching quantizes the prior by
         // up to half an odom period, which matters at 5 m/s)
         const auto T_begin = OdomAt(begin_stamp);
-        const auto T_end = OdomAt(stamp);
-        const double dt = (stamp - begin_stamp).seconds();
+        const auto T_end = OdomAt(window_end);
+        const double dt = (window_end - begin_stamp).seconds();
         Sophus::SE3d delta_odom;  // identity when no odometry is available
         double speed = 0.0;
         bool gate_rejected = false;
         double gate_d2 = 0.0;
         bool pose_ok = true;
         bool registered = false;
+        bool is_fast_corner = false;  // §8
         if (T_begin.has_value() && T_end.has_value()) {
             delta_odom = T_begin->inverse() * (*T_end);
             if (dt > 1e-6) speed = delta_odom.translation().norm() / dt;
+            // §8 fast-corner detection. yaw_rate is the primary criterion (the
+            // measured error scales with it); lateral accel is the secondary
+            // one because it lines up with the controller's grip-saturation
+            // warnings (7-12 m/s^2 in the same run).
+            const double yaw_rate =
+                (dt > 1e-6) ? std::abs(delta_odom.so3().log().z()) / dt : 0.0;
+            const double lat_accel = speed * yaw_rate;
+            is_fast_corner = fast_corner_free_mode_ &&
+                             speed >= corner_speed_thresh_ &&
+                             (yaw_rate >= corner_yaw_rate_thresh_ ||
+                              lat_accel >= corner_lat_accel_thresh_);
             // Always register, even when (nearly) stationary: the frozen map
             // is never polluted by scans, and ICP can pull the pose back onto
             // the map while the car stands still.
             const auto &result =
-                icp_->RegisterFrame(points, timestamps, *lidar_to_base_, delta_odom);
+                icp_->RegisterFrame(points, timestamps, *lidar_to_base_, delta_odom,
+                                    is_fast_corner, corner_free_max_iterations_);
             registered = true;
             // Deep defense against the core NaN paths (see the Registration.cpp
             // patch): never let a non-finite pose reach the output or poison
@@ -622,7 +683,9 @@ private:
             // the §3 diagnostics (R = rms^2 * JTJ^-1). Rejected frames publish
             // the prediction and roll the core back through the non-const
             // pose() accessor (SetPose would clear the frozen map).
-            if (gate_enable_ && has_last_out_) {
+            // §8: in a fast corner the gate is bypassed — it would reject
+            // exactly the large corrections this mode exists to let through.
+            if (gate_enable_ && has_last_out_ && !is_fast_corner) {
                 gate_rejected = ApplyGate(delta_odom, &gate_d2);
             }
             // Pose validity (§4): never rejects on its own (a wide veto blocks
@@ -659,7 +722,7 @@ private:
         Sophus::SE3d T_out = T_icp;
         double alpha_used = 1.0;
         double alpha_rot_used = 1.0;
-        if (smoothing_enable_ && has_last_out_) {
+        if (smoothing_enable_ && has_last_out_ && !is_fast_corner) {  // §8 bypass
             const Sophus::SE3d T_pred = last_out_ * delta_odom;
             const Sophus::SE3d err = T_pred.inverse() * T_icp;
             double alpha = smoothing_alpha_;
@@ -1053,6 +1116,13 @@ private:
     std::string lidar_topic_, odom_topic_, pose_topic_, initial_pose_topic_;
     std::string map_frame_, odom_frame_, base_frame_, map_name_;
     // MCL 호환 자동 초기화 상태
+    bool fast_corner_free_mode_ = false;
+    double corner_yaw_rate_thresh_ = 0.8;
+    double corner_speed_thresh_ = 3.0;
+    double corner_lat_accel_thresh_ = 6.0;
+    int corner_free_max_iterations_ = 200;
+    bool odom_window_at_scan_end_ = false;
+    rclcpp::Time last_odom_window_end_{0, 0, RCL_ROS_TIME};
     bool auto_init_from_waypoints_ = true;
     std::string auto_init_topic_ = "/global_waypoints";
     bool auto_init_done_ = false;
