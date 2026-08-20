@@ -38,11 +38,11 @@
 #include <Eigen/Core>
 #include <ament_index_cpp/get_package_share_directory.hpp>
 #include <algorithm>
-#include <cmath>
 #include <chrono>
 #include <cstdio>
 #include <deque>
 #include <diagnostic_msgs/msg/diagnostic_array.hpp>
+#include <f110_msgs/msg/wpnt_array.hpp>
 #include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <kiss_icp/core/Preprocessing.hpp>
@@ -79,6 +79,37 @@ public:
         base_frame_ = declare_parameter<std::string>("base_frame", "base_link");
         publish_map_odom_tf_ = declare_parameter<bool>("publish_map_odom_tf", true);
         map_name_ = declare_parameter<std::string>("map_name", "");
+
+        // MCL(particle_filter_cpp) 호환: /global_waypoints의 첫 웨이포인트(스타트라인
+        // 자세)로 자동 초기화한다. MCL의 `auto_init_from_waypoints`와 같은 규약이라,
+        // 이 노드로 갈아타도 "RViz 2D Pose Estimate를 매번 찍어야 하는" 운영 변화가
+        // 없다. `/initialpose`가 먼저 오면 그쪽이 이긴다(사람이 찍은 값 우선).
+        // ⚠️ 차가 스타트라인 근처(수렴 베이슨 ≈ voxel_size 1.0 m)에 있을 때만 맞는다.
+        //    엉뚱한 곳에서 켜면 잘못된 포즈를 자신 있게 발행하므로, 그런 운용이면
+        //    false로 두고 /initialpose를 쓸 것(그때는 발행 자체를 안 해 컨트롤러
+        //    odom 워치독이 차를 세운다 = fail-safe).
+        auto_init_from_waypoints_ =
+            declare_parameter<bool>("auto_init_from_waypoints", true);
+        auto_init_topic_ =
+            declare_parameter<std::string>("auto_init_topic", "/global_waypoints");
+        // 자동 초기화 검증(수동 /initialpose에는 적용하지 않는다 — 사람이 본 것이므로).
+        // 🔴 이 게이트가 없으면 auto-init은 위험하다: 스타트라인에서 4.7 m 떨어진
+        //    자세로 초기화한 재생에서 ICP가 **끝내 회복하지 못하고**(60초 내내 9~16 m
+        //    이탈) 그 틀린 포즈를 40 Hz로 조용히 계속 발행했다. 수렴 베이슨이
+        //    voxel_size(1.0 m) 수준이라 구조적으로 못 돌아온다.
+        // 그래서 초기화 직후 `auto_init_validate_frames` 프레임 동안 **발행을 보류**하고
+        // 정합 품질만 본다. run_0818_182531 재생 실측 residual_rms 중앙값(40프레임):
+        //   정상 초기화 0.19 (관측 최악 0.275) / 4.7 m 오초기화 0.45~0.54
+        // 분리비가 2.3배로 일정해 warmup 없이도 갈린다. 임계 0.35는 관측 최악 정상의
+        // 1.27배이자 오초기화 중앙값의 0.78배 — 딱 중간이다. 오탐(false reject)의 대가는
+        // "사람이 2D Pose Estimate를 한 번 찍는 것"(= 포팅 전과 같은 절차)이고,
+        // 미탐(false accept)의 대가는 벽이므로 **애매하면 거부하는 쪽으로 잡는다.**
+        // 실패하면 미초기화로 되돌리고 /initialpose를 기다린다(= 발행 없음 →
+        // 컨트롤러 odom 워치독이 차를 세운다, fail-safe).
+        auto_init_validate_frames_ =
+            declare_parameter<int>("auto_init_validate_frames", 40);
+        auto_init_max_residual_ =
+            declare_parameter<double>("auto_init_max_residual", 0.35);
 
         // Online SLAM mode: same pipeline, but the KISS local map is updated by
         // scans (freeze_local_map = false), no frozen map is loaded, and the
@@ -187,17 +218,6 @@ public:
         voxel_size_ = config.voxel_size;
         max_range_ = config.max_range;
 
-        // 차체 기울기(z축) 보상 — 근거·좌표 규약·측정법은 utils::LevelScan 주석 참고.
-        // ⚠️ mapping_node와 **같은 값**으로 켜고 끌 것(프로즌 맵이 같은 왜곡을 담고 있다).
-        tilt_compensation_enable_ = declare_parameter<bool>("tilt_compensation_enable", false);
-        tilt_cfg_.roll_gradient_rad_per_mps2 =
-            declare_parameter<double>("roll_gradient_rad_per_mps2", 0.0274);
-        tilt_cfg_.pitch_gradient_rad_per_mps2 =
-            declare_parameter<double>("pitch_gradient_rad_per_mps2", 0.0);
-        tilt_cfg_.max_angle_rad = declare_parameter<double>("tilt_max_angle_rad", 0.26);
-        tilt_cfg_.max_point_height_m =
-            declare_parameter<double>("tilt_max_point_height_m", 0.0);
-
         position_covariance_ = declare_parameter<double>("position_covariance", 0.1);
         orientation_covariance_ = declare_parameter<double>("orientation_covariance", 0.1);
 
@@ -258,6 +278,15 @@ public:
                 // vx noise std 0.285 m/s vs 0.086 for wheel-sourced MCL twist).
                 latest_odom_twist_ = msg->twist.twist;
             });
+        // MCL 호환 자동 초기화 입력. 발행자가 transient_local이라 늦게 떠도 받는다.
+        if (auto_init_from_waypoints_ && !slam_mode_) {
+            auto_init_sub_ = create_subscription<f110_msgs::msg::WpntArray>(
+                auto_init_topic_, rclcpp::QoS(1).transient_local(),
+                [this](const f110_msgs::msg::WpntArray::ConstSharedPtr msg) {
+                    OnGlobalWaypoints(msg);
+                });
+        }
+
         initial_pose_sub_ = create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
             initial_pose_topic_, rclcpp::QoS(10),
             [this](const geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr &msg) {
@@ -275,26 +304,6 @@ public:
                 this, get_clock(),
                 rclcpp::Duration::from_seconds(1.0 / watchdog_rate_hz_),
                 [this]() { OnWatchdog(); });
-        }
-
-        // 기동 파라미터 요약 (2026-08-19). 이게 없으면 파라미터 파일이 통째로 안 붙어도
-        // 로그만으로는 알 수 없다 — 실제로 젯슨에서 config YAML이 지워진 채 `ros2 launch`가
-        // **에러 없이** 떠서 한 세션을 통째로 날렸다(launch_ros는 존재하지 않는 params
-        // 파일을 조용히 건너뛴다). 아래 경고가 뜨면 파라미터가 안 붙은 것이다.
-        RCLCPP_INFO(get_logger(),
-                    "파라미터 요약 | gate_enable=%s smoothing_alpha=%.3f smoothing_alpha_rot=%.3f "
-                    "source_voxel_size=%.3f voxel_size=%.3f max_range=%.1f lateral_dof=%s "
-                    "pose_check=%s",
-                    gate_enable_ ? "true" : "false", smoothing_alpha_, smoothing_alpha_rot_,
-                    config.source_voxel_size, config.voxel_size, config.max_range,
-                    config.lateral_dof_enable ? "true" : "false",
-                    pose_check_enable_ ? "true" : "false");
-        if (smoothing_alpha_rot_ < 0.0 || !gate_enable_ || config.source_voxel_size <= 0.0) {
-            RCLCPP_WARN(get_logger(),
-                        "⚠️ 위 값이 코드 기본값이다(gate_enable=false / smoothing_alpha_rot=-1 / "
-                        "source_voxel_size<=0) — config/kinematic_localization.yaml이 적용되지 "
-                        "않았을 가능성이 높다. `ros2 param get %s gate_enable`로 확인할 것.",
-                        get_name());
         }
 
         if (slam_mode_) {
@@ -402,6 +411,58 @@ private:
                     frozen_points_.size());
     }
 
+    // MCL `waypointsCB`의 자동 초기화와 같은 규약: 첫 웨이포인트(스타트라인) 자세로
+    // 한 번만 초기화하고, 사람이 /initialpose를 찍었으면 양보한다.
+    void OnGlobalWaypoints(const f110_msgs::msg::WpntArray::ConstSharedPtr &msg) {
+        if (auto_init_done_ || manual_init_done_ || msg->wpnts.empty()) return;
+        const auto &w = msg->wpnts.front();
+        Sophus::SE3d T_map_base(
+            Sophus::SO3d::rotZ(w.psi_rad),
+            Eigen::Vector3d(w.x_m, w.y_m, 0.0));
+        RCLCPP_INFO(get_logger(),
+                    "Auto-initializing from %s start pose: [%.3f, %.3f, %.3f rad (%.1f deg)] "
+                    "(MCL auto_init_from_waypoints 호환 — /initialpose로 언제든 덮어쓸 수 있다)",
+                    auto_init_topic_.c_str(), w.x_m, w.y_m, w.psi_rad,
+                    w.psi_rad * 180.0 / M_PI);
+        ApplyInitialPose(T_map_base);
+        auto_init_done_ = true;
+        validating_auto_init_ = (auto_init_validate_frames_ > 0);
+    }
+
+    // 자동 초기화 검증 창. true를 돌려주면 이번 프레임은 발행하지 않는다.
+    // 창이 끝나면 정합 품질로 채택/기각을 결정한다.
+    bool HoldForAutoInitValidation(double residual_rms) {
+        if (!validating_auto_init_) return false;
+        if (residual_rms > 0.0 && std::isfinite(residual_rms))
+            validate_residuals_.push_back(residual_rms);
+        if (static_cast<int>(validate_residuals_.size()) <
+            static_cast<size_t>(auto_init_validate_frames_)) {
+            return true;   // 아직 판단 못 함 — 보류
+        }
+        auto v = validate_residuals_;
+        std::nth_element(v.begin(), v.begin() + v.size() / 2, v.end());
+        const double med = v[v.size() / 2];
+        validating_auto_init_ = false;
+        validate_residuals_.clear();
+        if (med > auto_init_max_residual_) {
+            RCLCPP_ERROR(get_logger(),
+                         "Auto-init REJECTED: residual_rms median %.3f > %.3f over %d frames. "
+                         "차가 스타트라인 근처가 아니었을 가능성이 높다 — ICP는 이 상태에서 "
+                         "회복하지 못한다. RViz 2D Pose Estimate(%s)로 초기 포즈를 직접 줄 것. "
+                         "(그때까지 포즈를 발행하지 않는다)",
+                         med, auto_init_max_residual_, auto_init_validate_frames_,
+                         initial_pose_topic_.c_str());
+            initialized_ = false;      // /initialpose를 다시 기다린다
+            has_last_out_ = false;     // 워치독도 같이 멈춘다
+            auto_init_done_ = true;    // 같은 자세로 자동 재시도하지 않는다
+            return true;
+        }
+        RCLCPP_INFO(get_logger(),
+                    "Auto-init accepted (residual_rms median %.3f <= %.3f over %d frames)",
+                    med, auto_init_max_residual_, auto_init_validate_frames_);
+        return false;
+    }
+
     void OnInitialPose(
         const geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr &msg) {
         if (!msg->header.frame_id.empty() && msg->header.frame_id != map_frame_) {
@@ -409,6 +470,14 @@ private:
                         msg->header.frame_id.c_str(), map_frame_.c_str());
         }
         const Sophus::SE3d T_map_base = utils::PoseToSophus(msg->pose.pose);
+        // 사람이 찍은 값이 우선 — 이후 /global_waypoints 재발행이 덮어쓰지 못하게 한다.
+        manual_init_done_ = true;
+        ApplyInitialPose(T_map_base);
+        RCLCPP_INFO_STREAM(get_logger(), "Initial pose set:\n" << T_map_base.matrix());
+    }
+
+    // /initialpose와 자동 초기화가 공유하는 리셋 경로.
+    void ApplyInitialPose(const Sophus::SE3d &T_map_base) {
         // SetPose clears the local map and resets the adaptive threshold,
         // so re-inject the frozen map points right after.
         icp_->SetPose(T_map_base);
@@ -426,7 +495,7 @@ private:
         dead_reckoning_sec_ = 0.0;
         gate_reject_streak_ = 0;
         low_inlier_frames_ = 0;
-        RCLCPP_INFO_STREAM(get_logger(), "Initial pose set:\n" << T_map_base.matrix());
+        validate_residuals_.clear();
     }
 
     void OnScan(const sensor_msgs::msg::LaserScan::ConstSharedPtr &msg) {
@@ -503,10 +572,8 @@ private:
             // Always register, even when (nearly) stationary: the frozen map
             // is never polluted by scans, and ICP can pull the pose back onto
             // the map while the car stands still.
-            // 차체 롤/피치로 기운 스캔면을 수평면으로 되돌린다 (z축 기울기 보상).
-            const auto leveled = ApplyTiltCompensation(points, delta_odom, dt);
             const auto &result =
-                icp_->RegisterFrame(leveled, timestamps, *lidar_to_base_, delta_odom);
+                icp_->RegisterFrame(points, timestamps, *lidar_to_base_, delta_odom);
             registered = true;
             // Deep defense against the core NaN paths (see the Registration.cpp
             // patch): never let a non-finite pose reach the output or poison
@@ -585,6 +652,10 @@ private:
             RCLCPP_ERROR(get_logger(), "Non-finite output pose, dropping this frame");
             return;
         }
+        // 자동 초기화 검증 창: 판정 전에는 한 프레임도 내보내지 않는다.
+        if (registered && HoldForAutoInitValidation(icp_->registrationDiagnostics().residual_rms))
+            return;
+
         last_out_ = T_out;
         has_last_out_ = true;
 
@@ -811,29 +882,6 @@ private:
     }
 
     // Published pose covariance: base value, inflated while dead reckoning
-    // 차체 기울기(z축) 보상. 롤/피치의 근거와 좌표 규약은 utils::LevelScan 주석 참고.
-    // 여기서는 KICP가 이미 쓰는 휠오돔 증분에서 a_lat = v·ω, a_lon = dv/dt만 만든다.
-    std::vector<Eigen::Vector3d> ApplyTiltCompensation(
-        const std::vector<Eigen::Vector3d> &points, const Sophus::SE3d &delta_odom, double dt) {
-        last_roll_rad_ = 0.0;
-        last_pitch_rad_ = 0.0;
-        last_tilt_dropped_ = 0;
-        if (!tilt_compensation_enable_ || !lidar_to_base_.has_value() || dt <= 1e-6) {
-            return points;
-        }
-        const double speed = delta_odom.translation().norm() / dt;
-        const double a_lat = speed * (delta_odom.so3().log().z() / dt);
-        const double a_lon = has_last_speed_ ? (speed - last_speed_) / dt : 0.0;
-        last_speed_ = speed;
-        has_last_speed_ = true;
-        utils::TiltResult r;
-        auto leveled = utils::LevelScan(points, *lidar_to_base_, a_lat, a_lon, tilt_cfg_, &r);
-        last_roll_rad_ = r.roll_rad;
-        last_pitch_rad_ = r.pitch_rad;
-        last_tilt_dropped_ = r.dropped;
-        return leveled;
-    }
-
     // (MCL ekf_*_error_rate style — std grows with the un-corrected span).
     void SetOutputCovariance(double dead_reckoning_sec) {
         const double trans_std_add = watchdog_trans_error_rate_ * dead_reckoning_sec;
@@ -895,9 +943,6 @@ private:
         add("gate_d2", fmt(gate_d2));
         add("gate_reject_streak", std::to_string(gate_reject_streak_));
         add("pose_impermissible", pose_ok ? "false" : "true");
-        add("tilt_roll_deg", fmt(last_roll_rad_ * 180.0 / M_PI));
-        add("tilt_pitch_deg", fmt(last_pitch_rad_ * 180.0 / M_PI));
-        add("tilt_dropped_points", std::to_string(last_tilt_dropped_));
         array.status.push_back(status);
         diag_pub_->publish(array);
     }
@@ -976,6 +1021,16 @@ private:
 
     std::string lidar_topic_, odom_topic_, pose_topic_, initial_pose_topic_;
     std::string map_frame_, odom_frame_, base_frame_, map_name_;
+    // MCL 호환 자동 초기화 상태
+    bool auto_init_from_waypoints_ = true;
+    std::string auto_init_topic_ = "/global_waypoints";
+    bool auto_init_done_ = false;
+    bool manual_init_done_ = false;
+    bool validating_auto_init_ = false;
+    int auto_init_validate_frames_ = 40;
+    double auto_init_max_residual_ = 0.35;
+    std::vector<double> validate_residuals_;
+    rclcpp::Subscription<f110_msgs::msg::WpntArray>::SharedPtr auto_init_sub_;
     bool publish_map_odom_tf_ = true;
     double voxel_size_ = 1.0, max_range_ = 30.0;
 
@@ -1047,15 +1102,6 @@ private:
     double gate_meas_std_floor_ = 0.02;
     int gate_force_accept_ = 20;
     int gate_reject_streak_ = 0;
-
-    // 차체 기울기(z축) 보상
-    bool tilt_compensation_enable_ = false;
-    utils::TiltParams tilt_cfg_;
-    double last_roll_rad_ = 0.0;
-    double last_pitch_rad_ = 0.0;
-    size_t last_tilt_dropped_ = 0;
-    double last_speed_ = 0.0;
-    bool has_last_speed_ = false;
 
     double position_covariance_ = 0.1;
     double orientation_covariance_ = 0.1;

@@ -124,7 +124,16 @@ ros2 launch kinematic_localization kinematic_localization.launch.py map_name:=if
 ⚠️ 이 노드는 **자체 RViz가 없습니다**(구 `use_rviz` 인자 소멸). 대신 `/map`을 직접 발행하므로
 gym 브리지 RViz의 **2D Pose Estimate**가 그대로 동작합니다.
 
-기동 후 RViz **2D Pose Estimate**로 초기 위치를 반드시 지정합니다. 헤드리스로 돌릴 때는 대신
+> 🟢 **2026-08-20 2차(sungho_main 포팅본): 초기 포즈를 손으로 안 찍어도 됩니다.**
+> `auto_init_from_waypoints: true`(기본값)라 `/global_waypoints` 첫 웨이포인트(스타트라인,
+> `psi_rad`=yaw)로 **자동 초기화**합니다 — 구 MCL과 같은 규약. 양쪽 QoS가 transient_local
+> (래치)이라 **터미널 3(글로벌 플래너)을 나중에 띄워도** 받습니다.
+> 자동 초기화 직후 40프레임(≈1 s) 발행을 보류하고 `residual_rms` 중앙값이
+> `auto_init_max_residual`(0.35)을 넘으면 그 초기화를 버립니다 — 4.7 m 오초기화가
+> 60초간 회복 못 하고 틀린 포즈를 40 Hz로 계속 뿌린 실측 사고를 막는 게이트입니다
+> (`src/kinematic_localization/PORTING_NOTE.md`).
+
+수동 초기화가 필요하면 RViz **2D Pose Estimate**로 지정합니다(자동 초기화를 덮어씁니다). 헤드리스로 돌릴 때는 대신
 `/initialpose`를 직접 발행합니다 (gym 브리지 텔레포트 + 위치추정 초기화 동시 수행, README §3 참고):
 
 ```bash

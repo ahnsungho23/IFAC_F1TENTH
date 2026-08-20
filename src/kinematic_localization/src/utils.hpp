@@ -31,7 +31,6 @@
 #include <tf2_ros/buffer.h>
 
 #include <Eigen/Core>
-#include <Eigen/Geometry>
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -319,84 +318,6 @@ inline nav_msgs::msg::OccupancyGrid RasterizeOccupancyGrid(
         }
     }
     return grid;
-}
-
-
-// ── 차체 기울기(z축) 보상 ────────────────────────────────────────────────────
-// 2D LiDAR는 차체에 고정돼 있어 코너에서 차체가 롤하면 스캔면이 같이 기운다. 기운
-// 면의 점을 그대로 수평면 점으로 쓰면 측방 거리가 1/cos(roll)만큼 부풀고, 코너에서
-// 근·원 벽에 비대칭으로 실려 자세가 안쪽으로 밀린다.
-//
-// 롤을 가속도계로 풀면 중력과 원심가속이 같은 축에 섞여 못 푼다(2026-08-19 23:38
-// 백에서 순진한 상보필터가 가짜 25° 롤을 냈다). 대신 서스펜션의 정상상태 관계
-// roll = gradient × a_lat 를 쓴다 — a_lat = v·ω는 KICP가 이미 쓰는 휠오돔에서
-// 그대로 나오므로 새 센서도, 필터도, 드리프트도 없다.
-//
-// 회전은 base_link 축(x=전방, y=좌, z=상) 기준이므로 라이다 프레임 점에 적용하려면
-// 외부 파라미터로 켤레변환한다: R_laser = R_l2b^T · R_y(pitch) · R_x(roll) · R_l2b.
-// 이러면 KISS가 뒤에 곱하는 lidar_to_base와 합쳐져 정확히 R_tilt · lidar_to_base 다.
-// 수평면으로 되돌린 뒤 z는 0으로 누른다 — 맵이 z=0 평면의 2D 스캔이라, 기울인 채
-// 넣으면 대응점이 오히려 나빠진다. z는 "맵 평면에서 얼마나 벗어났나"를 재는 데만
-// 쓴다(max_point_height_m, 0이면 끔).
-//
-// ⚠️ **매핑과 위치추정에 같이 켜야 한다.** 프로즌 맵도 같은 차체에 실린 같은
-//    라이다로 만들었으므로 같은 왜곡을 이미 담고 있다. 한쪽만 켜면 보상이 맵과
-//    싸운다 — 23:38 백 실측으로 위치추정만 켰을 때 정합 잔차가 |a_lat| 6~12
-//    구간에서 0.0766 -> 0.0804 m로 나빠졌다(횡편향은 -0.062 -> -0.048로 개선).
-struct TiltParams {
-    double roll_gradient_rad_per_mps2 = 0.0;
-    double pitch_gradient_rad_per_mps2 = 0.0;
-    double max_angle_rad = 0.26;
-    double max_point_height_m = 0.0;
-};
-
-struct TiltResult {
-    double roll_rad = 0.0;
-    double pitch_rad = 0.0;
-    size_t dropped = 0;
-};
-
-// a_lat = v·ω [m/s², + = 좌선회], a_lon = dv/dt [m/s², + = 가속].
-inline std::vector<Eigen::Vector3d> LevelScan(const std::vector<Eigen::Vector3d> &points,
-                                              const Sophus::SE3d &lidar_to_base, double a_lat,
-                                              double a_lon, const TiltParams &cfg,
-                                              TiltResult *out) {
-    TiltResult r;
-    // + roll = 좌측이 위(= 우측 다운) — 좌선회에서 차체가 바깥(우)으로 눕는다.
-    // + pitch = 노즈 다운 — 감속(a_lon < 0)에서 앞이 내려간다.
-    r.roll_rad = std::clamp(cfg.roll_gradient_rad_per_mps2 * a_lat, -cfg.max_angle_rad,
-                            cfg.max_angle_rad);
-    r.pitch_rad = std::clamp(cfg.pitch_gradient_rad_per_mps2 * (-a_lon), -cfg.max_angle_rad,
-                             cfg.max_angle_rad);
-    if (out) *out = r;
-    if (std::abs(r.roll_rad) < 1e-4 && std::abs(r.pitch_rad) < 1e-4) return points;
-
-    const Eigen::Matrix3d R_base =
-        (Eigen::AngleAxisd(r.pitch_rad, Eigen::Vector3d::UnitY()) *
-         Eigen::AngleAxisd(r.roll_rad, Eigen::Vector3d::UnitX()))
-            .toRotationMatrix();
-    const Eigen::Matrix3d R_l2b = lidar_to_base.so3().matrix();
-    const Eigen::Matrix3d R_laser = R_l2b.transpose() * R_base * R_l2b;
-
-    std::vector<Eigen::Vector3d> leveled;
-    leveled.reserve(points.size());
-    const bool drop = cfg.max_point_height_m > 1e-6;
-    for (const auto &p : points) {
-        if (drop) {
-            // 맵 평면에서 벗어난 높이는 base_link 축 기준으로 재야 의미가 있다.
-            const Eigen::Vector3d p_base = R_l2b * p;
-            if (std::abs((R_base * p_base).z() - p_base.z()) > cfg.max_point_height_m) {
-                ++r.dropped;
-                continue;
-            }
-        }
-        Eigen::Vector3d q = R_laser * p;
-        q.z() = 0.0;  // 맵은 z=0 평면이다
-        leveled.push_back(q);
-    }
-    if (out) *out = r;
-    if (leveled.size() < 10) return points;  // 전부 버려지면 보상을 포기한다
-    return leveled;
 }
 
 }  // namespace kinematic_localization::utils

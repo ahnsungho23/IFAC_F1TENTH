@@ -3,29 +3,6 @@
 This document defines package-specific rules for `kinematic_localization`. The root
 `/home/parkm/2026_IFAC/AGENTS.md` applies in full; entries below only add package detail.
 
-## Launch / parameter loading (2026-08-19)
-
-**Both launch files resolve `config/*.yaml` with `get_package_share_directory` and raise if the
-file is missing.** Do not go back to `PathJoinSubstitution` + `FindPackageShare` for the
-`parameters=[...]` entry: when that path does not exist, `launch_ros` **silently drops it** and
-the node starts with every value at its code default. On 2026-08-19 the Jetson checkout had
-`config/kinematic_localization.yaml` deleted; `ros2 launch` started with no error and the whole
-test session ran with `gate_enable=false`, `smoothing_alpha_rot=-1` (→ 0.5) and
-`source_voxel_size=-1` (→ 1.0 m), which cut the ICP correspondences from 54 to 15 and doubled
-the pose noise. See `docs/rosbag_2026-08-19_2023_analysis.md`.
-
-The constructor logs a **parameter summary** and warns when the values look like code defaults.
-Keep both. When adding a parameter that materially changes registration quality, add it to that
-summary line.
-
-Quick field check (expected values in parentheses):
-
-```bash
-ros2 param get /kinematic_localization gate_enable          # true
-ros2 param get /kinematic_localization smoothing_alpha_rot  # 0.12
-ros2 topic echo /kinematic_localization/diagnostics --once   # num_source_points 40~60
-```
-
 ## Package Purpose
 
 Kinematic-ICP based map localization. Scans are deskewed and aligned (ICP with a wheel-odometry
@@ -101,28 +78,6 @@ marked with `Localization patch (2026_IFAC)` comments:
 Do not upgrade the vendored core without re-applying these patches. Sophus and
 tsl-robin-map are **not** available system-wide (no sudo/apt) — never flip those options ON.
 
-## Chassis-tilt (z-axis) compensation
-
-- `utils::LevelScan` is the ONE implementation; `localization_node` and `mapping_node` both
-  call it. Never fork it — a map built with a different leveling than the runtime scans is
-  worse than no leveling at all.
-- Roll must be derived from `roll_gradient × a_lat` with `a_lat = v·ω` taken from the wheel
-  odometry KICP already consumes. NEVER estimate it from the accelerometer: gravity and
-  centripetal acceleration share the lateral axis, and a naive complementary filter on the
-  2026-08-19 23:38 bag reported a fake -13.8° ± 10.4° roll while driving (-25° in corners).
-  The gradient itself is measured by regressing IMU `ay`[g] on `a_c`[g]: the slope is -1.000
-  only if the body does not lean, and the deficit IS the roll (measured -0.731 -> 0.0274
-  rad/(m/s²) = 1.57°/(m/s²) = 9.4° at 6 m/s²). See docs §11-4.
-- `tilt_compensation_enable` must stay the SAME in `kinematic_localization.yaml` and
-  `mapping.yaml`. The frozen map carries the same roll distortion (same LiDAR, same chassis),
-  so enabling only the runtime side makes the compensation fight the map — measured on the
-  23:38 bag: cornering lateral bias improves 6.2 -> 4.8 cm but the map-fit residual degrades
-  0.0766 -> 0.0804 m at |a_lat| 6-12. Default is false for exactly this reason; flip it only
-  after re-recording the map with it on and re-running the docs §11-6 table.
-- Level the points, then FLATTEN z to 0 before registration — the map is a z=0 planar scan,
-  so handing KISS a tilted cloud makes correspondences worse, not better. z survives only as
-  the `tilt_max_point_height_m` out-of-plane reject test.
-
 ## .kissmap Format (defined by this package)
 
 Binary: magic `KISSMAP1` (8 bytes), `double voxel_size`, `double max_range`, `uint64 count`,
@@ -165,10 +120,8 @@ selected with the `map_name` parameter (an absolute path is used as-is).
   correspondence search reach and the adaptive-threshold floor, and 0.25
   collapsed the convergence basin (run_0818 replay diverged meters, inlier
   ratio 0.26). The indoor-scan source collapse (9-25 points at voxel 1.0) is
-  fixed by the source-only `source_voxel_size 0.25` core patch instead (docs §8). `max_num_iterations 30`,
-  `max_range 12.0` (30.0 -> 12.0 on 2026-08-19: it scales `sigma_odom` and therefore tau, so a 30 m reach on a ~17 m
-  track inflated tau 3.31 -> 2.31 and stretched the heading-error tail; raise it again for a larger map — docs §10),
-  `min_range 0.1`,
+  fixed by the source-only `source_voxel_size 0.25` core patch instead
+  (docs §8). `max_num_iterations 30`, `max_range 30.0`, `min_range 0.1`,
   `deskew true`, adaptive threshold/regularization on.
 - `config/mapping.yaml`: same KICP block plus bag/output paths for `mapping_node`.
 - Launch files must not hard-code tuning values; they only select the YAML and pass
@@ -184,17 +137,3 @@ selected with the `map_name` parameter (an absolute path is used as-is).
 
 Korean node documentation: `docs/kinematic_localization.md`. Keep it in sync when topics,
 parameters, or the run procedure change.
-
-## Replay A/B harness — two traps that invalidate results
-
-Both were hit on 2026-08-19 and cost 8 replays. Check them before trusting any replay number.
-
-1. **Seed `/initialpose` AFTER playback starts**, roughly 2 s into bag time. Publishing it first leaves the odom buffer
-   empty, so `OdomAt()` has no prior for the first scan and the pose jumps several metres — every downstream metric is
-   then garbage.
-2. **Match the map to the bag.** `map.kissmap` (2026-08-15, 451 pts) sits a median 5.33 m away from the
-   `rosbag2_2026_08_19-*` trajectories; `map_0818_track.kissmap` (2970 pts) is 0.70 m. A wrong map does not fail
-   loudly — it just produces plausible-looking, meaningless numbers (`ifac_track` gives p50 8.33 deg on the same bag).
-
-Also note `run_real.sh` defaults to `F1_MAP_NAME=map`, i.e. the stale 08-15 map. Verify the map the car actually loaded
-with `grep "Loaded frozen map" ~/.ros/log/<session>/...` before drawing conclusions from live data.

@@ -11,12 +11,7 @@ kinematic_mapping:
     tf_static_topic: /tf_static
     base_frame: base_link
 
-    # Kinematic-ICP tuning (mirrors the localization node except max_range)
-    # Deliberately kept at 30.0 while localization runs at 12.0 (2026-08-19):
-    # mapping wants every wall return it can get, localization wants a tight
-    # tau. The mismatch only costs a one-shot startup WARN, because the
-    # .kissmap max_range field is header metadata and is never used for
-    # registration. See docs/kinematic_localization.md §10.
+    # Kinematic-ICP tuning (same values as the localization node)
     max_range: 30.0
     min_range: 0.1
     voxel_size: 1.0
@@ -29,13 +24,3 @@ kinematic_mapping:
     use_adaptive_odometry_regularization: true
     fixed_regularization: 0.0
     deskew: true
-
-    # --- 차체 기울기(z축) 보상 -------------------------------------------------
-    # kinematic_localization.yaml의 같은 이름 파라미터와 **반드시 같은 값**으로 둘 것.
-    # 맵과 런타임 스캔이 같은 평면에 놓여야 보상이 의미가 있다. 한쪽만 켜면
-    # 23:38 백 실측 기준 |a_lat| 6~12 구간 정합 잔차가 0.0766 -> 0.0804 m로 나빠진다.
-    tilt_compensation_enable: false
-    roll_gradient_rad_per_mps2: 0.0274
-    pitch_gradient_rad_per_mps2: 0.0
-    tilt_max_angle_rad: 0.26
-    tilt_max_point_height_m: 0.0

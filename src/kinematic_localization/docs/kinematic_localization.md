@@ -143,33 +143,33 @@ downsampled 포인트를 최종 포즈로 map 프레임(odom 프레임 기준)�
 
 파일: `config/kinematic_localization.yaml` (검증된 튜닝값 반영)
 
-| 파라미터                                         | 기본값                       | 설명                                                                                                                                                                                                                    |
-|--------------------------------------------------|------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `lidar_topic`                                    | `/scan`                      | 입력 스캔 토픽                                                                                                                                                                                                          |
-| `pose_topic`                                     | `/pf/pose/odom`              | 포즈 출력 토픽 (MCL 호환)                                                                                                                                                                                               |
-| `map_frame` / `odom_frame` / `base_frame`        | `map` / `odom` / `base_link` | 프레임 이름                                                                                                                                                                                                             |
-| `publish_map_odom_tf`                            | `true`                       | `map -> odom` TF 발행 여부                                                                                                                                                                                              |
-| `map_name`                                       | `""`                         | `maps/<map_name>.kissmap` (절대경로면 그대로 사용, 비면 순수 odometry). `slam_mode`에서는 무시                                                                                                                          |
-| `slam_mode`                                      | `false`                      | 온라인 SLAM 모드 (동결 맵 미사용, 첫 스캔 자동 초기화, 맵 누적/저장)                                                                                                                                                    |
-| `map_output_file`                                | `slam_map.kissmap`           | SLAM 맵 저장 경로 (상대경로면 실행 cwd 기준)                                                                                                                                                                            |
-| `map_publish_period_sec`                         | `2.0`                        | `~/map_points`·SLAM 모드 `/map` 발행 주기 [s] (0이면 발행 안 함)                                                                                                                                                        |
-| `smoothing_enable`                               | `true`                       | 출력 상보필터(휠 odom 예측 + ICP 보정) on/off                                                                                                                                                                           |
-| `smoothing_alpha`                                | `0.2`                        | 상보필터 기본 gain (정지~저속). **실차 튜닝 대상 초기값**                                                                                                                                                               |
-| `smoothing_alpha_gain`                           | `0.3`                        | 속도 적응 gain (v = `smoothing_velocity_full_mps`에서 alpha = base+gain). **실차 튜닝 대상 초기값**                                                                                                                     |
-| `smoothing_velocity_full_mps`                    | `3.0`                        | 속도 적응 포화 기준 [m/s]. **실차 튜닝 대상 초기값**                                                                                                                                                                    |
-| `smoothing_alpha_max`                            | `0.8`                        | alpha 상한 (재수렴 속도와 노이즈 억제의 트레이드오프)                                                                                                                                                                   |
-| `smoothing_alpha_rot`                            | `-1.0` (YAML `0.12`)         | 회전 전용 gain (속도 부스트 없음). `< 0`이면 병진 alpha를 따름(구버전 동작). §8 코너링 지터 억제                                                                                                                        |
-| `map_topic`                                      | `/map`                       | 내장 맵 서버 출력 토픽                                                                                                                                                                                                  |
-| `map_grid_resolution`                            | `0.05`                       | `/map` occupancy 그리드 해상도 [m/cell]                                                                                                                                                                                 |
-| `map_point_dilation_m`                           | `0.15`                       | 각 맵 점을 칠하는 디스크 반경 [m]                                                                                                                                                                                       |
-| `voxel_size`                                     | `1.0`                        | voxel 맵 해상도 [m]. 맵 해시 그리드 + 대응 탐색 반경 + 적응 임계값 하한을 함께 결정 — **줄이지 말 것** (0.25에서 수렴 베이슨 붕괴로 재생 수 m 발산, §8)                                                                 |
-| `source_voxel_size`                              | `-1.0` (YAML `0.25`)         | 등록 소스 전용 다운샘플 [m] (코어 패치). 소스 점수만 늘리고 탐색 반경·임계값은 유지. `<= 0`이면 `voxel_size`를 따름(업스트림 동작). §8                                                                                  |
-| `max_range` / `min_range`                        | `12.0` / `0.1`               | 스캔 유효 거리 [m]. `max_range`는 `sigma_odom`(= `2*max_range*sin(theta/2)`)을 통해 적응 임계값 tau에 직접 들어간다 — 17 m 트랙에서 30.0은 tau를 부풀려 헤딩 오차 꼬리를 키웠다 (§10). 더 큰 맵으로 가면 반드시 올릴 것 |
-| `max_num_iterations`                             | `30`                         | ICP 반복 횟수                                                                                                                                                                                                           |
-| `use_adaptive_threshold`                         | `true`                       | 적응 correspondence threshold                                                                                                                                                                                           |
-| `use_adaptive_odometry_regularization`           | `true`                       | 휠 odom 프라이어 적응 정규화                                                                                                                                                                                            |
-| `deskew`                                         | `true`                       | 스캔 왜곡 보정                                                                                                                                                                                                          |
-| `position_covariance` / `orientation_covariance` | `0.1`                        | 출력 odometry 기본 공분산 (dead reckoning 중에는 §7.2 규칙으로 증가)                                                                                                                                                    |
+| 파라미터 | 기본값 | 설명 |
+|---|---|---|
+| `lidar_topic` | `/scan` | 입력 스캔 토픽 |
+| `pose_topic` | `/pf/pose/odom` | 포즈 출력 토픽 (MCL 호환) |
+| `map_frame` / `odom_frame` / `base_frame` | `map` / `odom` / `base_link` | 프레임 이름 |
+| `publish_map_odom_tf` | `true` | `map -> odom` TF 발행 여부 |
+| `map_name` | `""` | `maps/<map_name>.kissmap` (절대경로면 그대로 사용, 비면 순수 odometry). `slam_mode`에서는 무시 |
+| `slam_mode` | `false` | 온라인 SLAM 모드 (동결 맵 미사용, 첫 스캔 자동 초기화, 맵 누적/저장) |
+| `map_output_file` | `slam_map.kissmap` | SLAM 맵 저장 경로 (상대경로면 실행 cwd 기준) |
+| `map_publish_period_sec` | `2.0` | `~/map_points`·SLAM 모드 `/map` 발행 주기 [s] (0이면 발행 안 함) |
+| `smoothing_enable` | `true` | 출력 상보필터(휠 odom 예측 + ICP 보정) on/off |
+| `smoothing_alpha` | `0.2` | 상보필터 기본 gain (정지~저속). **실차 튜닝 대상 초기값** |
+| `smoothing_alpha_gain` | `0.3` | 속도 적응 gain (v = `smoothing_velocity_full_mps`에서 alpha = base+gain). **실차 튜닝 대상 초기값** |
+| `smoothing_velocity_full_mps` | `3.0` | 속도 적응 포화 기준 [m/s]. **실차 튜닝 대상 초기값** |
+| `smoothing_alpha_max` | `0.8` | alpha 상한 (재수렴 속도와 노이즈 억제의 트레이드오프) |
+| `smoothing_alpha_rot` | `-1.0` (YAML `0.12`) | 회전 전용 gain (속도 부스트 없음). `< 0`이면 병진 alpha를 따름(구버전 동작). §8 코너링 지터 억제 |
+| `map_topic` | `/map` | 내장 맵 서버 출력 토픽 |
+| `map_grid_resolution` | `0.05` | `/map` occupancy 그리드 해상도 [m/cell] |
+| `map_point_dilation_m` | `0.15` | 각 맵 점을 칠하는 디스크 반경 [m] |
+| `voxel_size` | `1.0` | voxel 맵 해상도 [m]. 맵 해시 그리드 + 대응 탐색 반경 + 적응 임계값 하한을 함께 결정 — **줄이지 말 것** (0.25에서 수렴 베이슨 붕괴로 재생 수 m 발산, §8) |
+| `source_voxel_size` | `-1.0` (YAML `0.25`) | 등록 소스 전용 다운샘플 [m] (코어 패치). 소스 점수만 늘리고 탐색 반경·임계값은 유지. `<= 0`이면 `voxel_size`를 따름(업스트림 동작). §8 |
+| `max_range` / `min_range` | `30.0` / `0.1` | 스캔 유효 거리 [m] |
+| `max_num_iterations` | `30` | ICP 반복 횟수 |
+| `use_adaptive_threshold` | `true` | 적응 correspondence threshold |
+| `use_adaptive_odometry_regularization` | `true` | 휠 odom 프라이어 적응 정규화 |
+| `deskew` | `true` | 스캔 왜곡 보정 |
+| `position_covariance` / `orientation_covariance` | `0.1` | 출력 odometry 기본 공분산 (dead reckoning 중에는 §7.2 규칙으로 증가) |
 
 강건화(§7) 파라미터:
 
@@ -559,198 +559,3 @@ live-frame 맵 재생 A/B (`lateral_dof_enable:=true`, §8.3과 같은 조건):
   과소 보정하는지 점검할 것.
 - 첫 실차 적용은 중속 셰이크다운으로: 코너에서 pose가 바깥으로 더 나오는
   만큼 컨트롤러가 조향을 더 쓰게 되므로 거동이 눈에 띄게 달라진다.
-
----
-
-## 10. `max_range` 30.0 → 12.0 (2026-08-19)
-
-### 10.1 증상
-
-`rosbag2_2026_08_19-10_15_17`(실차, 600 s)에서 **odom 궤적은 맞는데 헤딩이 간헐적으로 틀어지는** 현상이 관찰됐다. 1초 헤딩 오차 (VESC IMU 자이로
-`angular_velocity.z` 기준,
-`K = 0.0174` deg/s → rad/s)의 중앙값은 1.3° 수준으로 멀쩡한데 **꼬리가 길었다**
-(p99 16.6°, max 42.2°).
-
-### 10.2 원인 — `max_range`가 tau를 부풀린다
-
-적응 correspondence threshold는
-
-```
-tau        = 3.0 * (sigma_map + sigma_odom)
-sigma_map  = voxel_size / sqrt(max_points_per_voxel) = 1.0 / sqrt(20) = 0.2236
-sigma_odom = RMS( delta_trans + 2 * max_range * sin(theta / 2) )
-```
-
-로 계산된다. 여기서 `max_range`가 **회전 항에 직접 곱해진다**. 트랙 대각이 약 17 m인 실내 코스에서 `max_range: 30.0`은 실제로 존재하지도 않는 거리를 가정해 `sigma_odom`을
-키우고, 그만큼 tau가 커져 **엉뚱한 대응점까지 inlier로 통과**시킨다. 코너처럼 `theta`가 큰 구간에서 특히 심하다.
-
-### 10.3 검증 (리플레이 A/B, `map_0818_track`, N=412 구간)
-
-동일 bag을 KICP에 재생하고 `/pf/pose/odom`과 `/kinematic_localization/diagnostics`를 녹화해 비교했다. LiDAR 끊김 구간과 재초기화 직후는 제외했다.
-
-| `max_range`   | p50       | p90       | p99        | max        | inlier | resid  | **tau**  | notconv  |
-|---------------|-----------|-----------|------------|------------|--------|--------|----------|----------|
-| `30.0` (기존) | 1.29°     | 4.56°     | 16.57°     | 42.19°     | 0.990  | 0.2315 | 3.31     | 7.3%     |
-| **`12.0`**    | **1.21°** | **3.81°** | **13.23°** | **23.78°** | 0.990  | 0.2270 | **2.31** | **6.6%** |
-
-- tau 3.31 → 2.31, **max −44%**, p99 −20%, p90 −16%.
-- inlier ratio는 그대로 (0.990) — 즉 유효한 대응점을 잃은 게 아니라 **가짜만 걸러졌다**.
-- 미수렴 비율도 7.3% → 6.6%로 같이 내려갔다.
-
-YAML 기본값만으로 (= `-p` 오버라이드 없이) 다시 돌린 확인 런도 동일했다 — 설정이 노드까지 제대로 전달된다는 뜻이다.
-
-| 런                             | p50   | p90   | p99    | max    | tau  | notconv |
-|--------------------------------|-------|-------|--------|--------|------|---------|
-| `A_r12` (`-p max_range:=12.0`) | 1.21° | 3.81° | 13.23° | 23.78° | 2.31 | 6.6%    |
-| `Y_yaml12` (YAML 기본값 12.0)  | 1.16° | 3.81° | 13.23° | 23.78° | 2.30 | 6.6%    |
-
-### 10.4 같이 본 것 (적용 안 함)
-
-| 후보                                                                   | 결과                                                                                         | 판정                                                                                                                                                                                  |
-|------------------------------------------------------------------------|----------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `source_voxel_size` 0.25 → 0.15 (단독)                                 | p50 1.23 p90 4.45 p99 15.49 max 39.85, 소스점 55 → 72                                        | **기각.** 개선이 미미한데 소스 점수만 31% 늘어 연산이 는다                                                                                                                            |
-| `max_range 12.0` + `source_voxel_size 0.15` (조합)                     | p50 1.11 **p90 3.98(악화)** p99 13.15 max 22.64, inlier 0.989(↓) resid 0.2294(↑), 소스점 72  | **기각.** `max_range 12.0` 단독(p90 3.81 / inlier 0.990 / resid 0.2270) 대비 **개선 없음**. p50·max만 소폭 좋고 p90·inlier·resid는 나빠져 노이즈 수준의 맞바꿈인데 연산만 31% 더 든다 |
-| 고정 tau 0.5 (`use_adaptive_threshold: false`, `fixed_threshold: 0.5`) | `Low inlier ratio` 경고 13 → 159, gate 거부 17 → 59, inlier p10 = 0.0, notconv 15.2% → 22.9% | **기각.** 임계값이 너무 좁아 대응점을 통째로 잃는다                                                                                                                                   |
-
-### 10.5 주의
-
-- ⚠️ **더 큰 맵으로 가면 반드시 올릴 것.** 12 m는 이 실내 트랙 대각 (약 17 m)을 커버하는 값이다. 트랙이 커지면 벽이 tau 계산이 아니라 **거리 컷**에서 잘려 나간다.
-- 기동 시 `Frozen map max_range (30.000) != node max_range (12.000)` **WARN이 1회 뜬다**.
-  `.kissmap` 헤더의 `max_range`는 메타데이터일 뿐 등록에 쓰이지 않으므로 무해하다 (§3 맵 포맷, §6 주의사항 참고). 맵을 다시 구우면 사라진다.
-- 되돌리기: `-p max_range:=30.0`
-
-### 10.6 리플레이 하네스 함정 두 가지 (같은 날 발견)
-
-이 A/B를 얻기까지 **무효 리플레이 8건**을 버렸다. 재현할 사람은 아래를 반드시 지킬 것.
-
-1. **`/initialpose`를 재생 시작 전에 쏘면 안 된다.** odom 버퍼가 비어 있어 첫 스캔에서 수 m 점프가 난다. 재생 시작 후 bag 시간 기준 약 2 s 뒤에 seeding 해야 한다.
-2. **맵을 반드시 맞출 것.** `map.kissmap`(08-15, 451점)은 이 bag의 궤적과 **중앙값 5.33 m**
-   떨어진 다른 구역 맵이다. 이 bag에는 `map_0818_track.kissmap`(2970점, 중앙값 0.70 m)을 써야 한다. 잘못된 맵으로 돌리면 모든 수치가 무의미해진다 (`ifac_track`으로는
-   p50이 8.33°까지 뜬다).
-
-## 11. 차체 기울기(z축) 보상 (2026-08-20)
-
-### 11-1. 무슨 문제인가
-
-2D LiDAR는 차체에 볼트로 고정돼 있다. 코너에서 서스펜션이 눌리면 **차체가 롤하고,
-스캔면이 그대로 같이 기운다.** 기운 면에서 잰 점을 수평면 점으로 그냥 쓰면
-
-- 측방 거리가 `1/cos(roll)`만큼 부풀고,
-- 코너에서는 가까운 벽과 먼 벽에 그 오차가 **비대칭으로** 실려,
-- 정합 결과가 코너 **안쪽**으로 밀린다.
-
-### 11-2. 롤은 가속도계로 못 푼다
-
-가속도계의 횡축에는 중력의 `g·sin(roll)`과 원심가속 `−a_c·cos(roll)`이 **같은 축에 겹쳐**
-들어온다. 2026-08-19 23:38 백에서 순진한 상보필터(‖a‖≈1인 프레임만 중력으로 간주)를
-돌려 보면 주행 중 롤이 **−13.8° ± 10.4°**, 코너에서 −25°까지 나온다 — 전부 가짜다.
-
-### 11-3. 대신 쓰는 것: 롤 그래디언트 × 원심가속
-
-서스펜션은 정상상태에서 롤각이 횡가속에 비례한다.
-
-```
-roll  = roll_gradient_rad_per_mps2  × a_lat        (a_lat = v·ω, + = 좌선회)
-pitch = pitch_gradient_rad_per_mps2 × (−a_lon)     (a_lon = dv/dt, + = 가속)
-```
-
-`v`와 `ω`는 **KICP가 이미 쓰는 휠오돔 증분**(`delta_odom`)에서 그대로 나온다.
-새 센서도, 필터도, 적분 드리프트도 없다.
-
-### 11-4. 롤 그래디언트를 재는 법 (백 하나면 된다)
-
-IMU 횡비력 `ay`[g]를 원심가속 `a_c = v·ω`[g]에 **선형회귀**한다.
-차체가 안 기울면 기울기가 정확히 −1이어야 한다. 실측은 −1이 아니고, 그 차이가 롤이다.
-
-```
-ay = −(a_c/g)·cos φ + sin φ ,   φ = κ·a_c
-⇒  slope = 9.81·κ − 1
-```
-
-2026-08-19 23:38 백(자율 10,062 프레임) 실측:
-
-```
-ay = -0.731·a_c + -0.1216      (상관 -0.818)
-⇒ κ = (1 - 0.731)/9.81 = 0.0274 rad/(m/s²) = 1.57 °/(m/s²)
-⇒ a_lat 6 m/s² 에서 차체 롤 9.4°
-```
-
-재현:
-
-```bash
-python3 - <<'PY'
-# /sensors/imu/raw 의 ay[g] 와 /odom 의 v·ω 로 회귀 (자율 + v>2 프레임만)
-# slope 를 k 라 하면  roll_gradient = (1 - |k|) / 9.81
-PY
-```
-
-> ⚠️ 서스펜션·타이어·무게 배분을 바꾸면 **반드시 다시 재라.** 안 재고 쓰면 없는 보상을
-> 넣는 것과 같다. 피치 그래디언트는 이 백에서 `ax` 대 `a_lon` 상관이 0.40밖에 안 나와
-> (VESC 속도 미분 자체가 제동 중에 거칠다) 신뢰할 값을 못 얻었다 — 기본값 0.0이다.
-
-### 11-5. 좌표 규약
-
-회전은 `base_link` 축(x=전방, y=좌, z=상) 기준이다. 라이다 프레임 점에 적용하려면
-외부 파라미터로 켤레변환한다.
-
-```
-R_laser = R_l2b^T · R_y(pitch) · R_x(roll) · R_l2b
-```
-
-KISS가 뒤에 곱하는 `lidar_to_base`와 합쳐지면 정확히 `R_tilt · lidar_to_base`가 된다.
-수평면으로 되돌린 뒤 **z는 0으로 누른다** — 맵이 z=0 평면의 2D 스캔이라, 기울인 채로
-넣으면 대응점이 오히려 나빠진다. z는 `tilt_max_point_height_m`(맵 평면 이탈 빔 제거)에만 쓴다.
-
-### 11-6. 왜 기본값이 `false`인가 — 실측 A/B
-
-**프로즌 맵도 같은 차체에 실린 같은 라이다로 만들었으므로 같은 롤 왜곡을 이미 담고 있다.**
-위치추정만 켜면 보상이 맵과 싸운다. 23:38 백으로 자세를 고정한 채 스캔만 수평화해
-맵 정합을 다시 푼 결과(`roll_gradient` 스윕):
-
-| \|a_lat\| [m/s²] | n | 정합잔차 @0 | @0.014 | @0.0274 | @0.05 | 횡편향 @0 | @0.0274 | @0.05 |
-|---|---|---|---|---|---|---|---|---|
-| 0–2 | 296 | 0.0582 | 0.0582 | 0.0582 | 0.0581 | −0.006 | −0.006 | −0.006 |
-| 2–4 | 182 | 0.0744 | 0.0744 | 0.0748 | 0.0761 | −0.002 | −0.004 | −0.001 |
-| 4–6 | 363 | 0.0746 | 0.0760 | 0.0786 | 0.0898 | −0.057 | −0.050 | −0.049 |
-| 6–12 | 174 | 0.0766 | 0.0781 | 0.0804 | 0.0878 | −0.062 | **−0.048** | −0.046 |
-
-- **코너 횡편향은 실제로 줄어든다**: 6.2 cm → 4.8 cm (−23%). 이게 §9에서 `lateral_dof`가
-  잡으려던 그 잔차의 나머지다.
-- **그런데 정합 잔차는 나빠진다**: 0.0766 → 0.0804 m (+5%). 두 지표가 반대로 움직이는 건
-  "보상이 기하를 고치는 게 아니라 맵과 싸운다"는 신호다.
-
-따라서 **켜려면 매핑과 위치추정을 같이 켜고 맵을 다시 떠야 한다.**
-
-```bash
-# 1) 매핑을 보상 켜고 다시 돌린다
-ros2 run kinematic_localization mapping_node --ros-args \
-  --params-file src/kinematic_localization/config/mapping.yaml \
-  -p bag_path:=<맵핑용 백> -p output_path:=map_level.kissmap \
-  -p tilt_compensation_enable:=true
-
-# 2) 위치추정도 같은 값으로 켠다
-ros2 launch kinematic_localization kinematic_localization.launch.py \
-  map_name:=map_level tilt_compensation_enable:=true
-```
-
-그 뒤 위 표를 다시 뽑아 **정합 잔차와 횡편향이 함께 좋아지는지** 확인하고, 그때만
-`config/*.yaml`의 기본값을 `true`로 올린다.
-
-### 11-7. 런타임 확인
-
-`~/diagnostics`에 세 항목이 추가된다.
-
-| 키 | 의미 |
-|---|---|
-| `tilt_roll_deg` | 이 프레임에 적용한 롤 [deg] |
-| `tilt_pitch_deg` | 이 프레임에 적용한 피치 [deg] |
-| `tilt_dropped_points` | 맵 평면 이탈로 버린 빔 수 (`tilt_max_point_height_m` > 0일 때만) |
-
-23:38 백 601.5~656 s 구간 리플레이 실측:
-
-| `tilt_compensation_enable` | n | \|roll\| med / p90 / max | residual med | 비수렴 |
-|---|---|---|---|---|
-| `false` | 114 | 0.00 / 0.00 / 0.00° | 0.1646 | 1.8% |
-| `true` | 107 | 0.38 / 2.81 / 3.83° | 0.1651 | 2.8% |
-
-파이프라인은 안정적이고(NaN·롤백·드롭 0건), 잔차는 현행 맵 기준 중립이다.

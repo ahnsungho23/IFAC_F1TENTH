@@ -12,6 +12,7 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/kinematic-icp/cpp
 find_package(ament_cmake REQUIRED)
 find_package(ament_index_cpp REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
+find_package(f110_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(laser_geometry REQUIRED)
 find_package(nav_msgs REQUIRED)
@@ -27,6 +28,7 @@ find_package(tf2_ros REQUIRED)
 set(dependencies
     ament_index_cpp
     diagnostic_msgs
+    f110_msgs
     geometry_msgs
     laser_geometry
     nav_msgs

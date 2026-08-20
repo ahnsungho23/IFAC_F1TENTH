@@ -59,19 +59,6 @@ public:
         config.fixed_regularization = declare_parameter<double>("fixed_regularization", 0.0);
         config.deskew = declare_parameter<bool>("deskew", true);
         config.freeze_local_map = false;  // mapping mode: scans build the map
-
-        // 차체 기울기(z축) 보상 — 근거·좌표 규약·측정법은 utils::LevelScan 주석 참고.
-        // ⚠️ localization과 **같은 값**으로 켤 것. 한쪽만 켜면 맵과 런타임 스캔이
-        //    서로 다른 평면에 놓여 보상이 오히려 정합을 나쁘게 만든다.
-        tilt_compensation_enable_ = declare_parameter<bool>("tilt_compensation_enable", false);
-        tilt_cfg_.roll_gradient_rad_per_mps2 =
-            declare_parameter<double>("roll_gradient_rad_per_mps2", 0.0274);
-        tilt_cfg_.pitch_gradient_rad_per_mps2 =
-            declare_parameter<double>("pitch_gradient_rad_per_mps2", 0.0);
-        tilt_cfg_.max_angle_rad = declare_parameter<double>("tilt_max_angle_rad", 0.26);
-        tilt_cfg_.max_point_height_m =
-            declare_parameter<double>("tilt_max_point_height_m", 0.0);
-
         voxel_size_ = config.voxel_size;
         max_range_ = config.max_range;
 
@@ -138,8 +125,6 @@ public:
         // Pass 2: run the pipeline over every scan
         std::vector<Eigen::Vector3d> accumulated;
         std::optional<Sophus::SE3d> lidar_to_base;
-        double last_speed = 0.0;
-        bool has_last_speed = false;
         bool pose_initialized = false;
         size_t processed = 0;
         utils::TimeStampHandler timestamps_handler;
@@ -176,19 +161,7 @@ public:
             const Sophus::SE3d delta = T_begin->inverse() * (*T_end);
             if (delta.log().norm() <= 1e-3) continue;
 
-            // 차체 기울기(z축) 보상. 위치추정과 **같은 설정**으로 돌려야 프로즌 맵과
-            // 런타임 스캔이 같은 평면에 놓인다 (utils::LevelScan 주석 참고).
-            const double dt = (end_stamp - begin_stamp).seconds();
-            const double speed = dt > 1e-6 ? delta.translation().norm() / dt : 0.0;
-            const double a_lat = dt > 1e-6 ? speed * (delta.so3().log().z() / dt) : 0.0;
-            const double a_lon = (dt > 1e-6 && has_last_speed) ? (speed - last_speed) / dt : 0.0;
-            last_speed = speed;
-            has_last_speed = true;
-            const auto leveled =
-                tilt_compensation_enable_
-                    ? utils::LevelScan(points, *lidar_to_base, a_lat, a_lon, tilt_cfg_, nullptr)
-                    : points;
-            const auto &result = icp_->RegisterFrame(leveled, timestamps, *lidar_to_base, delta);
+            const auto &result = icp_->RegisterFrame(points, timestamps, *lidar_to_base, delta);
             // Accumulate the downsampled registration points in the map frame
             const Sophus::SE3d &pose = icp_->pose();
             for (const auto &p : std::get<1>(result)) accumulated.push_back(pose * p);
@@ -218,8 +191,6 @@ private:
     std::string bag_path_, lidar_topic_, odom_topic_, output_path_, tf_topic_, tf_static_topic_;
     std::string base_frame_;
     double voxel_size_ = 1.0, max_range_ = 30.0;
-    bool tilt_compensation_enable_ = false;
-    utils::TiltParams tilt_cfg_;
     std::unique_ptr<kinematic_icp::pipeline::KinematicICP> icp_;
     std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
 };

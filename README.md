@@ -309,8 +309,11 @@ ros2 launch kinematic_localization kinematic_localization.launch.py map_name:=if
 | `use_sim_time` | `true` | 시뮬레이션 시간 사용 (실차는 `false`) |
 | `slam_mode` | `false` | `true`면 동결 맵 없이 주행하며 맵 생성 (초기 포즈 불필요) |
 
-> **초기 위치 지정(필수)**: 동결 맵 모드는 `/initialpose`를 한 번 받아야 정합을 시작하므로
-> RViz의 **2D Pose Estimate**로 시작 위치를 찍어줘야 합니다. RViz 없이(헤드리스) 돌릴 때는
+> **초기 위치 지정**: 🟢 2026-08-20 2차(sungho_main 포팅본)부터 `auto_init_from_waypoints: true`가
+> 기본이라 `/global_waypoints` 첫 웨이포인트(스타트라인)로 **자동 초기화**합니다. 양쪽 QoS가
+> transient_local(래치)이라 글로벌 플래너를 나중에 띄워도 받습니다. 자동 초기화는 40프레임
+> `residual_rms` 검증 게이트를 통과해야 발행이 시작됩니다(`PORTING_NOTE.md`).
+> 수동으로 잡으려면 RViz의 **2D Pose Estimate**로 시작 위치를 찍으면 됩니다(자동값을 덮어씀). RViz 없이(헤드리스) 돌릴 때는
 > 아래처럼 직접 발행하세요. `/initialpose`는 gym 브리지도 구독하므로 **차량 텔레포트와
 > 위치추정 초기화가 동시에** 일어납니다. (KICP는 자체 RViz가 없고 `/map`을 직접 발행합니다.)
 > (주행 중 재초기화할 때는 차량을 먼저 정지시킨 뒤 두 번 발행하면 확실합니다 — 첫 발행의 텔레포트

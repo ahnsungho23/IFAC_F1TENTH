@@ -1,19 +1,16 @@
-import os
-
-from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
+from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
-    # 파일이 없으면 launch_ros가 조용히 건너뛰므로 여기서 즉시 실패시킨다
-    # (kinematic_localization.launch.py의 같은 주석 참고).
-    config = os.path.join(
-        get_package_share_directory('kinematic_localization'), 'config', 'mapping.yaml')
-    if not os.path.isfile(config):
-        raise RuntimeError(f"파라미터 파일이 없습니다: {config}")
+    config = PathJoinSubstitution([
+        FindPackageShare('kinematic_localization'),
+        'config',
+        'mapping.yaml',
+    ])
     bag_path = LaunchConfiguration('bag_path')
     output_path = LaunchConfiguration('output_path')
     lidar_topic = LaunchConfiguration('lidar_topic')

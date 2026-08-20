@@ -19,6 +19,8 @@
   <depend>ament_index_cpp</depend>
   <depend>std_srvs</depend>
   <depend>diagnostic_msgs</depend>
+  <!-- /global_waypoints auto-init (MCL particle_filter_cpp 호환) -->
+  <depend>f110_msgs</depend>
 
   <!-- Offline mapping node -->
   <depend>rosbag2_cpp</depend>
