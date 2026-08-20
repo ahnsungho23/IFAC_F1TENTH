@@ -1121,6 +1121,109 @@ json wpnt_array(const Trajectory& traj) {
           {"wpnts", wpnts}};
 }
 
+// ---------------------------------------------------------------------------
+// RViz marker payloads (Args::emit_markers). These reproduce exactly what the
+// republisher node used to build at runtime, so the JSON is a drop-in source.
+// Styles are fixed constants on purpose: parameterizing them here would create a
+// second source of truth next to the node's YAML.
+// ---------------------------------------------------------------------------
+constexpr double kTrajMarkerWidth = 0.10;
+constexpr double kTrackboundMarkerWidth = 0.05;
+constexpr int kMarkerLineStrip = 4;  // visualization_msgs::msg::Marker::LINE_STRIP
+constexpr int kMarkerAdd = 0;        // visualization_msgs::msg::Marker::ADD
+
+json marker_point(double x, double y) { return {{"x", x}, {"y", y}, {"z", 0.0}}; }
+
+json marker_color(double r, double g, double b) {
+  return {{"r", r}, {"g", g}, {"b", b}, {"a", 1.0}};
+}
+
+json empty_marker_array() { return {{"markers", json::array()}}; }
+
+json line_strip(const std::string& ns, int id, double width, const json& color) {
+  return {
+      {"header", {{"stamp", {{"sec", 0}, {"nanosec", 0}}}, {"frame_id", "map"}}},
+      {"ns", ns},
+      {"id", id},
+      {"type", kMarkerLineStrip},
+      {"action", kMarkerAdd},
+      {"pose",
+       {{"position", marker_point(0.0, 0.0)},
+        {"orientation", {{"x", 0.0}, {"y", 0.0}, {"z", 0.0}, {"w", 1.0}}}}},
+      {"scale", {{"x", width}, {"y", 0.0}, {"z", 0.0}}},
+      {"color", color},
+      {"lifetime", {{"sec", 0}, {"nanosec", 0}}},
+      {"frame_locked", false},
+      {"points", json::array()},
+      {"colors", json::array()},
+      {"text", ""},
+      {"mesh_resource", ""},
+      {"mesh_use_embedded_materials", false},
+  };
+}
+
+// Racing line as a speed-colored LINE_STRIP (green = slow, red = fast).
+json trajectory_markers(const Trajectory& traj) {
+  const size_t n = traj.points_xy.size();
+  if (n == 0) return empty_marker_array();
+
+  double vmin = traj.vx_mps[0];
+  double vmax = traj.vx_mps[0];
+  for (size_t i = 0; i < n; ++i) {
+    vmin = std::min(vmin, traj.vx_mps[i]);
+    vmax = std::max(vmax, traj.vx_mps[i]);
+  }
+  const double span = (vmax - vmin) > 1e-6 ? (vmax - vmin) : 1.0;
+
+  json marker = line_strip("global_traj_iqp", 0, kTrajMarkerWidth, marker_color(1.0, 1.0, 1.0));
+  for (size_t i = 0; i < n; ++i) {
+    marker["points"].push_back(marker_point(traj.points_xy[i].x, traj.points_xy[i].y));
+    const double t = std::clamp((traj.vx_mps[i] - vmin) / span, 0.0, 1.0);
+    marker["colors"].push_back(marker_color(t, 1.0 - t, 0.0));
+  }
+  if (n > 2) {  // close the loop back to the first waypoint
+    marker["points"].push_back(marker["points"][0]);
+    marker["colors"].push_back(marker["colors"][0]);
+  }
+  return {{"markers", json::array({marker})}};
+}
+
+// Left/right boundaries offset from the line along the path normal (psi +/- 90 deg).
+json trackbound_markers(const Trajectory& traj) {
+  const size_t n = traj.points_xy.size();
+  if (n == 0) return empty_marker_array();
+
+  const json color = marker_color(0.2, 0.6, 1.0);
+  json left = line_strip("trackbound_left", 0, kTrackboundMarkerWidth, color);
+  json right = line_strip("trackbound_right", 1, kTrackboundMarkerWidth, color);
+  for (size_t i = 0; i < n; ++i) {
+    const double s = std::sin(traj.psi_rad[i]);
+    const double c = std::cos(traj.psi_rad[i]);
+    left["points"].push_back(marker_point(traj.points_xy[i].x - traj.d_left[i] * s,
+                                          traj.points_xy[i].y + traj.d_left[i] * c));
+    right["points"].push_back(marker_point(traj.points_xy[i].x + traj.d_right[i] * s,
+                                           traj.points_xy[i].y - traj.d_right[i] * c));
+  }
+  if (n > 2) {
+    left["points"].push_back(left["points"][0]);
+    right["points"].push_back(right["points"][0]);
+  }
+  return {{"markers", json::array({left, right})}};
+}
+
+// Single flat-colored LINE_STRIP for the centerline.
+json centerline_markers(const Trajectory& traj) {
+  const size_t n = traj.points_xy.size();
+  if (n == 0) return empty_marker_array();
+
+  json marker = line_strip("centerline", 0, kTrackboundMarkerWidth, marker_color(0.5, 0.5, 0.5));
+  for (size_t i = 0; i < n; ++i) {
+    marker["points"].push_back(marker_point(traj.points_xy[i].x, traj.points_xy[i].y));
+  }
+  if (n > 2) marker["points"].push_back(marker["points"][0]);
+  return {{"markers", json::array({marker})}};
+}
+
 void draw_closed_polyline(cv::Mat& image, const std::vector<cv::Point2d>& points_xy,
                           const MapInfo& info, bool flip_y, const cv::Scalar& color,
                           int thickness) {
@@ -1412,11 +1515,14 @@ void write_outputs(const fs::path& output_dir, const GenerationResult& result, c
                      "; optimizer=" + args.optimizer +
                      "; estimated_lap_time=" + lap_text.str() + "s"}}},
       {"est_lap_time", {{"data", result.lap_time}}},
-      {"centerline_markers", {{"markers", json::array()}}},
+      {"centerline_markers",
+       args.emit_markers ? centerline_markers(center) : empty_marker_array()},
       {"centerline_waypoints", wpnt_array(center)},
-      {"global_traj_markers_iqp", {{"markers", json::array()}}},
+      {"global_traj_markers_iqp",
+       args.emit_markers ? trajectory_markers(global) : empty_marker_array()},
       {"global_traj_wpnts_iqp", wpnt_array(global)},
-      {"trackbounds_markers", {{"markers", json::array()}}},
+      {"trackbounds_markers",
+       args.emit_markers ? trackbound_markers(global) : empty_marker_array()},
   };
   std::ofstream(output_dir / "global_waypoints.json") << payload.dump(2);
 

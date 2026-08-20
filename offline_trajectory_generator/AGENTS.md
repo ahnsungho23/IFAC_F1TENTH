@@ -58,7 +58,14 @@ Rules:
 - `src/generate_main.cpp` — CLI (`bin/generate_global_trajectory`). Same flags as the old
   Python argparse (`--waypoint-step`, `--optimizer`, ...). Writes `off_map_wpnts` /
   `kappa_violations` / `max_abs_kappa` into metadata.json (the GUI status bar reads them).
+  Sets `Args::emit_markers = true`: this is the ONLY path that bakes RViz MarkerArrays into
+  global_waypoints.json. `global_trajectory_publisher_node` publishes them verbatim and builds
+  nothing at runtime, so marker geometry/style changes must be made here and the map regenerated.
 - `src/regenerate_main.cpp` — headless map_creator driver (`bin/regenerate_obstacle_map`).
+  Leaves `Args::emit_markers` at `false` on purpose — the in-race regeneration is a pure
+  trajectory job and writes no visualization. Consequence: after the lap-2 reload the
+  republisher node emits `DELETEALL` and RViz shows no raceline/trackbound lines. That is
+  intended; do not "fix" it by enabling emit_markers here without an explicit decision.
   Loads gui_params.yaml (GUI defaults + overrides, sanitizes a removed optimizer name to
   mincurv), applies the physical swap gates from
   `learning_adaptive_globalpath/MAP_CREATOR_PROPOSAL.md` 3.4, writes gate_report.json.

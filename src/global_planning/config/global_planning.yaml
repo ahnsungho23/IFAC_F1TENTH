@@ -22,10 +22,9 @@ global_trajectory_publisher_node:
     publish_centerline: true
     publish_lattice: false
     publish_period_sec: 2.0
-    # Marker generation (node builds RViz markers from waypoints; JSON has none).
-    marker_frame_id: "map"
-    traj_marker_width: 0.10
-    trackbound_marker_width: 0.05
+    # RViz markers come baked in global_waypoints.json (offline generator).
+    # The map_creator regeneration path writes empty arrays on purpose, so after a
+    # reload this node publishes a DELETEALL instead of stale markers.
 
 frenet_odom_node:
   ros__parameters:

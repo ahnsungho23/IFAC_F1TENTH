@@ -59,6 +59,10 @@ void print_usage() {
 
 int main(int argc, char** argv) {
   otg::Args args;
+  // Offline path only: bake RViz markers into global_waypoints.json so the
+  // republisher node can publish them without deriving anything at runtime.
+  // regenerate_obstacle_map (map_creator, in-race) deliberately leaves them empty.
+  args.emit_markers = true;
   std::map<std::string, std::function<void(const std::string&)>> value_options = {
       {"--map-yaml", [&](const std::string& v) { args.map_yaml = v; }},
       {"--output-dir", [&](const std::string& v) { args.output_dir = v; }},

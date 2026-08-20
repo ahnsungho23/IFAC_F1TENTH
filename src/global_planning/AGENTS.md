@@ -17,7 +17,7 @@ The package name, C++ namespace (`namespace global_planning`), include prefix
 - Prefer existing `f110_msgs` messages and ROS 2 standard messages.
 - `frenet_odom_node` uses `nav_msgs/msg/Odometry`, `f110_msgs/msg/WpntArray`, and CommonRoad-CLCS C++ core.
 - Do not add `tf2` to `frenet_odom_node`; yaw and heading-error handling must use local math helpers.
-- `global_trajectory_publisher_node` builds RViz markers with `visualization_msgs/msg/MarkerArray`.
+- `global_trajectory_publisher_node` republishes `visualization_msgs/msg/MarkerArray` read from JSON; it must not build markers itself.
 
 ## Frenet Odom Node
 
@@ -45,10 +45,14 @@ The package name, C++ namespace (`namespace global_planning`), include prefix
 - Keep the baseline `map_name` source immutable. The reload service must validate
   `<output_base_dir>/<reload_map_name>/global_waypoints.json` before atomically switching
   the in-memory bundle and active source path; never overwrite the baseline JSON.
-- The offline generator writes empty marker arrays, so this node builds `/global_waypoints/markers`
-  (speed-colored racing line) and `/trackbounds/markers` (left/right bounds from `d_left`/`d_right`
-  and `psi_rad`) from the waypoints themselves in `generateMarkers()`.
-- Generated markers only fill arrays the JSON left empty; keep marker frame and line widths in YAML.
+- This node performs no geometry. RViz markers are baked into `global_waypoints.json` by the
+  offline generator (`generate_global_trajectory`, `Args::emit_markers`); the node only republishes
+  them. Do not reintroduce marker-building code or marker style parameters here — the generator
+  constants are the single source of truth.
+- The in-race regeneration path (`regenerate_obstacle_map`, map_creator) deliberately writes empty
+  marker arrays. When a marker array is empty the node must publish one `action=DELETEALL` marker
+  instead: RViz `MarkerArray` entries are persistent per ns+id, so publishing an empty array would
+  leave the previous map's raceline on screen. Markers vanishing after a reload is intended.
 
 ## Lap Counter Node
 
