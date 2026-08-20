@@ -36,12 +36,20 @@ from launch_ros.actions import Node, SetRemap
 def generate_launch_description():
     pkg_dir = get_package_share_directory('local_planning')
     default_config = os.path.join(pkg_dir, 'config', 'local_planning.yaml')
+    # 🔴 검출기 벽 필터의 기준맵은 **런타임 /map 과 같은 kissmap 렌더**여야 한다 (2026-08-20).
+    # 종전에는 particle_filter_cpp(구 MCL)의 map.yaml(165x385, origin -0.741,-1.626)을 서빙했는데,
+    # 실차 포즈·스캔은 kinematic_localization 의 kissmap 좌표계(438x190, origin -19.934,-2.016)에
+    # 있다. 두 맵은 같은 트랙의 다른 매핑 세션 산출물이라 좌표계가 다르고 변환도 없다.
+    # 실측(run_080532 자율 구간): 스캔 점 391,947개 중 옛 기준맵 격자 안은 13.4%뿐 — 나머지
+    # 86.6%는 distanceToWall()=-1 로 벽 필터를 통과해, 벽+장애물이 한 클러스터(대각 1~12 m)로
+    # 붙어 max_obs_size 0.8 에서 기각됐다. 오늘 자율 첫충돌 23건 중 14건(61%)이 이 미검출이다.
+    # ⚠️ map.kissmap 을 다시 뜨면 map_kissmap_render.{pgm,yaml} 도 함께 다시 만들어야 한다
+    #    (kinematic_localization/maps/ 의 렌더 yaml 주석 참고). F1_MAP 환경변수는 이 파일에는
+    #    더 이상 적용되지 않는다 — 렌더는 map.kissmap 하나에서만 나온다.
     default_reference_map = os.path.join(
-        get_package_share_directory('particle_filter_cpp'),
+        get_package_share_directory('kinematic_localization'),
         'maps',
-        # 기본값 'map' (2026-08-18): ifac_track 맵은 삭제됐다. 세 노드(MCL/global/local)가
-        # 같은 맵을 보도록 global_planning·mcl_launch와 기본값을 맞춘다.
-        os.environ.get('F1_MAP', 'map') + '.yaml',
+        'map_kissmap_render.yaml',
     )
     local_planner_only_launch = os.path.join(pkg_dir, 'launch', 'local_planner_only.launch.py')
     obstacle_detector_launch = os.path.join(
