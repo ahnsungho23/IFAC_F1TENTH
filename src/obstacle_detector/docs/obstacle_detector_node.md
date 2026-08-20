@@ -210,9 +210,13 @@ evidence, 작은 위치 RMS, 반복 association에서 증가하고 dynamic evide
 `DYNAMIC`으로 바뀐 동일 scan부터 `/static_obs`에서 빠지고 `/opp_obs` 후보로 이동한다.
 `/confirmed_static_obs`에는 `CONFIRMED+STATIC`이면서 envelope 안정성 게이트를 통과한 객체만 실린다.
 
-envelope 안정성 게이트: 매칭될 때마다 측정 중심과 extent가 track의 예측/보존 값에서
-`envelope_stability_tolerance_m`(기본 0.10 m) 이내로 안정됐는지 검사하고, 연속 횟수가
+envelope 안정성 게이트: 매칭될 때마다 측정 중심이 `envelope_stability_tolerance_m`
+(기본 0.10 m) 안에 있고 extent 가 그 이상 **수축하지 않았는지** 검사하고, 연속 횟수가
 `envelope_stability_frames`(기본 2)에 못 미치는 정적 track은 발행 레이어에서 제외한다.
+리셋은 크기 기준 **비대칭**이다 (B2-①, 2026-08-20): 접근 중 보이는 면이 커지는 순수 확장은
+진짜 장애물의 정상 현상이라 streak 를 끊지 않는다 — 구 대칭 리셋은 성장 프레임마다 두 발행
+토픽에 정확히 2프레임짜리 구멍을 만들었고(run_192006 id35: 접근 2초에 구멍 5회), 플래너는
+그 구멍마다 순간 실명했다. 수축·중심 점프(산란 유령의 서명)는 종전대로 리셋한다.
 정사각형 AABB와 실제 형태의 괴리로 형태가 계속 변하는 부채꼴 산란 클러스터는 이 streak를
 채우지 못해 `/static_obs`에 나타나지 않는다. envelope가 안정적인 실제 장애물은 hits 3시점에
 streak 2를 함께 만족하므로 발행 지연이 추가되지 않는다. prediction-only 프레임에는 streak가
@@ -411,7 +415,7 @@ record/replay 원인 분석용 출력일 뿐 planner 입력이 아니다. 일반
 | 물리 객체 ID 연속성 | `physical_id_reassociation_enable`, `physical_id_reassociation_gap_s/d/map`, `physical_id_memory_sec` | 안정 실측 anchor와 Frenet/map AABB 기반 track 폐기 뒤 ID 재식별 |
 | 수명 | `ttl_dynamic`, `ttl_static`, `static_lost_hold_sec`, `min_hits_confirm`, `confirmation_window`, `extent_shrink_alpha`, `envelope_stability_tolerance_m`, `envelope_stability_frames`, `static_publish_requires_visible` | 3-of-5 존재 확인, track/ID 유지, CONFIRMED STATIC 차폐 hold(초 단위), extent 완화와 연속 실측 기반 정적 레이어 gate |
 | 수명(반증) | `static_hold_freespace_refute_enable`, `static_hold_freespace_refute_frames`, `static_hold_freespace_refute_min_beams`, `static_hold_freespace_refute_margin_m`, `static_hold_freespace_refute_box_shrink_m` | 홀드 중인 envelope를 관통하는 빔이 연속 관측되면 즉시 회수(유령 5초 유지 방지) |
-| 분류 | `motion_classification.dynamic_chi2_threshold`, `static_chi2_threshold`, `dynamic_vote_*`, `static_vote_*` | map 속도의 통계적 evidence와 최근 voting |
+| 분류 | `motion_classification.dynamic_chi2_threshold`, `static_chi2_threshold`, `dynamic_vote_*`, `static_vote_*` | map 속도의 통계적 evidence와 최근 voting. B2-② (2026-08-20): STATIC 승격을 6표/12창 + 관측 6 으로 완화 — 10표/15창은 가시율 26% 장애물에서 승격을 1.27 s 지연시켰고(run_192006 id7) 승격 무산 통과가 run_080532 에서 14/107 이었다. DYNAMIC 오분류 방어는 3/5표+실측 병진 증명이 별도로 유지 |
 | 위치 지속성 | `motion_classification.position_history_size`, `static_min_observations`, `static_max_position_rms`, `dynamic_to_static_*` | STATIC 진입과 보수적인 DYNAMIC→STATIC 복귀 |
 | 병진 확인 | `motion_classification.translation_corroboration_enable`, `translation_window_sec`, `translation_history_max_samples`, `dynamic_min_translation_m` | 부분 노출로 자라는 AABB를 이동으로 오판하지 않도록 dynamic vote에 실제 병진 증거를 요구 |
 | ego 가속 transient 억제 | `motion_classification.dynamic_vote_ego_accel_suppress_mps2`, `dynamic_vote_suppress_hold_sec`, `ego_accel_smoothing_sec` | 급제동·런치킥의 위치추정 jitter 구간에서 dynamic vote만 보류 (0.0이면 비활성) |

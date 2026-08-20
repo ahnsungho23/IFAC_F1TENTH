@@ -399,18 +399,31 @@ TEST(ObstacleTrackerGeometry, EnvelopeStabilityStreakTracksSettledMeasurements)
     tracker.update({makeDetection(10.01)}, 0.4);
     EXPECT_EQ(tracker.tracks().front().envelope_stable_streak, 1);
 
-    // A morphing envelope (fan-shaped scatter) resets the streak.
+    // B2-① (2026-08-20): 순수 확장(접근 중 보이는 면이 커짐)은 스트릭을 끊지 않는다.
+    // 구 대칭 리셋은 성장 프레임마다 발행 게이트를 닫아 두 토픽에 2프레임 구멍을 만들었다
+    // (run_192006 id35: 접근 2초 동안 구멍 5회).
     auto morph = makeDetection(10.0);
     morph.d_left_offset = 0.45;
     morph.d_right_offset = -0.55;
     tracker.update({morph}, 0.5);
+    EXPECT_EQ(tracker.tracks().front().envelope_stable_streak, 2);
+
+    // The envelope fast-grew to the morph size; repeating it is still stable.
+    tracker.update({morph}, 0.6);
+    EXPECT_EQ(tracker.tracks().front().envelope_stable_streak, 3);
+
+    // 수축(부채꼴 산란 유령의 서명)은 종전대로 리셋한다.
+    tracker.update({makeDetection(10.0)}, 0.7);
     EXPECT_EQ(tracker.tracks().front().envelope_stable_streak, 0);
 
-    // The envelope fast-grew to the morph size; repeating it is stable again.
-    tracker.update({morph}, 0.6);
+    // 다시 커지는 것은 즉시 재적립된다 (fast-grow 와 같은 방향).
+    tracker.update({morph}, 0.8);
     EXPECT_EQ(tracker.tracks().front().envelope_stable_streak, 1);
-    // A jumping centre resets the streak.
-    tracker.update({makeDetection(10.6)}, 0.7);
+
+    // A jumping centre resets the streak (확장 여부와 무관).
+    auto jumped = morph;
+    jumped.s = 10.6;
+    tracker.update({jumped}, 0.9);
     EXPECT_EQ(tracker.tracks().front().envelope_stable_streak, 0);
 }
 

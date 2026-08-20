@@ -1025,14 +1025,25 @@ void ObstacleTracker::update(
             // the retained (smoothed) extents BEFORE updating them. Morphing scatter keeps
             // resetting the streak; stable physical obstacles reach the publish gate
             // within min_hits_confirm frames.
+            //
+            // B2-① 비대칭 리셋 (2026-08-20, run_192006 접촉 #4 실측): 접근 중 보이는 면이
+            // 커지는 것은 진짜 장애물의 정상 현상인데(id35: 0.21→0.45 m 성장), 대칭 리셋은
+            // 그 성장 프레임마다 스트릭을 0으로 만들었고 smoothExtent 는 유지 extent 를
+            // 즉시 키워 다음 프레임에 복귀시켰다 — 결과는 두 발행 토픽 모두에서 정확히
+            // 2 프레임짜리 구멍 5회/2초. 플래너는 그 구멍마다 순간 실명했다. 그래서
+            // **확장은 리셋하지 않는다** (smoothExtent 의 "확장은 즉시 반영" 철학과 동일
+            // 방향). 산란 유령의 서명인 수축·중심 요동은 종전대로 리셋한다 — 커졌다
+            // 작아졌다를 반복하는 산란은 수축 프레임마다 잡힌다.
             const double center_shift = std::sqrt(
                 frenetDistSquared(t.s(), t.d(), det.s, det.d));
-            const double envelope_shift = std::max(
-                {std::abs(det.s_half_extent - t.s_half_extent),
-                 std::abs(det.d_right_offset - t.d_right_offset),
-                 std::abs(det.d_left_offset - t.d_left_offset)});
+            // 오프셋은 부호 규약이 축마다 다르므로(d_right_offset 은 음수) smoothExtent 와
+            // 같은 **크기(절댓값)** 기준으로 판정한다. 양수 = 수축.
+            const double envelope_shrink = std::max(
+                {std::abs(t.s_half_extent) - std::abs(det.s_half_extent),
+                 std::abs(t.d_right_offset) - std::abs(det.d_right_offset),
+                 std::abs(t.d_left_offset) - std::abs(det.d_left_offset)});
             if (center_shift <= p_.envelope_stability_tolerance_m &&
-                envelope_shift <= p_.envelope_stability_tolerance_m)
+                envelope_shrink <= p_.envelope_stability_tolerance_m)
             {
                 ++t.envelope_stable_streak;
             }

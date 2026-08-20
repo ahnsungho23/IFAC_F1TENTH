@@ -206,16 +206,22 @@ obstacle_detector:
 
       dynamic_vote_window: 5                   # 최근 유효 measurement evidence window
       dynamic_vote_required: 3                 # 5개 중 dynamic 3개면 DYNAMIC
-      static_vote_window: 15
-      static_vote_required: 10                 # 위치 지속성도 동시에 만족해야 STATIC
+      # B2-② STATIC 승격 완화 (2026-08-20). 10/15표+관측 10은 raw→confirmed 지연의
+      # 주범이었다: 가시율 26% 장애물(run_192006 id7)이 1.27 s, 그 사이 5.8 m 를 그대로
+      # 달렸고, 승격이 아예 무산된 채 통과한 패스가 run_080532 에서 14/107 이었다.
+      # 6표/관측 6이면 완전 가시에서 0.24 s, 26% 가시에서 ~0.9 s. 반대쪽 오분류 방어는
+      # 그대로다: DYNAMIC 판정은 3/5표 + 실측 병진 dynamic_min_translation_m 증명이
+      # 따로 있고, STATIC 은 여전히 map RMS<0.10 을 동시에 요구한다.
+      static_vote_window: 12
+      static_vote_required: 6                  # 위치 지속성도 동시에 만족해야 STATIC
 
       position_history_size: 15                # prediction이 아닌 map filtered positions
-      static_min_observations: 10
+      static_min_observations: 6               # B2-②: 표와 같은 6으로 (10이면 표 완화가 무효)
       static_max_position_rms: 0.10            # map 위치 RMS [m]
 
       # 한 번 DYNAMIC이 된 track은 잠깐 멈춰도 곧바로 STATIC으로 돌아가지 않습니다.
       dynamic_to_static_min_observations: 20
-      dynamic_to_static_vote_required: 15
+      dynamic_to_static_vote_required: 12      # 계약: static_vote_window 이하 (전창 만장일치 유지)
       dynamic_to_static_max_position_rms: 0.08
 
       covariance_regularization_epsilon: 1.0e-6

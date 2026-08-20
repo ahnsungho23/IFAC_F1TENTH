@@ -89,9 +89,14 @@ Keep the scan-driven pipeline ordered as follows:
     used to weaken the `Dynamic -> Static` hysteresis, and a genuinely moving object still
     translates far enough within the window to pass it.
 13. A non-dynamic track enters `/static_obs` only while its envelope-stability streak reaches
-    `envelope_stability_frames`: consecutive matched frames whose measured centre and extents stay
-    within `envelope_stability_tolerance_m`. Fan-shaped morphing clusters never settle and stay
-    unpublished; stable real obstacles pass at the same hit as existence confirmation.
+    `envelope_stability_frames`: consecutive matched frames whose measured centre stays within
+    `envelope_stability_tolerance_m` and whose extents do not SHRINK beyond it. The reset is
+    ASYMMETRIC by magnitude (B2-1, 2026-08-20): pure extent growth never resets the streak,
+    because an approached real obstacle grows every few frames and the old symmetric reset
+    punched measured 2-frame publication holes into BOTH output topics exactly while the planner
+    was committing past it (run_192006 id35: 5 holes in 2 s). Shrink and centre jumps — the
+    fan-shaped scatter signature — still reset. Do not restore the symmetric reset; verify any
+    change here with a bag replay A/B that counts ghost publications and short conf gaps.
 14. Merge confirmed tracks only within the same static/dynamic layer.
 15. Preserve each measured cluster's independent Frenet footprint and map-frame Cartesian AABB
     through Detection and Track. Smooth the Frenet extents per matched measurement with
