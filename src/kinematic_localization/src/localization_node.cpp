@@ -1026,6 +1026,9 @@ private:
         add("residual_rms", fmt(d.residual_rms));
         add("tau", fmt(d.threshold_tau));
         add("beta", fmt(d.beta));
+        // §8: 이 프레임이 free mode로 등록됐는지. beta==0 같은 간접 추정 없이
+        // 바로 확인할 수 있어야 실차 검증이 한 줄로 끝난다.
+        add("free_mode", d.free_mode ? "true" : "false");
         add("iterations", std::to_string(d.iterations));
         add("converged", d.converged ? "true" : "false");
         add("final_dx_norm", fmt(d.final_dx_norm));
