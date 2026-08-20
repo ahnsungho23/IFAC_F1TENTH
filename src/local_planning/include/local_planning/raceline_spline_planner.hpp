@@ -75,6 +75,10 @@ struct RacelineSplineParameters
   // 시작하면 경로 첫 점이 0 근처로 눌려 컨트롤러의 lookahead 가 그 점을 집고 출발을 못 한다.
   // 전진 패스는 속도를 낮추기만 하므로(min) 이 하한이 안전정지 0 프로파일을 되살리지는 않는다.
   double longitudinal_launch_speed_floor_mps{1.0};
+  // R1 (2026-08-20): 핸드오프 루프 속도 성형. flat 캡 대신 자차 실측 속도에서 시작하는
+  // 가속 램프 + 실제 기하(복귀 램프 포함) 곡률의 횡가속 캡 + 후방 감속 패스를 건다.
+  // run_220742 충돌 A·B 의 재가속 계단(그립 권한 포화)이 도입 근거다.
+  bool handoff_speed_shaping_enable{true};
   // The lateral-acceleration cap above only binds in curves, so an obstacle sitting on a straight
   // is planned at full race-line speed and reserves the widest tracking error in the LUT -- which
   // is what makes an otherwise passable gap unusable. Slow down for the gap itself instead: the
@@ -430,6 +434,13 @@ public:
     const EgoFrenetState & ego, double state_tail_distance_m,
     double obstacle_front_m, double obstacle_span_m,
     double cap_mps, double decel_mps2) const;
+  // B1 속도 오버레이 (2026-08-21): 임의 경로에 raw 감속 프로파일을 min 으로만 씌운다.
+  // 커밋 재발행(핸드오프 순항·유지 재발행)이 raw 장애물 앞에서 감속하도록 하는 데 쓴다
+  // — run_20260821_015057 t=139 접촉(raw 전방 5.4 m 재획득에도 5.2 m/s 유지)이 근거.
+  void applyRawSlowdownProfile(
+    f110_msgs::msg::WpntArray & path, const EgoFrenetState & ego,
+    double obstacle_front_m, double obstacle_span_m,
+    double cap_mps, double decel_mps2) const;
   f110_msgs::msg::WpntArray buildEmergencyStopPath(const EgoFrenetState & ego) const;
   // Truncate `path` from the waypoint nearest ahead of ego and apply a braking profile. Used as
   // the last-resort stop geometry when no collision-free stop prefix exists: braking along the
@@ -652,6 +663,12 @@ private:
     f110_msgs::msg::WpntArray & path,
     const EgoFrenetState & ego,
     const std::vector<ExpandedObstacle> & visible) const;
+  // R1 (2026-08-21): 핸드오프 루프 전용 속도 성형. 자차-전방 순서(tail_begin 회전)로
+  // 곡률 캡 → 실측속도 시드 가속 램프 → 후방 감속 패스를 걸고, 마지막에 ψ·부호 κ·ax 를
+  // 실제 기하·최종 속도로 재계산한다. handoff_speed_shaping_enable 뒤에서만 실행.
+  void shapeGlobalHandoffSpeed(
+    f110_msgs::msg::WpntArray & path, const EgoFrenetState & ego,
+    std::size_t tail_begin) const;
   void applyLongitudinalFeasibility(
     f110_msgs::msg::WpntArray & path, const EgoFrenetState & ego) const;
   void updateGeometryAndAcceleration(f110_msgs::msg::WpntArray & path) const;

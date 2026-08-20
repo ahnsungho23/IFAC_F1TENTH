@@ -910,6 +910,17 @@ commitment는 지우지 않으므로 odometry가 회복되면 다시 검증한 �
 재발행됐습니다 (run_192006 접촉 #4: 명령 2.0→6.0 m/s). 재회피 차단 기억·보류 기억·safe-stop
 래치는 보존합니다.
 
+**B1 커버리지 갭 수리 (2026-08-21).** 핸드오프 순항·유지 커밋의 재발행은 힌트 훅보다 먼저
+return 하므로 raw 가 전방을 물어도 감속이 나가지 않았다 (run_20260821_015057 t=139: raw
+재획득 전방 5.4 m, 5.2 m/s 유지 → confirmed 1.2 m → 2.0 g 접촉). 이제 그 재발행들은
+`publishCommittedWithRawSlowdownOverlay()` 를 지나며, raw 대상이 있으면 커밋 경로 **복사본**에
+min 전용 감속 오버레이를 씌워 발행한다. 원본 커밋은 불변 — raw 가 사라지면 즉시 원속도.
+
+**R1 핸드오프 속도 성형 (2026-08-21, 기본 OFF).** `handoff_speed_shaping_enable`(기본 false)
+뒤에서, 핸드오프 루프를 자차-전방 순서로 걸어 실기하 곡률 캡 → 실측속도 시드 가속 램프 →
+후방 감속 패스를 적용하고 ψ·부호 κ·ax 를 재계산한다. 단계별 실차시험(웨이브 2)에서 단독
+활성으로 검증한 뒤 기본값을 올린다. 계약은 test_handoff_speed_shaping.cpp 가 고정한다.
+
 **A2 — safe-stop 래치 우선.** 래치가 살아 있는 동안은 `handleSafeStopLatch` 가 유일한
 발행자입니다 (보류 게이트 안에서도). 해제는 기존 사다리(유효 회피 / 장애물 통과 / 정지 후
 회랑 clear)로만 합니다.
@@ -926,6 +937,8 @@ commitment는 지우지 않으므로 odometry가 회복되면 다시 검증한 �
 - B1 raw 감속 힌트: `raw_slowdown_enable`, `raw_slowdown_topic`,
   `raw_slowdown_trigger_distance_m`, `raw_slowdown_speed_cap_mps`, `raw_slowdown_hold_sec`,
   `raw_slowdown_lateral_margin_m`
+- R1 핸드오프 성형·경로 커버 판정: `handoff_speed_shaping_enable`(기본 false),
+  `path_cover_max_gap_m`
 - 회피속도 제한표: `avoidance_velocity_limit_speed_bins_mps`,
   `avoidance_velocity_limit_lateral_accel_mps2`
 - LUT fallback: `tracking_error_reserve_m` (세 LUT 배열이 모두 비었을 때만 사용)

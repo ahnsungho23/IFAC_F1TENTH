@@ -368,6 +368,31 @@
   streak-reset flicker; do not remove it.
 - The hint must never stop the car and never trigger for objects that do not intersect the
   line — it is a hint, not a hazard response. Hazard responses stay confirmed-only.
+- **Committed republishes get the same protection (2026-08-21, run_20260821_015057 t=139
+  contact).** The handoff-cruise and retention branches return BEFORE the P0 hint hook, so a
+  raw obstacle reacquired 5.4 m ahead was approached at 5.2 m/s and only confirmed at 1.2 m.
+  Every `publishResult(committed_result_)` in those branches must go through
+  `publishCommittedWithRawSlowdownOverlay()`: it applies `applyRawSlowdownProfile` (min-only
+  speed cap) to a COPY of the committed path. Never mutate `committed_result_` itself — the
+  overlay must vanish the cycle after the raw target does.
+
+## Handoff speed shaping (R1, 2026-08-21 — default OFF until road-tested)
+
+- `shapeGlobalHandoffSpeed()` runs behind `handoff_speed_shaping_enable` (yaml default false;
+  enable only for its dedicated staged road test). With the flag off the handoff loop keeps the
+  legacy flat `state_handoff_speed_cap_mps` behaviour bit-for-bit
+  (test_handoff_speed_shaping.cpp pins this).
+- When enabled it walks in EGO-FORWARD order (`(tail_begin + j) % total`) — never array order:
+  the ego sits mid-array, so an array-order pass seeds the acceleration ramp on the wrong
+  points (that is why `applyLongitudinalFeasibility` cannot be reused here).
+- Passes, in order: actual-geometry curvature cap (Menger over post-ramp points, magnitude
+  only) → forward accel ramp seeded from MEASURED ego speed (velocity_limits accel column) →
+  backward decel pass stopping at the ego seam → `updateGeometryAndAcceleration` so ψ, SIGNED
+  κ, and ax reflect the shaped geometry/speeds (controller curvature-FF consumes signed κ).
+- `path_cover_max_gap_m` (default 1.0 = 4 waypoint spacings) is the shared "path still covers
+  ego" tolerance for the exhausted-tail guard (R1b) and the latched-stop regeneration. Keep
+  them on one parameter; diverging them re-creates the silent controller-side fallback the
+  guard exists to prevent.
 
 ## Interfaces
 

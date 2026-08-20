@@ -355,6 +355,8 @@ void LocalPlannerNode::initializeParameters()
     std::vector<double>{3.0, 3.0, 3.0, 3.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0});
   planner_parameters_.longitudinal_launch_speed_floor_mps =
     declare_parameter<double>("longitudinal_launch_speed_floor_mps", 1.0);
+  planner_parameters_.handoff_speed_shaping_enable =
+    declare_parameter<bool>("handoff_speed_shaping_enable", false);
   planner_parameters_.avoidance_minimum_speed_mps =
     declare_parameter<double>("avoidance_minimum_speed_mps", 1.0);
   planner_parameters_.margin_pass_speed_cap_mps =
@@ -494,6 +496,10 @@ void LocalPlannerNode::initializeParameters()
     0.0, declare_parameter<double>("raw_slowdown_hold_sec", 1.0));
   raw_slowdown_lateral_margin_m_ = std::max(
     0.0, declare_parameter<double>("raw_slowdown_lateral_margin_m", 0.25));
+  // 경로가 자차를 "덮는다"고 인정할 최근접 웨이포인트 허용 간격 [m]. R1b(소진 꼬리
+  // 재발행 금지)와 크립 정지경로 재생성이 공유한다. 웨이포인트 간격 0.25 m 의 4배.
+  path_cover_max_gap_m_ = std::max(
+    0.3, declare_parameter<double>("path_cover_max_gap_m", 1.0));
   frenet_odom_topic_ =
     declare_parameter<std::string>("frenet_odom_topic", "/car_state/frenet/odom");
   state_topic_ =
@@ -948,7 +954,11 @@ void LocalPlannerNode::onRawObstacles(const f110_msgs::msg::ObstacleArray::Share
   }
 }
 
-bool LocalPlannerNode::maybePublishRawSlowdownHint(const EgoFrenetState & ego)
+// B1 트리거·홀드 선택 (2026-08-21 분리): 최신 raw 스냅샷에서 라인을 무는 가장 가까운
+// 전방 장애물을 고르고, 없으면 깜빡임 브리지(홀드 기억)로 대체한다. 힌트 발행과 커밋
+// 재발행 오버레이가 같은 판정을 공유하도록 함수로 뺐다.
+bool LocalPlannerNode::selectRawSlowdownTarget(
+  const EgoFrenetState & ego, double * front_m, double * span_m)
 {
   if (!raw_slowdown_enable_ || !has_global_waypoints_) {
     return false;
@@ -1018,6 +1028,18 @@ bool LocalPlannerNode::maybePublishRawSlowdownHint(const EgoFrenetState & ego)
   } else {
     return false;
   }
+  *front_m = best_front;
+  *span_m = best_span;
+  return true;
+}
+
+bool LocalPlannerNode::maybePublishRawSlowdownHint(const EgoFrenetState & ego)
+{
+  double best_front = 0.0;
+  double best_span = 0.0;
+  if (!selectRawSlowdownTarget(ego, &best_front, &best_span)) {
+    return false;
+  }
   RacelineSplineResult hint;
   hint.kind = SplinePlanKind::kPreparation;
   hint.path = planner_.buildRawSlowdownPath(
@@ -1034,6 +1056,31 @@ bool LocalPlannerNode::maybePublishRawSlowdownHint(const EgoFrenetState & ego)
     best_front, best_span, raw_slowdown_speed_cap_mps_);
   publishResult(hint);
   return true;
+}
+
+// B1 커버리지 갭 수리 (2026-08-21, run_20260821_015057 t=139 접촉). 핸드오프/유지 커밋의
+// 재발행 분기는 P0 의 힌트 훅보다 먼저 return 하므로, raw 가 전방 라인을 물어도 감속이
+// 나가지 않았다 — 실측: raw 재획득 전방 5.4 m 인데 커밋 루프가 5.2 m/s 를 유지, confirmed
+// 재승격은 1.2 m 에서야 이뤄져 2.0 g 접촉. 커밋 재발행에 속도 전용 오버레이를 씌운다.
+// 원본 committed_result_ 는 절대 변형하지 않는다 — 복사본에 min 캡만 적용하므로 raw 가
+// 사라지면(홀드 만료) 다음 사이클 발행이 즉시 원래 속도로 돌아온다.
+void LocalPlannerNode::publishCommittedWithRawSlowdownOverlay(const EgoFrenetState & ego)
+{
+  double front = 0.0;
+  double span = 0.0;
+  if (selectRawSlowdownTarget(ego, &front, &span)) {
+    RacelineSplineResult overlay = committed_result_;
+    planner_.applyRawSlowdownProfile(
+      overlay.path, ego, front, span, raw_slowdown_speed_cap_mps_,
+      planner_parameters_.approach_feasibility_decel_mps2);
+    RCLCPP_INFO_THROTTLE(
+      get_logger(), *get_clock(), 2000,
+      "B1 오버레이: 커밋 재발행에 raw 감속 적용 (전방 %.2f m, 스팬 %.2f m, cap %.1f m/s).",
+      front, span, raw_slowdown_speed_cap_mps_);
+    publishResult(overlay);
+    return;
+  }
+  publishResult(committed_result_);
 }
 
 void LocalPlannerNode::onFrenetOdometry(const nav_msgs::msg::Odometry::SharedPtr message)
@@ -2416,7 +2463,7 @@ void LocalPlannerNode::handleSafeStopLatch(const EgoFrenetState & ego)
       nearest = std::min(nearest, std::min(gap, track_length - gap));
     }
     const double tail_forward = planner_.forwardDistance(ego.s, stop_wpnts.back().s_m);
-    if (nearest > 1.0 || tail_forward >= 0.5 * track_length) {
+    if (nearest > path_cover_max_gap_m_ || tail_forward >= 0.5 * track_length) {
       RCLCPP_WARN_THROTTLE(
         get_logger(), *get_clock(), 2000,
         "래치된 정지 경로가 ego 를 더 이상 덮지 않는다 (최근접 %.2f m, 끝점 전방 %.2f m) "
@@ -3264,7 +3311,9 @@ void LocalPlannerNode::runP0PlanningCycle(const P3CallbackSnapshot * snapshot)
         publishEmpty("state machine confirmed global handoff");
         return;
       }
-      publishResult(committed_result_);
+      // B1 오버레이: 핸드오프 순항 중에도 raw 전방 장애물 앞에서 미리 감속한다
+      // (run_20260821_015057 t=139 접촉의 갭 지점).
+      publishCommittedWithRawSlowdownOverlay(ego);
       return;
     }
   }
@@ -3297,7 +3346,7 @@ void LocalPlannerNode::runP0PlanningCycle(const P3CallbackSnapshot * snapshot)
     }
   }
   if (has_commitment_ && merge_geometry_confirmed_) {
-    publishResult(committed_result_);
+    publishCommittedWithRawSlowdownOverlay(ego);
     return;
   }
 
@@ -3476,7 +3525,34 @@ void LocalPlannerNode::runP0PlanningCycle(const P3CallbackSnapshot * snapshot)
   if (has_commitment_ && result.kind == SplinePlanKind::kNoObstacle) {
     // Perception commonly drops the passed obstacle before the spline tail is reached. Keep the
     // already race-line-locked commitment until its geometric merge is complete.
-    publishResult(committed_result_);
+    //
+    // R1b (2026-08-20, run_220742 t=226~232): 단, 커밋 경로가 자차를 더 못 덮으면(최근접
+    // 웨이포인트 1 m 초과 또는 끝점이 이미 뒤) 재발행하지 않는다. 소진된 17점짜리 꼬리가
+    // 그대로 재발행되자 컨트롤러가 "경로 반전 의심" 폴백으로 6초간 글로벌을 임의 주행했다
+    // — 그 판단은 컨트롤러가 아니라 여기서 해야 한다. 못 덮으면 합류 완료와 같은 처리로
+    // 핸드오프 루프(항상 자차를 덮는 닫힌 루프)로 넘긴다.
+    const auto & tail_wpnts = committed_result_.path.wpnts;
+    bool covers_ego = tail_wpnts.empty();  // 빈 경로(방금 리셋)는 기존 흐름에 맡긴다
+    if (!tail_wpnts.empty()) {
+      const double track_length = planner_.trackLength();
+      double nearest = std::numeric_limits<double>::infinity();
+      for (const auto & waypoint : tail_wpnts) {
+        const double gap = std::abs(waypoint.s_m - ego.s);
+        nearest = std::min(nearest, std::min(gap, track_length - gap));
+      }
+      const double tail_forward = planner_.forwardDistance(ego.s, tail_wpnts.back().s_m);
+      covers_ego = nearest <= path_cover_max_gap_m_ && tail_forward < 0.5 * track_length;
+    }
+    if (!covers_ego && activateGlobalHandoff(ego)) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 2000,
+        "커밋 꼬리가 자차를 더 이상 덮지 않는다 — 재발행 대신 핸드오프 루프로 넘긴다.");
+      publishCommittedWithRawSlowdownOverlay(ego);
+      return;
+    }
+    // 유지 재발행에도 오버레이를 씌운다 — confirmed 가 장애물을 놓친 사이 raw 가 다음
+    // 장애물을 물었을 수 있다. min 캡이라 유지 꼬리의 기존 감속 프로파일은 안 올라간다.
+    publishCommittedWithRawSlowdownOverlay(ego);
     return;
   }
   if (result.kind == SplinePlanKind::kSafeStop) {

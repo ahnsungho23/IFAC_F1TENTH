@@ -1238,7 +1238,98 @@ f110_msgs::msg::WpntArray RacelineSplinePlanner::buildGlobalHandoffPath(
       waypoint.y_m = global.y_m + d * std::cos(global.psi_rad);
     }
   }
+
+  if (parameters_.handoff_speed_shaping_enable && total >= 3U) {
+    shapeGlobalHandoffSpeed(path, ego, tail_begin);
+  }
   return path;
+}
+
+// R1 핸드오프 속도 성형 (2026-08-21, run_220742 충돌 A·B / 검토 반영 재작업).
+// 종전에는 flat 캡뿐이라 회피 종료 직후 자차 실측 속도와 무관하게 캡 6.0 이 계단으로
+// 실렸고, 컨트롤러는 3.7 m/s² 로 재가속하다 코너 탈출에서 그립 권한(6.9)을 넘겼다
+// ("그립 권한 포화" 경고, 두 충돌 모두 이 재가속 중).
+//
+// applyLongitudinalFeasibility 를 그대로 못 쓰는 이유: 그 함수는 배열 순서로 걷는데
+// 이 루프는 자차가 배열 중간(tail_begin)에 있어 자차 시드가 자차의 다음 점에 걸리지
+// 않는다. 여기서는 자차-전방 순서(tail_begin → total-1 → 0 → tail_begin-1)로 걷는다.
+void RacelineSplinePlanner::shapeGlobalHandoffSpeed(
+  f110_msgs::msg::WpntArray & path, const EgoFrenetState & ego,
+  std::size_t tail_begin) const
+{
+  const std::size_t total = path.wpnts.size();
+  if (total < 3U) {
+    return;
+  }
+  const auto at = [&](std::size_t j) -> f110_msgs::msg::Wpnt & {
+      return path.wpnts[(tail_begin + j) % total];
+    };
+  // (1) 실제 기하 곡률(복귀 램프 포함)로 횡가속 캡. 라인 자체는 v²κ 가 표 안이라
+  //     이 캡은 주로 램프가 더한 곡률에만 문다. Menger 곡률은 크기만 쓴다(캡 용도).
+  for (std::size_t j = 0; j < total; ++j) {
+    const auto & a = at((j + total - 1U) % total);
+    auto & b = at(j);
+    const auto & c3 = at((j + 1U) % total);
+    const double la = pointDistance(a, b);
+    const double lb = pointDistance(b, c3);
+    const double lc = pointDistance(a, c3);
+    double menger = 0.0;
+    if (la > kEpsilon && lb > kEpsilon && lc > kEpsilon) {
+      const double cross = std::abs(
+        (b.x_m - a.x_m) * (c3.y_m - a.y_m) - (b.y_m - a.y_m) * (c3.x_m - a.x_m));
+      menger = 2.0 * cross / (la * lb * lc);
+    }
+    const double kappa = std::max(std::abs(b.kappa_radpm), menger);
+    b.vx_mps = parameters_.limitedAvoidanceSpeed(std::max(0.0, b.vx_mps), kappa);
+  }
+  // (2) 전진 가속 램프 — 시드는 자차 실측 속도 (velocity_limits.csv 가속 열 재사용).
+  if (parameters_.longitudinalVelocityLimitValid() &&
+    !parameters_.avoidance_velocity_limit_accel_mps2.empty())
+  {
+    double speed = std::max(
+      parameters_.longitudinal_launch_speed_floor_mps, std::max(0.0, ego.speed));
+    double previous_s = ego.s;
+    for (std::size_t j = 0; j < total; ++j) {
+      auto & waypoint = at(j);
+      const double ds = forwardDistance(previous_s, waypoint.s_m);
+      if (ds > kEpsilon && ds < 0.5 * trackLength()) {
+        const double accel = parameters_.accelLimitAt(speed);
+        if (accel > 0.0) {
+          speed = std::sqrt(speed * speed + 2.0 * accel * ds);
+        }
+      }
+      waypoint.vx_mps = std::min(std::max(0.0, waypoint.vx_mps), speed);
+      speed = std::max(0.0, waypoint.vx_mps);
+      previous_s = waypoint.s_m;
+    }
+  }
+  // (3) 후방 감속 패스 — 자차 위치(seam) 앞에서 멈춘다. 캡이 만든 하강 계단을
+  //     제동 가능 프로파일로 편다.
+  for (std::size_t j = total - 1U; j > 0U; --j) {
+    auto & earlier = at(j - 1U);
+    const auto & later = at(j);
+    const double ds = forwardDistance(earlier.s_m, later.s_m);
+    if (!(ds > kEpsilon) || ds >= 0.5 * trackLength()) {
+      continue;
+    }
+    const double later_speed = std::max(0.0, later.vx_mps);
+    const double earlier_speed = std::max(0.0, earlier.vx_mps);
+    double decel = parameters_.profileFeasibilityDecel();
+    const double table_decel =
+      parameters_.decelLimitAt(std::max(earlier_speed, later_speed));
+    if (table_decel > 0.0) {
+      decel = table_decel;
+    }
+    if (decel > 0.0) {
+      earlier.vx_mps = std::min(
+        earlier_speed, std::sqrt(later_speed * later_speed + 2.0 * decel * ds));
+    }
+  }
+  // (4) 성형이 끝난 기하·속도로 ψ·부호 있는 κ·ax 를 재계산한다 — 복귀 램프가 기하를
+  //     바꿨는데 필드가 기준선 값 그대로면 하류(컨트롤러 곡률 FF = 부호 κ 소비)가
+  //     틀린 값을 먹는다. 배열이 전방 순서로 연속인 닫힌 루프라 open-경로용 스텐실의
+  //     오차는 배열 양끝 2점(자차 전방 ~tail 거리)에 국한되고 이웃 복사로 흡수된다.
+  updateGeometryAndAcceleration(path);
 }
 
 f110_msgs::msg::WpntArray RacelineSplinePlanner::buildRawSlowdownPath(
@@ -1250,10 +1341,24 @@ f110_msgs::msg::WpntArray RacelineSplinePlanner::buildRawSlowdownPath(
   // 다시 쓴다. 속도 상한을 무한대로 넘겨 루프의 flat 캡을 무효화한다.
   f110_msgs::msg::WpntArray path = buildGlobalHandoffPath(
     ego, state_tail_distance_m, std::numeric_limits<double>::infinity());
+  applyRawSlowdownProfile(path, ego, obstacle_front_m, obstacle_span_m, cap_mps, decel_mps2);
+  return path;
+}
+
+// B1 속도 오버레이 (2026-08-21 분리). 어떤 경로에든 "전방 front 지점에서 cap 에 닿는
+// 감속 실현 가능 프로파일 + 스팬 통과 cap 유지"를 min 으로만 씌운다. 속도만 낮추므로
+// 기하·정지 프로파일(0)은 절대 되살리지 않는다. run_20260821_015057 t=139 접촉이 도입
+// 근거다: raw 가 전방 5.4 m 에서 재획득됐는데 핸드오프 커밋 재발행 경로가 힌트 훅에
+// 닿지 않아 5.2 m/s 그대로 진입했다 — 커밋 재발행에도 이 오버레이를 씌우면 닫힌다.
+void RacelineSplinePlanner::applyRawSlowdownProfile(
+  f110_msgs::msg::WpntArray & path, const EgoFrenetState & ego,
+  double obstacle_front_m, double obstacle_span_m,
+  double cap_mps, double decel_mps2) const
+{
   if (path.wpnts.empty() || !(cap_mps > 0.0) || !(decel_mps2 > 0.0) ||
     !std::isfinite(obstacle_front_m) || !std::isfinite(obstacle_span_m))
   {
-    return path;
+    return;
   }
   const double front = std::max(0.0, obstacle_front_m);
   // 스팬 뒤 1 m 까지 cap 을 유지한다: s_end 은 라이다가 앞면만 봐서 과소평가되는 값이라
@@ -1273,7 +1378,6 @@ f110_msgs::msg::WpntArray RacelineSplinePlanner::buildRawSlowdownPath(
     }
     waypoint.vx_mps = std::min(waypoint.vx_mps, limit);
   }
-  return path;
 }
 
 f110_msgs::msg::WpntArray RacelineSplinePlanner::buildEmergencyStopPath(

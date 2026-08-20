@@ -126,7 +126,11 @@ private:
   // B1 raw 감속 힌트 (2026-08-20). confirmed 관점에서 트랙이 비었을 때, raw(/static_obs)
   // 장애물이 전방에서 라인을 물고 있으면 감속 힌트 경로를 발행하고 true 를 돌려준다.
   void onRawObstacles(const f110_msgs::msg::ObstacleArray::SharedPtr message);
+  bool selectRawSlowdownTarget(const EgoFrenetState & ego, double * front_m, double * span_m);
   bool maybePublishRawSlowdownHint(const EgoFrenetState & ego);
+  // B1 커버리지 갭 수리 (2026-08-21): 커밋 재발행(핸드오프 순항·유지)에 raw 감속
+  // 오버레이를 씌워 발행한다. 원본 커밋은 변형하지 않는다.
+  void publishCommittedWithRawSlowdownOverlay(const EgoFrenetState & ego);
   void resetInitialStabilization();
   std::vector<f110_msgs::msg::Obstacle> buildInitialStabilizationInput() const;
   std::vector<f110_msgs::msg::Obstacle> buildGuardedObstacles(
@@ -338,6 +342,7 @@ private:
   double raw_slowdown_speed_cap_mps_{2.8};
   double raw_slowdown_hold_sec_{1.0};
   double raw_slowdown_lateral_margin_m_{0.25};
+  double path_cover_max_gap_m_{1.0};
   struct RawHintObstacle
   {
     double s_start{0.0};

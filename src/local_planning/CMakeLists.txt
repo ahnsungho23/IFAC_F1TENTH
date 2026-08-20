@@ -94,6 +94,14 @@ if(BUILD_TESTING)
     target_link_libraries(test_raceline_spline local_planner_core)
   endif()
 
+  ament_add_gtest(test_handoff_speed_shaping test/test_handoff_speed_shaping.cpp)
+  if(TARGET test_handoff_speed_shaping)
+    ament_target_dependencies(test_handoff_speed_shaping
+      f110_msgs
+    )
+    target_link_libraries(test_handoff_speed_shaping local_planner_core)
+  endif()
+
   ament_add_gtest(test_obstacle_guard test/test_obstacle_guard.cpp)
   if(TARGET test_obstacle_guard)
     ament_target_dependencies(test_obstacle_guard
