@@ -93,7 +93,7 @@ ros2 launch f1tenth_gym_ros gym_bridge_launch.py
 | 무엇 | 어디 |
 |---|---|
 | gym 스캔 생성용 맵 | `~/f1sim_C/f1tenth_gym_ros/maps/` + `config/sim.yaml`의 `map_path` |
-| MCL 맵 | `src/monte_carlo_localization/maps/map.{png,yaml}` |
+| 위치추정 맵 (kinematic ICP) | `src/kinematic_localization/maps/map.kissmap` (+ 렌더 `map_kissmap_render.{pgm,yaml}` 재생성) |
 | raceline | `offline_trajectory_generator/output/map/` |
 
 🔴 **스폰 포즈는 raceline의 `wpnts[0]`과 정확히 같아야 합니다.** MCL은
@@ -105,22 +105,27 @@ ros2 launch f1tenth_gym_ros gym_bridge_launch.py
 현재값은 `sx: -0.706042, sy: 15.188966, stheta: -2.469165` = 새 라인 `wpnts[0]`입니다.
 라인을 다시 만들면 이 세 값도 새 `wpnts[0]`으로 같이 바꾸십시오.
 
-### 터미널 2 — 위치추정 (Monte Carlo Localization)
+### 터미널 2 — 위치추정 (kinematic_localization)
 
-`/pf/pose/odom`을 발행합니다. 이후 모든 노드가 이 토픽에 의존합니다.
+🔴 **particle_filter_cpp(MCL)는 2026-08-21 삭제됐습니다** — 실차·시뮬 모두 위치추정은
+`kinematic_localization`(Kinematic-ICP + 동결 kissmap)입니다. `/pf/pose/odom` 토픽명과
+`map→odom` TF 는 그대로 유지되므로 하류 노드는 변화가 없습니다.
 
 ```bash
 cd ~/2026_IFAC
 source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
-ros2 launch particle_filter_cpp mcl_launch.py mod:=sim map_name:=map use_rviz:=true
+ros2 launch kinematic_localization kinematic_localization.launch.py map_name:=map use_sim_time:=true
 ```
 
 | 인자 | 값 | 설명 |
 |---|---|---|
-| `mod` | `sim` | 시뮬레이션 모드 (`/ego_racecar/odom` 사용, sim time 활성) |
-| `map_name` | `map` | `monte_carlo_localization/maps/map.yaml` (기본값이라 생략 가능) |
-| `use_rviz` | `true` | RViz 동시 실행 |
+| `map_name` | `map` | `kinematic_localization/maps/map.kissmap` |
+| `use_sim_time` | `true` | 시뮬레이션일 때만 |
+
+⚠️ **시뮬 조합은 미검증입니다** (2026-08-21 기준): 구 MCL 은 `mod:=sim`으로 gym odom
+(`/ego_racecar/odom`)을 받았는데, kinematic_localization 의 시뮬용 odom 토픽 설정은 아직
+확인되지 않았습니다. 시뮬 풀스택을 다시 쓰려면 이 조합부터 검증할 것.
 
 ### 터미널 3 — 글로벌 플래너
 
@@ -218,7 +223,12 @@ package`). `wpnt_publisher`와 같은 상태입니다 — 소스는 없고 `inst
 ```bash
 cd ~/2026_IFAC
 rm -rf src/new_map_con install/new_map_con install/wpnt_publisher \
-       build/new_map_con build/wpnt_publisher
+       build/new_map_con build/wpnt_publisher \
+       build/particle_filter_cpp install/particle_filter_cpp \
+       build/lap_referee install/lap_referee
 ```
+
+(particle_filter_cpp = 구 MCL, lap_referee 는 2026-08-21 삭제 — pull 후 잔재를 지우지
+않으면 옛 바이너리가 조용히 실행될 수 있습니다.)
 
 `src/new_map_con/`에는 `launch/__pycache__/*.pyc`만 남아 있습니다(소스 없음).
