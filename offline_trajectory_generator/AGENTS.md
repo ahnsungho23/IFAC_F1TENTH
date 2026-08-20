@@ -14,6 +14,13 @@ Rules:
 ## Layout
 
 - `generate_global_trajectory.py` — map -> centerline -> raceline -> speed profile pipeline (CLI).
+  `write_outputs()` also bakes the RViz MarkerArrays (`trajectory_markers` /
+  `trackbound_markers` / `centerline_markers`) into global_waypoints.json.
+  `global_trajectory_publisher_node` publishes them verbatim and builds nothing at runtime,
+  so marker geometry/style changes must be made here and the map regenerated. Styles are
+  module constants (`MARKER_FRAME_ID`, `TRAJ_MARKER_WIDTH`, `TRACKBOUND_MARKER_WIDTH`) —
+  do not turn them into CLI flags, that would create a second source of truth next to the
+  node YAML. `global_traj_markers_sp` stays empty: the republisher never reads sp markers.
   Extraction robustness invariants (keep when refactoring): centerline candidates are ranked by
   ENCLOSED contour area (not arc length — noise scribbles are long but enclose nothing); skeleton
   pixels in corridors narrower than `min_track_width` are dropped; the Zhang-Suen fallback keeps

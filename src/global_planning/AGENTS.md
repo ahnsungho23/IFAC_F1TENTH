@@ -17,7 +17,7 @@ The package name, C++ namespace (`namespace global_planning`), include prefix
 - Prefer existing `f110_msgs` messages and ROS 2 standard messages.
 - `frenet_odom_node` uses `nav_msgs/msg/Odometry`, `f110_msgs/msg/WpntArray`, and CommonRoad-CLCS C++ core.
 - Do not add `tf2` to `frenet_odom_node`; yaw and heading-error handling must use local math helpers.
-- `global_trajectory_publisher_node` builds RViz markers with `visualization_msgs/msg/MarkerArray`.
+- `global_trajectory_publisher_node` republishes `visualization_msgs/msg/MarkerArray` read from JSON; it must not build markers itself.
 
 ## Frenet Odom Node
 
@@ -62,10 +62,14 @@ The package name, C++ namespace (`namespace global_planning`), include prefix
 ## Global Trajectory Publisher Node
 
 - Reads `global_waypoints.json` and republishes waypoints on latched topics.
-- The offline generator writes empty marker arrays, so this node builds `/global_waypoints/markers`
-  (speed-colored racing line) and `/trackbounds/markers` (left/right bounds from `d_left`/`d_right`
-  and `psi_rad`) from the waypoints themselves in `generateMarkers()`.
-- Generated markers only fill arrays the JSON left empty; keep marker frame and line widths in YAML.
+- This node performs no geometry. RViz markers are baked into `global_waypoints.json` by
+  `generate_global_trajectory.py`; the node only republishes them. Do not reintroduce
+  marker-building code or marker style parameters here — the generator module constants
+  (`MARKER_FRAME_ID` / `TRAJ_MARKER_WIDTH` / `TRACKBOUND_MARKER_WIDTH`) are the single
+  source of truth.
+- A JSON written before that change carries empty marker arrays and shows nothing in RViz.
+  The node logs a `has no RViz markers` warning on load instead of failing silently; the fix
+  is to regenerate that map, not to add marker code back.
 
 ## Documentation
 
