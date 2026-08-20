@@ -464,6 +464,52 @@ fallback은 없습니다. 한쪽이 불가능하면 반대쪽을 평가하고, �
 선형 보간합니다. 이 제한은 정상 회피 spline에만 적용하고 safe-stop 감속과 global handoff 속도는
 각자의 기존 규칙을 유지합니다.
 
+### 종방향 실현가능 2패스 (`applyLongitudinalFeasibility`, 2026-08-19)
+
+횡가속 캡은 waypoint를 **하나씩 독립적으로** 누르므로, 인접 waypoint 사이의 속도 변화가
+차가 실제로 낼 수 있는 가감속인지는 아무도 보지 않습니다. 2026-08-19 이전에는 이 함수가
+**후방(감속) 패스 하나뿐**이었고 그 한계도 상수(`profile_feasibility_decel_mps2: 3.5`)였습니다.
+2026-08-19 실차 백 5개(자율주행 구간만)에서 발행 경로를 계측한 결과입니다.
+
+| 채널 | 요구 p90 | 당시 제약 | csv 한계 | 초과 비율 |
+|---|---|---|---|---|
+| 가속 v 5~9 m/s | 4.10 m/s² | **없음** | 3.00 | **93.5%** |
+| 가속 v 2~3 m/s (정지 출발) | **30.09 m/s²** | **없음** | 4.80 | 90.2% |
+| 감속 v 4~5 m/s | 3.50 m/s² | 상수 3.5 | 2.00 | 55.2% |
+| 감속 v 5~9 m/s | 4.20 m/s² | 상수 3.5 | 2.00 | **84.2%** |
+
+지금은 두 패스입니다.
+
+1. **전진(가속) 패스** — 시드는 경로 첫 점의 계획 속도가 아니라 **자차의 실측 속도**입니다.
+   정지 출발 구간에서 요구 가속이 30 m/s²로 튀던 원인이 첫 점에 라인 속도가 그대로 실려
+   있던 것이었습니다. `v ≤ √(v_prev² + 2·a(v)·ds)`로 누르며, `min`으로만 쓰므로 속도를
+   올리는 일은 없습니다. 시드에는 `longitudinal_launch_speed_floor_mps`(기본 1.0) 하한을
+   둡니다 — 정지 상태(0)를 그대로 시드로 쓰면 첫 점이 0 근처로 눌려 컨트롤러 lookahead가
+   그 점을 집고 출발하지 못하기 때문입니다.
+2. **후방(감속) 패스** — 한계가 속도의존 표가 됐습니다. 두 점 중 **큰 속도**에서 조회합니다
+   (csv의 감속 한계는 속도가 오를수록 작아지므로 그쪽이 보수적).
+
+순서는 반드시 전진 → 후방입니다. 후방 패스가 낮추는 점은 정의상 감속 구간이라 가속 제약이
+그 자리에서 느슨해져 재위반이 생기지 않습니다. 반대 순서면 전진 패스가 후방 패스의 제동
+프로파일을 다시 깎아 두 제약이 서로를 무효화합니다.
+
+한계표는 `offline_trajectory_generator/config/velocity_limits.csv`의 `max_accel` /
+`max_decel` 열 그대로이며, **라인 생성기와 로컬 플래너가 같은 차량 모델을 쓰게 하는 것**이
+목적입니다. `test/test_velocity_limits_match_csv.py`가 YAML ↔ csv 일치를 검사하므로,
+VESC를 다시 재면 csv만 고치고 그 테스트를 돌려 YAML을 맞추면 됩니다.
+접근 램프의 적응 상한(`approach_feasibility_decel_max_mps2`)도 이 표로 클램프합니다.
+
+⚠️ **csv의 `max_lateral_accel` 열은 일부러 가져오지 않습니다.** csv는 저속에서 9~10 m/s²를
+허용하지만, 2026-08-19 실측 달성 횡가속은 p90 **6.71** m/s²(p95 7.76)였습니다. 그 열을
+동기화하면 플래너가 차가 못 내는 횡가속을 계획하게 됩니다. 횡가속 캡은 실측을 근거로
+7.0/6.5를 유지합니다. 또한 `avoidanceVelocityLimitValid()`가 이 표에 **비증가**를
+요구하므로(`limitedAvoidanceSpeed`의 이분법이 "속도가 낮을수록 항상 가능"을 전제) 저속행만
+낮추는 형태(예: `[6.0, 6.0, 6.0, 7.0, ...]`)는 **노드가 시작 시 throw** 합니다.
+
+부작용: 감속 한계가 v≥4에서 3.5 → 2.0이 되므로 제동 개시가 1.75배 일찍 시작됩니다
+(4.5 m/s → 정지 기준 2.89 m → 5.06 m). 정지 지점이 장애물을 지나치던 문제는 구조적으로
+고쳐지지만, 갭 판정이 보수적이 되어 safe-stop이 더 자주 걸릴 수 있습니다.
+
 commitment 뒤 기존 경로가
 위험해졌더라도 ego가 `commitment_lock_lateral_threshold_m`만큼 횡이동하거나
 `commitment_lock_longitudinal_m`만큼 전진하기 전이라면 반대쪽도 다시 평가할 수 있습니다.
@@ -804,50 +850,6 @@ mode**로 전환합니다. 이때 stale을 장애물이 사라졌다는 뜻으�
 마지막으로 알려진 `s/d`에서 모든 속도가 0인 emergency hold를 발행합니다. 이때도 기존
 commitment는 지우지 않으므로 odometry가 회복되면 다시 검증한 뒤 이어갈 수 있습니다.
 
-### 3.10 확정 정적 장애물 기억 (2026-08-17)
-
-3.9의 stale 보존은 "센서가 끊겼을 때 마지막 스냅샷을 버리지 않는다"까지입니다. 그것만으로는
-**검출기가 아직 못 본 장애물**을 미리 알 수 없어, 매 랩 같은 자리에서 lookahead에 들어올
-때까지 기다렸다가 계획합니다. 기억은 그 대기를 없앱니다.
-
-동작은 규칙 셋뿐입니다 (`updateRememberedObstacles()`).
-
-1. `/confirmed_static_obs`로 확정된 장애물을 Frenet 그대로 기억에 넣거나 갱신합니다.
-   같은 장애물인지는 `s_center` 거리가 `remembered_obstacle_match_tolerance_m` 이내인지로
-   판정합니다.
-2. 자차가 그 `s`를 `remembered_obstacle_visibility_margin_m` 안까지 접근했다가 지나가면,
-   "이번 통과에서 확정했는가"를 판정합니다.
-3. 확정하지 못한 통과가 `remembered_obstacle_removal_passes`회 쌓이면 기억에서 지웁니다.
-
-계획 입력은 `obstaclesWithMemory()`가 만듭니다. **온라인 확정이 항상 우선**이고, 기억은
-온라인 목록에 없는 것만 채웁니다. 두 소스가 같은 자리를 다투지 않습니다.
-
-제거 규칙이 필요한 이유는 규정 때문입니다 — 본선에서 **선두 차량이 10랩을 완주하면**
-정적 장애물이 치워지는데, 그 시점이 상대차 진행에 달려 있어 우리 랩 카운터로는 맞출 수
-없습니다. 그래서 랩 수가 아니라 인지로 감지합니다.
-
-#### `remembered_obstacle_removal_passes`를 2로 두는 이유
-
-`1`은 **통과 순간 검출 메시지 한 프레임만 누락돼도** 기억을 지웁니다. 2026-08-17 16:17 백
-(8랩, 정적 장애물 4개)을 이 함수 그대로 재현한 리플레이 결과가 아래와 같습니다.
-
-| removal_passes | 생성 | 제거 | 그중 오제거 |
-|---|---|---|---|
-| 1 | 11 | 6 | **4** (s=37.57 ×3, s=16.66 ×1) |
-| **2** | 7 | 2 | **0** |
-| 3 | 7 | 2 | 0 |
-
-검출기는 평소 전방 0.0~0.1 m까지 확정을 유지하지만(41회 통과 중 40회) 가끔 마지막 한
-프레임을 놓칩니다. `1`에서는 그때마다 지워지고, 3건은 0.01초 뒤 같은 자리에 다시 생성됐고
-1건은 한 랩(10초)이 지나서야 복구됐습니다. `2`는 오제거를 없애면서도 한 랩만 잘못 본
-진짜 유령 2건(s=42.94, s=38.80)은 그대로 제거합니다. `3`은 `2`와 결과가 같아 `2`가
-최소값입니다.
-
-`remembered_obstacle_match_tolerance_m`을 0.60에서 1.20으로 올려도 결과는 바뀌지
-않습니다 — 원인은 `s_center` 흔들림이 아니라 프레임 누락입니다.
-
-대가는 규정상 장애물이 치워진 뒤 기억을 지우는 데 **한 랩이 더 걸린다**는 것입니다.
-
 ## 4. 토픽과 메시지
 
 | 구분 | 기본 토픽 | 메시지 | 설명 |
@@ -919,7 +921,7 @@ commitment는 지우지 않으므로 odometry가 회복되면 다시 검증한 �
 정상 회피 경로는 변경된 heading·curvature를 계산한 뒤 velocity-limit 표로 `vx_mps`를 제한하고
 `ax_mps2`를 다시 계산합니다. safe-stop은 별도의 `safe_stop_deceleration_mps2`를 사용합니다.
 - 입력 freshness: `obstacle_stale_timeout_sec`, `odometry_stale_timeout_sec`
-  - obstacle stale: 마지막 유효 경로와 장애물 기억으로 주행/다음 랩 계획 지속
+  - obstacle stale: 마지막 유효 경로와 마지막 유효 장애물 스냅샷으로 주행/다음 랩 계획 지속
   - odometry stale: 마지막 위치에서 zero-speed hold
 - 합류 확인: `merge_lateral_tolerance_m`, `merge_confirm_cycles`, `state_topic`,
   `state_handoff_tail_distance_m`, `state_handoff_speed_cap_mps`
@@ -1069,13 +1071,14 @@ source install/setup.zsh
 ros2 launch kinematic_localization kinematic_localization.launch.py map_name:=ifac_track use_sim_time:=true
 ```
 
-다른 터미널에서 local planning을 실행합니다.
+다른 터미널에서 local planning을 실행합니다. 시뮬에서는 `simulator:=true`를 반드시 넘깁니다
+(기본값은 실차용 `false`이고, 빠뜨리면 detector가 ego odom을 못 받아 시야창 게이트가 꺼집니다).
 
 ```zsh
 cd ~/2026_IFAC
 source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
-ros2 launch local_planning local_planning.launch.py
+ros2 launch local_planning local_planning.launch.py simulator:=true
 ```
 
 기존 P0만 사용하는 운영 기본값은 명시적으로 다음과 같이 실행할 수 있습니다.

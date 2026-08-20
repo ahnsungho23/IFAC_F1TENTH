@@ -162,11 +162,20 @@ F1_MAP=ifac_track ros2 launch global_planning global_planning.launch.py
 글로벌 라인의 Frenet `d(s)`만 수정한 회피 경로(`/avoid_waypoints`)를 만듭니다. 이 launch가
 wall-only 레퍼런스 맵 서버와 **obstacle_detector를 기본 포함**(`start_obstacle_detector:=true`)해서 띄웁니다.
 
+> 🔴 **2026-08-20: `simulator:=true`를 반드시 명시하세요.** 이 인자의 기본값이 실차용
+> `false`로 바뀌었습니다. 빠뜨리면 obstacle_detector가 ego odom을 `/ego_racecar/odom`
+> 대신 실차 토픽에서 찾다가 못 받아, 시야창 게이트가 통째로 꺼지고 `/opp_obs`가 전면
+> 억제됩니다(경고는 "Ego odometry not received yet" 반복).
+>
+> ⚠️ 검출기 벽 필터의 **기준맵에는 `F1_MAP`이 더 이상 적용되지 않습니다**. 런타임 `/map`과
+> 좌표계를 맞추려고 `kinematic_localization/maps/map_kissmap_render.yaml`(map.kissmap 렌더)
+> 하나로 고정됐습니다. `F1_MAP`은 터미널 3(글로벌 플래너)에서만 유효합니다.
+
 ```bash
 cd ~/2026_IFAC
 source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
-F1_MAP=ifac_track ros2 launch local_planning local_planning.launch.py
+ros2 launch local_planning local_planning.launch.py simulator:=true
 ```
 
 ### 터미널 5 — 상태 머신 (state machine)

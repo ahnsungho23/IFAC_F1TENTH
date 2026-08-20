@@ -7,7 +7,7 @@
 
 - `/static_obs`: 존재가 확정된 motion `UNKNOWN` 또는 `STATIC` 장애물
 - `/confirmed_static_obs`: 존재와 정지 상태가 모두 확정된 `STATIC` 장애물
-- `/opp_obs`: 에고 전방의 가장 가까운 동적 상대차 최대 1개
+- `/opp_obs`: 에고 전방의 가장 가까운 동적 상대차 최대 1개와 `is_interfering` 간섭 판정
 
 이 패키지는 검출만 담당한다. 경로 계획, 회피·추월 waypoint, 주행 상태 결정은 다른 패키지의 책임이다.
 
@@ -60,7 +60,10 @@ detection으로 복원해 하나의 Kalman track이 생성되도록 하는 segme
 7. waypoint의 `d_left/d_right` 안에 있는 클러스터만 남긴다. 이때 중심이 아니라 팽창된
    envelope의 좌·우 가장자리(`d_left`, `d_right`)를 복도와 비교한다. 벽에 붙은 부채꼴 산란은
    중심은 복도 안이지만 AABB 가장자리는 이미 벽을 파고들기 때문이다.
-8. 클러스터 점 중 `/map` occupied cell 위의 비율이 `map_point_reject_ratio` 이상이면 제거한다.
+8. (클러스터링 전 단계에서) 맵의 선형 벽 성분으로부터 `wall_assoc_distance_m` 이내의 빔은
+   구조물로 제거된다 — 2026-08-13에 셀 점유 투표(`map_point_reject_ratio`)를
+   WallDistanceFilter(연결성분+PCA 벽 추출+거리변환)로 대체. 실차의 맵-스캔 불일치에서
+   점유 투표는 맵 셀 위의 실제 장애물을 지우고 맵 벽에서 벗어난 벽 반사를 통과시켰다.
 
 Layer 1은 벽과 알려진 지도 구조물을 제거하는 필터이며 별도 토픽으로 발행하지 않는다.
 
@@ -236,6 +239,9 @@ extent로 박스 모서리 간격을 계산하고, 같은 레이어 안에서 �
 - 모든 병합 static 객체를 `/static_obs`로 발행한다.
 - 그중 confirmed static만 다시 병합해 `/confirmed_static_obs`로 발행한다.
 - 병합 dynamic 객체 중 에고 전방에서 가장 가까운 하나를 `/opp_obs`로 발행한다.
+- 선택된 상대차의 Frenet 횡영역이 ego corridor와 겹치고 현재 또는 등속 예측 후면 간격이
+  `interference_distance_m` 이내이면 `is_interfering=true`로 설정한다. 같은 ID의 간섭 상태는
+  `interference_distance_m * (1 + interference_distance_margin_ratio)`까지 유지한다.
 - `/static_obs/markers`는 최종 `/static_obs`의 Frenet 경계를 파란 테두리로 표시한다.
 - `/opp_obs/markers`는 최종 `/opp_obs`의 Frenet 경계를 빨간 테두리로 표시한다.
 - 마커는 `s_start/s_end/d_right/d_left`에서 직접 만들어지므로 local planner 입력과 같은
@@ -336,6 +342,24 @@ record/replay 원인 분석용 출력일 뿐 planner 입력이 아니다. 일반
    false`와 함께 마지막 실측 기하(맵 AABB 포함)로 `/static_obs`·`/confirmed_static_obs`에 계속
    발행한다. hold가 끝나면 기존 frame-TTL retire와 dormant 물리 ID 기억(30 s)으로 복귀한다.
    0.0이면 기존 동작 그대로다.
+   **hold의 자유공간 반증(2026-08-16)**: hold의 근거는 "안 보이면 차폐됐다"인데, 스캔이 그
+   상자를 관통해 더 먼 곳에서 반사를 받고 있으면 그 전제가 깨진다. 반증이 없으면 한 번
+   `CONFIRMED`+`STATIC`까지 올라간 유령이 뻔히 보이는 자리에서 5초간 계속 발행되고, 그동안
+   local planner는 계속 회피하며 state machine은 `STATE_AVOID`를 유지한다. 그래서 hold 대상
+   track에 한해 매 스캔 다음을 검사한다.
+   - 광선이 마지막 실측 map AABB를 각 면 `static_hold_freespace_refute_box_shrink_m`만큼 줄인
+     **코어**를 관통하는가 (실제 물체는 AABB를 꽉 채우지 않으므로 모서리를 스치는 빔은 제외)
+   - 그 광선의 반사거리가 **유한**하고 코어 뒤쪽 면보다
+     `static_hold_freespace_refute_margin_m` 이상 먼가 (무반사 `inf`는 흡수면·최대거리 초과와
+     구분되지 않으므로 절대 증거로 쓰지 않는다)
+   - 그런 빔이 `static_hold_freespace_refute_min_beams`개 이상인가
+
+   이 조건이 `static_hold_freespace_refute_frames` 스캔 연속으로 성립하면 track을 즉시
+   회수한다(`ttl = 0`). 실측이 한 번이라도 들어오거나 반증에 실패한 스캔이 끼면 streak은
+   0으로 돌아간다. 차폐(빔이 상자 앞에서 멈춤)와 벽 필터로 포인트가 지워진 경우는 관통
+   증거가 없으므로 기존 hold가 그대로 유지된다. 스캔 기하는 node만 가지므로 판정은
+   `scanRefutesHeldEnvelope()`에 있고, tracker는 `update()`의 `FreeSpaceRefuter` 콜백으로만
+   호출한다. `static_hold_freespace_refute_enable: false` 또는 `frames: 0`이면 종전 동작이다.
    **hold 중 Kalman 동결**: 관측이 없는 동안 CV 모델을 계속 예측하면 잡음 섞인 속도 추정이
    수 초 적분되어 상태가 표류하고 공분산이 폭증한다 — 재검출이 기존 track에 연계되지 못해
    좀비 중복 track이 생기고, 발행된 `s_var/d_var`가 하류 uncertainty guard에서 10 cm 조각을
@@ -381,17 +405,19 @@ record/replay 원인 분석용 출력일 뿐 planner 입력이 아니다. 일반
 | 파편 병합 | `cluster_merge_enable`, `cluster_merge_distance`, `cluster_merge_min_fragment_points` | tracking 전 작은 LiDAR 파편 병합 |
 | 크기 | `min_cluster_points`, `max_obs_size` | 병합 후 최소 beam 수와 최대 객체 크기 |
 | 경계 | `boundaries_inflation`, `fallback_track_halfwidth` | 트랙 내부 통과 조건 |
-| 지도 | `use_map_filter`, `map_occupied_thresh`, `map_inflation_cells`, `map_point_reject_ratio` | 점유지도 필터 |
+| 지도 | `use_map_filter`, `map_occupied_thresh`, `wall_assoc_distance_m`, `wall_linear_ratio`, `wall_min_length_m` | 구조적 벽 필터 (WallDistanceFilter) |
 | 측정 불확실성 | `meas_range_var_scale`, `meas_sparse_var_scale`, `meas_yaw_rate_var_scale`, `meas_reference_points`, `meas_variance_scale_max`, `meas_motion_timeout` | Detection별 adaptive Kalman `R` |
 | 추적 | `meas_var_s/d`, `process_var_vs/vd`, `assoc_gate`, `aggro_multi`, `assoc_use_mahalanobis`, `assoc_mahalanobis_gate` | Kalman 1차 association |
 | 물리 객체 ID 연속성 | `physical_id_reassociation_enable`, `physical_id_reassociation_gap_s/d/map`, `physical_id_memory_sec` | 안정 실측 anchor와 Frenet/map AABB 기반 track 폐기 뒤 ID 재식별 |
 | 수명 | `ttl_dynamic`, `ttl_static`, `static_lost_hold_sec`, `min_hits_confirm`, `confirmation_window`, `extent_shrink_alpha`, `envelope_stability_tolerance_m`, `envelope_stability_frames`, `static_publish_requires_visible` | 3-of-5 존재 확인, track/ID 유지, CONFIRMED STATIC 차폐 hold(초 단위), extent 완화와 연속 실측 기반 정적 레이어 gate |
+| 수명(반증) | `static_hold_freespace_refute_enable`, `static_hold_freespace_refute_frames`, `static_hold_freespace_refute_min_beams`, `static_hold_freespace_refute_margin_m`, `static_hold_freespace_refute_box_shrink_m` | 홀드 중인 envelope를 관통하는 빔이 연속 관측되면 즉시 회수(유령 5초 유지 방지) |
 | 분류 | `motion_classification.dynamic_chi2_threshold`, `static_chi2_threshold`, `dynamic_vote_*`, `static_vote_*` | map 속도의 통계적 evidence와 최근 voting |
 | 위치 지속성 | `motion_classification.position_history_size`, `static_min_observations`, `static_max_position_rms`, `dynamic_to_static_*` | STATIC 진입과 보수적인 DYNAMIC→STATIC 복귀 |
 | 병진 확인 | `motion_classification.translation_corroboration_enable`, `translation_window_sec`, `translation_history_max_samples`, `dynamic_min_translation_m` | 부분 노출로 자라는 AABB를 이동으로 오판하지 않도록 dynamic vote에 실제 병진 증거를 요구 |
 | ego 가속 transient 억제 | `motion_classification.dynamic_vote_ego_accel_suppress_mps2`, `dynamic_vote_suppress_hold_sec`, `ego_accel_smoothing_sec` | 급제동·런치킥의 위치추정 jitter 구간에서 dynamic vote만 보류 (0.0이면 비활성) |
 | 분류 수치 안정성 | `motion_classification.covariance_regularization_epsilon`, `minimum_velocity_covariance`, `static_score_forgetting_factor` | 속도 공분산 regularization과 confidence decay |
 | 레이어 병합 | `layer_merge_enable`, `layer_merge_gap_s/d` | tracking 후 같은 레이어 객체 병합 |
+| 상대차 간섭 | `interference_check_enable`, `interference_distance_m`, `interference_distance_margin_ratio`, `interference_time_horizon_sec`, `interference_min_closing_speed_mps`, `interference_lateral_margin_m`, `interference_ego_half_width_m`, `interference_ego_front_offset_m` | ego corridor 횡겹침과 현재/예측 후면 간격으로 `is_interfering` 판정. 기본 1.0 m 진입, 같은 ID는 1.2 m에서 해제 |
 | 진단 | `diagnostics_enable`, `diagnostics_period_sec`, `motion_classification.debug_enable`, `debug_period_sec` | 누적 perception 로그와 track별 motion debug 로그 |
 | Replay 진단 | `replay_diagnostics_enable=false`, `replay_diagnostics_topic` | tuning 전용 scan별 detector 상태 JSON |
 | Lockstep | `lockstep_mode=false`, `lockstep_scan_offset_x_m=0.275` | CMA 전용 동일 timestamp scan/GT odom 결합 |

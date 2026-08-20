@@ -140,7 +140,7 @@ case "$role" in
   local|avoid)                             # Terminal 4 — local planner (obstacle avoidance)
     source "$IFAC/install/setup.zsh" 2>/dev/null
     kill_pattern "${PAT_LOCAL[@]}"
-    cmd=(ros2 launch local_planning local_planning.launch.py)
+    cmd=(ros2 launch local_planning local_planning.launch.py simulator:=true)
     delay=8
     ;;
   state)                                   # Terminal 5 — state machine -> /state + /local_waypoints

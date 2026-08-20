@@ -12,6 +12,7 @@
 
 #include <cstddef>
 #include <deque>
+#include <functional>
 #include <limits>
 #include <string>
 #include <utility>
@@ -132,6 +133,14 @@ struct TrackerParams
     // from the first scan) see no added delay beyond min_hits_confirm.
     double envelope_stability_tolerance_m{0.10};
     int envelope_stability_frames{2};
+    // static_lost_hold_sec's justification is "unobserved means occluded, and a map-fixed object
+    // cannot change while occluded". That is false whenever the scan actively sees THROUGH the
+    // held box: beams that traverse its core and return from something further away prove the
+    // space is empty, so the hold is keeping a ghost alive in plain view. Retire the track after
+    // this many consecutive scans of such free-space refutation (0 disables the refutation and
+    // restores the pure occlusion assumption). The refutation itself is supplied by the caller
+    // (only the node owns the scan geometry) through update()'s free_space_refuter.
+    int static_hold_freespace_refute_frames{3};
 };
 
 struct VelocityEvidenceResult
@@ -220,6 +229,9 @@ struct Track
     double last_measured_d{std::numeric_limits<double>::quiet_NaN()};
     double last_measurement_stamp{std::numeric_limits<double>::quiet_NaN()};
     int envelope_stable_streak{0};  // consecutive matched frames with a settled centre+envelope
+    // Consecutive unmeasured scans whose beams proved the held envelope's space empty. Any
+    // measurement, and any scan that cannot see the box, resets it.
+    int freespace_refute_streak{0};
     // A confirmed physical ID may be remembered after this Kalman-track instance retires.
     bool physical_identity_eligible{false};
     // Captured once from a statistically Static, existence-confirmed measurement. It stays fixed
@@ -286,13 +298,20 @@ class ObstacleTracker
     // live in the previous s-domain.
     void clear();
 
+    // Free-space refutation of one held track's last measured map AABB, evaluated against the
+    // current scan. Returns true only on positive evidence that the box's space is empty.
+    using FreeSpaceRefuter = std::function<bool(const Track &)>;
+
     // Predict all tracks to `stamp`, associate detections, update, spawn/retire, classify.
     // `ego_motion_transient` marks frames where ego acceleration is transient (hard braking or
     // launch): localization jitter then mimics obstacle translation, so dynamic votes are
-    // withheld while it is set.
+    // withheld while it is set. `free_space_refuter` is consulted ONLY for confirmed static
+    // tracks that received no measurement this scan and would otherwise be held alive by
+    // static_lost_hold_sec; leaving it empty keeps the previous pure-occlusion hold.
     void update(const std::vector<Detection> &detections, double stamp,
                 double ego_yaw_rate = 0.0, bool yaw_rate_fresh = true,
-                bool ego_motion_transient = false);
+                bool ego_motion_transient = false,
+                const FreeSpaceRefuter &free_space_refuter = nullptr);
 
     const std::vector<Track> &tracks() const { return tracks_; }
     const TrackerUpdateStats &lastStats() const { return last_stats_; }
@@ -319,6 +338,10 @@ class ObstacleTracker
     void updateTranslationEvidence(
         Track &t, const Detection &detection, double stamp) const;
     void classify(Track &t, bool measurement_received) const;
+    // Single authority for "this unmeasured track may be held/frozen as a map-fixed object".
+    // Both the state-freeze and the TTL/publish-evidence hold must ask the same question; two
+    // copies of the predicate would drift apart.
+    bool holdEligibleWhileUnmeasured(const Track &t) const;
     int countEvidence(
         const std::deque<MotionEvidence> &history,
         MotionEvidence evidence,

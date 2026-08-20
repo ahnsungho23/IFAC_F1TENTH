@@ -705,6 +705,38 @@ void ObstacleTracker::updateTranslationEvidence(
     t.measured_aabb_history.push_back(sample);
 }
 
+bool ObstacleTracker::holdEligibleWhileUnmeasured(const Track &t) const
+{
+    if (p_.static_lost_hold_sec <= 0.0 || t.track_status != TrackStatus::Confirmed ||
+        !t.is_static)
+    {
+        return false;
+    }
+    // The hold's justification is "a map-fixed object cannot change while unobserved". That is
+    // proven for a Confirmed STATIC track. It is NOT proven for a Confirmed UNKNOWN one, and
+    // `is_static` alone means only "not Dynamic", which every track is before it accumulates
+    // dynamic votes. Because a dynamic vote additionally requires dynamic_min_translation_m of
+    // corroborated translation over translation_window_sec, EVERY opponent spends at least that
+    // window Confirmed-and-Unknown while already published on /static_obs; holding it there turns
+    // a briefly occluded opponent into a static_lost_hold_sec ghost at a stale pose.
+    if (t.motion_status == MotionStatus::Static)
+    {
+        return true;
+    }
+    // Unknown is admitted only on positive evidence that the measured box did not translate.
+    // provable_translation_m counts only motion shared by both edges of an axis, so progressive
+    // revelation of a stationary obstacle (one edge growing) reads as ~0 and keeps its hold --
+    // which is the flicker case static_lost_hold_sec exists for. With corroboration disabled the
+    // evidence does not exist at all, so fall back to the previous permissive behaviour instead
+    // of silently retiring every Unknown track.
+    if (!p_.translation_corroboration_enable)
+    {
+        return true;
+    }
+    return std::isfinite(t.provable_translation_m) &&
+           t.provable_translation_m < p_.dynamic_min_translation_m;
+}
+
 void ObstacleTracker::classify(Track &t, bool measurement_received) const
 {
     if (t.track_status != TrackStatus::Confirmed)
@@ -809,7 +841,8 @@ void ObstacleTracker::classify(Track &t, bool measurement_received) const
 
 void ObstacleTracker::update(
     const std::vector<Detection> &detections, double stamp,
-    double ego_yaw_rate, bool yaw_rate_fresh, bool ego_motion_transient)
+    double ego_yaw_rate, bool yaw_rate_fresh, bool ego_motion_transient,
+    const FreeSpaceRefuter &free_space_refuter)
 {
     // Retained in the public call signature for source compatibility. Map-frame classification no
     // longer needs an ego-yaw gate because scan points have already been transformed into map.
@@ -860,9 +893,7 @@ void ObstacleTracker::update(
         // prediction-only frame (time_since == 0 here) still propagates normally, so visible
         // tracks are untouched.
         const bool freeze_lost_static =
-            p_.static_lost_hold_sec > 0.0 && t.is_static &&
-            t.track_status == TrackStatus::Confirmed &&
-            t.time_since_last_measurement > 0.0;
+            holdEligibleWhileUnmeasured(t) && t.time_since_last_measurement > 0.0;
         if (!freeze_lost_static)
         {
             predict(t, dt);
@@ -1046,6 +1077,7 @@ void ObstacleTracker::update(
                 t.physical_identity_eligible = true;
             }
             captureStableIdentityAnchor(t, det);
+            t.freespace_refute_streak = 0;
             t.ttl = t.is_static ? p_.ttl_static : p_.ttl_dynamic;
         }
         else
@@ -1057,17 +1089,45 @@ void ObstacleTracker::update(
             // static_lost_hold_sec (scan-stamp time, rate independent). Everything else keeps the
             // original frame-TTL retirement, and the stability streak still resets because a
             // prediction-only frame breaks consecutive-scan evidence.
-            const bool hold_lost_static =
-                p_.static_lost_hold_sec > 0.0 && t.is_static &&
-                t.track_status == TrackStatus::Confirmed &&
+            const bool hold_candidate =
+                holdEligibleWhileUnmeasured(t) &&
                 t.time_since_last_measurement < p_.static_lost_hold_sec;
-            if (hold_lost_static)
+            // 홀드의 근거는 "안 보이니까 차폐됐다"이다. 그런데 그 상자를 관통해 더 먼 곳에서
+            // 되돌아온 빔이 있으면 그 공간이 비었다는 적극적 증거이고, 홀드는 뻔히 보이는
+            // 자리에 유령을 살려두는 것이 된다. 관통 증거가 연속 N 스캔 쌓이면 즉시 retire한다
+            // (반증 자체는 스캔 기하를 가진 node가 제공한다).
+            bool freespace_refuted = false;
+            if (hold_candidate && free_space_refuter &&
+                p_.static_hold_freespace_refute_frames > 0)
+            {
+                if (free_space_refuter(t))
+                {
+                    ++t.freespace_refute_streak;
+                }
+                else
+                {
+                    t.freespace_refute_streak = 0;
+                }
+                freespace_refuted =
+                    t.freespace_refute_streak >= p_.static_hold_freespace_refute_frames;
+            }
+            else
+            {
+                t.freespace_refute_streak = 0;
+            }
+            if (hold_candidate && !freespace_refuted)
             {
                 t.ttl = std::max(t.ttl, 1);
             }
             else
             {
                 t.envelope_stable_streak = 0;
+            }
+            if (freespace_refuted)
+            {
+                // 홀드 없는 track의 frame-TTL 잔여분까지 기다리지 않는다. 반증은 "거기 없다"는
+                // 직접 증거이므로 이번 스캔에서 회수한다.
+                t.ttl = 0;
             }
             updateTrackStatus(t, false);
             classify(t, false);

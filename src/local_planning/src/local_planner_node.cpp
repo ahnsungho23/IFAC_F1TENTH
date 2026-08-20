@@ -313,7 +313,7 @@ void LocalPlannerNode::initializeParameters()
   planner_parameters_.vehicle_length_m =
     declare_parameter<double>("vehicle_length_m", 0.56);
   planner_parameters_.vehicle_half_width_m =
-    declare_parameter<double>("vehicle_half_width_m", 0.1435);
+    declare_parameter<double>("vehicle_half_width_m", 0.15);
   planner_parameters_.safety_margin_m =
     declare_parameter<double>("safety_margin_m", 0.03);
   planner_parameters_.tracking_error_reserve_m =
@@ -343,6 +343,18 @@ void LocalPlannerNode::initializeParameters()
     declare_parameter<std::vector<double>>(
     "avoidance_velocity_limit_lateral_accel_mps2",
     std::vector<double>{7.0, 7.0, 7.0, 7.0, 7.0, 7.0, 6.5, 6.5, 6.5, 6.5});
+  // 종방향 한계표 (2026-08-19). 기본값은 offline_trajectory_generator/config/velocity_limits.csv
+  // 의 max_accel / max_decel 열 그대로다 — 라인 생성기와 로컬 플래너가 같은 차량 모델을 쓴다.
+  planner_parameters_.avoidance_velocity_limit_accel_mps2 =
+    declare_parameter<std::vector<double>>(
+    "avoidance_velocity_limit_accel_mps2",
+    std::vector<double>{6.4, 6.3, 5.9, 3.7, 3.7, 3.47, 3.33, 3.0, 3.0, 3.0});
+  planner_parameters_.avoidance_velocity_limit_decel_mps2 =
+    declare_parameter<std::vector<double>>(
+    "avoidance_velocity_limit_decel_mps2",
+    std::vector<double>{3.0, 3.0, 3.0, 3.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0});
+  planner_parameters_.longitudinal_launch_speed_floor_mps =
+    declare_parameter<double>("longitudinal_launch_speed_floor_mps", 1.0);
   planner_parameters_.avoidance_minimum_speed_mps =
     declare_parameter<double>("avoidance_minimum_speed_mps", 1.0);
   planner_parameters_.margin_pass_speed_cap_mps =
@@ -393,6 +405,8 @@ void LocalPlannerNode::initializeParameters()
     declare_parameter<int>("target_d_candidate_count", 5);
   planner_parameters_.maximum_lateral_slope =
     declare_parameter<double>("maximum_lateral_slope", 0.65);
+  planner_parameters_.entry_discontinuity_min_budget_m =
+    declare_parameter<double>("entry_discontinuity_min_budget_m", 0.20);
   planner_parameters_.maximum_curvature_radpm =
     declare_parameter<double>("maximum_curvature_radpm", 3.20);
   planner_parameters_.maximum_curvature_rate_radpm2 =
@@ -416,14 +430,6 @@ void LocalPlannerNode::initializeParameters()
   merge_lateral_tolerance_m_ = declare_parameter<double>("merge_lateral_tolerance_m", 0.15);
   merge_confirm_cycles_ = declare_parameter<int>("merge_confirm_cycles", 15);
   safe_stop_release_cycles_ = declare_parameter<int>("safe_stop_release_cycles", 8);
-  remembered_obstacle_enable_ =
-    declare_parameter<bool>("remembered_obstacle_enable", true);
-  remembered_obstacle_removal_passes_ =
-    declare_parameter<int>("remembered_obstacle_removal_passes", 2);
-  remembered_obstacle_visibility_margin_m_ =
-    declare_parameter<double>("remembered_obstacle_visibility_margin_m", 2.0);
-  remembered_obstacle_match_tolerance_m_ =
-    declare_parameter<double>("remembered_obstacle_match_tolerance_m", 0.60);
   planning_period_ms_ = declare_parameter<int>("planning_period_ms", 50);
   state_handoff_tail_distance_m_ =
     declare_parameter<double>("state_handoff_tail_distance_m", 6.0);
@@ -439,6 +445,10 @@ void LocalPlannerNode::initializeParameters()
     declare_parameter<int>("commitment_soft_violation_confirm_cycles", 3);
   chain_release_distance_m_ =
     declare_parameter<double>("chain_release_distance_m", 0.20);
+  handoff_latch_commit_distance_m_ =
+    declare_parameter<double>("handoff_latch_commit_distance_m", 8.0);
+  completion_defer_max_sec_ =
+    declare_parameter<double>("completion_defer_max_sec", 3.0);
   guard_parameters_.uncertainty_sigma_scale =
     declare_parameter<double>("uncertainty_sigma_scale", 3.0);
   guard_parameters_.minimum_longitudinal_inflation_m =
@@ -553,6 +563,9 @@ void LocalPlannerNode::initializeParameters()
     planner_parameters_.tracking_error_reserve_m < 0.0 ||
     !planner_parameters_.trackingErrorLutValid() ||
     !planner_parameters_.avoidanceVelocityLimitValid() ||
+    !planner_parameters_.longitudinalVelocityLimitValid() ||
+    !std::isfinite(planner_parameters_.longitudinal_launch_speed_floor_mps) ||
+    planner_parameters_.longitudinal_launch_speed_floor_mps < 0.0 ||
     !std::isfinite(planner_parameters_.avoidance_minimum_speed_mps) ||
     planner_parameters_.avoidance_minimum_speed_mps < 0.0 ||
     !std::isfinite(planner_parameters_.margin_pass_speed_cap_mps) ||
@@ -568,6 +581,12 @@ void LocalPlannerNode::initializeParameters()
     planner_parameters_.commitment_retention_reserve_fraction < 0.0 ||
     planner_parameters_.commitment_retention_reserve_fraction > 1.0 ||
     !std::isfinite(planner_parameters_.localization_reserve_m) ||
+    !std::isfinite(planner_parameters_.entry_discontinuity_min_budget_m) ||
+    !std::isfinite(handoff_latch_commit_distance_m_) ||
+    !std::isfinite(completion_defer_max_sec_) ||
+    completion_defer_max_sec_ < 0.0 ||
+    handoff_latch_commit_distance_m_ < 0.0 ||
+    planner_parameters_.entry_discontinuity_min_budget_m < 0.0 ||
     planner_parameters_.localization_reserve_m < 0.0 ||
     !std::isfinite(planner_parameters_.wall_safety_margin_m) ||
     planner_parameters_.wall_safety_margin_m < 0.0 ||
@@ -795,7 +814,6 @@ void LocalPlannerNode::onObstacles(const f110_msgs::msg::ObstacleArray::SharedPt
   }
   static_obstacles_ = std::move(accepted_obstacles);
   updateFaceObservationWindows();
-  updateRememberedObstacles();
   has_obstacles_message_ = true;
   last_obstacles_time_ = lockstep_mode_ ? rclcpp::Time(message->header.stamp) : now();
   ++obstacles_message_sequence_;
@@ -930,6 +948,8 @@ void LocalPlannerNode::clearCommitment()
   resetNextManeuverStabilization();
   resetCommitmentViolationConfirmation();
   completed_obstacle_ids_.clear();
+  maneuver_obstacle_rear_s_.clear();
+  completion_deferred_since_.reset();
   has_commitment_ = false;
   committed_result_ = RacelineSplineResult();
   clearSafeStopLatch();
@@ -1000,123 +1020,6 @@ LocalPlannerNode::buildInitialStabilizationInput() const
   return result;
 }
 
-
-// 확정 장애물을 Frenet 그대로 기억하고, 지나쳤는데 못 본 것은 지운다.
-//
-// 규칙은 셋뿐이다:
-//   1. 확정된 장애물은 기억에 넣거나 갱신한다 (온라인이 항상 최신이다)
-//   2. 자차가 그 s를 **시야 확보한 채** 지나가면 "이번 통과에서 봤는가"를 판정한다
-//   3. 못 봤으면 unconfirmed_passes 를 올리고, 임계에 닿으면 지운다
-//
-// 시야 확보 판정은 "자차가 장애물 s를 지나쳤고, 지나기 전에 충분히 가까웠다"로 본다.
-// 멀리서 스쳐 지나간 것을 근거로 지우면 가림 때문에 못 본 것까지 지워버린다.
-void LocalPlannerNode::updateRememberedObstacles()
-{
-  if (!remembered_obstacle_enable_ || !has_global_waypoints_) {
-    return;
-  }
-  const double track_length = planner_.trackLength();
-  if (!(track_length > 0.0)) {
-    return;
-  }
-  const double ego_s = latest_odometry_.pose.pose.position.x;
-
-  const auto forward_gap = [track_length](double from, double to) {
-      double gap = to - from;
-      while (gap < 0.0) {gap += track_length;}
-      while (gap >= track_length) {gap -= track_length;}
-      return gap;
-    };
-
-  // 1. 확정된 것을 기억에 반영한다.
-  for (const auto & obstacle : static_obstacles_) {
-    auto match = std::find_if(
-      remembered_obstacles_.begin(), remembered_obstacles_.end(),
-      [&](const RememberedObstacle & stored) {
-        const double gap = std::min(
-          forward_gap(stored.obstacle.s_center, obstacle.s_center),
-          forward_gap(obstacle.s_center, stored.obstacle.s_center));
-        return gap <= remembered_obstacle_match_tolerance_m_;
-      });
-    if (match == remembered_obstacles_.end()) {
-      RememberedObstacle stored;
-      stored.obstacle = obstacle;
-      stored.last_confirmed_sequence = obstacles_message_sequence_;
-      remembered_obstacles_.push_back(std::move(stored));
-    } else {
-      match->obstacle = obstacle;
-      match->last_confirmed_sequence = obstacles_message_sequence_;
-      match->unconfirmed_passes = 0;      // 다시 봤으면 제거 근거가 사라진다
-      match->pass_pending = false;
-    }
-  }
-
-  // 2·3. 통과 판정.
-  for (auto & stored : remembered_obstacles_) {
-    const double ahead = forward_gap(ego_s, stored.obstacle.s_center);
-    const bool approaching = ahead <= remembered_obstacle_visibility_margin_m_ &&
-      ahead > 0.5 * track_length * 0.0;   // 앞에 있고 시야 안
-    const bool passed = ahead > 0.5 * track_length;   // 지나쳤다(뒤에 있다)
-    if (approaching) {
-      // 시야 안에 들어왔다. 이번 통과의 판정을 예약한다.
-      stored.pass_pending = true;
-      if (stored.last_confirmed_sequence == obstacles_message_sequence_) {
-        stored.pass_pending = false;      // 지금 보고 있다 — 판정할 것이 없다
-      }
-    } else if (passed && stored.pass_pending) {
-      // 시야 안에 들어왔었는데 지나칠 때까지 확정하지 못했다.
-      stored.pass_pending = false;
-      ++stored.unconfirmed_passes;
-      RCLCPP_INFO(
-        get_logger(),
-        "기억된 장애물 s=%.2f 를 시야 안에서 지나쳤으나 확정하지 못했다 (%d/%d) — "
-        "제거 판정 진행",
-        stored.obstacle.s_center, stored.unconfirmed_passes,
-        remembered_obstacle_removal_passes_);
-    }
-  }
-
-  const std::size_t before = remembered_obstacles_.size();
-  remembered_obstacles_.erase(
-    std::remove_if(
-      remembered_obstacles_.begin(), remembered_obstacles_.end(),
-      [this](const RememberedObstacle & stored) {
-        return stored.unconfirmed_passes >= remembered_obstacle_removal_passes_;
-      }),
-    remembered_obstacles_.end());
-  if (remembered_obstacles_.size() != before) {
-    RCLCPP_INFO(
-      get_logger(), "기억된 장애물 %zu개 제거 — 남은 기억 %zu개",
-      before - remembered_obstacles_.size(), remembered_obstacles_.size());
-  }
-}
-
-// 계획 입력. 온라인 확정이 **항상 우선**이고, 기억은 온라인에 없는 것만 채운다.
-//
-// 두 소스가 같은 자리를 다투면 안 된다. 오늘 안전정지 래치와 FSM이 서로 싸울 때 어떤 일이
-// 벌어지는지 봤다. 여기서는 권한이 하나다 — 온라인. 기억은 "아직 안 보이는 것"만 미리
-// 알려주는 사전 정보다.
-std::vector<f110_msgs::msg::Obstacle> LocalPlannerNode::obstaclesWithMemory() const
-{
-  if (!remembered_obstacle_enable_ || remembered_obstacles_.empty()) {
-    return static_obstacles_;
-  }
-  const double track_length = planner_.trackLength();
-  auto merged = static_obstacles_;
-  for (const auto & stored : remembered_obstacles_) {
-    const bool online_has_it = std::any_of(
-      static_obstacles_.begin(), static_obstacles_.end(),
-      [&](const f110_msgs::msg::Obstacle & live) {
-        double gap = std::abs(live.s_center - stored.obstacle.s_center);
-        if (track_length > 0.0) {gap = std::min(gap, track_length - gap);}
-        return gap <= remembered_obstacle_match_tolerance_m_;
-      });
-    if (!online_has_it) {
-      merged.push_back(stored.obstacle);
-    }
-  }
-  return merged;
-}
 
 void LocalPlannerNode::updateFaceObservationWindows()
 {
@@ -1442,6 +1345,145 @@ double LocalPlannerNode::maneuverCollisionHorizon(const EgoFrenetState & ego) co
   // 통과시킨 경로를 재검증이 매번 기각해 수렴하지 않는다(2026-08-15 run18).
   return planner_.maneuverScopeEnd(
     ego, buildCurrentManeuverInput(ego), cluster_ids, cluster_end_forward);
+}
+
+// 활성 기동이 참조하는 장애물의 뒤끝 s 를 최신 관측으로 갱신한다 (2026-08-20).
+// 미검출 프레임에는 이전 값을 그대로 둔다 — 그것이 이 기억의 존재 이유다.
+void LocalPlannerNode::rememberManeuverObstacleRears(const std::vector<int> & obstacle_ids)
+{
+  if (obstacle_ids.empty()) {
+    return;
+  }
+  const std::set<int> wanted(obstacle_ids.begin(), obstacle_ids.end());
+  for (const auto & obstacle : static_obstacles_) {
+    if (wanted.count(obstacle.id) > 0U && std::isfinite(obstacle.s_end)) {
+      maneuver_obstacle_rear_s_[obstacle.id] = obstacle.s_end;
+    }
+  }
+  // 이번 기동과 무관해진 id 는 버린다(맵이 무한정 자라지 않게).
+  for (auto it = maneuver_obstacle_rear_s_.begin(); it != maneuver_obstacle_rear_s_.end(); ) {
+    it = wanted.count(it->first) > 0U ? std::next(it) : maneuver_obstacle_rear_s_.erase(it);
+  }
+}
+
+// 기억해 둔 뒤끝 중 **아직 자차 앞에 남아 있는 것**의 최대 전방거리. 없으면 -1.
+double LocalPlannerNode::maneuverObstacleRearAhead(const EgoFrenetState & ego) const
+{
+  double ahead = -1.0;
+  const double half_track = 0.5 * planner_.trackLength();
+  for (const auto & entry : maneuver_obstacle_rear_s_) {
+    const double forward = planner_.forwardDistance(ego.s, entry.second) +
+      planner_parameters_.obstacle_longitudinal_padding_m;
+    if (forward > half_track) {
+      continue;   // 원형거리로 반 바퀴 넘음 = 이미 지나쳤다.
+    }
+    ahead = std::max(ahead, forward);
+  }
+  return ahead;
+}
+
+// 기동 장애물을 아직 안 지났으면 이번 콜백을 붙잡는다 (2026-08-20 확장).
+//
+// ■ 왜 complete 분기만으로는 부족했나
+// 앞선 판(597e6f8)은 lifecycle.complete 안에만 게이트를 뒀다. 실차 run_062020 t=537.80 에
+// 보류가 걸렸지만 **바로 다음 콜백(537.83)에 lifecycle 이 IDLE 로 떨어져** 기동이 통째로
+// 사라졌고, 538.00 에 이미 지나간 구간의 옛 경로가 재발행되면서 0.5 s 뒤 벽이었다.
+// 한 콜백만 막은 셈이다.
+//
+// ■ 실측 근거 (2026-08-20, run_062020 + run_063551 자율 구간)
+// 발행 경로의 max|d| 가 0.10 이상에서 0.05 미만으로 무너지는 '경로 붕괴'가 36 회 / 54 회
+// 있었고, 그중 **20 회(56%) / 41 회(76%)** 는 가장 가까운 장애물의 뒤끝이 아직 앞에 있었다
+// (전방거리 p50 0.84 m / 0.93 m, p90 3.90 m / 4.95 m). 이 게이트가 붙잡는 대상이 그것이다.
+bool LocalPlannerNode::holdForManeuverObstacleAhead(
+  const P3CallbackSnapshot & snapshot,
+  const P3ShadowResult & evaluation,
+  const P3ManeuverLifecycleDecision & lifecycle)
+{
+  const EgoFrenetState & ego = snapshot.maneuver.ego;
+  const double rear_ahead = maneuverObstacleRearAhead(ego);
+  if (!(rear_ahead > chain_release_distance_m_)) {
+    completion_deferred_since_.reset();
+    return false;
+  }
+
+  const rclcpp::Time now = eventNow();
+  if (!completion_deferred_since_.has_value()) {
+    completion_deferred_since_ = now;
+  } else if ((now - completion_deferred_since_.value()).seconds() > completion_defer_max_sec_) {
+    // 차가 멈춰 있으면 장애물을 영영 못 지난다. 그대로 두면 FSM 이 AVOID 에 갇히므로
+    // 상한을 넘기면 기억을 비우고 종전 거동(완료 → 핸드오프)으로 넘긴다.
+    RCLCPP_WARN(
+      get_logger(),
+      "P3 기동 보류가 %.1f s 를 넘겨 해제한다 (장애물 뒤끝 전방 %.2f m). "
+      "차가 정지해 있었을 가능성이 크다.",
+      completion_defer_max_sec_, rear_ahead);
+    completion_deferred_since_.reset();
+    maneuver_obstacle_rear_s_.clear();
+    return false;
+  }
+
+  RCLCPP_WARN_THROTTLE(
+    get_logger(), *get_clock(), 1000,
+    "P3 기동 종료를 보류한다: 기동 장애물의 뒤끝이 아직 전방 %.2f m 에 있다 "
+    "(해제 문턱 %.2f m). 지금 라인으로 복귀하면 오프셋 0 으로 그대로 들이받는다.",
+    rear_ahead, chain_release_distance_m_);
+  current_path_owner_ = "P0_BACKUP_ONLY";
+  publishP3CycleDiagnostic(snapshot, evaluation, lifecycle, current_path_owner_, true);
+
+  // 🔴 보류 중에 발행할 경로는 **지금 이 ego 에 대해 유효한 것만** 쓴다.
+  // 앞선 판은 committed_result_ 를 검증 없이 내보내고, 비어 있으면
+  // last_valid_guidance_path_ 를 그대로 실었다. 그 경로는 이미 지나간 s 구간의 기하일 수
+  // 있고, 실제로 run_062020 t=538.00 에 111 점짜리 옛 경로가 그렇게 재발행됐다.
+  // 자율 발행 표본의 13.2% / 7.0% 가 "발행 경로가 ego 를 못 덮는" 상태였다.
+  // 유효한 경로가 없으면 옛 기하를 명령하는 대신 안전정지가 맞다.
+  std::string hold_error;
+  if (!committed_result_.path.wpnts.empty() &&
+    planner_.validatePath(
+      ego, committed_result_.path, snapshot.maneuver.obstacles, &hold_error))
+  {
+    publishResult(committed_result_);
+    return true;
+  }
+
+  RCLCPP_WARN_THROTTLE(
+    get_logger(), *get_clock(), 1000,
+    "보류 중 유효한 회피 경로가 없다 (%s) — 옛 경로를 내보내지 않고 안전정지한다.",
+    committed_result_.path.wpnts.empty() ? "커밋 경로 없음" : hold_error.c_str());
+  RacelineSplineResult stop;
+  stop.kind = SplinePlanKind::kSafeStop;
+  stop.reason = "maneuver obstacle still ahead and no valid committed path";
+  latchSafeStop(std::move(stop), ego, snapshot.maneuver.obstacles);
+  (void)evaluateSafeStopLifecycle(ego, safe_stop_result_, snapshot.maneuver.obstacles);
+  publishResult(safe_stop_result_);
+  return true;
+}
+
+// 커밋한 장애물이 전방 래치 거리 안에 남아 있는가 (2026-08-20).
+// 여기서 라인으로 복귀하는 것은 회피 포기가 아니라 충돌이다 — 근거는 헤더의
+// handoff_latch_commit_distance_m_ 주석 참고.
+//
+// ⚠️ 판정에 **현재 프레임의 관측을 쓰지 않는다**. 쓰면 래치의 목적(미검출을 견디는 것)이
+//    사라진다. 커밋이 얼려 둔 committed_obstacle_guards_ 의 봉투로만 본다.
+bool LocalPlannerNode::committedObstacleWithinLatch(const EgoFrenetState & ego) const
+{
+  if (!(handoff_latch_commit_distance_m_ > 0.0) || !has_commitment_ ||
+    committed_obstacle_guards_.empty())
+  {
+    return false;
+  }
+  const double half_track = 0.5 * planner_.trackLength();
+  for (const auto & entry : committed_obstacle_guards_) {
+    // 장애물의 **뒤쪽 경계**까지의 전방거리. 이것이 양수인 동안은 아직 안 지나간 것이다.
+    const double rear_forward = planner_.forwardDistance(ego.s, entry.second.s_end) +
+      planner_parameters_.obstacle_longitudinal_padding_m;
+    if (rear_forward > half_track) {
+      continue;   // 이미 지나쳤다(원형거리로 반 바퀴 넘음) — 래치 대상이 아니다.
+    }
+    if (rear_forward <= handoff_latch_commit_distance_m_) {
+      return true;
+    }
+  }
+  return false;
 }
 
 bool LocalPlannerNode::activeManeuverObstacleCleared(const EgoFrenetState & ego) const
@@ -2234,9 +2276,7 @@ P3CallbackSnapshot LocalPlannerNode::captureP3CallbackSnapshot()
     snapshot.maneuver.ego.d = snapshot.odometry.pose.pose.position.y;
     snapshot.maneuver.ego.speed = std::abs(snapshot.odometry.twist.twist.linear.x);
   }
-  // 계획 입력에 기억된 장애물을 병합한다. 온라인 확정이 항상 우선이고, 기억은 아직 안
-  // 보이는 것만 채운다 — 권한은 하나다(obstaclesWithMemory 주석 참고).
-  const auto planning_input = obstaclesWithMemory();
+  const auto planning_input = static_obstacles_;
   snapshot.maneuver.obstacles = planning_input;
   snapshot.maneuver.raw_obstacles = planning_input;
   snapshot.maneuver.source_stamp_ns = latest_obstacle_source_stamp_ns_;
@@ -2743,7 +2783,26 @@ void LocalPlannerNode::onPlanningTimer()
     return;
   }
 
+  rememberManeuverObstacleRears(lifecycle.obstacle_ids);
+
+  // 🔴 complete 뿐 아니라 IDLE/무효화까지 덮는다 — 자세한 근거는 헬퍼 본문 주석 참고.
+  //    여기보다 위에 있는 (has_output && suffix_hard_valid) 분기는 이미 return 했으므로,
+  //    이 지점에 도달했다는 것은 이번 콜백에 쓸 유효한 P3 출력이 없다는 뜻이다.
+  if (holdForManeuverObstacleAhead(active_snapshot, evaluation, lifecycle)) {
+    return;
+  }
+
   if (lifecycle.complete) {
+    // 이 블록은 커밋을 지우고 d 오프셋 0 인 핸드오프 루프를 발행하며, 그 장애물 id 를
+    // completed_obstacle_ids_ 에 넣어 **재회피를 영구 차단**한다. 완료 판정 자체는
+    // merge_s 도달 여부로만 하고 "장애물을 실제로 지났는가"는 묻지 않는다.
+    // 그 물음은 위의 holdForManeuverObstacleAhead() 가 담당한다 — 여기에 도달했다는 것은
+    // 장애물을 지났거나 보류 상한을 넘겼다는 뜻이다.
+    //
+    // 2026-08-19 run_045534 실측(자율 322 s): 이 분기가 41 회 실행됐고, 장애물이 특정된
+    // 13 건 중 **11 건(85%)이 아직 안 지나간 상태**였다(뒤끝까지 전방거리 p50 +0.32 m,
+    // p90 +7.53 m; 5~10 m 앞에 두고 완료한 것이 3 건). 그 직후 d=0 루프를 따라가다
+    // 장애물을 정면으로 들이받았다.
     // Route the post-obstacle handback through the SAME closed global handoff loop the P0 flow
     // uses: anchored at the current ego pose and released by the existing STATE_GLOBAL
     // confirmation in the P0 pipeline below. The previous immutable frozen-tail handoff was
@@ -2942,7 +3001,7 @@ void LocalPlannerNode::runP0PlanningCycle(const P3CallbackSnapshot * snapshot)
     }
   }
 
-  std::vector<f110_msgs::msg::Obstacle> planning_obstacles = obstaclesWithMemory();
+  std::vector<f110_msgs::msg::Obstacle> planning_obstacles = static_obstacles_;
   bool chained_maneuver_started = false;
 
   // local planner가 먼저 빈 경로를 보내면 state_machine은 merge 판단에 사용할 tail을 잃는다.
@@ -3214,6 +3273,20 @@ void LocalPlannerNode::runP0PlanningCycle(const P3CallbackSnapshot * snapshot)
   // 핸드오프 루프를 발행한다 — 그 루프는 tail이 ego에 놓이고 d=0이라 FSM의 tail/횡오차
   // 게이트를 곧바로 만족시켜 정상 경로로 GLOBAL 복귀를 확정시킨다. GLOBAL이 확인되면
   // 위쪽 handoff 릴리즈 분기가 커밋을 지우고 다시 빈 경로로 돌아간다.
+  // 🔴 커밋 래치 (2026-08-20). 커밋한 장애물이 전방 래치 거리 안에 있으면 이번 프레임에
+  // 안 보여도 핸드오프(= d 오프셋 0)로 넘어가지 않는다. 커밋을 그대로 유지하면 위쪽
+  // buildCurrentManeuverInput() 의 기존 되살림 장치(committed_obstacle_guards_)가
+  // 장애물을 다시 세워 회피 경로가 계속 나온다 — 그 장치는 이미 있었는데 이 분기가
+  // 먼저 return 해서 도달하지 못하고 있었다.
+  if (committedObstacleWithinLatch(ego)) {
+    RCLCPP_WARN_THROTTLE(
+      get_logger(), *get_clock(), 1000,
+      "커밋 장애물이 아직 전방 %.1f m 안에 있어 미검출 프레임을 핸드오프로 처리하지 않는다 "
+      "(래치 유지). 지나가면 자동으로 풀린다.",
+      handoff_latch_commit_distance_m_);
+    publishResult(committed_result_);
+    return;
+  }
   if (result.kind == SplinePlanKind::kNoObstacle && has_state_ &&
     current_state_ == f110_msgs::msg::StateMachine::STATE_AVOID &&
     activateGlobalHandoff(ego))

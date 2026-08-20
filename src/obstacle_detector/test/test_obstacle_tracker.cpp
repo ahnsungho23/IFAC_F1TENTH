@@ -726,6 +726,142 @@ TEST(ObstacleTrackerLifetime, ConfirmedStaticTrackHeldThroughOcclusionForHoldSec
     EXPECT_TRUE(tracker.tracks().empty());
 }
 
+TEST(ObstacleTrackerLifetime, FreeSpaceRefutationRetiresHeldEnvelopeAfterConsecutiveScans)
+{
+    TrackerParams params = testParams();
+    params.ttl_static = 3;
+    params.static_lost_hold_sec = 5.0;
+    params.static_hold_freespace_refute_frames = 3;
+    ObstacleTracker tracker;
+    tracker.configure(params, nullptr);
+
+    for (int i = 0; i < 4; ++i)
+    {
+        tracker.update({makeDetection(10.0)}, 0.1 * i);
+    }
+    ASSERT_EQ(tracker.tracks().size(), 1U);
+    ASSERT_EQ(tracker.tracks().front().track_status, TrackStatus::Confirmed);
+
+    // Two refuted scans are not enough: a single stray beam through the envelope must not retire a
+    // map-fixed object, and the streak resets the moment the scan stops seeing through it.
+    const auto refute = [](const Track &) { return true; };
+    const auto no_evidence = [](const Track &) { return false; };
+    double stamp = 0.4;
+    for (int i = 0; i < 2; ++i)
+    {
+        tracker.update({}, stamp, 0.0, true, false, refute);
+        stamp += 0.1;
+        ASSERT_EQ(tracker.tracks().size(), 1U) << "retired before the refutation streak (" << i
+                                               << ")";
+    }
+    tracker.update({}, stamp, 0.0, true, false, no_evidence);
+    stamp += 0.1;
+    ASSERT_EQ(tracker.tracks().size(), 1U);
+    EXPECT_EQ(tracker.tracks().front().freespace_refute_streak, 0);
+
+    for (int i = 0; i < 2; ++i)
+    {
+        tracker.update({}, stamp, 0.0, true, false, refute);
+        stamp += 0.1;
+        ASSERT_EQ(tracker.tracks().size(), 1U);
+    }
+    tracker.update({}, stamp, 0.0, true, false, refute);
+    EXPECT_TRUE(tracker.tracks().empty())
+        << "a held envelope survived " << params.static_hold_freespace_refute_frames
+        << " consecutive scans that saw straight through it";
+}
+
+TEST(ObstacleTrackerLifetime, OcclusionHoldSurvivesWithoutFreeSpaceEvidence)
+{
+    // Same hold window and refuter wiring as the retirement test; only the evidence differs. The
+    // hold must still cover a plain occlusion, otherwise the refutation would have silently
+    // replaced static_lost_hold_sec instead of bounding it.
+    TrackerParams params = testParams();
+    params.ttl_static = 3;
+    params.static_lost_hold_sec = 5.0;
+    params.static_hold_freespace_refute_frames = 3;
+    ObstacleTracker tracker;
+    tracker.configure(params, nullptr);
+
+    for (int i = 0; i < 4; ++i)
+    {
+        tracker.update({makeDetection(10.0)}, 0.1 * i);
+    }
+    ASSERT_EQ(tracker.tracks().size(), 1U);
+
+    double stamp = 0.4;
+    for (int i = 0; i < 10; ++i)
+    {
+        tracker.update({}, stamp, 0.0, true, false, [](const Track &) { return false; });
+        stamp += 0.1;
+    }
+    EXPECT_EQ(tracker.tracks().size(), 1U);
+}
+
+TEST(ObstacleTrackerLifetime, TranslatingUnknownTrackIsNotHeldAsMapFixedObject)
+{
+    TrackerParams params = testParams();
+    params.ttl_static = 3;
+    params.ttl_dynamic = 3;
+    params.static_lost_hold_sec = 1.0;
+    ObstacleTracker tracker;
+    tracker.configure(params, nullptr);
+
+    // A moving object measured while ego motion withholds dynamic votes: it translates provably,
+    // yet stays Confirmed+UNKNOWN, which is exactly the state that used to earn a full
+    // static_lost_hold_sec of frozen republication on /static_obs.
+    double stamp = 0.0;
+    for (int i = 0; i < 6; ++i)
+    {
+        tracker.update({makeDetection(10.0 + 0.15 * i)}, stamp, 0.0, true, true);
+        stamp += 0.04;
+    }
+    ASSERT_EQ(tracker.tracks().size(), 1U);
+    const Track &moving = tracker.tracks().front();
+    ASSERT_EQ(moving.track_status, TrackStatus::Confirmed);
+    ASSERT_EQ(moving.motion_status, MotionStatus::Unknown);
+    ASSERT_TRUE(std::isfinite(moving.provable_translation_m));
+    ASSERT_GE(moving.provable_translation_m, params.dynamic_min_translation_m);
+
+    // Occlusion: the ordinary frame TTL must retire it instead of the map-fixed-object hold.
+    for (int i = 0; i < 4; ++i)
+    {
+        tracker.update({}, stamp);
+        stamp += 0.04;
+    }
+    EXPECT_TRUE(tracker.tracks().empty())
+        << "a provably translating UNKNOWN track was held as if it were a map-fixed object";
+}
+
+TEST(ObstacleTrackerLifetime, HoldFallsBackToPermissiveWhenCorroborationDisabled)
+{
+    TrackerParams params = testParams();
+    params.ttl_static = 3;
+    params.static_lost_hold_sec = 1.0;
+    // Without translation corroboration there is no evidence to judge an UNKNOWN track by, so the
+    // hold must keep its previous permissive behaviour rather than silently retiring everything.
+    params.translation_corroboration_enable = false;
+    ObstacleTracker tracker;
+    tracker.configure(params, nullptr);
+
+    double stamp = 0.0;
+    for (int i = 0; i < 6; ++i)
+    {
+        tracker.update({makeDetection(10.0 + 0.15 * i)}, stamp, 0.0, true, true);
+        stamp += 0.04;
+    }
+    ASSERT_EQ(tracker.tracks().size(), 1U);
+    ASSERT_EQ(tracker.tracks().front().track_status, TrackStatus::Confirmed);
+    ASSERT_EQ(tracker.tracks().front().motion_status, MotionStatus::Unknown);
+
+    for (int i = 0; i < 4; ++i)
+    {
+        tracker.update({}, stamp);
+        stamp += 0.04;
+    }
+    EXPECT_EQ(tracker.tracks().size(), 1U);
+}
+
 TEST(ObstacleTrackerClassification, EgoMotionTransientWithholdsDynamicVotes)
 {
     // Identical translating cadence; only the ego-motion transient flag differs. The witness run

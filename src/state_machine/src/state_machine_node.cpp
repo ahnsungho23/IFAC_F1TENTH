@@ -11,6 +11,7 @@
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "geometry_msgs/msg/pose_stamped.hpp"
 
@@ -172,6 +173,29 @@ StateMachineNode::StateMachineNode()
   const auto period = std::chrono::duration_cast<std::chrono::nanoseconds>(
     std::chrono::duration<double>(1.0 / publish_rate_hz));
   timer_ = create_wall_timer(period, std::bind(&StateMachineNode::publish_state_cycle, this));
+
+  // allow_avoid_transition만 런타임 변경을 수용한다 — map_creator가 장애물 회피 글로벌 라인
+  // 스왑 직후 파라미터 서비스로 GLOBAL->AVOID 진입을 차단한다(map_creator.yaml
+  // disable_avoid_after_swap). 콜백이 없으면 set_parameters가 성공을 돌려주면서도 이 멤버는
+  // 그대로라 게이트가 조용히 안 닫힌다. 나머지 파라미터는 기존대로 생성자 1회 읽기.
+  param_cb_handle_ = add_on_set_parameters_callback(
+    [this](const std::vector<rclcpp::Parameter> & params) {
+      rcl_interfaces::msg::SetParametersResult result;
+      result.successful = true;
+      for (const auto & p : params) {
+        if (p.get_name() != "allow_avoid_transition") {continue;}
+        if (p.get_type() != rclcpp::ParameterType::PARAMETER_BOOL) {
+          result.successful = false;
+          result.reason = "allow_avoid_transition은 bool이어야 함";
+          return result;
+        }
+        RCLCPP_INFO(
+          get_logger(), "allow_avoid_transition 런타임 변경: %s -> %s",
+          allow_avoid_transition_ ? "true" : "false", p.as_bool() ? "true" : "false");
+        allow_avoid_transition_ = p.as_bool();
+      }
+      return result;
+    });
 
   const auto parsed_default = parse_state(default_state_name_);
   if (!parsed_default.has_value()) {

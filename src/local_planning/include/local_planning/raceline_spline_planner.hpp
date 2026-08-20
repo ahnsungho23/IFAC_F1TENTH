@@ -54,6 +54,27 @@ struct RacelineSplineParameters
   // Avoidance waypoint speeds are capped so v^2 * |kappa| stays within the interpolated limit.
   std::vector<double> avoidance_velocity_limit_speed_bins_mps;
   std::vector<double> avoidance_velocity_limit_lateral_accel_mps2;
+  // Speed-dependent LONGITUDINAL limits, taken from the max_accel / max_decel columns of
+  // offline_trajectory_generator/config/velocity_limits.csv — the very table the raceline
+  // generator uses, so planner and generator finally share one vehicle model (2026-08-19).
+  // Both share avoidance_velocity_limit_speed_bins_mps as their speed axis.
+  //
+  // 🔴 이게 왜 들어왔나 (2026-08-19 실차 백 5개, 자율주행 구간만 계측):
+  //  - 가속: 이 패스가 생기기 전에는 **전진 제약이 아예 없었다**. applyLongitudinalFeasibility는
+  //    후방(감속) 패스 하나뿐이라, 캡이 한 점을 눌러도 다음 점이 라인 속도로 되튀는 것을
+  //    아무도 막지 않았다. 발행 경로의 가속 요구가 csv 한계를 넘은 비율이 전체 55%,
+  //    v 5~9 m/s 구간에서 93.5%였고, 정지 후 출발 구간(v 2~3)은 요구 p90 이 30 m/s² 였다
+  //    (= 경로 첫 점이 자차 실측 속도가 아니라 라인 속도를 그대로 실어서 생긴 계단).
+  //  - 감속: 상수 3.5 하나로 전 속도를 덮고 있었는데 csv 는 v>=4 에서 2.0 이다. 그 결과
+  //    감속 요구가 csv 를 넘은 비율이 v 4~5 에서 55.2%, v 5~9 에서 84.2% 였다.
+  // 비어 있으면 표가 없는 것으로 보고 종전 스칼라 거동으로 폴백한다(파라미터 파일이 옛것이어도
+  // 노드가 죽지 않게).
+  std::vector<double> avoidance_velocity_limit_accel_mps2;
+  std::vector<double> avoidance_velocity_limit_decel_mps2;
+  // 전진 패스의 시드 하한 [m/s]. 시드는 자차의 **실측** 속도인데, 정지 상태(0)에서 그대로
+  // 시작하면 경로 첫 점이 0 근처로 눌려 컨트롤러의 lookahead 가 그 점을 집고 출발을 못 한다.
+  // 전진 패스는 속도를 낮추기만 하므로(min) 이 하한이 안전정지 0 프로파일을 되살리지는 않는다.
+  double longitudinal_launch_speed_floor_mps{1.0};
   // The lateral-acceleration cap above only binds in curves, so an obstacle sitting on a straight
   // is planned at full race-line speed and reserves the widest tracking error in the LUT -- which
   // is what makes an otherwise passable gap unusable. Slow down for the gap itself instead: the
@@ -143,6 +164,43 @@ struct RacelineSplineParameters
   double maximum_target_offset_m{1.50};
   int target_d_candidate_count{5};
   double maximum_lateral_slope{0.65};
+  // 진입 불연속 검사(validatePath)의 **추종오차 예산 하한** [m] (2026-08-20 신설).
+  //
+  // 그 검사는 두 조건의 AND 다:
+  //   (1) |d_진입점 − d_자차| > 예산            ← 오탐 방지 장치
+  //   (2) |d_진입점 − d_자차| / 전방거리 > maximum_lateral_slope
+  // 예산은 trackingErrorReserve() = localization_reserve_m + tracking_error_lut 인데,
+  // 그 둘은 **장애물 마진 정책**의 값이다. 마진을 0 으로 두는 구성(프로토타입)에서는
+  // 예산이 0 이 되어 (1) 이 "간격 > 0" 즉 상시 참이 되고, AND 가 (2) 하나로 무너진다.
+  // 진입점은 자차 앞 3~14 cm 에 놓이므로 분모가 작아 기울기가 쉽게 문턱을 넘는다.
+  //
+  // 🔴 2026-08-19 run_001453 실측(자율 327.3 s): P3 기동 무효화 36 건 중 **24 건(67%)**
+  //    이 이 검사였고, 기동 생성 후 무효화까지 p50 **110 ms**(97% 가 0.5 s 미만)였다.
+  //    그 왕복이 안전정지 자율 시간의 24%, 0.8 초에 커밋 5 회 교체, 경로 d 부호 전환
+  //    43 회(차가 1 초에 0.29 m 좌우로 끌림)로 이어졌다.
+  //
+  // 이 하한은 마진이 아니라 **"이 정도 간격은 정상 추종오차다"라는 검사의 기준선**이므로
+  // 마진 정책과 분리해 둔다.
+  //
+  // 🔑 값을 정하는 기준은 "추종오차가 얼마나 큰가"가 아니라 **"진입점이 얼마나 가까운가"**다.
+  //    기각은 lateral > 0.8·forward 일 때 나므로, 하한 F 가 그 오탐을 덮으려면
+  //        0.8·forward < lateral <= F      즉      forward < F / 0.8
+  //    이어야 한다. 즉 F 는 **덮고 싶은 진입거리 × 0.8** 로 정해진다.
+  //    2026-08-19 run_001453 자율 발행 경로 8938 건의 진입거리(entry_forward) 분포:
+  //        p10 0.031  p25 0.069  p50 0.138  p75 0.205  p90 0.243 m
+  //    하한별로 덮이는 비율:
+  //        F=0.10 → forward<0.125 → 45.2%
+  //        F=0.15 → forward<0.187 → 67.8%
+  //        F=0.20 → forward<0.250 → 92.8%   ← 무릎. 여기서 포화한다
+  //        F=0.25 → forward<0.312 → 92.9%
+  //        F=0.30 → forward<0.375 → 93.0%
+  //    0.20 위로는 덮이는 양이 사실상 안 늘고 진짜 불연속 탐지만 무뎌지므로 0.20 을 쓴다.
+  //    (초안은 추종오차 p50 대역을 보고 0.15 로 잡았는데, 그건 **덮어야 할 대상의 크기**이지
+  //     **덮는 데 필요한 크기**가 아니었다 — 필요한 값은 0.8·진입거리다.)
+  //
+  // 진짜 불연속은 그대로 걸린다: 코드가 잡아야 한다고 명시한 실해 사례가 간격 0.447 m 로
+  // 이 하한의 2.2 배다. 0 으로 두면 하한이 꺼지고 종전(마진 종속) 거동으로 돌아간다.
+  double entry_discontinuity_min_budget_m{0.20};
   double maximum_curvature_radpm{3.20};
   double maximum_curvature_rate_radpm2{20.0};
 
@@ -164,6 +222,12 @@ struct RacelineSplineParameters
   bool hasTrackingErrorLut() const;
   bool trackingErrorLutValid() const;
   bool avoidanceVelocityLimitValid() const;
+  // 종방향 표(가속/감속)가 쓸 수 있는 상태인가. 둘 다 비면 true(표 없음 = 스칼라 폴백).
+  bool longitudinalVelocityLimitValid() const;
+  // 표 보간. 표가 없거나 무효면 0.0 을 돌려주며, 호출부는 그때 스칼라로 폴백한다.
+  // 횡가속 표와 달리 단조성을 요구하지 않는다 — 이분법이 아니라 단순 보간에만 쓰인다.
+  double accelLimitAt(double speed_mps) const;
+  double decelLimitAt(double speed_mps) const;
   double limitedAvoidanceSpeed(double requested_speed_mps, double curvature_radpm) const;
   // Largest speed not above `requested_speed_mps` whose tracking-error reserve still fits inside
   // `admissible_reserve_m`, never going below avoidance_minimum_speed_mps. The reserve is
@@ -577,7 +641,8 @@ private:
     f110_msgs::msg::WpntArray & path,
     const EgoFrenetState & ego,
     const std::vector<ExpandedObstacle> & visible) const;
-  void applyLongitudinalFeasibility(f110_msgs::msg::WpntArray & path) const;
+  void applyLongitudinalFeasibility(
+    f110_msgs::msg::WpntArray & path, const EgoFrenetState & ego) const;
   void updateGeometryAndAcceleration(f110_msgs::msg::WpntArray & path) const;
   bool validateCandidate(
     const EgoFrenetState & ego,

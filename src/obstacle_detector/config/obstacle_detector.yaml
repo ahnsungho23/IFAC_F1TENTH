@@ -33,6 +33,15 @@ obstacle_detector:
     lambda_deg: 10.0                           # min reliable incidence angle (deg)
     cluster_sigma: 0.03                        # LiDAR range noise std (m)
     min_2_points_dist: 0.01                    # floor on the breakpoint threshold (m)
+    # 🔴 3 으로 낮추지 말 것 (2026-08-20 실측으로 기각). run_063551 의 120 s 자율 구간을
+    # 실제 검출기로 재생해 5 와 3 을 A/B 했다 (같은 스캔·같은 TF·다른 파라미터만):
+    #   detection 총량은 3834 -> 10189 (2.7배) 로 늘지만, **진짜 장애물 지점의 검출률은
+    #   떨어진다.** 통과 회차 기준 검출률 p50 (검출 1회 이상인 pass 만):
+    #     장애물 s=20.39 : 46% -> 27%   s=40.5 : 46% -> 19% (최대 미검출 공백 4.14 -> 8.80 m)
+    #   ego odom 을 수리한 조건에서도 같은 방향이었다: s=40.5 41% -> 25% (4.13 -> 6.53 m).
+    # 작은 파편 클러스터가 늘면 트래커 연관이 흔들려(euclid_reject 급증) 진짜 장애물의
+    # 트랙이 envelope 안정 게이트를 통과하지 못하고 STATIC 으로 승격되지 않는다.
+    # 검출 단절의 해법은 이 문턱이 아니다.
     min_cluster_points: 5                      # discard clusters with fewer points
     max_obs_size: 0.8                          # max box size (m); > diagonal of a 0.5x0.5 obstacle
                                                #   (0.707) so car-sized static obstacles pass
@@ -53,6 +62,15 @@ obstacle_detector:
     meas_reference_points: 8
     meas_variance_scale_max: 10.0
     meas_motion_timeout: 0.1                    # max scan/odom timestamp difference for yaw rate (s)
+    # scan stamp의 TF 조회가 실패하면 최신 TF로 대체하는데, 그건 이 스캔의 점들을 "다른
+    # 시각의 자세"로 변환하는 것이라 주행 중이면 클러스터의 map-frame AABB와 Frenet
+    # footprint가 통째로 어긋납니다. 그 값이 하류에서는 authoritative 장애물 기하입니다.
+    # 대체 TF가 scan stamp에서 이 시간보다 멀면 스캔을 버립니다(왜곡된 기하를 내보내지
+    # 않음). 허용 범위 안이어도 throttle WARN을 남깁니다. 0 이하면 대체 자체를 끄고
+    # scan-stamp 조회만 사용합니다.
+    # 0.05 근거: 10 m/s에서 0.05 s는 0.5 m 편차라 이미 크므로 상한이고, 정상 상황에서는
+    # scan-stamp 조회가 성공하므로 이 경로 자체가 드물게 쓰입니다.
+    tf_fallback_max_age_sec: 0.05
 
     # === LAYER 1 FILTERING (map + track boundary + viewing window) ===
     max_viewing_distance: 13.0                 # only consider obstacles up to this far ahead (m);
@@ -73,7 +91,12 @@ obstacle_detector:
     # 벽 인접 박스(벽거리 <0.35) 검출 지연은 이 밴드의 구조적 한계로 남음 — 해법은
     # 밴드 축소가 아니라 MCL 개선(오프셋 p95 < 0.07) 또는 빔별 돌출 구제 로직.
     wall_assoc_distance_m: 0.2                 # 벽 성분에서 이 거리(m) 이내 포인트는 구조물
-    wall_linear_ratio: 4.0                     # 벽 인정 PCA 고유값 비율 (lambda_max/lambda_min)
+    # 🔴 wall_linear_ratio 제거 (2026-08-16). 종전에는 성분이 "길쭉한가"(PCA 고유값비 >= 4)를
+    # 벽 인정 조건으로 함께 요구했다. 그런데 트랙 경계는 닫힌 고리라 등방적이고 그 검사를
+    # 통과할 수 없다 — 실측에서 바깥 경계 성분(점유 셀의 87%)의 비가 1.85로 탈락해 트랙 벽의
+    # 87%가 필터에 아예 존재하지 않았고, 헤어핀에서 벽이 매 랩 장애물로 잡혔다.
+    # 크기 조건만 남긴다: 26 m짜리 경계는 통과하고, 맵에 구워진 0.3 m짜리 상자는 통과하지
+    # 못해 여전히 장애물로 검출된다(게이트의 원래 의도 유지).
     wall_min_length_m: 1.0                     # 벽 인정 최소 주축 길이 (m)
 
     # === LAYER MERGE (2nd-stage clustering inside each layer) ===
@@ -87,6 +110,16 @@ obstacle_detector:
     publish_markers: true                      # publish both Frenet-boundary MarkerArray mirrors
     diagnostics_enable: true                   # emit passive perception diagnostics
     diagnostics_period_sec: 1.0                # wall-clock accumulation window (s, minimum 0.1)
+    # 선택된 상대차가 ego corridor와 겹치고 현재/예측 후면 간격이 기준 이내이면
+    # obstacle.is_interfering=true로 발행합니다. 검출·추적·동적 분류에는 영향을 주지 않습니다.
+    interference_check_enable: true
+    interference_distance_m: 1.0               # 간섭 진입 후면 간격 [m]
+    interference_distance_margin_ratio: 0.20   # 같은 ID는 1.2 m까지 간섭 유지
+    interference_time_horizon_sec: 1.0         # 등속 상대속도 예측 시간 [s]
+    interference_min_closing_speed_mps: 0.2    # 이보다 작은 접근 속도는 예측에서 제외
+    interference_lateral_margin_m: 0.10        # ego 차폭 밖 추가 횡 안전 여유 [m]
+    interference_ego_half_width_m: 0.16        # ego 차체 반폭 [m]
+    interference_ego_front_offset_m: 0.25      # ego 기준점부터 전면까지 거리 [m]
     # Deterministic record/replay audit companion stream. It only exposes the already-computed
     # per-scan detections/tracker state and is disabled in production.
     replay_diagnostics_enable: false
@@ -96,8 +129,13 @@ obstacle_detector:
     lockstep_scan_offset_x_m: 0.275
 
     # === TRACKING (constant-velocity Kalman, Frenet state [s, vs, d, vd]) ===
-    meas_var_s: 0.002
-    meas_var_d: 0.002
+    # nhw_ifac 유지 (2026-08-19 가져옴): dbf2a54가 코드 declare_parameter 기본값만
+    # 0.002→0.01로 바꾸고 이 YAML을 안 고쳐서, 런치가 YAML을 넘기는 실제 실행에서는
+    # 튜닝이 완전히 무효였다. 0.002로 되돌리면 그 회귀가 재발한다.
+    # 단위는 분산(m^2)이다 — 0.01은 검출 중심의 표준편차 10 cm 를 뜻하고,
+    # 0.002는 4.5 cm 다. 라이다 클러스터 중심의 실제 흔들림을 생각하면 10 cm 쪽이 맞다.
+    meas_var_s: 0.01
+    meas_var_d: 0.01
     process_var_vs: 2.0
     process_var_vd: 8.0
     assoc_gate: 0.5                            # Frenet association gate (m)
@@ -139,6 +177,23 @@ obstacle_detector:
     # 발행합니다. true였을 때는 차폐 1프레임에도 장애물이 토픽에서 사라져 플래너가
     # blocking↔clear를 반복(zero-hold 정지, 커밋 무효화)했습니다.
     static_publish_requires_visible: false
+    # static_lost_hold_sec의 근거는 "안 보이면 차폐된 것이고, 맵 고정 물체는 차폐 중에도
+    # 그대로다"입니다. 그런데 스캔이 그 상자를 **관통해서** 더 먼 곳의 반사를 받고 있으면
+    # 그 공간이 비었다는 적극적 증거이고, 홀드는 뻔히 보이는 자리에 유령을 5초간 살려두는
+    # 장치가 됩니다(플래너는 그동안 계속 회피하고 state_machine은 AVOID를 유지).
+    # 반증 조건(전부 만족해야 1프레임 인정):
+    #   - 광선이 마지막 실측 map AABB를 box_shrink_m만큼 줄인 **코어**를 관통할 것
+    #     (실제 물체는 AABB를 꽉 채우지 않으므로 모서리를 스치는 빔은 세지 않음)
+    #   - 그 광선의 **유한한** 반사거리가 코어 뒤쪽 면보다 margin_m 이상 멀 것
+    #     (무반사 inf는 흡수면·최대거리 초과와 구분되지 않으므로 증거로 쓰지 않음)
+    #   - 그런 빔이 min_beams개 이상일 것
+    # 이 조건이 frames 스캔 연속으로 성립하면 track을 즉시 회수합니다. 차폐(빔이 상자 앞에서
+    # 멈춤)나 벽 필터로 포인트가 지워진 경우는 관통 증거가 없으므로 홀드가 그대로 유지됩니다.
+    static_hold_freespace_refute_enable: true
+    static_hold_freespace_refute_frames: 3      # 연속 반증 스캔 수 (0이면 반증 비활성)
+    static_hold_freespace_refute_min_beams: 3   # 한 스캔에서 필요한 관통 빔 수
+    static_hold_freespace_refute_margin_m: 0.15 # 뒤쪽 면을 이만큼 지나야 관통으로 인정 [m]
+    static_hold_freespace_refute_box_shrink_m: 0.05  # 코어 상자 축소량 (각 면) [m]
 
     # === MAP-FRAME MOTION CLASSIFICATION ===
     # 기존 Frenet KF/association은 유지하고, 각 track에 분류 전용 map-frame CV KF

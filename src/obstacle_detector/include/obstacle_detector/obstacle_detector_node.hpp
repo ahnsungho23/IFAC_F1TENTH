@@ -4,11 +4,15 @@
 // A single scan-driven perception node that separates LiDAR returns into three layers and
 // publishes the two obstacle layers in the Frenet frame:
 //
-//   LAYER 1 [map]     : /scan -> map-frame points (TF2) -> adaptive-breakpoint clustering ->
-//                       pre-tracking fragment merge -> box fit -> viewing + track-boundary gates
-//                       -> /map occupancy filter.
+//   LAYER 1 [map]     : /scan -> map-frame points (TF2) -> structural wall filter (per-beam:
+//                       points near LINEAR wall components extracted from /map are dropped
+//                       before clustering) -> adaptive-breakpoint clustering -> pre-tracking
+//                       fragment merge -> box fit -> viewing + track-boundary gates.
 //                       Points that ARE the map (walls / known static structure) are removed here;
-//                       the map layer is a filter, it is not published.
+//                       the map layer is a filter, it is not published. (2026-08-13: the per-cell
+//                       occupancy vote was replaced by WallDistanceFilter — the SLAM map and the
+//                       scan diverge on the real car, which both erased real obstacles on mapped
+//                       cells and kept wall returns slightly off the mapped wall.)
 //   (tracking)        : Frenet KF [s,vs,d,vd] preserves association/output geometry. A parallel
 //                       map KF [x,vx,y,vy] provides velocity covariance significance and measured
 //                       map-position persistence for motion classification.
@@ -56,6 +60,7 @@
 
 #include "obstacle_detector/frenet_projector.hpp"
 #include "obstacle_detector/obstacle_tracker.hpp"
+#include "obstacle_detector/wall_distance_filter.hpp"
 
 namespace obstacle_detector
 {
@@ -120,12 +125,20 @@ class ObstacleDetectorNode : public rclcpp::Node
     std::vector<std::vector<ScanPoint>> clusterScan(const sensor_msgs::msg::LaserScan &scan,
                                                     double tx, double ty, double yaw,
                                                     ScanProcessingStats &stats) const;
+    // Free-space refutation of one held track's last measured map AABB against the current scan.
+    // A beam refutes only when it traverses the box's shrunk core and returns from something at
+    // least `static_hold_freespace_refute_margin_m` beyond the far face: that is a return from
+    // BEHIND the box, which is possible only if the box's space is empty. A beam that stops short
+    // (the object itself, or whatever occludes it) proves nothing, and no-return beams are never
+    // counted because a dark or out-of-range surface produces the same reading. Requires
+    // `static_hold_freespace_refute_min_beams` such beams so a single edge grazing cannot refute.
+    bool scanRefutesHeldEnvelope(const Track &track, const sensor_msgs::msg::LaserScan &scan,
+                                 double tx, double ty, double yaw) const;
     // Rejoin small scan fragments before one Detection/Track is created. The AABB gap is only a
     // broad-phase check: at least one real point pair must also be within the configured distance,
     // and the merged AABB must remain no larger than max_obs_size.
     std::vector<std::vector<ScanPoint>> mergeClusters(
         std::vector<std::vector<ScanPoint>> clusters, ScanProcessingStats &stats) const;
-    bool occupiedInMap(double x, double y) const;
     // 2nd-stage clustering inside one layer: union tracks whose boxes are within the merge gaps
     // (wrap-aware in s) and emit one envelope obstacle per component. With layer_merge_enable
     // false every track stays a singleton (identical to per-track publishing).
@@ -134,6 +147,9 @@ class ObstacleDetectorNode : public rclcpp::Node
     // The opponent among the merged dynamic objects: nearest ahead of ego (ego_s_ < 0 falls back
     // to lowest positional uncertainty). Returns -1 when the layer is empty.
     int selectOpponent(const std::vector<MergedObstacle> &dynamic_objs) const;
+    // Check whether the selected opponent overlaps the ego corridor and is within the current or
+    // constant-velocity predicted longitudinal safety distance.
+    bool isOpponentInterfering(const f110_msgs::msg::Obstacle &opponent);
     void updateDiagnostics(const ScanProcessingStats &scan_stats,
                            const TrackerUpdateStats *tracker_stats,
                            double measurement_yaw_rate, bool yaw_rate_fresh);
@@ -178,6 +194,9 @@ class ObstacleDetectorNode : public rclcpp::Node
     int meas_reference_points_;
     double meas_variance_scale_max_;
     double meas_motion_timeout_;
+    // Max age accepted from the latest-TF fallback in lookupScanToMap [s]. <=0 disables the
+    // fallback entirely (scan-stamp lookup only).
+    double tf_fallback_max_age_sec_;
     // Layer-1 filtering
     double max_viewing_distance_;
     double view_behind_distance_;
@@ -185,8 +204,9 @@ class ObstacleDetectorNode : public rclcpp::Node
     double fallback_track_halfwidth_;
     bool use_map_filter_;
     int map_occupied_thresh_;
-    int map_inflation_cells_;
-    double map_point_reject_ratio_;
+    // 구조적 벽 필터(WallDistanceFilter) 파라미터 — 팀 edge_test 계열 포팅 (2026-08-13)
+    double wall_assoc_distance_m_;
+    double wall_min_length_m_;
     // per-layer 2nd-stage merge
     bool layer_merge_enable_;
     double layer_merge_gap_s_;
@@ -195,9 +215,21 @@ class ObstacleDetectorNode : public rclcpp::Node
     bool publish_markers_;
     bool diagnostics_enable_;
     double diagnostics_period_sec_;
+    bool interference_check_enable_;
+    double interference_distance_m_;
+    double interference_distance_margin_ratio_;
+    double interference_time_horizon_sec_;
+    double interference_min_closing_speed_mps_;
+    double interference_lateral_margin_m_;
+    double interference_ego_half_width_m_;
+    double interference_ego_front_offset_m_;
     // Withhold prediction-only static tracks. The tracker may retain them for ID continuity, but
     // they are not authoritative current obstacle geometry for local planning.
     bool static_publish_requires_visible_{true};
+    bool freespace_refute_enable_{true};
+    int freespace_refute_min_beams_{3};
+    double freespace_refute_margin_m_{0.15};
+    double freespace_refute_box_shrink_m_{0.05};
     bool motion_debug_enable_;
     double motion_debug_period_sec_;
     bool replay_diagnostics_enable_;
@@ -217,9 +249,14 @@ class ObstacleDetectorNode : public rclcpp::Node
     std::vector<FrenetProjector::Waypoint> active_reference_waypoints_;
     FrenetProjector frenet_;
     ObstacleTracker tracker_;
-    nav_msgs::msg::OccupancyGrid::SharedPtr map_msg_;
+    // 맵에서 선형 벽 성분을 추출해 빔 단위 Layer-1 판정을 O(1)로 제공 (맵 수신 시 1회 빌드)
+    WallDistanceFilter wall_filter_;
     double ego_s_{-1.0};   // ego arc-length; < 0 disables the ahead-preference until first proj
+    double ego_d_{0.0};
+    double ego_vs_{0.0};
     double ego_s_stamp_{-1.0};  // odometry stamp of the last ego_s_ update (freshness check)
+    bool opponent_interference_latched_{false};
+    int opponent_interference_id_{-1};
     global_planning::ClcsContinuityState ego_continuity_;
     double odom_yaw_rate_{0.0};
     double odom_motion_stamp_{-1.0};

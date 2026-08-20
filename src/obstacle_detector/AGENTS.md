@@ -126,7 +126,10 @@ published Frenet bounds instead of reprojecting the Cartesian metadata.
 
 ## Layer semantics
 
-- Layer 1 is the `/map` and corridor filter. It is never published.
+- Layer 1 is the `/map` and corridor filter. It is never published. Since 2026-08-13 the
+  map part is the structural `WallDistanceFilter` (per-beam distance to PCA-linear wall
+  components, built once per map) — do NOT reintroduce per-cell occupancy voting; it
+  fails both ways under real-car map-scan divergence.
 - Layer 2 is every existence-confirmed `Unknown` or `Static` non-map object, published with
   `is_static=true`. `Unknown` is the safety-preserving provisional state.
 - `/confirmed_static_obs` is a same-scan, `Static`-only view of Layer 2. It uses the same
@@ -142,7 +145,10 @@ published Frenet bounds instead of reprojecting the Cartesian metadata.
 - Publish `/static_obs`, `/confirmed_static_obs`, and `/opp_obs` every scan, including empty
   arrays, so downstream consumers receive a deterministic scan-rate tick. The only exception:
   `/opp_obs` (and its marker) is suppressed with a throttled warning while the ego odometry stamp
-  is stale beyond `meas_motion_timeout`, because the ahead-ranking would be misplaced.
+  is stale beyond `meas_motion_timeout`, because the ahead-ranking would be misplaced. "Never
+  received" (`ego_s_ < 0`) suppresses too and must never be treated as fresh: `selectOpponent`
+  then has no ahead/behind test at all and ranks purely by positional variance, so permitting
+  publication there is strictly worse than the stale case the rule exists for.
 - **Confirmed-static occlusion hold (do not revert)**: a `Confirmed` static track is a map-fixed
   object, so losing sight of it (occlusion, FOV, brake nose-dive) is not evidence of
   disappearance. It stays alive with its envelope-stability evidence and last measured geometry
@@ -151,6 +157,49 @@ published Frenet bounds instead of reprojecting the Cartesian metadata.
   the dropout. Reverting either half reintroduces the 2026-08-12 21:11 planner failures
   (per-lap zero-hold stops at the hairpin, 80 path rebuilds in 91 s). The dynamic layer keeps
   the visible-only Cartesian rule.
+- **The hold is bounded by free-space refutation** (2026-08-16): the hold's justification is
+  "unobserved means occluded". That premise fails whenever the scan sees THROUGH the held box,
+  and without a refutation a ghost that once reached `Confirmed`+`Static` keeps being published
+  for the full `static_lost_hold_sec` in plain view — the planner avoids it and the FSM stays in
+  `STATE_AVOID` for that entire window. `ObstacleTracker::update()` therefore takes a
+  `FreeSpaceRefuter`, consulted ONLY for tracks that are already hold-eligible and unmeasured
+  this scan, and retires the track (`ttl = 0`) after
+  `static_hold_freespace_refute_frames` consecutive refuted scans. Any measurement, and any scan
+  that fails to refute, resets `freespace_refute_streak`. Only the node owns scan geometry, so
+  the predicate lives in `scanRefutesHeldEnvelope()`; the tracker must never reach for a scan.
+  A beam counts as refuting only when it traverses the last measured map AABB shrunk by
+  `static_hold_freespace_refute_box_shrink_m` on every face AND returns a FINITE range at least
+  `static_hold_freespace_refute_margin_m` beyond the far face, and at least
+  `static_hold_freespace_refute_min_beams` such beams are required. Keep all three conditions:
+  the core shrink stops beams grazing an AABB corner the real object never filled, the finite
+  requirement stops a dark or out-of-range surface (a no-return reads identically) from erasing a
+  real obstacle, and the beam count stops a single stray return. Occlusion and wall-filtered
+  points produce no pass-through evidence at all, so the hold they exist for is untouched. Tests:
+  `FreeSpaceRefutationRetiresHeldEnvelopeAfterConsecutiveScans` and
+  `OcclusionHoldSurvivesWithoutFreeSpaceEvidence`.
+- **The hold requires map-fixed EVIDENCE, not merely "not Dynamic"** (2026-08-15): both hold sites
+  ask `holdEligibleWhileUnmeasured()`, the single authority; never re-inline the predicate. A
+  `Confirmed` track qualifies when `motion_status == Static`, or -- while still `Unknown` -- only
+  when `provable_translation_m` is finite and below `dynamic_min_translation_m`. Rationale: a
+  dynamic vote additionally requires that much corroborated translation across
+  `translation_window_sec`, so EVERY opponent is necessarily `Confirmed`+`Unknown` for at least
+  that window while already published on `/static_obs`; gating the hold on `is_static` (which only
+  means "not Dynamic") froze such an opponent at a stale pose for the full
+  `static_lost_hold_sec`. Do NOT tighten this to `motion_status == Static` alone: a stationary
+  obstacle under progressive revelation cannot reach `Static` (its centroid shift keeps
+  `map_position_rms` above `static_max_position_rms`), and that tightening measurably breaks
+  `ConfirmedStaticTrackHeldThroughOcclusionForHoldSeconds` -- i.e. it removes the hold exactly in
+  the hairpin flicker case the hold exists for. `provable_translation_m` is the right
+  discriminator because `anchoredAxisTranslation()` counts only motion shared by BOTH edges of an
+  axis, so one-edge growth from progressive revelation reads as ~0. With
+  `translation_corroboration_enable` false there is no evidence to judge by, so the predicate
+  falls back to the previous permissive behaviour rather than retiring every `Unknown` track.
+  Regression: `TranslatingUnknownTrackIsNotHeldAsMapFixedObject` and
+  `HoldFallsBackToPermissiveWhenCorroborationDisabled` in `test/test_obstacle_tracker.cpp`.
+  Residual gap (accepted): an opponent occluded before it accumulates
+  `dynamic_min_translation_m` of provable translation still gets the hold. Lowering that
+  threshold is NOT the fix -- it is pinned just above the measured real-car MCL jitter (0.27 m),
+  and the 0.10 m era leaked static boxes into `/opp_obs` (run_0814_010624).
 - **Held tracks freeze their Kalman filters**: during the hold's prediction-only frames both the
   Frenet and map filters are NOT propagated (first miss frame still predicts). Propagating a CV
   model through a multi-second dropout integrates a noisy velocity estimate — the state drifts
