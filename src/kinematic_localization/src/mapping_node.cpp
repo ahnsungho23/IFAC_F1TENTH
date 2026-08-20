@@ -20,6 +20,7 @@
 #include <rosbag2_cpp/reader.hpp>
 #include <sensor_msgs/msg/laser_scan.hpp>
 #include <sophus/se3.hpp>
+#include <stdexcept>
 #include <string>
 #include <tf2_msgs/msg/tf_message.hpp>
 #include <vector>
@@ -29,9 +30,25 @@
 
 namespace kinematic_localization {
 
+namespace {
+constexpr int kExpectedConfigSchemaVersion = 20260821;
+}  // namespace
+
 class MappingNode : public rclcpp::Node {
 public:
     MappingNode() : Node("kinematic_mapping") {
+        const int config_schema_version =
+            declare_parameter<int>("config_schema_version", 0);
+        if (config_schema_version != kExpectedConfigSchemaVersion) {
+            const std::string message =
+                "config_schema_version mismatch: expected " +
+                std::to_string(kExpectedConfigSchemaVersion) + ", got " +
+                std::to_string(config_schema_version) +
+                ". Launch with the installed config/mapping.yaml.";
+            RCLCPP_FATAL(get_logger(), "%s", message.c_str());
+            throw std::runtime_error(message);
+        }
+
         bag_path_ = declare_parameter<std::string>("bag_path", "");
         lidar_topic_ = declare_parameter<std::string>("lidar_topic", "/scan");
         odom_topic_ = declare_parameter<std::string>("odom_topic", "/odom");
@@ -61,6 +78,14 @@ public:
         config.freeze_local_map = false;  // mapping mode: scans build the map
         voxel_size_ = config.voxel_size;
         max_range_ = config.max_range;
+
+        RCLCPP_INFO(
+            get_logger(),
+            "E2 parameter summary | schema=%d max_range=%.1f min_range=%.1f "
+            "voxel_size=%.3f max_points_per_voxel=%d iterations=%d deskew=%s",
+            config_schema_version, config.max_range, config.min_range, config.voxel_size,
+            config.max_points_per_voxel, config.max_num_iterations,
+            config.deskew ? "true" : "false");
 
         icp_ = std::make_unique<kinematic_icp::pipeline::KinematicICP>(config);
         tf_buffer_ = std::make_unique<tf2_ros::Buffer>(get_clock());

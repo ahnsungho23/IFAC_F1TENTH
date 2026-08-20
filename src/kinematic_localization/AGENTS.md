@@ -3,6 +3,18 @@
 This document defines package-specific rules for `kinematic_localization`. The root
 `/home/parkm/2026_IFAC/AGENTS.md` applies in full; entries below only add package detail.
 
+## Launch and parameter loading
+
+- Both launch files must resolve their YAML to an absolute installed-share path and fail before
+  node creation when the file is absent or its symlink is broken. Do not pass an unchecked
+  `PathJoinSubstitution` as the parameter-file entry: `launch_ros` can silently omit a missing
+  file and start the node with C++ defaults.
+- `config_schema_version` is mandatory in both YAML files. Both C++ nodes must compare it with
+  their compiled expectation and fail fast on missing, stale, or wrong YAML. Keep the two C++
+  constants and both YAML values equal; `test/test_config_guard.py` locks this contract.
+- Keep the startup parameter-summary logs. They are the rosbag-visible evidence of the effective
+  gate, smoothing, source-downsample, voxel, and mapping settings used in a field session.
+
 ## Package Purpose
 
 Kinematic-ICP based map localization. Scans are deskewed and aligned (ICP with a wheel-odometry
@@ -104,6 +116,7 @@ selected with the `map_name` parameter (an absolute path is used as-is).
 ## Parameter Policy
 
 - `config/kinematic_localization.yaml`: all topics, frames, KICP tuning, covariances,
+  mandatory `config_schema_version`,
   the output-smoothing block (`smoothing_enable`, `smoothing_alpha`,
   `smoothing_alpha_gain`, `smoothing_velocity_full_mps`, `smoothing_alpha_max` —
   starting values for real-car tuning), the built-in `/map` server block (`map_topic`,
@@ -123,7 +136,8 @@ selected with the `map_name` parameter (an absolute path is used as-is).
   fixed by the source-only `source_voxel_size 0.25` core patch instead
   (docs §8). `max_num_iterations 30`, `max_range 30.0`, `min_range 0.1`,
   `deskew true`, adaptive threshold/regularization on.
-- `config/mapping.yaml`: same KICP block plus bag/output paths for `mapping_node`.
+- `config/mapping.yaml`: mandatory `config_schema_version`, the same KICP block, and bag/output
+  paths for `mapping_node`.
 - Launch files must not hard-code tuning values; they only select the YAML and pass
   runtime selections (`map_name`, `bag_path`, `output_path`, `use_sim_time`).
 

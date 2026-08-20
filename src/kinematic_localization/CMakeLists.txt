@@ -58,4 +58,9 @@ install(DIRECTORY docs DESTINATION share/${PROJECT_NAME})
 install(PROGRAMS scripts/pgm_to_kissmap.py scripts/compare_trajectory.py scripts/wall_rate.py
         DESTINATION lib/${PROJECT_NAME})
 
+if(BUILD_TESTING)
+  find_package(ament_cmake_pytest REQUIRED)
+  ament_add_pytest_test(config_guard test/test_config_guard.py)
+endif()
+
 ament_package()

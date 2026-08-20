@@ -1,5 +1,7 @@
 kinematic_mapping:
   ros__parameters:
+    # localization YAML과 같은 E2 설정 세대 표식. 노드 기대값과 다르면 기동 실패.
+    config_schema_version: 20260821
     use_sim_time: false
 
     # Offline mapping inputs/outputs

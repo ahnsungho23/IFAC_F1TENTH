@@ -1,5 +1,8 @@
 kinematic_localization:
   ros__parameters:
+    # E2: launch 파일 존재 검사만으로는 잘못된/구버전 YAML 적용을 잡을 수 없다.
+    # 노드가 이 값을 코드의 기대 버전과 대조하고 다르면 즉시 종료한다.
+    config_schema_version: 20260821
     use_sim_time: false
 
     # Topics / frames (drop-in compatible with particle_filter_cpp MCL)

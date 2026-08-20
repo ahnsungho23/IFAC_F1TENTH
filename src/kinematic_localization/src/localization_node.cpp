@@ -56,6 +56,7 @@
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/point_cloud2_iterator.hpp>
 #include <sophus/se3.hpp>
+#include <stdexcept>
 #include <std_srvs/srv/trigger.hpp>
 #include <string>
 #include <vector>
@@ -65,9 +66,27 @@
 
 namespace kinematic_localization {
 
+namespace {
+constexpr int kExpectedConfigSchemaVersion = 20260821;
+}  // namespace
+
 class LocalizationNode : public rclcpp::Node {
 public:
     LocalizationNode() : Node("kinematic_localization") {
+        // E2: launch file 존재 검사는 누락/깨진 symlink를 잡고, 이 표식은 다른 YAML이나
+        // 구버전 install overlay가 붙는 경우를 잡는다. 기본값 0으로 조용히 계속하지 않는다.
+        const int config_schema_version =
+            declare_parameter<int>("config_schema_version", 0);
+        if (config_schema_version != kExpectedConfigSchemaVersion) {
+            const std::string message =
+                "config_schema_version mismatch: expected " +
+                std::to_string(kExpectedConfigSchemaVersion) + ", got " +
+                std::to_string(config_schema_version) +
+                ". Launch with the installed config/kinematic_localization.yaml.";
+            RCLCPP_FATAL(get_logger(), "%s", message.c_str());
+            throw std::runtime_error(message);
+        }
+
         // Topics / frames
         lidar_topic_ = declare_parameter<std::string>("lidar_topic", "/scan");
         odom_topic_ = declare_parameter<std::string>("odom_topic", "/odom");
@@ -220,6 +239,18 @@ public:
 
         position_covariance_ = declare_parameter<double>("position_covariance", 0.1);
         orientation_covariance_ = declare_parameter<double>("orientation_covariance", 0.1);
+
+        // E2 기동 증거. 스키마 가드가 누락 자체를 막고, 이 한 줄은 실차 백의 /rosout만으로
+        // 실제 핵심 튜닝이 무엇이었는지 사후 확인할 수 있게 한다.
+        RCLCPP_INFO(
+            get_logger(),
+            "E2 parameter summary | schema=%d gate=%s smoothing_alpha=%.3f "
+            "smoothing_alpha_rot=%.3f source_voxel_size=%.3f voxel_size=%.3f "
+            "max_range=%.1f lateral_dof=%s pose_check=%s slam_mode=%s",
+            config_schema_version, gate_enable_ ? "true" : "false", smoothing_alpha_,
+            smoothing_alpha_rot_, config.source_voxel_size, config.voxel_size, config.max_range,
+            config.lateral_dof_enable ? "true" : "false",
+            pose_check_enable_ ? "true" : "false", slam_mode_ ? "true" : "false");
 
         icp_ = std::make_unique<kinematic_icp::pipeline::KinematicICP>(config);
 

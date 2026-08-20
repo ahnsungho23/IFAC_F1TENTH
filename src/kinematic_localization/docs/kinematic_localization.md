@@ -143,6 +143,24 @@ downsampled 포인트를 최종 포즈로 map 프레임(odom 프레임 기준)�
 
 파일: `config/kinematic_localization.yaml` (검증된 튜닝값 반영)
 
+### 4.1 E2 파라미터 적용 가드
+
+두 launch 파일은 설치된 YAML의 절대경로가 실제 파일인지 먼저 확인합니다. 파일이 없거나
+symlink가 깨졌으면 노드를 시작하지 않습니다. 이어서 각 노드는 YAML의
+`config_schema_version`을 컴파일된 기대 버전과 대조합니다. 따라서 다른 세대의 YAML이나
+파라미터 파일 없이 `ros2 run`으로 직접 시작하는 경우도 즉시 실패합니다.
+
+정상 기동 시 `/rosout`에 `E2 parameter summary` 한 줄이 기록됩니다. 실차 주행 전에는 다음
+순서로 확인합니다.
+
+1. launch가 오류 없이 시작되는지 확인합니다.
+2. localization 요약의 `schema`, `gate`, `smoothing_alpha_rot`, `source_voxel_size`,
+   `voxel_size`를 확인합니다.
+3. 매핑 세션에서는 mapping 요약의 schema와 KICP 설정도 확인합니다.
+
+YAML을 의도적으로 삭제하거나 깨진 symlink로 바꿨을 때 launch가 즉시 실패하고, YAML의
+schema 값을 바꿨을 때 노드가 FATAL로 종료해야 가드가 정상입니다.
+
 | 파라미터 | 기본값 | 설명 |
 |---|---|---|
 | `lidar_topic` | `/scan` | 입력 스캔 토픽 |
