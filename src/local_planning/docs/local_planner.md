@@ -844,6 +844,23 @@ mode**로 전환합니다. 이때 stale을 장애물이 사라졌다는 뜻으�
 5. frame이 잘못된 장애물 배열은 무시하되 기존 기억은 보존합니다. 올바른 frame의 새 배열이
    도착하면 빈 배열도 유효한 최신 관측으로 보고 저장된 기억을 교체합니다.
 
+실차 모드(`lockstep_mode=false`)에서는 `/confirmed_static_obs` 수신 콜백을 계획 계산과 별도
+callback group에서 실행합니다. 수신 콜백은 QoS의 `KeepLast(1)` 계약과 같은 최신 메시지 1건,
+실제 수신 시각, 수신 순번만 잠금 보호 버퍼에 저장합니다. 다음 계획 주기가 시작할 때 최신 건을
+가져와 기존 frame/Frenet 검증과 상태 변경을 계획 그룹 안에서 수행합니다. 따라서 긴 후보 생성이
+검출 수신 자체를 막지 않고, 잘못된 frame이나 전부-invalid 배열이 마지막 유효 기억을 지우지 않는
+기존 계약도 유지됩니다. stale 나이는 계획 주기가 메시지를 꺼낸 시각이 아니라 **실제 수신
+시각**으로 계산합니다.
+
+노드 executor는 계획, Frenet odometry, authoritative 장애물 ingress의 세 callback group이
+동시에 실행될 수 있도록 3개 worker thread를 사용합니다. 2개만 두면 긴 계획 계산과 고빈도
+odometry가 두 worker를 모두 점유해 분리한 ingress가 다시 굶을 수 있습니다.
+
+P3 진단 JSON의 `obstacle_ingress_latest_sequence`와
+`obstacle_ingress_processed_sequence`로 수신 최신 순번과 계획 주기가 반영한 순번을 비교할 수
+있습니다. CMA lockstep 모드는 이 버퍼를 거치지 않고 종전의 동일 스탬프 직렬 경로를 그대로
+사용합니다.
+
 정지는 센서 stale 자체가 아니라 저장된 장애물에 대해 양쪽 회피와 검증된 정지 prefix가 모두
 불가능하거나, 충돌 위험이 발생한 경우에만 사용합니다. Frenet odometry가
 `odometry_stale_timeout_sec`를 넘겨 차량 위치를 신뢰할 수 없는 경우는 최악 상황으로 분류해

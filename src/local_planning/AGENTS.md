@@ -227,6 +227,16 @@
   Return from such an array without touching the snapshot, sequence, source stamp, or P3 epoch. Do
   not wait for repeated observations when replanning solely from retained
   stale memory because no new samples can arrive.
+- In production (`lockstep_mode=false`), keep the authoritative obstacle subscription in its own
+  mutually-exclusive callback group. That callback may only store the latest message, its actual
+  receipt time, and an ingress sequence in the thread-safe latest-only buffer. Drain the buffer at
+  the beginning of the planning callback and perform frame/Frenet validation and every planner
+  state mutation there. Freshness must use the ingress receipt time, not the later drain time.
+  The production executor must provide at least three worker threads for the planning, odometry,
+  and authoritative-ingress groups; two threads can still starve ingress when planning and odometry
+  are both active.
+  Keep the CMA lockstep subscription on the planning group and preserve its direct exact-stamp
+  callback path.
 - The reference-change test must compare every waypoint field the planner consumes -- `s_m`, `x_m`,
   `y_m`, `d_left`, `d_right`, `psi_rad`, `kappa_radpm`, `vx_mps` -- not only the centreline
   geometry. A boundary-only recalibration changes none of `s/x/y`, and `obstacle_detector` already
@@ -398,6 +408,8 @@
 ## Package layout and maintenance
 
 - Node declaration: `include/local_planning/local_planner_node.hpp`.
+- Latest-only obstacle ingress buffer:
+  `include/local_planning/detail/obstacle_ingress_buffer.hpp`.
 - Algorithm declaration: `include/local_planning/raceline_spline_planner.hpp`.
 - Uncertainty Guard declaration: `include/local_planning/obstacle_guard.hpp`.
 - C++ sources: `src/local_planner_node.cpp`, `src/obstacle_guard.cpp`,

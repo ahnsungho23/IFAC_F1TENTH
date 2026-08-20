@@ -102,6 +102,14 @@ if(BUILD_TESTING)
     target_link_libraries(test_obstacle_guard local_planner_core)
   endif()
 
+  ament_add_gtest(test_obstacle_ingress_buffer test/test_obstacle_ingress_buffer.cpp)
+  if(TARGET test_obstacle_ingress_buffer)
+    ament_target_dependencies(test_obstacle_ingress_buffer
+      rclcpp
+      f110_msgs
+    )
+  endif()
+
   ament_add_gtest(test_safe_stop_lifecycle test/test_safe_stop_lifecycle.cpp)
   if(TARGET test_safe_stop_lifecycle)
     target_link_libraries(test_safe_stop_lifecycle local_planner_core)

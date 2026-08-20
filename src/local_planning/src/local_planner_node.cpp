@@ -653,6 +653,8 @@ void LocalPlannerNode::initializeParameters()
 void LocalPlannerNode::initializeInterfaces()
 {
   planning_callback_group_ = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+  obstacle_ingress_callback_group_ =
+    create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
   odometry_callback_group_ = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
   const auto volatile_qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable();
   const auto global_qos = rclcpp::QoS(1).reliable().transient_local();
@@ -661,12 +663,25 @@ void LocalPlannerNode::initializeInterfaces()
   planning_options.callback_group = planning_callback_group_;
   rclcpp::SubscriptionOptions odometry_options;
   odometry_options.callback_group = odometry_callback_group_;
+  rclcpp::SubscriptionOptions obstacle_ingress_options;
+  obstacle_ingress_options.callback_group = obstacle_ingress_callback_group_;
   global_waypoints_sub_ = create_subscription<f110_msgs::msg::WpntArray>(
     global_waypoints_topic_, global_qos,
     std::bind(&LocalPlannerNode::onGlobalWaypoints, this, std::placeholders::_1), planning_options);
-  obstacles_sub_ = create_subscription<f110_msgs::msg::ObstacleArray>(
-    obstacles_topic_, volatile_qos,
-    std::bind(&LocalPlannerNode::onObstacles, this, std::placeholders::_1), planning_options);
+  if (lockstep_mode_) {
+    // Lockstep 재생은 장애물 스탬프가 odom/state와 정확히 일치할 때 콜백 안에서 한 사이클을
+    // 실행한다. 이 경로는 기존 직렬 순서를 그대로 유지한다.
+    obstacles_sub_ = create_subscription<f110_msgs::msg::ObstacleArray>(
+      obstacles_topic_, volatile_qos,
+      std::bind(&LocalPlannerNode::onObstacles, this, std::placeholders::_1), planning_options);
+  } else {
+    // 실차 경로에서는 긴 계획 계산과 장애물 수신을 분리한다. 수신 콜백은 최신 1건과 실제
+    // 수신 시각만 기록하고, 검증 및 상태 갱신은 다음 계획 주기 시작점에서 수행한다.
+    obstacles_sub_ = create_subscription<f110_msgs::msg::ObstacleArray>(
+      obstacles_topic_, volatile_qos,
+      std::bind(&LocalPlannerNode::onObstacleIngress, this, std::placeholders::_1),
+      obstacle_ingress_options);
+  }
   if (raw_slowdown_enable_ && raw_slowdown_topic_ != obstacles_topic_) {
     raw_obstacles_sub_ = create_subscription<f110_msgs::msg::ObstacleArray>(
       raw_slowdown_topic_, volatile_qos,
@@ -766,7 +781,33 @@ void LocalPlannerNode::onGlobalWaypoints(
     global_waypoints_.wpnts.size(), planner_.trackLength());
 }
 
+void LocalPlannerNode::onObstacleIngress(
+  const f110_msgs::msg::ObstacleArray::SharedPtr message)
+{
+  obstacle_ingress_buffer_.store(message, now());
+}
+
+void LocalPlannerNode::drainLatestObstacleIngress()
+{
+  const auto snapshot =
+    obstacle_ingress_buffer_.latestAfter(processed_obstacle_ingress_sequence_);
+  if (!snapshot.has_value()) {
+    return;
+  }
+  processed_obstacle_ingress_sequence_ = snapshot->sequence;
+  acceptObstacles(snapshot->message, snapshot->receipt_time);
+}
+
 void LocalPlannerNode::onObstacles(const f110_msgs::msg::ObstacleArray::SharedPtr message)
+{
+  // 비-lockstep 구독은 onObstacleIngress()를 사용한다. 이 직접 경로는 정확 스탬프 재생의
+  // 콜백 순서와 이벤트 시간을 바꾸지 않기 위해 남겨 둔다.
+  acceptObstacles(message, rclcpp::Time(message->header.stamp));
+}
+
+void LocalPlannerNode::acceptObstacles(
+  const f110_msgs::msg::ObstacleArray::SharedPtr message,
+  const rclcpp::Time & receipt_time)
 {
   if (!message->header.frame_id.empty() && message->header.frame_id != frame_id_) {
     RCLCPP_WARN_THROTTLE(
@@ -837,7 +878,10 @@ void LocalPlannerNode::onObstacles(const f110_msgs::msg::ObstacleArray::SharedPt
   static_obstacles_ = std::move(accepted_obstacles);
   updateFaceObservationWindows();
   has_obstacles_message_ = true;
-  last_obstacles_time_ = lockstep_mode_ ? rclcpp::Time(message->header.stamp) : now();
+  // 계획 그룹이 늦게 가져간 시각이 아니라 별도 수신 그룹이 실제로 받은 시각을 저장한다.
+  // 그래야 큐가 밀린 상태를 "방금 회복"으로 오인하지 않고 stale 판정이 실제 입력 나이를
+  // 반영한다.
+  last_obstacles_time_ = receipt_time;
   ++obstacles_message_sequence_;
   latest_obstacle_source_stamp_ns_ = incoming_source_stamp_ns;
   if (timing_diagnostics_enable_ && !timing_t0_published_ && !static_obstacles_.empty()) {
@@ -2759,6 +2803,10 @@ void LocalPlannerNode::publishP3CycleDiagnostic(
        << ",\"global_reference_generation\":"
        << snapshot.maneuver.global_reference_generation
        << ",\"obstacle_sequence\":" << snapshot.maneuver.obstacle_sequence
+       << ",\"obstacle_ingress_latest_sequence\":"
+       << obstacle_ingress_buffer_.latestSequence()
+       << ",\"obstacle_ingress_processed_sequence\":"
+       << processed_obstacle_ingress_sequence_
        << ",\"snapshot_ready\":" << (snapshot.ready ? "true" : "false")
        << ",\"selection_guard_ready\":"
        << (snapshot.maneuver.selection_guard_ready ? "true" : "false")
@@ -2889,6 +2937,10 @@ void LocalPlannerNode::publishP3CycleDiagnostic(
 
 void LocalPlannerNode::onPlanningTimer()
 {
+  if (!lockstep_mode_) {
+    drainLatestObstacleIngress();
+  }
+
   if (p3_mode_ == P3RuntimeMode::kOff) {
     // This is the entire OFF branch. It enters the pre-integration P0 body without capturing,
     // evaluating, logging, publishing, or mutating any P3 state.

@@ -36,6 +36,7 @@
 #include <std_msgs/msg/string.hpp>
 
 #include "local_planning/obstacle_guard.hpp"
+#include "local_planning/detail/obstacle_ingress_buffer.hpp"
 #include "local_planning/p3_maneuver_lifecycle.hpp"
 #include "local_planning/raceline_spline_planner.hpp"
 #include "local_planning/safe_stop_lifecycle.hpp"
@@ -78,7 +79,12 @@ private:
   void initializeParameters();
   void initializeInterfaces();
   void onGlobalWaypoints(const f110_msgs::msg::WpntArray::SharedPtr message);
+  void onObstacleIngress(const f110_msgs::msg::ObstacleArray::SharedPtr message);
   void onObstacles(const f110_msgs::msg::ObstacleArray::SharedPtr message);
+  void acceptObstacles(
+    const f110_msgs::msg::ObstacleArray::SharedPtr message,
+    const rclcpp::Time & receipt_time);
+  void drainLatestObstacleIngress();
   void onFrenetOdometry(const nav_msgs::msg::Odometry::SharedPtr message);
   void onState(const f110_msgs::msg::StateMachine::SharedPtr message);
   void onPlanningTimer();
@@ -207,6 +213,7 @@ private:
     const std_msgs::msg::Header & header) const;
 
   rclcpp::CallbackGroup::SharedPtr planning_callback_group_;
+  rclcpp::CallbackGroup::SharedPtr obstacle_ingress_callback_group_;
   rclcpp::CallbackGroup::SharedPtr odometry_callback_group_;
   rclcpp::Subscription<f110_msgs::msg::WpntArray>::SharedPtr global_waypoints_sub_;
   rclcpp::Subscription<f110_msgs::msg::ObstacleArray>::SharedPtr obstacles_sub_;
@@ -234,6 +241,8 @@ private:
   rclcpp::Time last_side_switch_time_{0, 0, RCL_ROS_TIME};
   rclcpp::Time initial_stabilization_start_{0, 0, RCL_ROS_TIME};
   rclcpp::Time next_stabilization_start_{0, 0, RCL_ROS_TIME};
+  detail::ObstacleIngressBuffer obstacle_ingress_buffer_;
+  std::uint64_t processed_obstacle_ingress_sequence_{0};
   std::uint64_t obstacles_message_sequence_{0};
   std::int64_t latest_obstacle_source_stamp_ns_{0};
   std::int64_t last_p3_frenet_source_stamp_ns_{0};
