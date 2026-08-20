@@ -1,5 +1,9 @@
 # state_machine과 wpnt_publisher 통합 제안서
 
+> 이 문서는 과거 OVERTAKE 경로 기반 설계 기록입니다. 현재 구현에서는 상태 2가 `CRUISE`로
+> 대체됐으며, `/opp_obs.is_interfering`으로 진입하고 `/global_waypoints`를 선택합니다. 최신 동작은
+> `state_machine_node.md`를 기준으로 확인하세요.
+
 ## 1. 문서 목적
 
 이 문서는 현재 분리되어 있는 `state_machine_node`와 `wpnt_publisher`의 책임을
@@ -623,7 +627,7 @@ bool StateMachineNode::has_overtake_wpnts() const
 마지막으로 검증된 non-empty 글로벌 경로를 계속 사용한다. 근거는 다음과 같다.
 
 1. 글로벌 경로는 실시간 센서 데이터가 아니라 JSON/CSV에서 한 번 로드한 동일한
-   raceline의 반복 발행이다 (`global_planning` 기본 2초, `new_map_con` 기본 1 Hz).
+   raceline의 반복 발행이다 (`global_planning` 기본 2초).
 2. `TransientLocal` QoS 자체가 지도·파라미터·정적 TF에 가까운 정적 데이터 의미를
    표현한다.
 3. 현재 운영값은 발행 주기(2.0초)와 stale timeout(2.0초)이 동일해 약간의 scheduling

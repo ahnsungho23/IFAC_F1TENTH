@@ -32,3 +32,6 @@ float64 vs_var
 float64 vd_var
 bool is_static
 bool is_visible
+# True when the dynamic opponent overlaps the ego driving corridor and its current or predicted
+# longitudinal gap is small enough to interfere with ego driving.
+bool is_interfering
