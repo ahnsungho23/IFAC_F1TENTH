@@ -469,8 +469,9 @@ def declare_common_args(sector_scale_enable_default='false'):
             description='U1: L1 요구 횡가속이 예산을 넘으면 목표 속도를 캡 (기본 꺼짐)'
         ),
         DeclareLaunchArgument(
-            'grip_speed_clamp_margin', default_value='0.9',
-            description='속도 예산 = 마진 없는 MLA × 이 값 (조향 클램프의 1.15 마진과 분리)'
+            'grip_speed_clamp_margin', default_value='1.0',
+            description='속도 예산 = 마진 없는 MLA × 이 값. 실측 스윕: 0.9=과보수(랩+2.15s), '
+                        '1.0=계약 기본(랩+1.93s 상한), 1.15=권한 일치(보정 여유 0, A/B용)'
         ),
         DeclareLaunchArgument(
             'grip_speed_clamp_release_alpha', default_value='0.05',

@@ -327,8 +327,13 @@ public:
         // 🔴 기본 false — 단독 셰이크다운(저속 2랩 → 정상 3랩)에서 검증 후 켠다.
         grip_speed_clamp_enable_ =
             declare_parameter<bool>("grip_speed_clamp_enable", false);
+        // margin 기본 1.0 (2026-08-21 실측 스윕, run_220742 오픈루프): 0.9는 개입 43.5%
+        // 랩 +2.15 s 로 과보수(현 라인이 v²κ=6.0 까지 쓰므로 계획속도까지 깎음), 1.0 은
+        // 개입 34.7% 랩 +1.93 s(오픈루프 상한 — 폐루프에선 감속→오차 감소→요구 감소로
+        // 자가완화). 두 충돌 창 모두 margin 무관하게 진입 4.1~4.2 → 3.0~3.8 로 예산 안.
+        // 1.15(=조향 클램프 권한과 동일)는 비용 최소지만 보정 여유 0 — A/B 용으로만.
         grip_clamp_margin_ = std::clamp(
-            declare_parameter<double>("grip_speed_clamp_margin", 0.9), 0.5, 1.0);
+            declare_parameter<double>("grip_speed_clamp_margin", 1.0), 0.5, 1.3);
         grip_clamp_release_alpha_ = std::clamp(
             declare_parameter<double>("grip_speed_clamp_release_alpha", 0.05), 0.005, 1.0);
         understeer_gradient_ = declare_parameter<double>("understeer_gradient", 0.019);
