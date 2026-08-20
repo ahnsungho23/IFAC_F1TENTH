@@ -108,12 +108,22 @@ SafeStopCycleDecision SafeStopLifecycle::evaluate(
     feasible_avoidance_count_ = 0;
   }
 
-  // An empty array is not evidence of a clear corridor. Condition C only counts a fresh,
-  // non-empty detector frame that explicitly demonstrates detector health while every obstacle
-  // is outside the forward corridor.
-  if (decision.vehicle_stopped && !input.static_obstacles_empty &&
-    input.explicit_forward_corridor_clear)
-  {
+  // 빈 프레임 취급 (2026-08-21, run_052119 t=62~69 실차 교착):
+  // "빈 배열은 clear 증거가 아니다"를 무조건 적용하면, 래치 장애물 곁을 지나치며 멈춰
+  // 목록 전체가 비는 순간 A(전진 필요)·B(kAvoidance 결과 필요)·C(비면 불가)가 전부
+  // 봉쇄되는 영구 교착이 된다 — 실차에서 사람이 estop 으로 구출해야 했다. 빈 프레임은
+  // ① 래치 이후에 도착한 신선한 프레임이고(검출기 생존 증거 — 시퀀스는 빈 메시지에도
+  // 증가한다) ② 래치가 기억한 위험구간 끝을 ego 가 이미 지났을 때에 한해 clear 증거로
+  // 센다. ②가 근접 사각 보호의 본체다: 기억 속 상자가 아직 전방이면 빈 프레임으로는
+  // 절대 풀리지 않는다(그 경우 눈이 아니라 기억을 믿는 게 맞다).
+  const bool latched_danger_behind = before_one_lap_guard &&
+    driven_distance + kLifecycleEpsilon >= activation_.danger_end_distance_m;
+  const bool fresh_post_latch_frame =
+    input.obstacle_sequence > activation_.obstacle_sequence;
+  const bool corridor_clear_evidence = input.static_obstacles_empty ?
+    (latched_danger_behind && fresh_post_latch_frame) :
+    input.explicit_forward_corridor_clear;
+  if (decision.vehicle_stopped && corridor_clear_evidence) {
     if (input.obstacle_sequence != last_counted_clear_sequence_) {
       ++stopped_clear_count_;
       last_counted_clear_sequence_ = input.obstacle_sequence;
