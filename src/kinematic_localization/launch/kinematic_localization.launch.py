@@ -54,7 +54,7 @@ def generate_launch_description():
         # 파라미터는 생성자에서 한 번만 읽으므로 `ros2 param set`으로는 못 바꾼다 —
         # 반드시 기동 시점에 넘겨야 한다.
         DeclareLaunchArgument(
-            'fast_corner_free_mode', default_value='false',
+            'fast_corner_free_mode', default_value='true',
             description='고속 코너 프레임에서 Omega/횡하한/반복상한·수렴/게이트/스무딩을 '
                         '모두 우회한다. 실차 미검증 — 기본 false.'),
         DeclareLaunchArgument('corner_yaw_rate_thresh', default_value='0.8'),
