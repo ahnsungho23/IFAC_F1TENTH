@@ -510,6 +510,21 @@ def declare_common_args(sector_scale_enable_default='false'):
             'launch_standstill_speed', default_value='0.3',
             description='실측이 이 속도[m/s] 미만이면 정지 판정 → 킥 시작(exit보다 낮아 히스테리시스)'
         ),
+        # 🟢 2026-08-20 신설. 킥이 launch_boost_time 안에 관통 못 하고 포기하면 예전엔
+        #    **차가 실제로 launch_exit_speed를 넘을 때까지** 영구히 재시도하지 않았다 —
+        #    못 나가고 있을 때 킥이 사라진다는 뜻이다. 회피 세이프스톱 재출발처럼 플래너
+        #    목표가 킥 바닥(2.0)보다 낮은 상황에서 정확히 이게 손해다(0819 run_214041 실측:
+        #    킥 만료 후 명령이 1.49로 떨어진 채 인계 시도 → 붕괴 → 총 1.82 s).
+        #    이 값[s]만큼 **정지가 계속되고 여전히 갈 의도가 있으면** 다시 무장한다.
+        # 🔑 성공하는 출발에는 비용이 정확히 0이다(래치가 안 서면 타이머가 돌지 않는다).
+        # 🔴 기본 0 = 구 거동(영구 래치). 실차 A/B 전까지 켜지 않는다 —
+        #    "인계 명령이 클수록 옵저버가 더 잘 깨진다"는 반대 방향 실측(0810)이 있어
+        #    재시도가 이득인지 아직 데이터로 못 갈랐다. 켜기: launch_relatch_time:=2.0
+        DeclareLaunchArgument(
+            'launch_relatch_time', default_value='0.0',
+            description='런치 킥 포기 후 재무장까지 필요한 정지 지속 시간 [s]. '
+                        '0 = 재시도 안 함(구 거동). 회피 재출발에서 킥이 사라지는 것을 막는다'
+        ),
 
         # IMU 보정 on/off. 끄면 조향 가감속 스케일러가 중립(acc_mean=0)으로 떨어져
         # 순수 L1(시뮬 검증 상태)이 된다.
@@ -567,6 +582,7 @@ def build_control_map_node(*, odom_topic, max_speed, max_lateral_accel, base_max
             'launch_boost_time': LaunchConfiguration('launch_boost_time'),
             'launch_exit_speed': LaunchConfiguration('launch_exit_speed'),
             'launch_standstill_speed': LaunchConfiguration('launch_standstill_speed'),
+            'launch_relatch_time': LaunchConfiguration('launch_relatch_time'),
             'l1_use_actual_distance': ParameterValue(
                 LaunchConfiguration('l1_use_actual_distance'), value_type=bool),
             # ⚠️ 좌우 조향 한계는 진입점 런치가 환경별로 넘긴다. 실차는 젯슨 vesc.yaml의
