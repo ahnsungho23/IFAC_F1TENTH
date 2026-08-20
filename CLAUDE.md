@@ -102,8 +102,13 @@ ros2 launch f1tenth_gym_ros gym_bridge_launch.py
 시작하고 수렴하지 못합니다 — 2026-08-18에 스폰을 s=5.01로 두었더니 정확히 4.84 m
 (= wpnts[0]까지 거리)만큼 틀어졌습니다.
 
-현재값은 `sx: -0.706042, sy: 15.188966, stheta: -2.469165` = 새 라인 `wpnts[0]`입니다.
-라인을 다시 만들면 이 세 값도 새 `wpnts[0]`으로 같이 바꾸십시오.
+현재값은 `sx: 2.131897, sy: 15.414601, stheta: -2.491200` = 현행 라인 `wpnts[0]`입니다
+(2026-08-21 신라인, 165점·41.09 m). 라인을 다시 만들면 이 세 값도 같이 바꾸십시오.
+
+🔴 **좌표 프레임의 기준은 kissmap입니다** (2026-08-21 실측): 실차 /map은
+kinematic_localization이 kissmap 점 bbox를 래스터화해 직접 발행하므로(origin 자동),
+렌더 pgm·raceline이 kissmap과 다른 프레임이면 frenet이 즉사합니다. 라인 재생성은
+반드시 래스터 /map(또는 그와 동일 프레임의 렌더)을 기준으로 하십시오.
 
 ### 터미널 2 — 위치추정 (kinematic_localization)
 
