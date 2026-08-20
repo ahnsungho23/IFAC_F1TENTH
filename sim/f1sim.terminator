@@ -59,7 +59,7 @@
       order = 0
       profile = default
       command = @SIMDIR@/run.sh mcl
-      title = 2 · mcl · particle_filter_cpp
+      title = 2 · localization · kinematic_localization
     [[[lcolc]]]
       type = VPaned
       parent = lcolb

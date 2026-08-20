@@ -218,14 +218,14 @@ def normalize_gui_values(values: dict[str, Any]) -> dict[str, Any]:
 
 def first_existing_map() -> Path:
     candidates = [
-        REPO_ROOT / "monte_carlo_localization/maps/slam_map.yaml",
-        REPO_ROOT / "monte_carlo_localization/maps/first_map.yaml",
+        REPO_ROOT / "kinematic_localization/maps/slam_map.yaml",
+        REPO_ROOT / "kinematic_localization/maps/first_map.yaml",
         REPO_ROOT / "new_map_con/maps/oct_28.yaml",
     ]
     for candidate in candidates:
         if candidate.exists():
             return candidate
-    return REPO_ROOT / "monte_carlo_localization/maps/slam_map.yaml"
+    return REPO_ROOT / "kinematic_localization/maps/slam_map.yaml"
 
 
 def default_gui_values() -> dict[str, Any]:

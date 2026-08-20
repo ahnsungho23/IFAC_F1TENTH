@@ -44,15 +44,15 @@ C++ 바이너리를 호출해 결과 파일을 읽어 미리보기를 그린다.
 python3 offline_trajectory_generator/trajectory_gui.py
 ```
 
-처음 실행하면 map YAML 선택 창이 열린다. 예를 들어 `monte_carlo_localization/maps/slam_map.yaml`을 선택하면 된다.
+처음 실행하면 map YAML 선택 창이 열린다. 예를 들어 `kinematic_localization/maps/slam_map.yaml`을 선택하면 된다.
 
-f1sim에서 쓸 trajectory를 만들 때는 f1sim의 `config/sim.yaml`에 있는 `map_path`와 같은 map YAML을 선택해야 한다. 현재 f1sim 기본 map은 `src/monte_carlo_localization/maps/fuck_f1.yaml`이고, `new_map_con` 기본 CSV도 이 map 좌표계의 `src/new_map_con/maps/fuck_f1.csv`를 사용한다.
+f1sim에서 쓸 trajectory를 만들 때는 f1sim의 `config/sim.yaml`에 있는 `map_path`와 같은 map YAML을 선택해야 한다. 현재 f1sim 기본 map은 `src/kinematic_localization/maps/fuck_f1.yaml`이고, `new_map_con` 기본 CSV도 이 map 좌표계의 `src/new_map_con/maps/fuck_f1.csv`를 사용한다.
 
 처음부터 특정 map을 열고 싶으면 다음처럼 넘긴다.
 
 ```bash
 python3 offline_trajectory_generator/trajectory_gui.py \
-  --map-yaml monte_carlo_localization/maps/slam_map.yaml
+  --map-yaml kinematic_localization/maps/slam_map.yaml
 ```
 
 화면 왼쪽에는 map 경로, 저장 위치, `Velocity limits` CSV 경로와 trajectory 파라미터가 표시된다. 숫자 파라미터는 `Sampling`, `Track & safety`, `Speed profile`, `Map cleanup`, `Centerline`, `Min-curvature`, `Straightening` 그룹별 소제목으로 묶여 있어 원하는 항목을 빠르게 찾을 수 있다. 오른쪽에는 map 이미지 위에 centerline과 RT lane이 함께 표시된다. 슬라이더·체크박스·CSV 경로를 바꾸면 잠시 후 자동으로 다시 계산되어 overlay가 갱신된다.
@@ -78,7 +78,7 @@ CLI로 바로 파일만 생성하려면 다음 명령을 사용한다.
 
 ```bash
 offline_trajectory_generator/bin/generate_global_trajectory \
-  --map-yaml monte_carlo_localization/maps/slam_map.yaml \
+  --map-yaml kinematic_localization/maps/slam_map.yaml \
   --output-dir /tmp/offline_traj_slam_map \
   --velocity-limits-csv offline_trajectory_generator/config/velocity_limits.csv \
   --debug-image

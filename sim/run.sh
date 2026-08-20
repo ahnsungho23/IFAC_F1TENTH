@@ -97,8 +97,7 @@ kill_pattern() {                          # <pattern> [pattern ...]
 
 typeset -a PAT_SIM PAT_MCL PAT_GLOBAL PAT_LOCAL PAT_STATE PAT_CONTROL PAT_OPP PAT_OPPDET
 PAT_SIM=('ros2 launch f1tenth_gym_ros' 'gym_bridge')
-PAT_MCL=('ros2 launch particle_filter_cpp' 'particle_filter_node'
-         'particle_filter_map_server' 'lifecycle_manager_particle_filter')
+PAT_MCL=('ros2 launch kinematic_localization' 'localization_node')
 PAT_GLOBAL=('ros2 launch global_planning' 'global_planning_node'
             'global_trajectory_publisher_node' 'frenet_odom_node' 'map_creator_node')
 PAT_LOCAL=('ros2 launch local_planning' 'local_planner_node')
@@ -118,13 +117,16 @@ case "$role" in
     kill_pattern "${PAT_SIM[@]}"
     cmd=(ros2 launch f1tenth_gym_ros gym_bridge_launch.py)
     ;;
-  mcl|localization)                        # Terminal 2 — Monte Carlo Localization -> /pf/pose/odom
+  mcl|localization)                        # Terminal 2 — Kinematic-ICP localization -> /pf/pose/odom
     source "$IFAC/install/setup.zsh" 2>/dev/null
     kill_pattern "${PAT_MCL[@]}"
-    # EVERY downstream node depends on /pf/pose/odom — without MCL the whole stack stalls.
-    # MCL_RVIZ=0 turns its RViz off when the f1sim RViz window is enough.
-    cmd=(ros2 launch particle_filter_cpp mcl_launch.py
-         mod:=sim map_name:="$MAP_NAME" use_rviz:="${MCL_RVIZ:-true}")
+    # EVERY downstream node depends on /pf/pose/odom — without localization the whole stack stalls.
+    # 2026-08-20: particle_filter_cpp (MCL) -> kinematic_localization (KICP). The frozen map is
+    # maps/<map>.kissmap, NOT the <map>.yaml occupancy grid the other nodes read, and the node
+    # ships no RViz of its own (MCL_RVIZ no longer applies) — it publishes /map itself so the
+    # f1sim RViz "2D Pose Estimate" still initializes it.
+    cmd=(ros2 launch kinematic_localization kinematic_localization.launch.py
+         map_name:="$MAP_NAME" use_sim_time:=true)
     delay=3
     ;;
   global|frenet)                           # Terminal 3 — /global_waypoints + /car_state/frenet/odom

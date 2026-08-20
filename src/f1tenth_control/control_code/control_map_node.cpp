@@ -265,6 +265,18 @@ public:
             static_cast<size_t>(declare_parameter<int>("curvature_lookahead_count", 60));
         max_lateral_accel_ = declare_parameter<double>("max_lateral_accel", 6.0);
         understeer_gradient_ = declare_parameter<double>("understeer_gradient", 0.019);
+        // ── 좌/우 분리 K_us (2026-08-18) ─────────────────────────────────────
+        // rosbag2_..-20_34_05 실측: 정상상태 요레이트 전달률을 K_us로 역산하면
+        // 좌 ≈0.008 / 우 ≈0.024 — 공용 스칼라는 정확히 그 중간이라 우코너(s25~31)에서
+        // FF가 만성 부족했고, 매 랩 +1.05 m 와이드 → 벽 스침의 직접 원인이었다.
+        // 젯슨의 서보 좌우 게인 분리(08-03)와는 층위가 다르다: 그건 '명령각→서보',
+        // 이건 '바퀴각→요레이트'(차량동역학) 비대칭이다. ≤0 이면 공용값을 따른다(구 거동).
+        understeer_gradient_left_ =
+            declare_parameter<double>("understeer_gradient_left", -1.0);
+        if (understeer_gradient_left_ <= 0.0) understeer_gradient_left_ = understeer_gradient_;
+        understeer_gradient_right_ =
+            declare_parameter<double>("understeer_gradient_right", -1.0);
+        if (understeer_gradient_right_ <= 0.0) understeer_gradient_right_ = understeer_gradient_;
         // 적응 추정의 출발점은 런치가 준 정적값이다 — 학습 전/게이트가 안 열린 구간에서는
         // 정확히 구 거동으로 떨어진다. (범위 클램프는 파라미터 선언부에서 이미 읽었다.)
         understeer_gradient_adapted_ =
@@ -327,6 +339,19 @@ public:
         }
 
         engage_gate_enable_ = declare_parameter<bool>("engage_gate_enable", true);
+        // odom 워치독. /local_waypoints·/drive_mode는 전부 신선도 타임아웃이 있는데 **odom만
+        // 없었다**(2026-08-04 a71890c에서 제거). 위치추정(MCL)이 죽으면 current_x_/y_/speed_가
+        // stale 상태로 얼고, 컨트롤러는 그 얼어붙은 pose로 계산한 조향·속도를 50 Hz로 계속
+        // 발행한다 — 노드는 완전히 정상으로 보인다.
+        //   🔴 2026-08-18 `run_0818_134408`이 정확히 이 형태로 벽에 박았다: /pf/pose/odom이
+        //      1125 ms 끊긴 동안 /drive_autonomous는 20.0 ms 간격을 유지한 채 값이 그대로
+        //      얼었고(speed 3.572 / steer +0.1286이 0.8초간 동일), 그사이 차는 3.9 m를 더
+        //      달려 횡오차가 0.44 → 1.09 m로 벌어졌다. MCL이 3.25 m 점프하며 복귀한 직후 접촉.
+        //   같은 날 정상 런의 최대 공백은 51 ms(140819, 201초)이고, 기동 직후 과도구간에서만
+        //   336~380 ms가 관측된다 — 0.5 s는 그 위에 충분한 여유를 두면서 1.1 s는 잡는 값이다.
+        // 0이면 비활성. NaN pose(MCL 붕괴)는 odom_callback이 샘플을 버리므로 여기서 stale로 잡힌다.
+        odom_timeout_ = declare_parameter<double>("odom_timeout", 0.5);
+
         drive_mode_topic_ = declare_parameter<std::string>("drive_mode_topic", "/drive_mode");
         engaged_mode_value_ = declare_parameter<std::string>("engaged_mode_value", "autonomous");
         drive_mode_timeout_ = declare_parameter<double>("drive_mode_timeout", 1.0);
@@ -441,9 +466,10 @@ public:
         // 조향 파라미터를 기동 시 1회 남긴다 — bag만 보고 "그 주행이 어떤 설정이었나"를
         // 되짚을 수 있어야 한다(0816 사후분석에서 파라미터 이력을 git으로 캐야 했던 교훈).
         RCLCPP_INFO(this->get_logger(),
-                    "🟢 조향: 자전거 역모델 δ=a_lat·(L/v²+K_us) | K_us %.5f | "
+                    "🟢 조향: 자전거 역모델 δ=a_lat·(L/v²+K_us) | K_us 좌 %.5f / 우 %.5f | "
                     "FF/FB 분리 게인 %.2f%s | FF 곡률 프리뷰 %.2f m",
-                    understeer_gradient_eff(), steering_fb_gain_,
+                    understeer_gradient_eff(+1.0), understeer_gradient_eff(-1.0),
+                    steering_fb_gain_,
                     (std::abs(steering_fb_gain_ - 1.0) < 1e-9) ? "(=순수 L1과 동일)" : "",
                     curvature_ff_preview_);
         if (understeer_adapt_gain_ > 0.0) {
@@ -499,28 +525,14 @@ public:
             "/debug/l1_lookahead", 10);
 
         // max_speed만 런타임 변경을 수용한다 — map_creator가 장애물 회피 글로벌 라인
-        // 스왑 직후 파라미터 서비스로 속도 상한을 바꾼다(map_creator.yaml의
-        // swap_max_speed_mps / rollback_max_speed_mps, control_node_name="control_map_node").
-        // 나머지 파라미터는 기존대로 생성자 1회 읽기다(변경하려면 노드 재시작).
-        // ⚠️ 이 노드는 rclcpp::spin() = 단일 스레드 실행기라 이 콜백과 control_loop가
-        //    직렬화된다 — max_speed_ 접근에 락이 필요 없다. 실행기를 멀티스레드로
-        //    바꾸면 이 전제가 깨진다.
+        // 스왑 직후 파라미터 서비스로 속도 상한을 내린다(map_creator.yaml swap_max_speed_mps).
+        // 나머지 파라미터는 기존대로 생성자 1회 읽기(변경하려면 노드 재시작).
         param_cb_handle_ = this->add_on_set_parameters_callback(
             [this](const std::vector<rclcpp::Parameter> & params) {
                 rcl_interfaces::msg::SetParametersResult result;
                 result.successful = true;
                 for (const auto & p : params) {
-                    if (p.get_name() != "max_speed") {
-                        // 거부하지 않고 경고만 한다 — 거부하면 use_sim_time 같은
-                        // 정상 설정까지 막힌다. 다만 조용히 성공시키면 ros2 param get은
-                        // 새 값을 보여주는데 노드는 생성자 값을 계속 쓰는 함정이 되므로,
-                        // 로그로 드러낸다.
-                        RCLCPP_WARN(this->get_logger(),
-                                    "'%s' 런타임 변경은 제어에 반영되지 않는다 "
-                                    "(이 노드는 max_speed만 런타임 수용 — 나머지는 재시작 필요)",
-                                    p.get_name().c_str());
-                        continue;
-                    }
+                    if (p.get_name() != "max_speed") continue;
                     if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE ||
                         !std::isfinite(p.as_double()) || p.as_double() <= 0.0) {
                         result.successful = false;
@@ -539,6 +551,10 @@ public:
             std::chrono::milliseconds(20), std::bind(&ControlMapNode::control_loop, this));
 
         last_time_ = this->now();
+        // 노드 클럭으로 초기화해 둔다. (odom_seen_ 게이트가 먼저 걸리므로 논리적으로는
+        //  미수신 상태에서 이 값이 쓰이지 않지만, 기본 생성된 rclcpp::Time은 클럭 타입이
+        //  달라 use_sim_time에서 뺄셈이 예외를 던진다.)
+        odom_last_recv_time_ = this->now();
         RCLCPP_INFO(this->get_logger(),
                     "RoboRacer L1 Guidance + 자전거 역모델 조향 제어 노드가 시작되었습니다.");
     }
@@ -574,6 +590,7 @@ private:
         current_y_ = y;
         current_yaw_ = yaw;
         current_speed_ = v;
+        odom_last_recv_time_ = this->now();
         odom_seen_ = true;
     }
 
@@ -614,8 +631,14 @@ private:
 
     // 지금 유효한 K_us(하중 무관 스칼라). 적응이 꺼져 있으면(기본) 런치 파라미터 그대로다.
     // ⚠️ 조향 권한 캡·트림 추정이 **이 하나를 쓴다**(모델 일원화).
-    double understeer_gradient_eff() const {
-        return (understeer_adapt_gain_ > 0.0) ? understeer_gradient_adapted_ : understeer_gradient_;
+    // turn_sign: 좌회전(κ>0, a_lat>0, ψ̇>0) 양수 / 우회전 음수 / 0 = 방향 미상(공용값).
+    // ⚠️ 적응(gain>0)이 켜지면 적응 스칼라가 좌우 공용으로 우선한다 — 추정기가 방향을
+    //    분리하지 않으므로 좌/우 분리값과 동시에 쓸 수 없다.
+    double understeer_gradient_eff(double turn_sign = 0.0) const {
+        if (understeer_adapt_gain_ > 0.0) return understeer_gradient_adapted_;
+        if (turn_sign > 0.0) return understeer_gradient_left_;
+        if (turn_sign < 0.0) return understeer_gradient_right_;
+        return understeer_gradient_;
     }
 
     // ── K_us(a_lat) 곡선 (②-q) ────────────────────────────────────────────────
@@ -629,8 +652,10 @@ private:
 
     // |a_lat|에서 곡선을 읽는다. 빈 사이는 선형보간, 양 끝은 그 값으로 평평하게 유지
     // (외삽 금지 — 관측 못 한 하중대에서 조향이 튀는 것이 LUT의 실패 방식이었다).
-    double understeer_from_curve(double a_lat_abs) const {
-        const double base = understeer_gradient_eff();
+    // 부호는 좌/우 base 선택에만 쓴다 — 학습 빈은 방향 혼합이라 곡선을 켜면 빈이 찬
+    // 하중대에서 좌/우 분리가 곡선값으로 대체된다(폴백 빈은 분리값 유지).
+    double understeer_from_curve(double a_lat_signed) const {
+        const double base = understeer_gradient_eff(a_lat_signed);
         if (!understeer_curve_enable_) return base;
 
         // 학습된 빈만 쓴다. 부족하면 그 빈은 스칼라값으로 대체 = 구 거동으로 폴백.
@@ -648,7 +673,7 @@ private:
         //    (LUT는 이 제약이 없어서 그립피크 이후 접혀 NaN이 됐다.)
         for (int i = 1; i < kUsBins; ++i) k[i] = std::max(k[i], k[i - 1]);
 
-        const double a = std::abs(a_lat_abs);
+        const double a = std::abs(a_lat_signed);
         if (a <= kUsBinCenter[0]) return k[0];
         if (a >= kUsBinCenter[kUsBins - 1]) return k[kUsBins - 1];
         for (int i = 1; i < kUsBins; ++i) {
@@ -683,7 +708,7 @@ private:
     double bicycle_steer_from_lat_acc(double a_lat, double v) const {
         // v=0에서 a_lat도 0이므로(∝v²) 이 하한은 0/0 방어일 뿐 거동을 바꾸지 않는다.
         const double v2 = std::max(v * v, 1e-4);
-        return a_lat * (wheelbase_ / v2 + understeer_from_curve(std::abs(a_lat)));
+        return a_lat * (wheelbase_ / v2 + understeer_from_curve(a_lat));
     }
 
     // FF가 참조할 경로 곡률. 노이즈가 그대로 조향에 실리지 않도록 **평활 곡률**을 쓴다.
@@ -808,7 +833,7 @@ private:
 
         // 실측 요레이트가 함의하는 바퀴각 → 명령 공간으로 환산.
         const double delta_wheel =
-            yaw_rate_now_ * (wheelbase_ / v + understeer_gradient_eff() * v);
+            yaw_rate_now_ * (wheelbase_ / v + understeer_gradient_eff(yaw_rate_now_) * v);
         const double e = past - delta_wheel / std::max(0.3, steering_reach_ratio_);
         steering_trim_ += steering_trim_gain_ * (e - steering_trim_) * dt;
         steering_trim_ = std::clamp(steering_trim_, -steering_trim_limit_, steering_trim_limit_);
@@ -945,11 +970,18 @@ private:
 
     // 경로를 모를 때의 안전 정지. 발행을 멈추지 않고 명시적 0을 보내는 이유는, 침묵하면
     // 하류(ackermann_mux→VESC)가 **직전 명령을 그대로 유지**해 타력주행이 되기 때문이다.
-    void publish_safe_stop() {
-        last_steering_angle_ = 0.0;
+    //
+    // hold_steering=true면 조향을 0으로 펴지 않고 **직전 각을 유지한 채** 속도만 0으로 준다.
+    // ⚠️ odom 워치독 전용 옵션이다. 굴러가는 중에 조향을 0으로 만드는 것은 ②-r에서
+    //    이미 확인된 실패 모드다 — 코너 한복판 비상정지가 바깥 벽으로의 직진이 된다.
+    //    경로를 아예 모르는 경우(기존 호출부)는 직전 각도 근거가 없으므로 종전대로 0을 쓴다.
+    void publish_safe_stop(bool hold_steering = false) {
+        const double steer = hold_steering ? last_steering_angle_ : 0.0;
+        last_steering_angle_ = steer;
+        // 램프 상태를 실측에 붙여 둔다 — 복귀 시 계단 명령이 안 나가게 하는 bumpless 처리.
         last_target_speed_ = std::max(0.0, current_speed_);
         last_published_speed_ = 0.0;
-        publish_drive(0.0, 0.0, 0.0);
+        publish_drive(steer, 0.0, 0.0);
     }
 
     double ramp_speed(double last_cmd, double target, double dt,
@@ -1001,6 +1033,38 @@ private:
                 "odom(%s) 미수신 — 위치추정이 뜨기 전에는 주행하지 않는다", odom_topic_.c_str());
             publish_safe_stop();
             return;
+        }
+
+        // 0-a2. odom 워치독 — 위치추정이 도중에 끊기면 제어가 성립하지 않는다.
+        //   ⚠️ 경로 중재보다 **먼저** 와야 한다. 아래 단계는 전부 current_x_/y_/yaw_를 쓰는데,
+        //      끊긴 동안 그 값은 얼어 있고 차는 계속 달린다(0818 134408: 0.8초에 3.9 m).
+        //   조향은 직전 각을 유지한 채 속도만 0으로 준다 — ②-r 참고.
+        const double odom_age = (current_time - odom_last_recv_time_).seconds();
+        if (odom_timeout_ > 0.0 && odom_age > odom_timeout_) {
+            if (!odom_stale_) {
+                odom_stale_ = true;
+                ++odom_stale_count_;
+                odom_stale_since_ = odom_last_recv_time_;   // 마지막 정상 수신 시각
+            }
+            RCLCPP_ERROR_THROTTLE(this->get_logger(), *this->get_clock(), 500,
+                "odom(%s) %.2fs 끊김(> %.2fs) — 안전 정지(조향 %.3f rad 유지). "
+                "위치추정/네트워크 확인 (누적 %u회)",
+                odom_topic_.c_str(), odom_age, odom_timeout_,
+                last_steering_angle_, odom_stale_count_);
+            publish_safe_stop(/*hold_steering=*/true);
+            return;
+        }
+        if (odom_stale_) {
+            odom_stale_ = false;
+            // 복귀 시점의 pose는 크게 점프해 있을 수 있다(134408: 3.25 m). 램프는 위
+            // publish_safe_stop이 매 사이클 실측에 붙여 뒀으므로 계단 명령은 안 나가지만,
+            // 최근접 인덱스는 다시 찾아야 하므로 로그로 남긴다.
+            // ⚠️ 여기서 odom_age를 찍으면 **방금 받은 샘플의 나이**(≈0)가 나와 두절 길이를
+            //    오해하게 된다. 마지막 정상 수신 시각부터 재개까지의 실제 공백을 찍는다.
+            const double outage = (odom_last_recv_time_ - odom_stale_since_).seconds();
+            RCLCPP_WARN(this->get_logger(),
+                "odom(%s) 복구 — 실제 두절 %.2fs (누적 %u회). 복귀 직후 pose 점프 주의",
+                odom_topic_.c_str(), outage, odom_stale_count_);
         }
 
         // 0. 경로 소스 중재: 로컬(신선) → 글로벌 → 둘 다 없으면 안전 정지
@@ -1119,7 +1183,8 @@ private:
                 // ⚠️ 조향 생성과 **같은** K_us를 쓴다(understeer_gradient_eff). 이 일원화가
                 //    ②-p의 핵심이다 — 종방향이 "이 속도면 꺾인다"고 판단하는 근거와 실제
                 //    조향을 만드는 근거가 다르면, 그 차이만큼 코너에서 조향이 모자란다.
-                const double kus = understeer_gradient_eff();
+                //    좌/우 분리도 같은 이유로 부호 있는 곡률로 그 코너의 K_us를 고른다.
+                const double kus = understeer_gradient_eff(wps[i].smoothed_curvature_signed);
                 if (kus > 1e-6) {                                                   // (b) 조향 권한
                     // ⚠️ 좌우 중 **작은** 한계를 쓰고, 거기에 도달각 비율까지 곱한다 —
                     //    캡은 "바퀴가 실제로 꺾이는 각"으로 계산해야 의미가 있다(0.379를 다
@@ -1716,7 +1781,7 @@ private:
     double ramp_lead_max_ = 2.4;   // 램프 안티와인드업 선행 상한 [m/s], 0이면 비활성
     double base_max_decel_;                  // 명령 속도 하강 rate limit [m/s²]
     double prebrake_decel_ = 1.5;            // 곡률 사전감속용 실측 감속 권한 [m/s²]
-    double max_speed_, min_speed_;   // max_speed_는 런타임 파라미터 변경 수용(생성자 콜백)
+    double max_speed_, min_speed_;           // max_speed_는 런타임 파라미터 변경 수용(생성자 콜백)
     rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr param_cb_handle_;
 
     // 런치 킥
@@ -1780,6 +1845,8 @@ private:
     size_t curvature_lookahead_count_;
     double max_lateral_accel_;
     double understeer_gradient_ = 0.019;     // K_us [rad/(m/s²)] — 조향 권한 캡, 0이면 비활성
+    double understeer_gradient_left_ = 0.019;   // 좌회전 K_us (생성자에서 해소, ≤0 = 공용값)
+    double understeer_gradient_right_ = 0.019;  // 우회전 K_us (실측상 좌보다 크다 — 0818)
     double steer_authority_ratio_ = 0.85;
 
     // 좌우 조향 한계 [rad]. 둘 다 같으면 기존 대칭 거동과 동일.
@@ -1794,8 +1861,13 @@ private:
     double last_published_speed_ = 0.0;      // 발행 acceleration(명령 속도 미분)의 기준
     rclcpp::Time last_time_;
 
-    // odom 수신 여부 — 위치추정이 뜨기 전에는 주행하지 않는다
+    // odom 워치독 — 위치추정 없이/끊긴 채로 주행하지 않는다
     bool odom_seen_ = false;
+    double odom_timeout_ = 0.5;              // [s] 0이면 비활성
+    rclcpp::Time odom_last_recv_time_;
+    bool odom_stale_ = false;                // 워치독 발동 중인가(에지 로그·복귀 처리용)
+    rclcpp::Time odom_stale_since_;          // 두절 직전 마지막 정상 수신 시각
+    uint32_t odom_stale_count_ = 0;          // 발동 누적(진단용)
 
     // 경로 & 인덱스 추적
     std::vector<Waypoint> waypoints_;        // 글로벌 (닫힌 루프)

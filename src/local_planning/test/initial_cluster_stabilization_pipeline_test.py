@@ -41,7 +41,7 @@ class InitialClusterProbe(Node):
         super().__init__('initial_cluster_stabilization_probe')
         self.global_pub = self.create_publisher(
             WpntArray, '/global_waypoints', latched_qos())
-        self.obstacle_pub = self.create_publisher(ObstacleArray, '/static_obs', 10)
+        self.obstacle_pub = self.create_publisher(ObstacleArray, '/confirmed_static_obs', 10)
         self.odom_pub = self.create_publisher(
             Odometry, '/car_state/frenet/odom', 10)
         self.path_sub = self.create_subscription(

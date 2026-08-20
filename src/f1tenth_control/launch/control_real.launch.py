@@ -23,9 +23,7 @@ def generate_launch_description():
     max_speed_arg = DeclareLaunchArgument(
         'max_speed',
         default_value='5.0',
-        description='control_map_node 직선 최대 속도 [m/s]. '
-                    'map_creator가 회피 라인 스왑 후 런타임으로 올린다'
-                    '(map_creator.yaml swap_max_speed_mps)'
+        description='control_map_node 직선 최대 속도 [m/s]'
     )
 
     max_lateral_accel_arg = DeclareLaunchArgument(

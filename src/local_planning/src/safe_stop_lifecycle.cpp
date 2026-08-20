@@ -96,9 +96,13 @@ SafeStopCycleDecision SafeStopLifecycle::evaluate(
   decision.vehicle_stopped = std::isfinite(input.ego_speed_mps) &&
     std::abs(input.ego_speed_mps) <= std::max(0.0, stopped_speed_threshold_mps);
 
-  if (input.hard_valid_avoidance_for_latched_obstacle &&
-    input.state_can_select_avoidance)
-  {
+  // The streak counts plan validity only. While the hold path is degenerate the state machine
+  // can flap AVOID<->GLOBAL every tick (2026-08-13 real-car deadlock: run_0813_220641 —
+  // hard-valid escape existed each cycle but GLOBAL ticks kept resetting this counter, so
+  // condition B never released without a manual push). FSM selectability is enforced at the
+  // release decision below instead, so a release still only fires on a tick the state machine
+  // would actually forward the avoidance path.
+  if (input.hard_valid_avoidance_for_latched_obstacle) {
     ++feasible_avoidance_count_;
   } else {
     feasible_avoidance_count_ = 0;
@@ -123,7 +127,8 @@ SafeStopCycleDecision SafeStopLifecycle::evaluate(
   decision.feasible_avoidance_count = feasible_avoidance_count_;
   decision.stopped_clear_count = stopped_clear_count_;
   decision.release_condition_a = decision.obstacle_passed;
-  decision.release_condition_b = feasible_avoidance_count_ >= required_cycles;
+  decision.release_condition_b = feasible_avoidance_count_ >= required_cycles &&
+    input.state_can_select_avoidance;
   decision.release_condition_c = stopped_clear_count_ >= required_cycles;
 
   if (decision.release_condition_a) {

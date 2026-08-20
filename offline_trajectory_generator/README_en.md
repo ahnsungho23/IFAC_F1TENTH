@@ -27,15 +27,15 @@ To check while adjusting parameters with the GUI, use the following command.
 python3 offline_trajectory_generator/trajectory_gui.py
 ```
 
-On the first run, a map YAML selection window opens. For example, you can select `monte_carlo_localization/maps/slam_map.yaml`.
+On the first run, a map YAML selection window opens. For example, you can select `kinematic_localization/maps/slam_map.yaml`.
 
-When creating a trajectory for use in f1sim, you must select the same map YAML as `map_path` in f1sim's `config/sim.yaml`. The current f1sim default map is `src/monte_carlo_localization/maps/fuck_f1.yaml`, and the `new_map_con` default CSV also uses `src/new_map_con/maps/fuck_f1.csv` in this map's coordinate frame.
+When creating a trajectory for use in f1sim, you must select the same map YAML as `map_path` in f1sim's `config/sim.yaml`. The current f1sim default map is `src/kinematic_localization/maps/fuck_f1.yaml`, and the `new_map_con` default CSV also uses `src/new_map_con/maps/fuck_f1.csv` in this map's coordinate frame.
 
 If you want to open a specific map from the start, pass it as follows.
 
 ```bash
 python3 offline_trajectory_generator/trajectory_gui.py \
-  --map-yaml monte_carlo_localization/maps/slam_map.yaml
+  --map-yaml kinematic_localization/maps/slam_map.yaml
 ```
 
 The left side of the screen shows the map path, save location, and trajectory parameters. The numeric parameters are grouped under the `Sampling`, `Track & safety`, `Speed profile`, `Map cleanup`, `Centerline`, `Min-curvature`, and `Straightening` subheadings so the item you want is easy to find. The right side shows the centerline and RT lane together over the map image. When you change a slider or checkbox, it automatically recomputes after a short moment and the overlay is refreshed.
@@ -61,7 +61,7 @@ To generate only the files directly via the CLI, use the following command.
 
 ```bash
 offline_trajectory_generator/bin/generate_global_trajectory \
-  --map-yaml monte_carlo_localization/maps/slam_map.yaml \
+  --map-yaml kinematic_localization/maps/slam_map.yaml \
   --output-dir /tmp/offline_traj_slam_map \
   --velocity-limits-csv offline_trajectory_generator/config/velocity_limits.csv \
   --debug-image

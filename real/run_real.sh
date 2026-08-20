@@ -58,8 +58,10 @@ case "$role" in
   bringup)                               # T1 — hardware bringup (VESC/lidar/joy/mux)
     remote 0 "cd ~/f1tenth_ws && source install/setup.zsh && ros2 launch f1tenth_stack bringup_launch.py"
     ;;
-  mcl|localization)                      # T2 — MCL -> /pf/pose/odom  (MCL은 F1_MAP을 안 읽는다 — map_name 명시)
-    remote 6 "cd ~/2026_IFAC && source install/setup.zsh && ros2 launch particle_filter_cpp mcl_launch.py mod:=real map_name:=$MAP_NAME use_rviz:=false"
+  mcl|localization)                      # T2 — KICP -> /pf/pose/odom  (F1_MAP을 안 읽는다 — map_name 명시)
+    # 2026-08-20: particle_filter_cpp(MCL) -> kinematic_localization(KICP). 동결 맵은
+    # maps/$MAP_NAME.kissmap (global/local이 읽는 $MAP_NAME.yaml 점유격자와 짝이어야 한다).
+    remote 6 "cd ~/2026_IFAC && source install/setup.zsh && ros2 launch kinematic_localization kinematic_localization.launch.py map_name:=$MAP_NAME"
     ;;
   global|frenet)                         # T3 — /global_waypoints + /car_state/frenet/odom
     remote 12 "cd ~/2026_IFAC && source install/setup.zsh && export F1_MAP=$MAP_NAME && ros2 launch global_planning global_planning.launch.py"
@@ -78,7 +80,7 @@ case "$role" in
     #   ros2 service call /rosbag2_recorder/resume rosbag2_interfaces/srv/Resume
     #   ros2 service call /rosbag2_recorder/pause  rosbag2_interfaces/srv/Pause
     # RViz를 닫으면(Ctrl-C) 녹화도 SIGINT로 함께 종료. X-forward OpenGL이라 소프트웨어 렌더링 강제.
-    SSH_OPTS="-X -t" remote 10 'source ~/f1tenth_ws/install/setup.zsh && cd ~/2026_IFAC && source install/setup.zsh && export LIBGL_ALWAYS_SOFTWARE=1 && BAG=~/rosbags/$(date +%m%d)/run_$(date +%m%d_%H%M%S) && mkdir -p ${BAG:h} && { ros2 bag record -a -s sqlite3 --start-paused -o $BAG & BAGPID=$!; echo "[rec] $BAG — PAUSED로 시작 (재개: ros2 service call /rosbag2_recorder/resume rosbag2_interfaces/srv/Resume)"; rviz2 -d $(ros2 pkg prefix particle_filter_cpp)/share/particle_filter_cpp/rviz/particle_filter.rviz; kill -INT $BAGPID 2>/dev/null; wait $BAGPID 2>/dev/null; }'
+    SSH_OPTS="-X -t" remote 10 'source ~/f1tenth_ws/install/setup.zsh && cd ~/2026_IFAC && source install/setup.zsh && export LIBGL_ALWAYS_SOFTWARE=1 && BAG=~/rosbags/$(date +%m%d)/run_$(date +%m%d_%H%M%S) && mkdir -p ${BAG:h} && { ros2 bag record -a -s sqlite3 --start-paused -o $BAG & BAGPID=$!; echo "[rec] $BAG — PAUSED로 시작 (재개: ros2 service call /rosbag2_recorder/resume rosbag2_interfaces/srv/Resume)"; rviz2; kill -INT $BAGPID 2>/dev/null; wait $BAGPID 2>/dev/null; }'
     ;;
   rvizlocal)                             # 본체 PC — RViz만 로컬에서 (X-forward가 느리면 이쪽)
     export ROS_DOMAIN_ID=67 RMW_IMPLEMENTATION=rmw_fastrtps_cpp
@@ -86,13 +88,15 @@ case "$role" in
     source "$IFAC/install/setup.zsh" 2>/dev/null
     ros2 daemon stop >/dev/null 2>&1; ros2 daemon start >/dev/null 2>&1
     print -P "%F{green}[rvizlocal]%f rviz2 (local, Fixed Frame map — 차량 정지 후 2D Pose Estimate로 초기 위치)"
-    rviz2 -d "$(ros2 pkg prefix particle_filter_cpp)/share/particle_filter_cpp/rviz/particle_filter.rviz"
+    # KICP에는 rviz 설정이 없다(구 MCL의 particle_filter.rviz는 파티클 클라우드 전용).
+    # Fixed Frame을 map으로 맞추고 /map · /pf/pose/odom을 직접 Add 할 것.
+    rviz2
     print -P "%F{yellow}[rvizlocal] exited — dropping to an interactive shell%f"
     exec zsh -i
     ;;
   stop|clean|kill)                       # 이 스택의 노드만 원격 종료 (--all: bringup까지)
     print -P "%F{cyan}[stop] clearing the stack on $JETSON…%f"
-    ssh "$JETSON" "pkill -f 'ros2 launch (particle_filter_cpp|global_planning|state_machine|f1tenth_control|local_planning|obstacle_detector)'; pkill -f 'ros2 bag record|rosbag2_recorder'; pkill -f 'particle_filter_node|particle_filter_map_server|lifecycle_manager_particle_filter|global_trajectory_publisher_node|frenet_odom_node|state_machine_node|control_map_node|drive_source_selector|local_planner_node|obstacle_detector_node'" 2>/dev/null
+    ssh "$JETSON" "pkill -f 'ros2 launch (kinematic_localization|global_planning|state_machine|f1tenth_control|local_planning|obstacle_detector)'; pkill -f 'ros2 bag record|rosbag2_recorder'; pkill -f 'localization_node|global_trajectory_publisher_node|frenet_odom_node|state_machine_node|control_map_node|drive_source_selector|local_planner_node|obstacle_detector_node'" 2>/dev/null
     if [[ "${1:-}" == "--all" ]]; then
       ssh "$JETSON" "pkill -f 'ros2 launch f1tenth_stack'" 2>/dev/null
     fi

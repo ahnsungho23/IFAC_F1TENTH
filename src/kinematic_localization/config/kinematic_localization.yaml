@@ -1,0 +1,206 @@
+kinematic_localization:
+  ros__parameters:
+    use_sim_time: false
+
+    # Topics / frames (drop-in compatible with particle_filter_cpp MCL)
+    lidar_topic: /scan
+    odom_topic: /odom
+    pose_topic: /pf/pose/odom
+    initial_pose_topic: /initialpose
+    map_frame: map
+    odom_frame: odom
+    base_frame: base_link
+    publish_map_odom_tf: true
+
+    # Frozen map: share/kinematic_localization/maps/<map_name>.kissmap
+    # (an absolute path is used as-is). Empty = pure odometry (no frozen map).
+    # Ignored when slam_mode is true.
+    map_name: ""
+
+    # Online SLAM mode: no frozen map, KISS local map is built from scans,
+    # pose auto-initializes to identity on the first scan (map frame = start
+    # pose, /initialpose still overrides). The accumulated map is saved to
+    # map_output_file via the ~/save_map service or automatically on shutdown,
+    # and published on ~/map_points every map_publish_period_sec (0 = off).
+    slam_mode: false
+    map_output_file: "slam_map.kissmap"
+    map_publish_period_sec: 10.0
+
+    # Output smoothing: complementary filter between the wheel-odometry
+    # prediction and the raw ICP pose. Raw ICP output steps ~8-10 mm/frame
+    # (p50, 38.7 Hz) on the real car with 5 cm+ jumps in 19-26% of frames;
+    # wheel odometry is ~10x smoother, so the pose is predicted with the odom
+    # delta and pulled toward ICP with alpha:
+    #   alpha = clamp(smoothing_alpha + smoothing_alpha_gain * min(v/v_full, 1),
+    #                 0, smoothing_alpha_max)
+    # These are starting values for real-car tuning, not final constants.
+    # smoothing_alpha_rot: rotation-only gain (no velocity boost). Cornering
+    # bags (run_0818, 4 m/s) measured the raw ICP yaw at 0.7-2.7 deg/frame vs
+    # 0.06 deg/frame for the wheel-odom prediction, so yaw is pulled ~4x more
+    # gently than translation (time constant ~0.2 s at 40 Hz). < 0 = follow
+    # the translation alpha (legacy uniform filter).
+    smoothing_enable: true
+    smoothing_alpha: 0.2
+    smoothing_alpha_gain: 0.3
+    smoothing_velocity_full_mps: 3.0
+    smoothing_alpha_max: 0.8
+    smoothing_alpha_rot: 0.12
+
+    # Built-in /map occupancy server: the (frozen or accumulated) map points
+    # are rasterized to a nav_msgs/OccupancyGrid so RViz tools like 2D Pose
+    # Estimate work without a separate map_server. Frozen mode publishes once
+    # (latched); slam_mode refreshes every map_publish_period_sec.
+    # map_grid_resolution matches the source occupancy map's resolution (m/cell);
+    # each point is painted as a disk of radius map_point_dilation_m.
+    map_topic: /map
+    map_grid_resolution: 0.05
+    map_point_dilation_m: 0.15
+
+    # --- Robustness (kicp_robustness_plan) -----------------------------------
+    # NaN guard (§1) has no toggle: it is always on (core + node deep defense).
+
+    # §2 Watchdog: during scan gaps keep publishing the wheel-odometry
+    # extrapolation (odom-only dead reckoning) so /pf/pose/odom and the
+    # map->odom TF never freeze. Covariance grows with the un-corrected span
+    # (std += error_rate * gap_sec); output stops after max_dead_reckoning_sec.
+    # Forced off in slam_mode.
+    watchdog_enable: true
+    watchdog_rate_hz: 40.0
+    scan_timeout_sec: 0.15
+    max_dead_reckoning_sec: 2.0
+    watchdog_trans_error_rate: 0.03
+    watchdog_rot_error_rate: 0.10
+
+    # §3 Registration diagnostics on ~/diagnostics (diagnostic_msgs/
+    # DiagnosticArray): inlier_ratio, residual_rms, tau, beta, iterations,
+    # converged, final_dx_norm, speed, alpha, dead_reckoning_sec, gate flags.
+    # WARN log after 10 consecutive frames below min_inlier_ratio_warn.
+    diagnostics_enable: true
+    diagnostics_topic: "~/diagnostics"
+    min_inlier_ratio_warn: 0.3
+
+    # §4 Pose validity: WARN + diagnostics flag when no non-occupied cell lies
+    # within permissible_radius_m of the pose (buried inside a wall blob).
+    # Never rejects a pose by itself — it only blocks the gate force-accept.
+    # Forced off in slam_mode.
+    pose_check_enable: true
+    permissible_radius_m: 0.13
+
+    # §5 Mahalanobis gate — ON since 2026-08-18, activation grounded per plan:
+    # nominal distributions measured on run_0818_140819 (212 s, 4.1 m/s:
+    # residual_rms p99 0.21, inlier p1 1.00, 0 non-converged frames) and the
+    # replay with chi2 11.34 (3-DoF, with lateral_dof_enable) rejected 0/8401
+    # frames. gate_chi2: 9.21 = 2-DoF 99% (use with lateral off), 11.34 =
+    # 3-DoF 99%. Rejected frames publish the odom prediction and roll the
+    # core back; after gate_force_accept consecutive rejections the ICP pose
+    # is force-accepted unless it lies inside a wall.
+    gate_enable: true
+    gate_chi2: 11.34
+    gate_trans_error_rate: 0.03
+    gate_rot_error_rate: 0.10
+    gate_meas_std_floor: 0.02
+    gate_force_accept: 20
+
+    # §6 Soft lateral DoF — ON since 2026-08-18 (with the §5 gate, per plan).
+    # Symptom measured in the field (docs §9): at 5-6.7 m/s^2 lateral accel
+    # the 2-DoF arc constraint cannot express tire slip, so the pose reads
+    # ~inside of the true position in corners — the controller believes it is
+    # on the raceline while the car physically runs wide (MCL, which has no
+    # such constraint, drove tight with identical control params). Replay
+    # validation: cornering yaw jitter unchanged (6.4 -> 6.1 deg/s), corner
+    # pose shifted outward +6 cm (slip now expressed; lower bound — map bias),
+    # trajectory stability improved. beta_lat = max(floor / tau^2,
+    # scale * beta). Forced off in slam_mode. Rollback:
+    # -p lateral_dof_enable:=false -p gate_enable:=false
+    lateral_dof_enable: true
+    lateral_regularization_scale: 1.0
+    lateral_regularization_floor_tau2: 1.0
+
+    # Kinematic-ICP tuning (verified on run_0803_210100, 51 s, up to 5.1 m/s)
+    # voxel_size sets the map hash grid, the correspondence search reach
+    # (adjacent voxels) and the adaptive-threshold floor — keep it 1.0:
+    # shrinking it to 0.25 narrowed the convergence basin to ~0.3 m and the
+    # run_0818 replay diverged up to 2.5 m. The registration source is
+    # densified separately via source_voxel_size below.
+    # 30.0 -> 12.0 (2026-08-19 replay A/B on rosbag2_2026_08_19-10_15_17,
+    # map_0818_track, N=412). max_range feeds sigma_odom via
+    # 2*max_range*sin(theta/2), so on a ~17 m indoor track 30.0 inflated the
+    # adaptive threshold tau (3.31 -> 2.31) and let far/spurious returns stay
+    # inliers. Heading error (1 s, IMU gyro reference):
+    #   30.0: p50 1.29 p90 4.56 p99 16.57 max 42.19 deg, notconv 7.3%
+    #   12.0: p50 1.21 p90 3.81 p99 13.23 max 23.78 deg, notconv 6.6%
+    # i.e. the tail collapses (-44% max, -20% p99) with no cost elsewhere.
+    # 12.0 still covers the whole track diagonal; raise it before running on a
+    # larger map. Rollback: -p max_range:=30.0
+    max_range: 12.0
+    min_range: 0.1
+    voxel_size: 1.0
+    # Registration-source-only downsample (core patch). With voxel_size 1.0
+    # the 0.5x/1.5x cascade collapses the 1081-point indoor scan to a 9-25
+    # point source — the dominant cause of cornering yaw jitter (run_0818:
+    # ICP yaw noise 0.33 deg/frame straight, 0.71-2.65 in corners). 0.25
+    # keeps ~50 source points without touching the map grid or search reach.
+    # < 0 = follow voxel_size (upstream behavior).
+    source_voxel_size: 0.25
+    max_points_per_voxel: 20
+    use_adaptive_threshold: true
+    fixed_threshold: 1.0
+    max_num_iterations: 30
+    convergence_criterion: 0.001
+    max_num_threads: 4
+    use_adaptive_odometry_regularization: true
+    fixed_regularization: 0.0
+    deskew: true
+
+    # --- 차체 기울기(z축) 보상 -------------------------------------------------
+    # 2D LiDAR는 차체에 고정돼 있어 코너에서 차체가 롤하면 스캔면이 같이 기운다.
+    # 기운 면의 점을 그대로 수평면 점으로 쓰면 측방 거리가 1/cos(roll)만큼 부풀고,
+    # 코너에서 근·원 벽에 비대칭으로 실려 자세가 안쪽으로 밀린다.
+    #
+    # 롤은 가속도계로 못 푼다(중력 + 원심가속이 같은 축에 섞인다). 2026-08-19 23:38
+    # 백에서 순진한 상보필터는 가짜 25° 롤을 냈다. 대신 서스펜션의 정상상태 관계
+    # roll = gradient × a_lat 를 쓰고, a_lat = v·ω는 KICP가 이미 쓰는 휠오돔에서
+    # 그대로 나온다 — 새 센서도, 필터도, 드리프트도 없다.
+    #
+    # 🔴 기본값 false. 켜려면 **mapping.yaml과 같이** 켜고 맵을 다시 떠야 한다.
+    #    프로즌 맵도 같은 차체에 실린 같은 라이다로 만들었으므로 같은 롤 왜곡을
+    #    이미 담고 있다. 23:38 백으로 위치추정만 켜서 A/B 한 결과:
+    #      |a_lat|      정합잔차 raw -> 보상후      횡편향 raw -> 보상후
+    #        0~2        0.0582 -> 0.0582 (  0%)      -0.006 -> -0.006
+    #        4~6        0.0746 -> 0.0786 (-5.5%)     -0.057 -> -0.050
+    #        6~12       0.0766 -> 0.0804 (-5.0%)     -0.062 -> -0.048
+    #    즉 코너 횡편향은 23% 줄지만(6.2 -> 4.8 cm) 맵 정합은 5% 나빠진다 —
+    #    맵이 같은 왜곡을 갖고 있어 보상이 맵과 싸우기 때문이다. 매핑까지 같이
+    #    켜서 맵을 새로 뜬 뒤 이 표를 다시 뽑아 두 지표가 함께 좋아지는지 볼 것
+    #    (재현: docs/kinematic_localization.md §11).
+    tilt_compensation_enable: false
+
+    # 롤 그래디언트 [rad per m/s²]. 실측값:
+    #   IMU 횡비력 ay[g]를 원심가속 a_c[g]에 회귀하면 기울기가 -1.000이 아니라
+    #   **-0.731**이다(자율 10,062 프레임). 차체 롤로 중력의 sin(roll) 성분이
+    #   횡비력의 26.9%를 상쇄한 것이고, ay = -(a_c/g)cos φ + sin φ, φ = κ·a_c 에서
+    #   9.81·κ - 1 = -0.731  =>  κ = 0.0274 rad/(m/s²) = 1.57°/(m/s²).
+    #   즉 a_lat 6 m/s²에서 차체가 9.4° 롤한다.
+    # ⚠️ 서스펜션·타이어를 바꾸면 반드시 다시 재라. 재는 법은
+    #    docs/kinematic_localization.md §11 참고(백 하나로 회귀 한 줄).
+    # 0.0 = 롤 보상 끔.
+    roll_gradient_rad_per_mps2: 0.0274
+
+    # 피치 그래디언트 [rad per m/s² of 감속]. 이 백에서는 ax 대 a_lon 상관이
+    # 0.40밖에 안 나와(제동 시 VESC 속도 미분 자체가 거칠다) 신뢰할 수치를 못 얻었다.
+    # 측정 전까지 0.0으로 둔다 — 안 재고 켜면 없는 보상을 넣는 것과 같다.
+    pitch_gradient_rad_per_mps2: 0.0
+
+    # 역산한 기울기의 절대 한계 [rad]. 15° = 0.26. 휠오돔이 튀어도 스캔이 뒤집히지
+    # 않게 하는 방어값이지, 튜닝 노브가 아니다.
+    tilt_max_angle_rad: 0.26
+
+    # 기울여 보니 맵 평면에서 이만큼[m] 넘게 벗어난 빔은 버린다(바닥/천장 반사).
+    # 0 = 끔(기본). 이 백에서는 바닥 반사 증거를 못 찾았다 — 측방 "벽 앞" 미확인
+    # 반사가 고횡가속에서 선회 **안쪽**에 89% 몰려 있어(바닥이면 바깥이어야 한다)
+    # 코너 안쪽 벽·콘이지 바닥이 아니다. 라이다 높이를 실측한 뒤에만 켤 것.
+    tilt_max_point_height_m: 0.0
+
+    # Fixed covariance published on /pf/pose/odom
+    position_covariance: 0.1
+    orientation_covariance: 0.1

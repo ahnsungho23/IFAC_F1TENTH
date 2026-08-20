@@ -21,9 +21,9 @@
 
 | # | 함정 | 대응 |
 |---|---|---|
-| 1 | **지도를 넣었으면 재빌드** — MCL은 `src/`가 아니라 설치된 share에서 읽고, 지도는 심볼릭 링크가 아닌 **실제 복사본** | [§2](#2-지도-넣었으면-재빌드-젯슨) |
+| 1 | **지도를 넣었으면 재빌드** — 위치추정은 `src/`가 아니라 설치된 share에서 읽고, 지도는 심볼릭 링크가 아닌 **실제 복사본** | [§2](#2-지도-넣었으면-재빌드-젯슨) |
 | 2 | 지도 yaml의 `image:`가 `.pgm`으로 써질 때가 있다 | 저장 시 `--fmt png` ([§1](#1-지도-만들기--옮기기-새-트랙일-때만)) |
-| 3 | `odom→base_link` TF 이중 발행 | `mcl_launch.py`의 `publish_odom_base_tf` 기본 false ([§6](#6-tf-책임-구조)) |
+| 3 | `odom→base_link` TF 이중 발행 | `kinematic_localization.yaml`의 `publish_map_odom_tf`만 true — odom→base_link는 VESC/gym 담당 ([§6](#6-tf-책임-구조)) |
 | 4 | **랩탑 ufw가 DDS 디스커버리를 막는다** — ping·ssh는 되는데 토픽만 0개 | [§7](#7-통신이-안-될-때) |
 | 5 | **`global_planning`은 반드시 `~/2026_IFAC`에서 실행** — `output_base_dir`이 상대경로 | [T3](#t3-젯슨--global-planning) |
 
@@ -34,7 +34,7 @@
 
 | 패키지 | 어디서 읽나 | 기본값 |
 |---|---|---|
-| **MCL** (`particle_filter_cpp`) | `map_name:=` 인자 (**`F1_MAP`을 안 읽는다**) | `map` ✅ |
+| **위치추정** (`kinematic_localization`) | `map_name:=` 인자 (**`F1_MAP`을 안 읽는다**) | `map` ✅ — 단 여기만 `.kissmap`을 읽는다 |
 | **global_planning** | `F1_MAP` 환경변수 | `map` ✅ |
 | **local_planning** | `F1_MAP` 환경변수 | `map` ✅ ← 구 `ifac_track`에서 수정됨 |
 
@@ -58,7 +58,7 @@ MCL은 어느 경우에도 `F1_MAP`을 안 읽으므로 **`map_name:=map`을 항
 ```
 ~/2026_IFAC/src/
 ├── f1tenth_control/          ← 이 저장소 (제어)
-├── monte_carlo_localization/ ← 패키지명은 particle_filter_cpp
+├── kinematic_localization/  ← 2026-08-20 MCL(particle_filter_cpp) 대체. maps/에 .kissmap + .yaml 둘 다
 ├── global_planning/          ← 글로벌 라인 발행 + frenet_odom_node
 ├── local_planning/           ← 회피 경로 생성
 ├── state_machine/            ← /state 판정 + /local_waypoints 선택 발행
@@ -122,14 +122,14 @@ ls -l --time-style=+%H:%M:%S ~/slam_toolbox/map.png ~/slam_toolbox/map.yaml
 **① 새 지도를 로컬 워크스페이스에**
 ```bash
 cp ~/slam_toolbox/map.png ~/slam_toolbox/map.yaml \
-   ~/2026_IFAC/src/monte_carlo_localization/maps/
+   ~/2026_IFAC/src/kinematic_localization/maps/
 ```
 
 **② GUI로 라인 확인하며 생성**
 ```bash
 cd ~/2026_IFAC
 python3 offline_trajectory_generator/trajectory_gui.py \
-  --map-yaml src/monte_carlo_localization/maps/map.yaml
+  --map-yaml src/kinematic_localization/maps/map.yaml
 ```
 - 파라미터는 `offline_trajectory_generator/gui_params.yaml`에 **자동 저장**
 - `Save` → `output/map/`에 `global_waypoints.json`/`.csv`, `centerline.csv`, `metadata.json`
@@ -137,8 +137,8 @@ python3 offline_trajectory_generator/trajectory_gui.py \
 **③ 헤드리스로 생성** (재현·스윕용)
 ```bash
 cd ~/2026_IFAC
-offline_trajectory_generator/bin/generate_global_trajectory \
-  --map-yaml src/monte_carlo_localization/maps/map.yaml \
+python3 offline_trajectory_generator/generate_global_trajectory.py \
+  --map-yaml src/kinematic_localization/maps/map.yaml \
   --output-dir offline_trajectory_generator/output/map \
   --optimizer mincurv --width-mode hybrid \
   --waypoint-step 0.25 --optimizer-step 0.46 \
@@ -160,7 +160,7 @@ offline_trajectory_generator/bin/generate_global_trajectory \
 | `--max-lateral-accel` | 컨트롤러 캡 **7.0** | **7.0** | 🔴 구 문서 6.0은 stale. 08-12 정정 |
 | `--max-accel` | VESC 램프 `s_pid_ramp_erpms_s` 21160 = **4.88** | **3.5** | 🔴 구 문서 15600=3.69는 stale (08-05 상향) |
 | `--max-decel` | 브레이크 하드웨어 4.8 / 현 튜닝 **2.6** | **2.6** | `prebrake_decel`과 맞춤 |
-| `--max-speed` | 컨트롤러 `max_speed` **8.0**, 실제 도달 7.4 | 7.0 | 직선 13.3 m라 8.0엔 못 닿음 |
+| `--max-speed` | 컨트롤러 `max_speed` **5.0**(기동) → map_creator 회피 라인 스왑 후 **7.0** | 7.0 | 🔴 2026-08-20 변경. 직선 13.3 m라 8.0엔 못 닿음(실제 도달 7.4). ⚠️ **랩1~2(baseline 라인) 동안은 캡이 5.0**이라 프로파일 7.0은 그 구간에서 `min()`으로 깎인다 — CLAUDE.md ②-u |
 
 > 🔑 **`--max-lateral-accel`은 컨트롤러 `max_lateral_accel`과 반드시 같게.** 어긋나면 한쪽이
 > 다른 쪽을 `min()`으로 덮으면서 이득이 0이 된다(CLAUDE.md 세미슬릭 절).
@@ -182,9 +182,9 @@ print('차량 한계 초과 점: %d / %d' % (sum(1 for v in k if v > 1.317), len
 
 ### 본체 → 젯슨 전송
 ```bash
-# 지도 (MCL용) — 재빌드 필요
+# 지도 (위치추정용 .kissmap + global/local용 .yaml/.png) — 재빌드 필요
 scp ~/slam_toolbox/map.png ~/slam_toolbox/map.yaml \
-    jetson:~/2026_IFAC/src/monte_carlo_localization/maps/
+    jetson:~/2026_IFAC/src/kinematic_localization/maps/
 
 # 글로벌 패스 — 재빌드 불필요
 ssh jetson 'mkdir -p ~/2026_IFAC/offline_trajectory_generator/output/map'
@@ -222,14 +222,14 @@ cd ~/2026_IFAC && python3 -c "import json,sys; print(json.load(open(sys.argv[1])
 ```bash
 cd ~/2026_IFAC && source /opt/ros/jazzy/setup.zsh
 MAKEFLAGS="-j4" colcon build --symlink-install --executor sequential \
-  --packages-select particle_filter_cpp global_planning local_planning
+  --packages-select kinematic_localization global_planning local_planning
 source install/setup.zsh
 ```
 ⚠️ Orin Nano는 메모리가 좁다 — `-j4 --executor sequential` 빼면 OOM으로 죽는다(`cb` alias가 이 설정).
 
 확인:
 ```bash
-ls -lh "$(ros2 pkg prefix particle_filter_cpp)/share/particle_filter_cpp/maps/map."{yaml,png}
+ls -lh "$(ros2 pkg prefix kinematic_localization)/share/kinematic_localization/maps/map."{yaml,png,kissmap}
 ```
 
 ---
@@ -271,7 +271,7 @@ ros2 topic echo /drive_mode --field data     # estop → (X) manual
 ```bash
 cd ~/2026_IFAC && source install/setup.zsh
 echo "F1_MAP=$F1_MAP"     # 비었거나 map 이어야 한다 (§0-1)
-ros2 launch particle_filter_cpp mcl_launch.py mod:=real map_name:=map use_rviz:=false
+ros2 launch kinematic_localization kinematic_localization.launch.py map_name:=map
 ```
 `map_name:=map` — MCL은 `F1_MAP`을 안 읽으므로 **항상 명시**한다.
 `use_rviz:=false` — RViz는 본체에서 띄운다(젯슨 렌더 부하 0).
@@ -293,7 +293,7 @@ source /opt/ros/jazzy/setup.zsh
 source ~/2026_IFAC/install/setup.zsh
 export ROS_DOMAIN_ID=70
 ros2 daemon stop && ros2 daemon start
-rviz2 -d "$(ros2 pkg prefix particle_filter_cpp)/share/particle_filter_cpp/rviz/particle_filter.rviz"
+rviz2   # KICP에는 rviz 설정이 없다. Fixed Frame=map, /map·/pf/pose/odom을 직접 Add
 ```
 Fixed Frame `map` / Map `/map` / LaserScan `/scan` / Odometry `/pf/pose/odom` /
 PoseArray `/pf/viz/particles` / TF.
@@ -396,7 +396,7 @@ ros2 launch f1tenth_control control_real.launch.py
 | 항목 | 보는 법 |
 |---|---|
 | `FF κ` | **좌우코너에 따라 부호가 바뀌어야 한다.** 항상 +면 버그 재발 |
-| `a_cmd` | `steering_fb_gain=1.0`이면 L1 값과 같다. 현재 기본 **0.9**라 `a_cmd = a_ff + 0.9·(lat_acc − a_ff)` |
+| `a_cmd` | `steering_fb_gain=1.0`이면 L1 값과 같다 |
 | `K_us …(관측)` | 수렴하면 0.0135~0.0153 부근 |
 | `곡선[…]` | 4개 빈이 **오름차순**이면 포화 관측됨. `n`이 300 넘어야 실제로 쓸 수 있다 |
 | `슬립` | 자이로↔가속도계 잔차. 준정상 0.4~1.5 / 스핀 1.1~4.3 (**진단 전용**) |
@@ -491,7 +491,8 @@ static TF           → base_link → laser
 ⚠️ `odom→base_link`를 내는 쪽이 **반드시 살아 있어야 한다** — 실차는 f110 bringup
 (`vesc.yaml` `publish_tf: true`), 시뮬은 gym_bridge. 둘 다 없는 bag 재생에서만 켠다:
 ```bash
-ros2 launch particle_filter_cpp mcl_launch.py mod:=bag publish_odom_base_tf:=true
+ros2 launch kinematic_localization kinematic_localization.launch.py map_name:=map
+# (bag 재생 시 odom→base_link가 없으면 bag 쪽에서 TF를 채워야 한다 — KICP는 map→odom만 낸다)
 ```
 
 ```bash

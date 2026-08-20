@@ -16,6 +16,8 @@
 #define LOCAL_PLANNING__LOCAL_PLANNER_NODE_HPP_
 
 #include <cstdint>
+#include <deque>
+#include <functional>
 #include <map>
 #include <mutex>
 #include <optional>
@@ -59,19 +61,12 @@ struct P3CallbackSnapshot
   rclcpp::Time odometry_receipt_time{0, 0, RCL_ROS_TIME};
   P3ManeuverSnapshot maneuver;
   std::int64_t frenet_source_stamp_ns{0};
-};
-
-struct P3CompletionHandoffRecord
-{
-  f110_msgs::msg::WpntArray frozen_tail;
-  std::vector<int> obstacle_ids;
-  bool go_left{false};
-  std::uint64_t source_epoch{0U};
-  std::uint64_t global_reference_generation{0U};
-  std::string original_candidate_identity{"NONE"};
-  std::string original_path_digest{"NONE"};
-  std::string tail_path_digest{"NONE"};
-  bool avoid_state_observed{false};
+  // Frenet 소스 스탬프가 직전 콜백보다 과거로 후퇴한 콜백. 상태(epoch/lifecycle/envelope)는
+  // 이미 리셋됐지만 이 샘플 자체가 의심스러우므로, 이 사이클은 계획을 건너뛰고 직전 출력을
+  // 유지해야 한다. 2026-08-15 run9: 리셋 직후 같은 콜백이 오염된 상태로 계획을 강행해
+  // "no collision-free stop prefix" 비상 홀드를 래치했고(정상 기하에서 plan()은 회피를
+  // 반환함이 하네스로 입증됨), 그 래치는 해제 조건이 영영 충족되지 않아 영구 정지가 됐다.
+  bool source_stamp_regressed{false};
 };
 
 class LocalPlannerNode : public rclcpp::Node
@@ -97,26 +92,20 @@ private:
   P3ShadowResult evaluateP3Snapshot(
     const P3CallbackSnapshot & snapshot,
     const std::string & p0_context) const;
+  // Continuation-first is a computation order, not only an output priority: `evaluate` is pulled
+  // ONLY when the recorded maneuver fails to continue. A held frozen suffix therefore costs no
+  // candidate generation and no hard validation at all. Do not take a materialized result here.
   P3ManeuverLifecycleDecision advanceP3Lifecycle(
     const P3CallbackSnapshot & snapshot,
-    const P3ShadowResult & evaluation);
+    const std::function<const P3ShadowResult &()> & evaluate);
   RacelineSplineResult makeP3ActiveResult(
     const P3ManeuverLifecycleDecision & decision) const;
-  bool armP3CompletionHandoff(
-    const P3CallbackSnapshot & snapshot,
-    const P3ManeuverLifecycleDecision & decision);
-  void clearP3CompletionHandoff();
-  bool p3CompletionHandoffHasDistinctBlockingCluster(
-    const P3ShadowResult & evaluation) const;
-  RacelineSplineResult makeP3CompletionHandoffResult() const;
   void publishP3CycleDiagnostic(
     const P3CallbackSnapshot & snapshot,
     const P3ShadowResult & evaluation,
     const P3ManeuverLifecycleDecision & lifecycle,
     const std::string & path_owner,
-    bool p0_backup_only,
-    bool same_callback_replan_attempted = false,
-    bool same_callback_replan_succeeded = false);
+    bool p0_backup_only);
 
   bool sameReference(const f110_msgs::msg::WpntArray & message) const;
   void clearCommitment();
@@ -147,6 +136,9 @@ private:
     const EgoFrenetState & ego,
     std::vector<f110_msgs::msg::Obstacle> & next_obstacles);
   double remainingDistanceToMerge(const EgoFrenetState & ego) const;
+  // Obstacle-check range for re-validating the committed path. Identical definition to the one
+  // `generateP3Candidates` uses when selecting it; see the .cpp for why they must not diverge.
+  double maneuverCollisionHorizon(const EgoFrenetState & ego) const;
   bool beginChainedManeuverIfNeeded(
     const EgoFrenetState & ego,
     std::vector<f110_msgs::msg::Obstacle> & next_obstacles,
@@ -204,7 +196,6 @@ private:
   ObstacleGuardParameters guard_parameters_;
   RacelineSplinePlanner planner_;
   P3ManeuverLifecycle p3_maneuver_lifecycle_;
-  std::optional<P3CompletionHandoffRecord> p3_completion_handoff_;
   f110_msgs::msg::WpntArray global_waypoints_;
   std::vector<f110_msgs::msg::Obstacle> static_obstacles_;
   nav_msgs::msg::Odometry latest_odometry_;
@@ -252,6 +243,12 @@ private:
   bool has_state_{false};
   bool initial_stabilization_active_{false};
   bool initial_prepare_published_{false};
+  // 직전 발행이 non-empty였는지. state_machine의 AVOID 진입은 "경로가 비어 있지 않다"
+  // 하나로 결정되므로(준비감속·안정화 중 조기회피 포함), 커밋이 없는 상태에서 트랙이
+  // 비었을 때 글로벌 핸드오프 루프로 되돌려줘야 하는지를 이 플래그로 판단한다.
+  // initial_prepare_published_만으로는 안정화 중 조기회피 분기가 그것을 false로 지워
+  // 핸드오프 구제 경로를 건너뛴다.
+  bool last_publication_non_empty_{false};
   bool initial_has_counted_sequence_{false};
   bool p3_selection_has_sequence_{false};
   rclcpp::Time p3_selection_start_{0, 0, RCL_ROS_TIME};
@@ -268,6 +265,57 @@ private:
   std::map<int, f110_msgs::msg::Obstacle> committed_obstacle_guards_;
   std::set<int> completed_obstacle_ids_;
 
+  // 동일 ID 장애물의 최근 관측 창(면별). 가드 팽창을 상수가 아니라 이 면이 실제로 얼마나
+  // 흔들렸는지로 정하기 위한 것이다 — 근거는 ObstacleFaceUncertainty 주석 참조.
+  //
+  // 창(window)인 이유: 박스는 접근하면서 정당하게 자란다(14:30 백, 장애물 2의 라인 쪽 면이
+  // 7 m에서 -0.156, 6 m 안쪽에서 -0.278로 수렴). 전체 이력 분산은 그 성장을 영원히 기억해
+  // 수렴한 뒤에도 크게 남는다. 최근 창은 성장 중에는 크고 수렴 후에는 작아져, "지금 이 면을
+  // 얼마나 믿을 수 있나"를 그대로 나타낸다.
+  struct FaceObservationWindow
+  {
+    std::deque<double> right;
+    std::deque<double> left;
+  };
+  std::map<int, FaceObservationWindow> face_observation_windows_;
+
+  // ── 확정 정적 장애물 기억 ───────────────────────────────────────────────────────────
+  //
+  // 왜 (2026-08-17): 오늘 실패의 전부가 "짧은 지평에서 현재 위치로부터 급하게 계획하기"가
+  // 뿌리였다 — cluster_start <= 0, 램프가 병목 관통, 격자가 실현 구간을 건너뜀, 가림 때문에
+  // 폭이 마지막 순간에 3.5배로 뜀. 한 랩 전에 장애물 위치를 알면 이 넷이 통째로 사라진다.
+  //
+  // 대회 규정: 20랩 중 선두 차량이 10랩을 완주하면 장애물이 제거된다. 1~2랩 학습 후
+  // 3~10랩이 이득 구간이다(최대 8랩, 10랩 경기면 8/10).
+  //
+  // 🔴 제거 시점은 **상대차 진행**에 달려 있다. 우리 랩 카운터로는 맞출 수 없다. 그래서
+  // 인지로 감지한다 — 그 자리를 시야 확보한 채 지났는데 검출기가 확정하지 못하면 제거다.
+  //
+  // 좌표 변환이 없다: /confirmed_static_obs 를 이미 Frenet(s/d)으로 받으므로 그대로 기억한다.
+  // (static_obstacle_map 은 map 좌표 x/y AABB만 다루므로 이 용도에는 재투영이 필요하고,
+  //  지금 스택에서 실행되지도 않는다 — 그래서 쓰지 않는다.)
+  struct RememberedObstacle
+  {
+    f110_msgs::msg::Obstacle obstacle;
+    std::uint64_t last_confirmed_sequence{0};
+    // 시야가 확보된 채 지나쳤는데 확정하지 못한 횟수. 임계에 닿으면 제거로 본다.
+    int unconfirmed_passes{0};
+    // 이번 통과에서 이미 판정했는지. 한 번 지날 때 여러 번 세지 않기 위한 것.
+    bool pass_pending{false};
+  };
+  std::vector<RememberedObstacle> remembered_obstacles_;
+  bool remembered_obstacle_enable_{true};
+  // 2 (2026-08-17): 통과 순간 검출 한 프레임 누락으로 진짜 장애물을 지우던 회귀 수리.
+  int remembered_obstacle_removal_passes_{2};
+  double remembered_obstacle_visibility_margin_m_{2.0};
+  double remembered_obstacle_match_tolerance_m_{0.60};
+  void updateRememberedObstacles();
+  std::vector<f110_msgs::msg::Obstacle> obstaclesWithMemory() const;
+  std::size_t face_observation_window_size_{40};
+  std::size_t face_observation_min_samples_{12};
+  void updateFaceObservationWindows();
+  ObstacleFaceUncertainty faceUncertaintyFor(int obstacle_id) const;
+
   bool require_obstacles_message_{true};
   double obstacle_stale_timeout_sec_{0.75};
   double odometry_stale_timeout_sec_{0.50};
@@ -275,7 +323,7 @@ private:
   int merge_confirm_cycles_{15};
   int safe_stop_release_cycles_{8};
   int planning_period_ms_{50};
-  double state_handoff_tail_ratio_{0.10};
+  double state_handoff_tail_distance_m_{6.0};
   double state_handoff_speed_cap_mps_{6.0};
   int initial_observation_count_{3};
   double initial_observation_min_duration_sec_{0.15};
@@ -286,7 +334,7 @@ private:
   double commitment_lock_longitudinal_m_{0.50};
 
   std::string global_waypoints_topic_{"/global_waypoints"};
-  std::string obstacles_topic_{"/static_obs"};
+  std::string obstacles_topic_{"/confirmed_static_obs"};
   std::string frenet_odom_topic_{"/car_state/frenet/odom"};
   std::string state_topic_{"/state"};
   std::string ot_waypoints_topic_{"/avoid_waypoints"};
@@ -305,6 +353,12 @@ private:
   std::uint64_t p3_source_epoch_{1U};
   std::uint64_t global_reference_generation_{0U};
   std::uint64_t p3_callback_sequence_{0U};
+  // P3가 출력을 못 내 P0 백업으로 내려간 콜백 수. "P3 단독으로 충분한가"를 재는 유일한
+  // 숫자라, P0 격자를 껐을 때도(그때는 곧바로 안전정지) 계속 센다.
+  std::uint64_t p3_backup_fallback_count_{0U};
+  // Last owner|lifecycle|backup triple actually logged, so P3_PATH_OWNERSHIP reports transitions
+  // instead of repeating the steady state at the planning rate.
+  std::string last_logged_ownership_state_;
   std::string current_path_owner_{"P0"};
   std::string last_selected_path_family_{"NONE"};
   std::string last_selected_path_digest_{"NONE"};

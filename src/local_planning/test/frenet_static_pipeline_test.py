@@ -77,7 +77,7 @@ class FrenetPipelineProbe(Node):
         latched.durability = DurabilityPolicy.TRANSIENT_LOCAL
         self.global_pub = self.create_publisher(WpntArray, '/global_waypoints', latched)
         self.obstacle_pub = self.create_publisher(
-            ObstacleArray, '/static_obs', 10)
+            ObstacleArray, '/confirmed_static_obs', 10)
         self.odom_pub = self.create_publisher(Odometry, '/car_state/frenet/odom', 10)
         self.path_sub = self.create_subscription(
             OTWpntArray, '/avoid_waypoints', self.on_path, 10)

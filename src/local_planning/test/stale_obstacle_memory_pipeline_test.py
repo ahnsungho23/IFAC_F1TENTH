@@ -43,7 +43,7 @@ class StaleObstacleMemoryProbe(Node):
         self.global_pub = self.create_publisher(
             WpntArray, '/global_waypoints', latched_qos())
         self.obstacle_pub = self.create_publisher(
-            ObstacleArray, '/static_obs', 10)
+            ObstacleArray, '/confirmed_static_obs', 10)
         self.odom_pub = self.create_publisher(
             Odometry, '/car_state/frenet/odom', 10)
         self.state_pub = self.create_publisher(
@@ -192,7 +192,7 @@ class StaleObstacleMemoryProbe(Node):
             self.sensor_cut_time = time.monotonic()
             self.stage = 'stale_hold'
             self.get_logger().info(
-                'stopped /static_obs after commitment; waiting past stale timeout')
+                'stopped /confirmed_static_obs after commitment; waiting past stale timeout')
             return
 
         if self.stage == 'stale_hold':

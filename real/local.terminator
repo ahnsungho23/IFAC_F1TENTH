@@ -61,7 +61,7 @@
       order = 0
       profile = default
       command = @REALDIR@/run_real.sh mcl
-      title = 2 · mcl · particle_filter_cpp (mod:=real)
+      title = 2 · localization · kinematic_localization
     [[[lcolc]]]
       type = VPaned
       parent = lcolb

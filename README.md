@@ -23,7 +23,7 @@ ros2 run nav2_map_server map_saver_cli \
     
 딴 맵을 로컬에서 젯슨으로 맵 전송
 scp ~/slam_toolbox/map.png ~/slam_toolbox/map.yaml \
-    miru@10.1.1.3:~/2026_IFAC/src/monte_carlo_localization/maps/
+    miru@10.1.1.3:~/2026_IFAC/src/kinematic_localization/maps/
     
     
 offline gui 파일을 로컬에서 젯슨으로 전송
@@ -34,7 +34,7 @@ scp -r ~/2026_IFAC/offline_trajectory_generator/output/map \
 cd ~/2026_IFAC
 source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
-ros2 launch particle_filter_cpp mcl_launch.py mod:=real map_name:=ifac_track
+ros2 launch kinematic_localization kinematic_localization.launch.py map_name:=ifac_track
 
 터미널2
 cd ~/2026_IFAC
@@ -187,13 +187,12 @@ ROS 2 Jazzy workspace for the 2026 IFAC F1TENTH stack. ROS packages live under `
 │   │   ├── test/                 # copyright / flake8 / pep257
 │   │   ├── AGENTS.md, CMakeLists.txt, setup.py, setup.cfg, package.xml, README(.en).md
 │   │
-│   ├── monte_carlo_localization/ # particle-filter localization (C++)
-│   │   ├── config/mcl_config.yaml
-│   │   ├── include/particle_filter_cpp/  # particle_filter.hpp, utils.hpp
-│   │   ├── launch/mcl_launch.py
-│   │   ├── maps/                 # ifac_track.{png,yaml} + ifac_track.md
-│   │   ├── rviz/particle_filter.rviz
-│   │   ├── src/                  # particle_filter.cpp, utils.cpp
+│   ├── kinematic_localization/   # Kinematic-ICP localization (C++, 2026-08-20 MCL 대체)
+│   │   ├── config/kinematic_localization.yaml, config/mapping.yaml
+│   │   ├── launch/kinematic_localization.launch.py, launch/mapping.launch.py
+│   │   ├── maps/                 # <맵>.kissmap(위치추정) + <맵>.{png,yaml}(global/local용 점유격자)
+│   │   ├── scripts/pgm_to_kissmap.py  # 점유격자 -> 동결 포인트맵 변환
+│   │   ├── src/                  # localization_node.cpp, mapping_node.cpp
 │   │   ├── CMakeLists.txt, package.xml, README.md
 │   │
 │   ├── lap_referee/              # lap refereeing (C++)
@@ -279,7 +278,7 @@ source install/setup.zsh   # bash 사용 시 setup.bash
 ### 터미널 1 — 시뮬레이터 (gym bridge)
 
 먼저 `~/f1sim_C/f1tenth_gym_ros/config/sim.yaml`의 `map_path`가 스택과 같은 맵을 가리키는지 확인하세요
-(확장자 없는 절대경로, 예: `$HOME/2026_IFAC/src/monte_carlo_localization/maps/ifac_track` — gym의 YAML은 `$HOME`을 펼치지 않으므로 실제 값은 펼쳐서 적습니다).
+(확장자 없는 절대경로, 예: `$HOME/2026_IFAC/src/kinematic_localization/maps/ifac_track` — gym의 YAML은 `$HOME`을 펼치지 않으므로 실제 값은 펼쳐서 적습니다).
 
 ```bash
 cd ~/f1sim_C
@@ -288,26 +287,32 @@ source install/setup.zsh
 ros2 launch f1tenth_gym_ros gym_bridge_launch.py
 ```
 
-### 터미널 2 — 위치추정 (Monte Carlo Localization)
+### 터미널 2 — 위치추정 (Kinematic-ICP)
 
 `/pf/pose/odom`을 발행합니다. 이후 모든 노드가 이 토픽에 의존합니다.
+
+> 🔴 **2026-08-20: `particle_filter_cpp`(MCL) → `kinematic_localization`(KICP)로 교체.**
+> 인터페이스는 그대로지만 **맵 파일이 둘로 나뉩니다** — 위치추정은 `maps/<맵>.kissmap`,
+> global/local은 `maps/<맵>.yaml`(점유격자). 같은 트랙의 짝이어야 하며, 점유격자에서
+> `scripts/pgm_to_kissmap.py`로 `.kissmap`을 만들 수 있습니다.
 
 ```bash
 cd ~/2026_IFAC
 source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
-ros2 launch particle_filter_cpp mcl_launch.py mod:=sim map_name:=ifac_track use_rviz:=true
+ros2 launch kinematic_localization kinematic_localization.launch.py map_name:=ifac_track use_sim_time:=true
 ```
 
 | 인자 | 값 | 설명 |
 |---|---|---|
-| `mod` | `sim` | 시뮬레이션 모드 (`/ego_racecar/odom` 사용, sim time 활성) |
-| `map_name` | `ifac_track` | `monte_carlo_localization/maps/ifac_track.yaml` |
-| `use_rviz` | `true` | RViz 동시 실행 |
+| `map_name` | `ifac_track` | `kinematic_localization/maps/ifac_track.kissmap` (동결 맵). 빈 값 = 순수 오도메트리 |
+| `use_sim_time` | `true` | 시뮬레이션 시간 사용 (실차는 `false`) |
+| `slam_mode` | `false` | `true`면 동결 맵 없이 주행하며 맵 생성 (초기 포즈 불필요) |
 
-> **초기 위치 지정(필수)**: MCL은 전역 초기화로 시작하므로 RViz의 **2D Pose Estimate**로
-> 시작 위치를 찍어줘야 정확히 수렴합니다. RViz 없이(헤드리스) 돌릴 때는 아래처럼 직접 발행하세요.
-> `/initialpose`는 gym 브리지도 구독하므로 **차량 텔레포트와 MCL 초기화가 동시에** 일어납니다.
+> **초기 위치 지정(필수)**: 동결 맵 모드는 `/initialpose`를 한 번 받아야 정합을 시작하므로
+> RViz의 **2D Pose Estimate**로 시작 위치를 찍어줘야 합니다. RViz 없이(헤드리스) 돌릴 때는
+> 아래처럼 직접 발행하세요. `/initialpose`는 gym 브리지도 구독하므로 **차량 텔레포트와
+> 위치추정 초기화가 동시에** 일어납니다. (KICP는 자체 RViz가 없고 `/map`을 직접 발행합니다.)
 > (주행 중 재초기화할 때는 차량을 먼저 정지시킨 뒤 두 번 발행하면 확실합니다 — 첫 발행의 텔레포트
 > 순간 odom 점프가 MCL에 반영되는 것을 두 번째 발행이 정리해 줍니다.)
 >
@@ -519,7 +524,7 @@ map_name: "map"          # 실차 기본값. F1_MAP 환경변수(launch 인자)�
 ```bash
 cd ~/2026_IFAC
 offline_trajectory_generator/bin/generate_global_trajectory \
-  --map-yaml src/monte_carlo_localization/maps/ifac_track.yaml \
+  --map-yaml src/kinematic_localization/maps/ifac_track.yaml \
   --output-dir offline_trajectory_generator/output/ifac_track \
   --optimizer mincurv --raceline-smooth-sigma 3.0 \
   --max-speed 0.5 --min-speed 0.4 \
@@ -554,7 +559,7 @@ ros2 launch local_planning local_planning.launch.py \
 [터미널 1] f1tenth_gym_ros
      │  /scan, /ego_racecar/odom, /map
      ▼
-[터미널 2] particle_filter_cpp ──► /pf/pose/odom
+[터미널 2] kinematic_localization ─► /pf/pose/odom
                                         │
      ┌──────────────────────────────────┤
      ▼                                  ▼

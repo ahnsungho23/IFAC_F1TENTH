@@ -118,7 +118,7 @@ ros2 run nav2_map_server map_saver_cli \
 
 ```zsh
 scp ~/slam_toolbox/map.png ~/slam_toolbox/map.yaml \
-  miru@10.1.1.3:~/2026_IFAC/src/monte_carlo_localization/maps/
+  miru@10.1.1.3:~/2026_IFAC/src/kinematic_localization/maps/
 ```
 
 실제 저장 확장자가 `map.pgm`이면 `map.png` 대신 `map.pgm`을 전송합니다. MCL 실행 시 `map_name:=map`으로 지정하면
@@ -161,7 +161,7 @@ ros2 run tf2_tools view_frames
 cd ~/2026_IFAC
 source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
-ros2 launch particle_filter_cpp mcl_launch.py mod:=real map_name:=map
+ros2 launch kinematic_localization kinematic_localization.launch.py map_name:=map
 ```
 
 ### 터미널 3 — Global planning

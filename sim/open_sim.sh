@@ -14,9 +14,8 @@
 # forces a standalone process that actually applies our layout.
 #
 # Useful env overrides (read by sim/run.sh in each pane):
-#   SIM_MAP_NAME=<map> ./sim/open_sim.sh       # MCL map (default: ifac_track)
+#   SIM_MAP_NAME=<map> ./sim/open_sim.sh       # localization map (default: ifac_track)
 #   F1SIM_WS=~/f1sim_C                         # f1tenth_gym_ros workspace path
-#   MCL_RVIZ=0                                 # disable MCL's own RViz
 # =================================================================================================
 set -euo pipefail
 

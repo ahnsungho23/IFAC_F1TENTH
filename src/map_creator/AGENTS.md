@@ -12,10 +12,18 @@ map_creator package rules. These instructions apply to `src/map_creator`.
 - The left/right side decision MUST go through
   `local_planning::RacelineSplinePlanner::plan` (linked via the exported
   `local_planning::raceline_planner` target). Never replicate the decision
-  logic in this package or in Python. (`evaluateObstacleScenario` was removed from
-  local_planning in the sungho_main sync `70c5a9d`; plan() gates on
-  isBlockingRaceline, so `SidePlannerAdapter::decide` maps kNoObstacle to the side
-  the race line already passes on via the obstacle's Frenet d sign.)
+  logic in this package or in Python. plan() still gates on isBlockingRaceline, so
+  `SidePlannerAdapter::decide` maps kNoObstacle to the side the race line already
+  passes on via the obstacle's Frenet d sign.
+- Post local_planning swap to sungho_main (2026-08-20) the shared decision logic is:
+  a single P3 analytic-corridor candidate generator (the P0 quintic grid and the
+  per-side `evaluate_side` loop are deleted), ranked
+  `exit_reaches_next_obstacle` -> `velocity_loss` -> safety slack -> global deviation.
+  `side_tie_epsilon_m` no longer exists — do not reintroduce it into `decision.*`.
+  The offline protocol passes ONE obstacle per call, so the leading
+  `exit_reaches_next_obstacle` term is always false here and `velocity_loss` is the
+  effective first key; that is the only place the offline bake can diverge from the
+  runtime (cluster-wide) decision.
 - The painting target is the trajectory-generator input map only (gui_params
   `map_yaml`). Never paint the MCL map or the local_planning wall-only reference map.
 - Every paint session starts from the pristine base map (immutable baseline).
@@ -46,9 +54,16 @@ map_creator package rules. These instructions apply to `src/map_creator`.
   speckle protection 25 px), `regeneration_manager` (single-flight subprocess).
 - ROS coupling only in `src/map_creator_node.cpp` (FSM: IDLE → GENERATING → ARMED
   → MONITORING / ABORTED).
-- Runtime parameters in `config/map_creator.yaml` (the `decision.*` block is the
-  full side-decision snapshot; unlisted planner params must equal the deployed
-  `local_planning.yaml` values, and provenance of tuned values must be commented).
+- Runtime parameters in `config/map_creator.yaml`. The `decision.*` block MUST own
+  EVERY `RacelineSplineParameters` field that `plan()` reads (40 as of 2026-08-20) —
+  a missing key silently falls back to the local_planning C++ header default, not to
+  the deployed `local_planning.yaml`, which breaks the "decided with map_creator's own
+  parameters" contract. When local_planning adds a decision parameter, add it here too.
+  Only `merge_ramp_*` and `commitment_retention_reserve_fraction` are deliberately
+  excluded (return-ramp / runtime commitment revalidation, never read by plan()).
+  Provenance of every value must be commented; the current block is filled with the
+  deployed `local_planning.yaml` values and records the retired 2026-08-06 CMA
+  snapshot in a comment so it can be restored.
 - Launch from the workspace root (`~/2026_IFAC`) — relative paths in the YAML
   resolve from the launch working directory, same convention as global_planning.
 - `map_creator.launch.py` also starts `static_obstacle_map`; do not start a duplicate

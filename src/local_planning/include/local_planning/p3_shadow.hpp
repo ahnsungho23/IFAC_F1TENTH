@@ -69,6 +69,12 @@ struct P3ShadowPathEvaluation
   double velocity_loss{std::numeric_limits<double>::quiet_NaN()};
   double global_path_deviation_m{std::numeric_limits<double>::quiet_NaN()};
   std::string rejection_reason;
+  // 어떤 장애물과, 경로의 어느 지점에서 걸렸는가 (2026-08-16 진단).
+  // 사유 문자열만으로는 "탈출 램프가 다음 장애물을 스쳤다"와 "라인으로 복귀하는 합류가
+  // 라인 위 장애물을 관통했다"를 구분할 수 없고, 둘은 수리가 완전히 다르다.
+  int failure_obstacle_id{-1};
+  double failure_waypoint_s{std::numeric_limits<double>::quiet_NaN()};
+  double failure_waypoint_d{std::numeric_limits<double>::quiet_NaN()};
 };
 
 // Complete production P3 candidate trace. The evaluator ranks these internally; the node may
@@ -101,6 +107,15 @@ struct P3ShadowCandidateTrace
   double minimum_commanded_speed_mps{std::numeric_limits<double>::quiet_NaN()};
   double maximum_commanded_speed_mps{std::numeric_limits<double>::quiet_NaN()};
   std::string rejection_reason;
+  // True when this candidate's post-cluster exit ramp still carries enough lateral offset to reach
+  // a NOT-in-cluster obstacle's physical envelope. Such a candidate is legal — the maneuver-scope
+  // collision horizon deliberately stops before it, and on tightly spaced obstacles carrying the
+  // offset over is the intended behaviour — but it is the last resort, never the preference.
+  bool exit_reaches_next_obstacle{false};
+  // The exact-validator verdict this candidate was already measured with, kept verbatim so the
+  // maneuver lifecycle can reuse it instead of re-running an identical validation. Valid only
+  // together with the owning result's snapshot lineage (stamp/epoch/reference generation).
+  P3ShadowPathEvaluation validation;
   f110_msgs::msg::WpntArray path;
 };
 
@@ -171,6 +186,10 @@ struct P3ShadowResult
   double selected_slope_margin{std::numeric_limits<double>::quiet_NaN()};
   double selected_min_speed_mps{std::numeric_limits<double>::quiet_NaN()};
   double selected_max_speed_mps{std::numeric_limits<double>::quiet_NaN()};
+  // Guarded-geometry validation certificate for selected_path, produced during candidate
+  // construction against exactly the ego/obstacles this result was evaluated with.
+  bool selected_validation_available{false};
+  P3ShadowPathEvaluation selected_validation;
   f110_msgs::msg::WpntArray selected_path;
 
   double runtime_total_us{0.0};
@@ -180,6 +199,17 @@ struct P3ShadowResult
   double runtime_hard_validation_us{0.0};
   std::string failure_classification{"NOT_INVOKED"};
   std::vector<P3ShadowCandidateTrace> candidates;
+  // 진단 전용 (2026-08-16). 후보가 전멸했을 때 원인을 셋 중 하나로 좁히는 데 필요한
+  // 최소 정보다:
+  //   (a) 도메인이 실현 가능한 오프셋을 아예 포함하지 않았다  → 도메인 계산 문제
+  //   (b) 포함했는데 그 깊이에 후보를 만들지 않았다            → 후보 배치 간격 문제
+  //   (c) 만들었는데 탈락했다                                  → 검증 기준 문제
+  // 이 셋은 발행된 candidate d_target 목록과 도메인 경계 없이는 구분할 수 없다.
+  // 2026-08-16 16:06 백에서 P3가 후보 8개를 전부 기각한 순간, 같은 상태를 하니스에 넣으면
+  // P0 quintic 계열이 target_d=-0.84로 실현 가능한 해를 찾았다. 어느 단계에서 갈렸는지
+  // 알 수 없어 수리가 추측이 될 뻔했다.
+  P3ShadowSideDomain left_domain;
+  P3ShadowSideDomain right_domain;
 };
 
 }  // namespace local_planning

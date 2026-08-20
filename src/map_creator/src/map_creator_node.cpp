@@ -139,26 +139,94 @@ private:
     declare_parameter<double>("reference_alignment_tolerance_m", 0.05);
     declare_parameter<double>("max_obstacle_projection_d_m", 2.0);
 
-    // Side-decision parameter snapshot. Unlisted planner parameters keep the
-    // deployed local_planning.yaml values as C++ defaults here.
+    // Side-decision parameter snapshot. plan()이 좌/우 판정에 실제로 읽는 플래너
+    // 파라미터를 하나도 빠짐없이 이 노드가 소유한다 — 헤더 C++ 기본값에 기대는 항목이
+    // 없어야 "map_creator 자기 파라미터로 판정한다"가 문자 그대로 성립한다.
+    // 여기 기본값과 config/map_creator.yaml 값은 2026-08-20 기준 배포
+    // local_planning/config/local_planning.yaml과 동일하다.
+    //
+    // 판정에 쓰이지 않아 일부러 뺀 것: merge_ramp_*(완료 핸드오프 복귀 램프),
+    // commitment_retention_reserve_fraction(런타임 커밋 재검증 전용).
+    //
+    // Clearance 모델: obstacle inflation = vehicle_half_width + safety_margin +
+    // tracking-error reserve(LUT) + localization_reserve, wall reserve =
+    // wall_safety_margin_m 단독. 구 obstacle_clearance_m / boundary_margin_m /
+    // minimum_avoidance_clearance_m 노브는 없다. side_tie_epsilon_m은 P0 quintic
+    // 격자와 함께 사라졌다 — 좌우 동률은 plan()의 정렬 계약이 깬다.
+
+    // 검출·군집·차체 기하
+    declare_parameter<double>("decision.detection_lookahead_m", 15.0);
+    declare_parameter<double>("decision.obstacle_cluster_gap_m", 0.8);
+    declare_parameter<double>(
+      "decision.obstacle_longitudinal_padding_m", 0.4149924657737441);
+    declare_parameter<double>("decision.vehicle_length_m", 0.56);
+    declare_parameter<double>("decision.vehicle_half_width_m", 0.1435);
+
+    // 여유(clearance) 모델
+    declare_parameter<double>("decision.safety_margin_m", 0.014789254299520768);
+    declare_parameter<double>("decision.tracking_error_reserve_m", 0.140);
     declare_parameter<std::vector<double>>(
-      "decision.transition_distance_scales", {1.0, 1.25, 1.50});
-    declare_parameter<double>("decision.outside_line_transition_scale", 1.35);
-    // Post-sync (70c5a9d) clearance model: obstacle inflation =
-    // vehicle_half_width + safety_margin + tracking-error reserve; the wall
-    // reserve is wall_safety_margin_m alone. The old obstacle_clearance_m /
-    // boundary_margin_m / minimum_avoidance_clearance_m knobs no longer exist.
-    declare_parameter<double>("decision.safety_margin_m", 0.03);
-    declare_parameter<double>("decision.tracking_error_reserve_m", 0.14);
-    declare_parameter<double>("decision.wall_safety_margin_m", 0.0);
-    declare_parameter<double>("decision.minimum_target_offset_m", 0.20);
-    declare_parameter<double>("decision.maximum_lateral_slope", 0.65);
-    declare_parameter<double>("decision.maximum_target_offset_m", 1.50);
-    declare_parameter<double>("decision.side_tie_epsilon_m", 0.02);
-    declare_parameter<double>("decision.vehicle_half_width_m", 0.121);
-    declare_parameter<double>("decision.obstacle_longitudinal_padding_m", 0.3);
-    declare_parameter<double>("decision.detection_lookahead_m", 12.0);
+      "decision.tracking_error_lut_speed_bins_mps", {0.0, 1.5, 3.0, 4.5, 6.5});
+    declare_parameter<std::vector<double>>(
+      "decision.tracking_error_lut_curvature_bins_radpm",
+      {0.0, 0.2, 0.5, 0.9, 1.316266519079011});
+    declare_parameter<std::vector<double>>(
+      "decision.tracking_error_lut_values_m", {
+        0.200, 0.200, 0.200, 0.200, 0.200,
+        0.325, 0.395, 0.395, 0.395, 0.395,
+        0.330, 0.395, 0.395, 0.395, 0.395,
+        0.330, 0.395, 0.395, 0.395, 0.395,
+        0.330, 0.395, 0.395, 0.395, 0.395});
+    declare_parameter<double>("decision.localization_reserve_m", 0.12);
+    declare_parameter<double>("decision.wall_safety_margin_m", 0.10);
     declare_parameter<double>("decision.fallback_track_half_width_m", 1.50);
+
+    // 속도 제한 (새 정렬 계약에서 velocity_loss가 실질 1순위라 좌우 선택에 직접 영향)
+    declare_parameter<std::vector<double>>(
+      "decision.avoidance_velocity_limit_speed_bins_mps",
+      {0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0});
+    declare_parameter<std::vector<double>>(
+      "decision.avoidance_velocity_limit_lateral_accel_mps2",
+      {7.0, 7.0, 7.0, 7.0, 7.0, 7.0, 6.5, 6.5, 6.5, 6.5});
+    declare_parameter<double>("decision.avoidance_minimum_speed_mps", 1.0);
+    declare_parameter<double>("decision.margin_pass_speed_cap_mps", 2.0);
+    declare_parameter<double>("decision.approach_feasibility_decel_mps2", 2.0);
+    declare_parameter<double>("decision.approach_feasibility_decel_max_mps2", 3.5);
+    declare_parameter<double>("decision.profile_feasibility_decel_mps2", 3.5);
+
+    // 후보 기하 (진입/탈출 길이, 목표 오프셋 격자)
+    declare_parameter<std::vector<double>>(
+      "decision.pre_apex_distances_m",
+      {11.442220427651225, 7.628146951767484, 3.814073475883742});
+    declare_parameter<std::vector<double>>(
+      "decision.post_apex_distances_m",
+      {2.059509950005119, 4.119019900010238, 6.178529850015357});
+    declare_parameter<std::vector<double>>(
+      "decision.entry_transition_fractions", {0.5145810930150512, 0.75, 1.00});
+    declare_parameter<std::vector<double>>(
+      "decision.transition_distance_scales",
+      {0.4971684162574945, 0.6991537701867223, 3.698773101198193});
+    declare_parameter<double>(
+      "decision.outside_line_transition_scale", 0.4060036444074003);
+    declare_parameter<double>("decision.maximum_exit_length_m", 0.0);
+    declare_parameter<double>("decision.post_merge_lookahead_m", 5.0);
+    declare_parameter<double>("decision.post_merge_min_time_sec", 1.0);
+    declare_parameter<double>("decision.minimum_target_offset_m", 0.15);
+    declare_parameter<double>("decision.maximum_target_offset_m", 1.50);
+    declare_parameter<int>("decision.target_d_candidate_count", 5);
+
+    // 하드 게이트 (어느 측이 실현 가능한지를 가른다)
+    declare_parameter<double>("decision.maximum_lateral_slope", 0.8);
+    declare_parameter<double>("decision.maximum_curvature_radpm", 1.316266519079011);
+    declare_parameter<double>("decision.maximum_curvature_rate_radpm2", 20.0);
+    declare_parameter<int>("decision.minimum_path_points", 8);
+
+    // 안전정지 (여기로 떨어진 장애물은 베이크되지 않는다)
+    declare_parameter<double>("decision.safe_stop_buffer_m", 2.60);
+    declare_parameter<double>("decision.safe_stop_deceleration_mps2", 1.8);
+    declare_parameter<bool>("decision.safe_stop_escape_check_enable", true);
+    declare_parameter<double>("decision.safe_stop_escape_retreat_step_m", 0.30);
+    declare_parameter<int>("decision.safe_stop_escape_max_retreats", 8);
 
     declare_parameter<std::string>("base_map_yaml", "");
     declare_parameter<int>("nondrivable_threshold", 250);
@@ -213,32 +281,87 @@ private:
     max_obstacle_projection_d_m_ =
       get_parameter("max_obstacle_projection_d_m").as_double();
 
-    decision_params_.transition_distance_scales =
-      get_parameter("decision.transition_distance_scales").as_double_array();
-    decision_params_.outside_line_transition_scale =
-      get_parameter("decision.outside_line_transition_scale").as_double();
+    // decision.* 전체가 plan()이 읽는 파라미터다 (선언부 주석 참고).
+    decision_params_.detection_lookahead_m =
+      get_parameter("decision.detection_lookahead_m").as_double();
+    decision_params_.obstacle_cluster_gap_m =
+      get_parameter("decision.obstacle_cluster_gap_m").as_double();
+    decision_params_.obstacle_longitudinal_padding_m =
+      get_parameter("decision.obstacle_longitudinal_padding_m").as_double();
+    decision_params_.vehicle_length_m =
+      get_parameter("decision.vehicle_length_m").as_double();
+    decision_params_.vehicle_half_width_m =
+      get_parameter("decision.vehicle_half_width_m").as_double();
     decision_params_.safety_margin_m =
       get_parameter("decision.safety_margin_m").as_double();
     decision_params_.tracking_error_reserve_m =
       get_parameter("decision.tracking_error_reserve_m").as_double();
+    decision_params_.localization_reserve_m =
+      get_parameter("decision.localization_reserve_m").as_double();
     decision_params_.wall_safety_margin_m =
       get_parameter("decision.wall_safety_margin_m").as_double();
-    decision_params_.minimum_target_offset_m =
-      get_parameter("decision.minimum_target_offset_m").as_double();
-    decision_params_.maximum_lateral_slope =
-      get_parameter("decision.maximum_lateral_slope").as_double();
-    decision_params_.maximum_target_offset_m =
-      get_parameter("decision.maximum_target_offset_m").as_double();
-    decision_params_.side_tie_epsilon_m =
-      get_parameter("decision.side_tie_epsilon_m").as_double();
-    decision_params_.vehicle_half_width_m =
-      get_parameter("decision.vehicle_half_width_m").as_double();
-    decision_params_.obstacle_longitudinal_padding_m =
-      get_parameter("decision.obstacle_longitudinal_padding_m").as_double();
-    decision_params_.detection_lookahead_m =
-      get_parameter("decision.detection_lookahead_m").as_double();
     decision_params_.fallback_track_half_width_m =
       get_parameter("decision.fallback_track_half_width_m").as_double();
+    decision_params_.avoidance_minimum_speed_mps =
+      get_parameter("decision.avoidance_minimum_speed_mps").as_double();
+    decision_params_.margin_pass_speed_cap_mps =
+      get_parameter("decision.margin_pass_speed_cap_mps").as_double();
+    decision_params_.approach_feasibility_decel_mps2 =
+      get_parameter("decision.approach_feasibility_decel_mps2").as_double();
+    decision_params_.approach_feasibility_decel_max_mps2 =
+      get_parameter("decision.approach_feasibility_decel_max_mps2").as_double();
+    decision_params_.profile_feasibility_decel_mps2 =
+      get_parameter("decision.profile_feasibility_decel_mps2").as_double();
+    decision_params_.outside_line_transition_scale =
+      get_parameter("decision.outside_line_transition_scale").as_double();
+    decision_params_.maximum_exit_length_m =
+      get_parameter("decision.maximum_exit_length_m").as_double();
+    decision_params_.post_merge_lookahead_m =
+      get_parameter("decision.post_merge_lookahead_m").as_double();
+    decision_params_.post_merge_min_time_sec =
+      get_parameter("decision.post_merge_min_time_sec").as_double();
+    decision_params_.minimum_target_offset_m =
+      get_parameter("decision.minimum_target_offset_m").as_double();
+    decision_params_.maximum_target_offset_m =
+      get_parameter("decision.maximum_target_offset_m").as_double();
+    decision_params_.maximum_lateral_slope =
+      get_parameter("decision.maximum_lateral_slope").as_double();
+    decision_params_.maximum_curvature_radpm =
+      get_parameter("decision.maximum_curvature_radpm").as_double();
+    decision_params_.maximum_curvature_rate_radpm2 =
+      get_parameter("decision.maximum_curvature_rate_radpm2").as_double();
+    decision_params_.safe_stop_buffer_m =
+      get_parameter("decision.safe_stop_buffer_m").as_double();
+    decision_params_.safe_stop_deceleration_mps2 =
+      get_parameter("decision.safe_stop_deceleration_mps2").as_double();
+    decision_params_.safe_stop_escape_retreat_step_m =
+      get_parameter("decision.safe_stop_escape_retreat_step_m").as_double();
+    decision_params_.tracking_error_lut_speed_bins_mps =
+      get_parameter("decision.tracking_error_lut_speed_bins_mps").as_double_array();
+    decision_params_.tracking_error_lut_curvature_bins_radpm =
+      get_parameter("decision.tracking_error_lut_curvature_bins_radpm").as_double_array();
+    decision_params_.tracking_error_lut_values_m =
+      get_parameter("decision.tracking_error_lut_values_m").as_double_array();
+    decision_params_.avoidance_velocity_limit_speed_bins_mps =
+      get_parameter("decision.avoidance_velocity_limit_speed_bins_mps").as_double_array();
+    decision_params_.avoidance_velocity_limit_lateral_accel_mps2 =
+      get_parameter("decision.avoidance_velocity_limit_lateral_accel_mps2").as_double_array();
+    decision_params_.pre_apex_distances_m =
+      get_parameter("decision.pre_apex_distances_m").as_double_array();
+    decision_params_.post_apex_distances_m =
+      get_parameter("decision.post_apex_distances_m").as_double_array();
+    decision_params_.entry_transition_fractions =
+      get_parameter("decision.entry_transition_fractions").as_double_array();
+    decision_params_.transition_distance_scales =
+      get_parameter("decision.transition_distance_scales").as_double_array();
+    decision_params_.target_d_candidate_count =
+      static_cast<int>(get_parameter("decision.target_d_candidate_count").as_int());
+    decision_params_.minimum_path_points =
+      static_cast<int>(get_parameter("decision.minimum_path_points").as_int());
+    decision_params_.safe_stop_escape_max_retreats =
+      static_cast<int>(get_parameter("decision.safe_stop_escape_max_retreats").as_int());
+    decision_params_.safe_stop_escape_check_enable =
+      get_parameter("decision.safe_stop_escape_check_enable").as_bool();
 
     base_map_yaml_ = get_parameter("base_map_yaml").as_string();
     painter_config_.nondrivable_threshold =

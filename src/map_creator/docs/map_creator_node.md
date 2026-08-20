@@ -40,6 +40,19 @@ IDLE ──(lap_count ≥ trigger, 원장 freeze)──▶ 판정+페인팅+저�
    ego = (장애물 s − 12 m, d=0, v=해당 waypoint 속도)로 평가. 좌 통과 → 오른쪽을 막음,
    우 통과 → 왼쪽을 막음, safe_stop → 해당 장애물은 **베이크하지 않음**(양쪽을 막으면
    트랙이 폐쇄되어 centerline 추출이 불가하기 때문).
+
+   판정 알고리즘은 local_planning의 것을 그대로 호출하며, 2026-08-20 local_planning
+   교체 이후 그 내용은 다음과 같습니다.
+   - 후보 생성기는 **P3(analytic corridor) 하나**입니다. 구 P0 quintic 격자와 좌/우를
+     따로 도는 `evaluate_side` 루프는 삭제됐습니다.
+   - 실현 가능한 후보 정렬 = `exit_reaches_next_obstacle`(다음 장애물을 건드리지 않는
+     exit 우선) → `velocity_loss`(속도 손실 적은 쪽) → safety slack → 글로벌 이탈량 →
+     생성 순서. **속도가 slack보다 우선**으로 바뀐 것이 구 로직과의 가장 큰 차이입니다.
+   - 좌우 동률을 깨던 `side_tie_epsilon_m` 파라미터는 사라졌습니다(위 정렬 계약이 대신함).
+   - ⚠️ 오프라인 판정은 장애물을 **하나씩** 넘기므로 최우선 정렬항
+     `exit_reaches_next_obstacle`는 항상 false이고, 실질 1순위는 `velocity_loss`입니다.
+     런타임은 군집 단위로 한 측을 정하므로, 0.8 m 이내로 붙은 장애물들에 대해서는
+     오프라인 베이크와 런타임 판정이 갈릴 수 있습니다.
 3. **페인팅**: 원본 맵의 새 사본에서(누적 편집 금지) 장애물 사각형 + 막는 쪽 면→벽
    polygon을 0으로 채움. "비주행" 판정은 픽셀 < 250 (생성기 free 판정의 보수).
    벽을 못 찾으면(`wall_not_found`) 전체 중단 — 장애물 단독 페인팅은 cleanup의
@@ -102,8 +115,8 @@ IDLE ──(lap_count ≥ trigger, 원장 freeze)──▶ 판정+페인팅+저�
 | `reference_alignment_tolerance_m` | 0.05 | P0 캡처 게이트: CLCS(기하 호길이) vs painter(s_m 보간)의 트랙길이·s 정합 허용치 |
 | `max_obstacle_projection_d_m` | 2.0 | 장애물 중심 투영 \|d\| 상한 (branch/이상치 거부, CLCS max_projection_distance에도 적용) |
 | `ego_lookback_m` | 12.0 | 판정 ego 위치 (최대 entry 11.43 m 절단 방지) |
-| `decision.*` | (스냅샷) | 좌/우 판정 파라미터 전체 — 미제시 항목은 배포 local_planning 값 |
-| `base_map_yaml` | `src/monte_carlo_localization/maps/map.yaml` | 페인팅할 원본 ROS map YAML |
+| `decision.*` | (스냅샷) | `plan()`이 읽는 판정 파라미터 **전 항목(40개)**. 빠뜨리면 배포 local_planning 값이 아니라 C++ 헤더 기본값으로 떨어진다. 현재 값 = 배포 `local_planning.yaml`과 동일 (2026-08-20) |
+| `base_map_yaml` | `src/kinematic_localization/maps/map.yaml` | 페인팅할 원본 ROS map YAML (2026-08-20 위치추정 패키지 교체로 경로 이동) |
 | `output_map_name` | obstacle_map | 저장·생성·리로드가 공유하는 디렉터리 이름 |
 | `initial_morph_kernel` | 1 | 1차 패스 morph_kernel 오버라이드 (≤0 = gui_params 값). 1이면 open/close 무효화로 페인팅 형상 보존 — 코너 케이스 이음새 κ 폭주 방지 |
 | `retry_morph_kernel` | 1 | 재시도 패스 morph_kernel 오버라이드 (≤0 = gui_params 값) |

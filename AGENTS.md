@@ -89,7 +89,7 @@ Before finishing any ROS 2 node change, verify:
 ### 터미널 1 — 시뮬레이터 (gym bridge)
 
 `~/f1sim_C/f1tenth_gym_ros/config/sim.yaml`의 `map_path`가 스택과 같은 맵(확장자 없는 절대경로,
-예: `.../2026_IFAC/src/monte_carlo_localization/maps/ifac_track`)인지 먼저 확인합니다.
+예: `.../2026_IFAC/src/kinematic_localization/maps/ifac_track`)인지 먼저 확인합니다.
 
 ```bash
 cd ~/f1sim_C
@@ -98,25 +98,34 @@ source install/setup.zsh
 ros2 launch f1tenth_gym_ros gym_bridge_launch.py
 ```
 
-### 터미널 2 — 위치추정 (Monte Carlo Localization)
+### 터미널 2 — 위치추정 (Kinematic-ICP)
 
 `/pf/pose/odom`을 발행합니다. 이후 모든 노드가 이 토픽에 의존합니다.
+
+> 🔴 **2026-08-20: `particle_filter_cpp`(MCL) → `kinematic_localization`(KICP)로 교체됨.**
+> 토픽·TF 인터페이스는 그대로(`/pf/pose/odom` + `map`→`odom` TF + `/initialpose` 수신)라
+> 하위 노드는 손댈 게 없지만, **맵 파일이 다릅니다** — 위치추정은 `maps/<맵>.kissmap`
+> (포인트 맵)을 읽고, global/local은 여전히 `maps/<맵>.yaml`(점유격자)을 읽습니다.
+> 둘 다 `src/kinematic_localization/maps/`에 있어야 하고 **같은 트랙이어야** 합니다.
 
 ```bash
 cd ~/2026_IFAC
 source /opt/ros/jazzy/setup.zsh
 source install/setup.zsh
-ros2 launch particle_filter_cpp mcl_launch.py mod:=sim map_name:=ifac_track use_rviz:=true
+ros2 launch kinematic_localization kinematic_localization.launch.py map_name:=ifac_track use_sim_time:=true
 ```
 
 | 인자 | 값 | 설명 |
 |---|---|---|
-| `mod` | `sim` | 시뮬레이션 모드 (`/ego_racecar/odom` 사용, sim time 활성) |
-| `map_name` | `ifac_track` | `monte_carlo_localization/maps/ifac_track.yaml` |
-| `use_rviz` | `true` | RViz 동시 실행 |
+| `map_name` | `ifac_track` | `kinematic_localization/maps/ifac_track.kissmap` (동결 맵). 빈 값이면 순수 오도메트리 |
+| `use_sim_time` | `true` | 시뮬레이션 시간 사용 (실차는 `false`) |
+| `slam_mode` | `false` | `true`면 동결 맵 없이 주행하며 맵 생성(초기 포즈 불필요) |
+
+⚠️ 이 노드는 **자체 RViz가 없습니다**(구 `use_rviz` 인자 소멸). 대신 `/map`을 직접 발행하므로
+gym 브리지 RViz의 **2D Pose Estimate**가 그대로 동작합니다.
 
 기동 후 RViz **2D Pose Estimate**로 초기 위치를 반드시 지정합니다. 헤드리스로 돌릴 때는 대신
-`/initialpose`를 직접 발행합니다 (gym 브리지 텔레포트 + MCL 초기화 동시 수행, README §3 참고):
+`/initialpose`를 직접 발행합니다 (gym 브리지 텔레포트 + 위치추정 초기화 동시 수행, README §3 참고):
 
 ```bash
 ros2 topic pub --once /initialpose geometry_msgs/msg/PoseWithCovarianceStamped \

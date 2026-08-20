@@ -194,6 +194,68 @@ TEST(P3ManeuverLifecycle, GuardFormationAllowsDualExactValidFreshCandidate)
   EXPECT_EQ(lifecycle.state(), P3ManeuverLifecycleState::kFreshSelected);
 }
 
+TEST(P3ManeuverLifecycle, EvaluatorCertificateReplacesRedundantGuardedValidation)
+{
+  auto planner = plannerWithReference();
+  auto snapshot = initialSnapshot();
+  auto certified_candidate = freshResult(planner, snapshot, 10.0);
+  // Exactly what the evaluator measures while building the candidate: same ego, same guarded
+  // obstacles, same path, same default reserve scale.
+  certified_candidate.selected_validation = planner.evaluateP3PathCurrent(
+    snapshot.ego, certified_candidate.selected_path, snapshot.obstacles);
+  certified_candidate.selected_validation_available = true;
+  ASSERT_TRUE(certified_candidate.selected_validation.hard_valid);
+
+  P3ManeuverLifecycle certified;
+  const auto reused = certified.selectFresh(snapshot, certified_candidate, planner);
+
+  auto uncertified_candidate = certified_candidate;
+  uncertified_candidate.selected_validation_available = false;
+  P3ManeuverLifecycle uncertified;
+  const auto revalidated = uncertified.selectFresh(snapshot, uncertified_candidate, planner);
+
+  EXPECT_TRUE(reused.guarded_validation_reused_certificate);
+  EXPECT_FALSE(revalidated.guarded_validation_reused_certificate);
+  // Reusing the certificate must be observationally identical to re-running the validation.
+  EXPECT_EQ(reused.has_output, revalidated.has_output);
+  EXPECT_EQ(reused.fresh_selected, revalidated.fresh_selected);
+  EXPECT_EQ(reused.suffix_hard_valid, revalidated.suffix_hard_valid);
+  EXPECT_EQ(reused.guarded_validation_hard_valid, revalidated.guarded_validation_hard_valid);
+  EXPECT_EQ(reused.guarded_validation_rejection, revalidated.guarded_validation_rejection);
+  EXPECT_EQ(reused.reason, revalidated.reason);
+  // The raw-geometry check tests different geometry and must survive in BOTH paths.
+  EXPECT_TRUE(reused.raw_validation_attempted);
+  EXPECT_TRUE(revalidated.raw_validation_attempted);
+  EXPECT_EQ(reused.raw_validation_hard_valid, revalidated.raw_validation_hard_valid);
+}
+
+TEST(P3ManeuverLifecycle, CertifiedCandidateStillRejectedWhenRawGeometryCollides)
+{
+  auto planner = plannerWithReference();
+  auto snapshot = initialSnapshot();
+  auto candidate = freshResult(planner, snapshot, 10.0);
+  candidate.selected_validation = planner.evaluateP3PathCurrent(
+    snapshot.ego, candidate.selected_path, snapshot.obstacles);
+  candidate.selected_validation_available = true;
+  ASSERT_TRUE(candidate.selected_validation.hard_valid);
+  // A guarded certificate says nothing about the raw detector geometry. Put a blocking obstacle
+  // only in raw_obstacles: the guarded step is skipped by the certificate, so this proves the raw
+  // check is what still rejects the candidate.
+  auto blocking = snapshot.obstacles.front();
+  blocking.d_right = -1.0;
+  blocking.d_left = 1.0;
+  snapshot.raw_obstacles = {blocking};
+
+  P3ManeuverLifecycle lifecycle;
+  const auto decision = lifecycle.selectFresh(snapshot, candidate, planner);
+  EXPECT_TRUE(decision.guarded_validation_reused_certificate);
+  EXPECT_TRUE(decision.guarded_validation_hard_valid);
+  EXPECT_TRUE(decision.raw_validation_attempted);
+  EXPECT_FALSE(decision.raw_validation_hard_valid);
+  EXPECT_FALSE(decision.has_output);
+  EXPECT_FALSE(lifecycle.active());
+}
+
 TEST(P3ManeuverLifecycle, GuardFormationRejectsFreshCandidateThatIsRawHardInvalid)
 {
   auto planner = plannerWithReference();

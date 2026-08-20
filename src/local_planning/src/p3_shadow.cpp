@@ -18,6 +18,8 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <iomanip>
 #include <limits>
@@ -53,13 +55,30 @@ public:
   {
   }
 
+  // 기준선 샘플 간격. 발행 경로는 기준선 격자 위에 생성되므로, 두 station이 이보다 가까우면
+  // 서로 다른 점으로 나타나지 않는다. 튜닝값이 아니라 기준선의 성질이다.
+  double referenceSpacing() const
+  {
+    const std::size_t count = planner_.reference_.wpnts.size();
+    return count < 2U ? 0.25 : planner_.trackLength() / static_cast<double>(count);
+  }
+
+private:
+  // 이 사이클이 책임지는 클러스터. buildCandidate가 검증 지평을 구할 때 필요한데 호출
+  // 경로가 셋(M0/M0확장/M1)이라 인자로 흘리면 시그니처 셋이 다 바뀐다. 평가기는
+  // evaluateP3Shadow 호출마다 새로 생성되므로(p3_shadow.cpp 하단) 사이클 상태로 두는 것이
+  // 안전하다 — 사이클 간에 남지 않는다.
+  mutable std::vector<int> cycle_cluster_ids_;
+
+public:
   P3ShadowResult run(
     const EgoFrenetState & ego,
     const std::vector<f110_msgs::msg::Obstacle> & obstacles,
     std::int64_t snapshot_source_stamp_ns,
     std::uint64_t snapshot_epoch,
     std::uint64_t global_reference_generation,
-    const std::string & p0_failure_reason) const
+    const std::string & p0_failure_reason,
+    bool relaxed_clearance_gate = false) const
   {
     P3ShadowResult result;
     result.enabled = true;
@@ -82,7 +101,7 @@ public:
     }
 
     const P3ShadowPlanningContext context = planner_.buildP3ShadowPlanningContext(
-      ego, obstacles);
+      ego, obstacles, relaxed_clearance_gate);
     if (!context.valid) {
       result.failure_classification = context.reason.empty() ?
         "NO_BLOCKING_CLUSTER" : context.reason;
@@ -90,10 +109,13 @@ public:
       return result;
     }
     result.cluster_obstacle_ids = context.cluster_ids;
+    cycle_cluster_ids_ = context.cluster_ids;
     // computeSideTargetRange fills the same longitudinal cluster span for both sides before any
     // side-feasibility rejection. Keep this observation separate from selected-candidate fields.
     result.cluster_start_forward_m = context.right.cluster_start;
     result.cluster_end_forward_m = context.right.cluster_end;
+    result.left_domain = context.left;
+    result.right_domain = context.right;
 
     bool m0_nonpositive_abort = false;
     std::vector<SideResult> sides;
@@ -167,7 +189,16 @@ public:
       ExtensionOutcome extension;
       if (!m0_nonpositive_abort) {
         try {
-          extension = evaluateM0Extension(ego, obstacles, context);
+          // 🔴 2026-08-17: 확장 계열의 상한을 **남은 총예산**으로 제한한다.
+          //
+          // 종전 상한은 kFrozenCandidateCap(16) + kM0ExtensionCandidateCap(12) = 28 로
+          // kTotalCandidateCap(24)을 넘을 수 있었고, 그러면 아래 불변식 검사가 throw 했다.
+          // 오래 잠복해 있다가 후보 수를 늘리는 변경(진입 눈금 이분법)에서 실제로 터졌다
+          // — 속성 테스트 546 배치 중 1건. 가드가 없었으면 그 자리에서 노드가 죽는다.
+          extension = evaluateM0Extension(
+            ego, obstacles, context,
+            kTotalCandidateCap > baseline->candidates.size() ?
+            kTotalCandidateCap - baseline->candidates.size() : 0U);
         } catch (const std::runtime_error & error) {
           if (std::string(error.what()) != "non-positive quintic-Hermite segment") {
             throw;
@@ -261,6 +292,8 @@ public:
         parameters_.maximum_lateral_slope - selected->peak_lateral_slope;
       result.selected_min_speed_mps = selected->minimum_commanded_speed_mps;
       result.selected_max_speed_mps = selected->maximum_commanded_speed_mps;
+      result.selected_validation = selected->validation;
+      result.selected_validation_available = true;
       result.selected_path = selected->path;
       result.failure_classification = "NONE";
     } else if (result.m1_boundary_handoff_unresolved_count > 0U) {
@@ -416,6 +449,9 @@ private:
 
   struct ExtensionOutcome
   {
+    // 이 계열이 만들 수 있는 후보 수. 자체 상한과 남은 총예산 중 작은 쪽으로, 호출부가 채운다.
+    // 후보를 추가하는 함수들이 셋이라 인자로 흘리면 시그니처가 다 바뀌므로 결과에 싣는다.
+    std::size_t candidate_cap{kM0ExtensionCandidateCap};
     std::vector<P3ShadowCandidateTrace> candidates;
     std::optional<std::size_t> best_index;
     std::size_t validator_calls{0U};
@@ -476,23 +512,63 @@ private:
     return hexHash(hash);
   }
 
+  // 기동의 5개 지점. 오프셋은 {ego_d, target, middle, target, 0} 순으로 걸린다.
+  //
+  // 🔴 2026-08-17: 자차가 클러스터에 이미 닿았을 때를 표현할 수 있게 한다.
+  //
+  // 종전에는 진입 램프 길이가 cluster_start에 **비례**했다:
+  //     entry_length = cluster_start * pre_apex.front() * entry / lookahead
+  // cluster_start가 음수(자차가 이미 클러스터 앞단을 지나 옆에 나란히 있음)면 entry_length도
+  // 음수가 되어 첫 구간 길이가 음수가 되고, strictPositiveSegments가 후보를 전부 기각했다.
+  // 작은 양수여도 램프가 지나치게 짧아져 곡률 한계에서 전멸했다. 어느 쪽이든 **표현 가능한
+  // 형상이 아예 없어서**, 통과 가능한 상황에서도 안전정지로 떨어졌다.
+  //
+  // 실해 — 2026-08-17 01:55 백. 잔여 정지 5건 전부 이 자리에서 죽었다:
+  //     cluster_start = -0.541 / -0.151 / -0.018 / +0.174 / +0.275 / +0.756 / +1.095
+  // 안전정지는 스스로 해제 조건(유효 회피 8사이클)을 막으므로 2.3 s씩 갇혔다.
+  //
+  // 물리적으로 옳은 답은 둘 중 하나다:
+  //   지금 d가 이미 장애물을 비켜 있다 → "이 오프셋을 클러스터 끝까지 유지하고 빠져나가기"
+  //   지금 d가 안 비켜 있다           → 전진으로는 해결 불가. 정지가 맞다.
+  // 종전에는 이 둘을 구분하지 못하고 **무조건 두 번째로** 처리했다.
+  //
+  // 그래서 진입 램프가 클러스터 **앞에** 들어갈 자리가 없으면, 램프를 자차에서 시작시키고
+  // 목표 도달 지점을 "물리적으로 가능한 가장 이른 곳"으로 잡는다:
+  //     required = |target - ego_d| / maximum_lateral_slope
+  // 새 상수는 없다 — 이미 있는 기울기 한계가 정한다. 그 지점이 클러스터 안이면 그 구간에서
+  // 경로는 아직 목표에 못 미치는데, 그건 하드 검증의 장애물 충돌 검사가 판정한다. 비켜
+  // 있으면 통과하고, 아니면 기각된다 — 위 두 경우가 정확히 갈린다.
+  //
+  // minimum_station_gap_m은 기준선 샘플 간격이다. 두 지점이 그보다 가까우면 발행 경로에
+  // 서로 다른 점으로 나타나지 않아 구분이 의미를 잃는다. 튜닝값이 아니라 기준선의 성질이다.
   static std::array<double, 5> stationsFor(
     const RacelineSplineParameters & parameters,
     const P3ShadowSideDomain & domain,
     bool outside_is_left,
     double entry,
-    double exit)
+    double exit,
+    double ego_d,
+    double target,
+    double minimum_station_gap_m)
   {
-    const double entry_length = domain.cluster_start *
-      parameters.pre_apex_distances_m.front() * entry / parameters.detection_lookahead_m;
     const double outside_multiplier = domain.go_left == outside_is_left ?
       parameters.outside_line_transition_scale : 1.0;
     const double exit_length = parameters.post_apex_distances_m.back() *
       parameters.cappedCombinedExitScale(exit * outside_multiplier);
+
+    const double slope = std::max(parameters.maximum_lateral_slope, kEpsilon);
+    const double required_transition_m = std::abs(target - ego_d) / slope;
+    double apex = domain.cluster_start;
+    double start = apex - apex *
+      parameters.pre_apex_distances_m.front() * entry / parameters.detection_lookahead_m;
+    if (!(apex >= required_transition_m)) {
+      apex = std::max(required_transition_m, minimum_station_gap_m);
+      start = 0.0;                                  // 램프가 자차에서 시작한다
+    }
     return {
-      domain.cluster_start - entry_length,
-      domain.cluster_start,
-      0.5 * (domain.cluster_start + domain.cluster_end),
+      start,
+      apex,
+      0.5 * (apex + domain.cluster_end),
       domain.cluster_end,
       domain.cluster_end + exit_length};
   }
@@ -627,6 +703,37 @@ private:
   {
     const auto states = sourceRuleStates(stations, {ego_d, target, middle, target, 0.0});
     return states.branches[0] + "__" + states.branches[1] + "__" + states.branches[2];
+  }
+
+  // Which wall an entry-scale rejection hit, so the bisection knows which way to move.
+  //
+  // 진입 램프 길이는 entry에 비례하므로(stationsFor), 두 실패군은 서로 반대 방향을 가리킨다.
+  //   램프가 짧아서 나는 실패 — 곡률·곡률변화율·횡기울기 초과 → 더 긴 램프가 필요
+  //   램프가 길어서 일찍 시작해 나는 실패 — 트랙 경계·발자국 침범 → 더 짧은 램프가 필요
+  // 장애물 충돌·진입 불연속 등은 exit이나 목표 오프셋에서 오므로 방향을 알려주지 않는다.
+  // 그때는 kUnknown을 돌려주고 이분법을 중단한다 — 잘못된 방향으로 계속 좁히느니
+  // 종전과 동일하게 실패하는 편이 안전하다.
+  enum class EntrySteer
+  {
+    kUnknown,
+    kNeedsLongerRamp,
+    kNeedsShorterRamp,
+  };
+
+  static EntrySteer classifyEntrySteer(const std::string & rejection_reason)
+  {
+    if (rejection_reason.find("maximum_curvature_radpm") != std::string::npos ||
+      rejection_reason.find("maximum_curvature_rate_radpm2") != std::string::npos ||
+      rejection_reason.find("maximum_lateral_slope") != std::string::npos)
+    {
+      return EntrySteer::kNeedsLongerRamp;
+    }
+    if (rejection_reason.find("footprint_track_bound") != std::string::npos ||
+      rejection_reason.find("track bounds") != std::string::npos)
+    {
+      return EntrySteer::kNeedsShorterRamp;
+    }
+    return EntrySteer::kUnknown;
   }
 
   static bool strictPositiveSegments(
@@ -993,7 +1100,17 @@ private:
     P3ShadowPathEvaluation evaluation;
     if (path.wpnts.size() >= static_cast<std::size_t>(parameters_.minimum_path_points)) {
       const auto validation_start = Clock::now();
-      evaluation = planner_.validateP3ShadowPath(ego, path, obstacles);
+      // 후보 검증의 장애물 범위는 이 기동이 책임지는 구간(클러스터 끝 + post_merge_lookahead)
+      // 까지다. `generateP3Candidates`가 P0 선택 경로에서 이미 같은 horizon으로 재검증하고
+      // 있었는데(2026-08-15 run18: horizon 없이는 12 m 밖 꼬리 충돌로 앞 장애물의 회피
+      // 후보가 전멸 → kNoSafePath → 영구 크립), 정작 P3 자신의 후보 인증서는 horizon 없이
+      // 만들어져 두 경로의 판정이 갈렸다. 2026-08-16 백에서 P3는 s=31.7 장애물에 대해
+      // 3 m 이내 245 콜백 전부 NO_HARD_VALID_M1_CANDIDATE였고, 같은 순간 P0의 plan()은
+      // 6개 중 3개를 feasible로 통과시켰다. 트랙 경계·기하 검사는 여전히 경로 전체다.
+      // 다음 클러스터 앞에서 자른다 — 근거는 RacelineSplinePlanner::maneuverScopeEnd 주석.
+      const std::optional<double> collision_horizon(
+        planner_.maneuverScopeEnd(ego, obstacles, cycle_cluster_ids_, stations[3]));
+      evaluation = planner_.validateP3ShadowPath(ego, path, obstacles, 1.0, collision_horizon);
       hard_validation_us += elapsedUs(validation_start);
     } else {
       evaluation.rejection_reason = "spline segment has too few global race-line samples";
@@ -1024,23 +1141,80 @@ private:
         trace.maximum_commanded_speed_mps, waypoint.vx_mps);
     }
     trace.rejection_reason = evaluation.rejection_reason;
+    trace.exit_reaches_next_obstacle = exitReachesNextObstacle(
+      ego, path, obstacles, stations[3], stations[4]);
+    trace.validation = evaluation;
     trace.path_digest = pathDigest(path);
     trace.source_branch_regime = sourceBranchRegime(stations, ego.d, target, middle);
     trace.path = std::move(path);
     return trace;
   }
 
+  // 클러스터를 지난 뒤(exit 램프 + merge 뒤 꼬리)에도 오프셋이 남아 다음 장애물의 물리
+  // 엔벨로프에 닿는가. 닿는다고 후보를 버리지는 않는다 — 장애물 간격이 좁으면 오프셋을
+  // 그대로 넘겨주는 것이 설계된 동작이고(AGENTS의 maximum_exit_length 비활성 사유), 여기서
+  // 거부하면 2026-08-12/08-15의 "후보 전멸 → 영구 크립" 회귀가 그대로 돌아온다. 대신
+  // 순위에서만 뒤로 민다: 다음 장애물을 건드리지 않는 exit이 하나라도 있으면 그쪽을 쓴다.
+  // 검사 구간은 **exit 램프뿐**이다: 클러스터 끝 이후 ~ merge 지점까지. merge 뒤 꼬리는
+  // 정의상 d=0인 글로벌 라인이라, 다음 장애물이 라인 위에 있으면(이번 백의 s=40.6이 정확히
+  // 그렇다) 모든 후보가 무조건 참이 되어 이 우선순위 자체가 무력해진다. 꼬리가 장애물을
+  // 지나가는 것은 이 기동의 문제가 아니라 연쇄 기동이 교체할 몫이다.
+  bool exitReachesNextObstacle(
+    const EgoFrenetState & ego,
+    const f110_msgs::msg::WpntArray & path,
+    const std::vector<f110_msgs::msg::Obstacle> & obstacles,
+    double cluster_end,
+    double merge_station) const
+  {
+    if (!(merge_station > cluster_end + kEpsilon)) {
+      return false;
+    }
+    const double clearance = parameters_.obstacleBaseClearance();
+    for (const auto & obstacle : obstacles) {
+      const double start = planner_.forwardDistance(ego.s, obstacle.s_start);
+      const double end = planner_.forwardDistance(ego.s, obstacle.s_end);
+      if (!(start > cluster_end + kEpsilon) || end < start || start > merge_station + kEpsilon) {
+        continue;   // 이 기동이 피하는 클러스터이거나, 뒤에 있거나, exit 구간 밖이다.
+      }
+      for (const auto & waypoint : path.wpnts) {
+        const double forward = planner_.forwardDistance(ego.s, waypoint.s_m);
+        if (forward + kEpsilon < start || forward > end + kEpsilon ||
+          forward > merge_station + kEpsilon)
+        {
+          continue;
+        }
+        if (waypoint.d_m > obstacle.d_right - clearance - kEpsilon &&
+          waypoint.d_m < obstacle.d_left + clearance + kEpsilon)
+        {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
   static bool betterFeasible(
     const P3ShadowCandidateTrace & first, const P3ShadowCandidateTrace & second)
   {
+    // 다음 장애물을 건드리지 않는 exit이 항상 우선한다. 이 우선순위가 없으면 safety slack
+    // 최대 기준이 가장 긴 exit(스케일 3.699 → 최대 22.9 m)을 고르는데, 그 램프는 8~12 m 뒤
+    // 장애물 위를 오프셋을 유지한 채 지나가 커밋 재검증과 계속 충돌한다 (2026-08-16 백:
+    // s=31.7 기동의 exit이 s=40.6 장애물을 d=-0.265로 관통 → 랩당 hard collision 41회,
+    // 25 ms마다 같은 후보를 재선택하는 무한 재계획).
+    if (first.exit_reaches_next_obstacle != second.exit_reaches_next_obstacle) {
+      return second.exit_reaches_next_obstacle;
+    }
+    // A안 (2026-08-16): 속도가 slack보다 먼저다. 근거는 raceline_spline_planner.cpp의
+    // better_candidate 주석 참조 — 두 순위는 반드시 같아야 한다(갈리면 P3가 고른 것과
+    // 다른 경로를 plan()이 커밋한다).
+    const double velocity_delta = first.velocity_loss - second.velocity_loss;
+    if (std::abs(velocity_delta) > kEpsilon) {
+      return velocity_delta < 0.0;
+    }
     const double slack_delta = first.minimum_normalized_safety_slack -
       second.minimum_normalized_safety_slack;
     if (std::abs(slack_delta) > kEpsilon) {
       return slack_delta > 0.0;
-    }
-    const double velocity_delta = first.velocity_loss - second.velocity_loss;
-    if (std::abs(velocity_delta) > kEpsilon) {
-      return velocity_delta < 0.0;
     }
     const double deviation_delta = first.global_path_deviation_m -
       second.global_path_deviation_m;
@@ -1240,6 +1414,73 @@ private:
     return result;
   }
 
+  // 이미 만들어진 후보들에서 진입 눈금 브래킷을 읽는다.
+  //
+  // 두 제약은 entry에 대해 서로 반대 방향으로 단조다(stationsFor의 구조에서 따라온다):
+  //   entry ↑ → 램프가 길어져 곡률 ↓, 동시에 시작점이 자차 쪽으로 당겨져 좁은 구간을 깊이 지남
+  // 그래서 "짧은 쪽은 곡률로, 긴 쪽은 경계로" 죽었다면 실현 구간이 그 사이에 있다.
+  // 그 조건이 아니면 이분법의 전제가 없으므로 false를 돌려주고 아무것도 하지 않는다.
+  static bool entryBracketFrom(
+    const std::vector<P3ShadowCandidateTrace> & candidates,
+    double low_entry, double high_entry)
+  {
+    bool low_needs_longer = false;
+    bool high_needs_shorter = false;
+    for (const auto & trace : candidates) {
+      if (trace.hard_valid) {
+        continue;
+      }
+      const EntrySteer steer = classifyEntrySteer(trace.rejection_reason);
+      if (std::abs(trace.entry_scale - low_entry) <= 1.0e-9 &&
+        steer == EntrySteer::kNeedsLongerRamp)
+      {
+        low_needs_longer = true;
+      }
+      if (std::abs(trace.entry_scale - high_entry) <= 1.0e-9 &&
+        steer == EntrySteer::kNeedsShorterRamp)
+      {
+        high_needs_shorter = true;
+      }
+    }
+    return low_needs_longer && high_needs_shorter && high_entry > low_entry + kEpsilon;
+  }
+
+  // 후보 전체에 "더 긴 램프가 필요한 실패"와 "더 짧은 램프가 필요한 실패"가 모두 있는가.
+  //
+  // entryBracketFrom은 눈금 값이 정확히 일치하는 후보만 본다. M1 템플릿은 목표 오프셋이
+  // 서로 달라 그 조건이 잘 성립하지 않는다. 실현 구간의 존재를 시사하는 신호로는 "양쪽 벽에
+  // 부딪힌 후보가 모두 있다"로 충분하고, 방향이 틀리면 이분법이 스스로 멈춘다.
+  static bool entryBracketPresent(const std::vector<P3ShadowCandidateTrace> & candidates)
+  {
+    bool longer = false;
+    bool shorter = false;
+    for (const auto & trace : candidates) {
+      if (trace.hard_valid) {
+        continue;
+      }
+      const EntrySteer steer = classifyEntrySteer(trace.rejection_reason);
+      longer = longer || steer == EntrySteer::kNeedsLongerRamp;
+      shorter = shorter || steer == EntrySteer::kNeedsShorterRamp;
+    }
+    return longer && shorter;
+  }
+
+  // 새로 추가된 후보들이 가리키는 방향. 하나라도 통과했으면 kUnknown(이분법 종료)이다.
+  static EntrySteer steerOfNewCandidates(
+    const std::vector<P3ShadowCandidateTrace> & candidates, std::size_t from)
+  {
+    EntrySteer steer = EntrySteer::kUnknown;
+    for (std::size_t index = from; index < candidates.size(); ++index) {
+      if (candidates[index].hard_valid) {
+        return EntrySteer::kUnknown;
+      }
+      if (steer == EntrySteer::kUnknown) {
+        steer = classifyEntrySteer(candidates[index].rejection_reason);
+      }
+    }
+    return steer;
+  }
+
   void addM0ExtensionCandidate(
     ExtensionOutcome & outcome,
     const EgoFrenetState & ego,
@@ -1256,14 +1497,15 @@ private:
     std::size_t & generation,
     std::set<std::tuple<bool, double, double, double, double>> & seen) const
   {
-    if (outcome.candidates.size() >= kM0ExtensionCandidateCap) {
+    if (outcome.candidates.size() >= outcome.candidate_cap) {
       return;
     }
     const auto key = std::make_tuple(domain.go_left, target, middle, entry, exit);
     if (!seen.insert(key).second) {
       return;
     }
-    const auto stations = stationsFor(parameters_, domain, outside_is_left, entry, exit);
+    const auto stations = stationsFor(
+      parameters_, domain, outside_is_left, entry, exit, ego.d, target, referenceSpacing());
     ++outcome.validator_calls;
     auto trace = buildCandidate(
       ego, obstacles, domain.go_left, outside_is_left, target, middle, entry, exit,
@@ -1303,12 +1545,13 @@ private:
     std::size_t & generation,
     std::set<std::tuple<bool, double, double, double, double>> & seen) const
   {
-    if (outcome.candidates.size() >= kM0ExtensionCandidateCap || corridor.branch.empty()) {
+    if (outcome.candidates.size() >= outcome.candidate_cap || corridor.branch.empty()) {
       return;
     }
     const Probe probe = chooseProbe(
       corridor, domain.cluster_start, domain.cluster_end, target, "BOTTLENECK_CENTER");
-    const auto stations = stationsFor(parameters_, domain, outside_is_left, entry, exit);
+    const auto stations = stationsFor(
+      parameters_, domain, outside_is_left, entry, exit, ego.d, target, referenceSpacing());
     if (probe.station < stations.front() - kEpsilon ||
       probe.station > stations.back() + kEpsilon)
     {
@@ -1335,9 +1578,13 @@ private:
   ExtensionOutcome evaluateM0Extension(
     const EgoFrenetState & ego,
     const std::vector<f110_msgs::msg::Obstacle> & obstacles,
-    const P3ShadowPlanningContext & context) const
+    const P3ShadowPlanningContext & context,
+    std::size_t remaining_total_budget) const
   {
+    // 이 계열이 쓸 수 있는 후보 수. 자체 상한과 남은 총예산 중 작은 쪽이다.
     ExtensionOutcome outcome;
+    outcome.candidate_cap = std::min(kM0ExtensionCandidateCap, remaining_total_budget);
+    const std::size_t extension_cap = outcome.candidate_cap;
     std::size_t generation = 1000U;
     std::set<std::tuple<bool, double, double, double, double>> seen;
     for (const bool go_left : {false, true}) {
@@ -1397,11 +1644,46 @@ private:
         addM0AnalyticCandidate(
           outcome, ego, obstacles, domain, context.outside_is_left, corridor,
           component, near, entry_quarter, exit_quarter, generation, seen);
-        if (outcome.candidates.size() >= kM0ExtensionCandidateCap) {
+
+        // 🔴 2026-08-17: 고정 눈금이 실현 구간을 건너뛰면 이분법으로 찾는다.
+        //
+        // 이 계열은 entry를 entries.back()과 그 1/4점 둘만 썼다. baseline과 같은 병(病)이다 —
+        // 실현 구간이 두 눈금 사이에 끼면 통과 가능한 갭에서도 후보가 전멸한다. 눈금을 더
+        // 촘촘히 박는 대신 구간을 직접 찾는다. 기각 사유가 어느 벽인지 알려주므로 신탁은
+        // 공짜다. 템플릿이 이미 해를 냈으면 이 경로는 돌지 않는다(평소 비용 0).
+        if (!outcome.best_index.has_value() &&
+          entryBracketFrom(outcome.candidates, entry_quarter, entry_full))
+        {
+          double low_entry = entry_quarter;
+          double high_entry = entry_full;
+          while (!outcome.best_index.has_value() &&
+            outcome.candidates.size() < extension_cap &&
+            high_entry - low_entry > kEpsilon)
+          {
+            const double middle_entry = 0.5 * (low_entry + high_entry);
+            const std::size_t before = outcome.candidates.size();
+            addM0ExtensionCandidate(
+              outcome, ego, obstacles, domain, context.outside_is_left, component,
+              "ZERO_INTERFACE_BISECTED", "ZERO_INTERFACE",
+              quarter, quarter, middle_entry, exit_quarter, generation, seen);
+            if (outcome.candidates.size() == before) {
+              break;   // 중복으로 걸러졌다면 더 좁혀도 같은 후보만 나온다.
+            }
+            const EntrySteer steer = steerOfNewCandidates(outcome.candidates, before);
+            if (steer == EntrySteer::kNeedsLongerRamp) {
+              low_entry = middle_entry;
+            } else if (steer == EntrySteer::kNeedsShorterRamp) {
+              high_entry = middle_entry;
+            } else {
+              break;
+            }
+          }
+        }
+        if (outcome.candidates.size() >= outcome.candidate_cap) {
           break;
         }
       }
-      if (outcome.candidates.size() >= kM0ExtensionCandidateCap) {
+      if (outcome.candidates.size() >= outcome.candidate_cap) {
         break;
       }
     }
@@ -1497,7 +1779,8 @@ private:
       return;
     }
     const auto stations = stationsFor(
-      parameters_, context.domain, context.outside_is_left, entry, exit);
+      parameters_, context.domain, context.outside_is_left, entry, exit,
+      ego.d, target, referenceSpacing());
     double minimum_length = std::numeric_limits<double>::quiet_NaN();
     if (!strictPositiveSegments(stations, minimum_length)) {
       ++result.m1_positive_segment_rejection_count;
@@ -1560,7 +1843,8 @@ private:
       context.corridor, context.domain.cluster_start, context.domain.cluster_end,
       target, "BOTTLENECK_CENTER");
     const auto stations = stationsFor(
-      parameters_, context.domain, context.outside_is_left, entry, exit);
+      parameters_, context.domain, context.outside_is_left, entry, exit,
+      ego.d, target, referenceSpacing());
     double minimum_length = std::numeric_limits<double>::quiet_NaN();
     if (!strictPositiveSegments(stations, minimum_length)) {
       addM1Candidate(
@@ -1632,6 +1916,46 @@ private:
         outcome, result, ego, obstacles, context, "FAR_SPAN",
         context.branch_far, context.entry_quarter, context.exit_span, seen);
     }
+
+    // 🔴 2026-08-17: 고정 눈금이 실현 구간을 건너뛰면 이분법으로 찾는다.
+    //
+    // 이 계열은 entry를 entry_min / entry_quarter / entry_max 셋만 썼다. M0 baseline과 같은
+    // 병(病)이다 — 실현 구간이 눈금 사이에 끼면 통과 가능한 갭에서도 후보가 전멸한다.
+    // 두 제약(곡률·트랙 경계)이 entry에 대해 서로 반대 방향으로 단조이므로 실현 집합은 항상
+    // 구간이고, 기각 사유가 어느 벽인지 알려주므로 이분법의 신탁은 공짜다.
+    //
+    // 템플릿이 이미 해를 냈으면 이 경로는 돌지 않는다(평소 비용 0). 예산은 m1_budget이
+    // 그대로 강제하므로(addM1Candidate가 먼저 검사한다) 총 후보 상한을 넘지 않는다.
+    if (!outcome.best_index.has_value() && entryBracketPresent(outcome.candidates)) {
+      for (const auto & context : contexts) {
+        if (outcome.best_index.has_value()) {
+          break;
+        }
+        double low_entry = context.entry_min;
+        double high_entry = context.entry_max;
+        while (!outcome.best_index.has_value() &&
+          result.m1_candidate_count < result.m1_budget &&
+          high_entry - low_entry > kEpsilon)
+        {
+          const double middle_entry = 0.5 * (low_entry + high_entry);
+          const std::size_t before = outcome.candidates.size();
+          offerM1AnalyticTemplate(
+            outcome, result, ego, obstacles, context, "NEAR_BISECTED",
+            context.branch_near, middle_entry, context.exit_max, seen);
+          if (outcome.candidates.size() == before) {
+            break;   // 중복으로 걸러졌다면 더 좁혀도 같은 후보만 나온다.
+          }
+          const EntrySteer steer = steerOfNewCandidates(outcome.candidates, before);
+          if (steer == EntrySteer::kNeedsLongerRamp) {
+            low_entry = middle_entry;
+          } else if (steer == EntrySteer::kNeedsShorterRamp) {
+            high_entry = middle_entry;
+          } else {
+            break;
+          }
+        }
+      }
+    }
     return outcome;
   }
 
@@ -1678,7 +2002,6 @@ private:
     }
 
     const auto all_entries = entryScales();
-    const std::vector<double> entries{all_entries.front(), all_entries.back()};
     const auto all_exits = exitScales(ego, cluster_end, go_left, outside_is_left);
     const std::array<double, 3> exit_ratios{0.015625, 0.5, 1.0};
     std::vector<double> exits;
@@ -1688,67 +2011,143 @@ private:
     exits = uniqueSorted(std::move(exits));
 
     std::size_t generation = 0U;
-    for (const double entry : uniqueSorted(entries)) {
-      for (const double exit : exits) {
-        const double entry_length = cluster_start *
-          parameters_.pre_apex_distances_m.front() * entry /
-          parameters_.detection_lookahead_m;
-        const double effective_exit = parameters_.cappedCombinedExitScale(
-          exit *
-          (go_left == outside_is_left ? parameters_.outside_line_transition_scale : 1.0));
-        const double exit_length = parameters_.post_apex_distances_m.back() * effective_exit;
-        const std::array<double, 5> stations{
-          cluster_start - entry_length,
-          cluster_start,
-          0.5 * (cluster_start + cluster_end),
-          cluster_end,
-          cluster_end + exit_length};
-        if (result.probe.station < stations.front() - kEpsilon ||
-          result.probe.station > stations.back() + kEpsilon)
-        {
-          continue;
-        }
-        const auto root_start = Clock::now();
-        const RootSolve roots = solvePosition(
-          stations, ego.d, target, result.probe.station, result.probe.desired, lower, upper);
-        result.runtime_root_solver_us += elapsedUs(root_start);
-        result.raw_root_count += roots.algebraic.raw_roots.size();
-        result.finite_root_count += roots.finite.size();
-        result.branch_root_count += roots.branch.size();
-        result.bounded_root_count += roots.bounded.size();
-        result.accepted_root_count += roots.accepted.size();
+    bool cap_exceeded = false;
+    // Build every candidate for one entry scale over the given exit set, and report which wall the
+    // rejections hit so the caller can steer. Returns kUnknown when nothing conclusive was seen.
+    const auto offer_entry =
+      [&](double entry, const std::vector<double> & exit_set) -> EntrySteer {
+        EntrySteer steer = EntrySteer::kUnknown;
+        for (const double exit : exit_set) {
+          // stationsFor와 같은 식을 여기 복사해 두면 한쪽만 고쳤을 때 조용히 갈라진다.
+          // 실제로 cluster_start <= 0 수리(2026-08-17)가 이 복사본을 비껴갈 뻔했다.
+          const std::array<double, 5> stations = stationsFor(
+            parameters_, domain, outside_is_left, entry, exit,
+            ego.d, target, referenceSpacing());
+          if (result.probe.station < stations.front() - kEpsilon ||
+            result.probe.station > stations.back() + kEpsilon)
+          {
+            continue;
+          }
+          const auto root_start = Clock::now();
+          const RootSolve roots = solvePosition(
+            stations, ego.d, target, result.probe.station, result.probe.desired, lower, upper);
+          result.runtime_root_solver_us += elapsedUs(root_start);
+          result.raw_root_count += roots.algebraic.raw_roots.size();
+          result.finite_root_count += roots.finite.size();
+          result.branch_root_count += roots.branch.size();
+          result.bounded_root_count += roots.bounded.size();
+          result.accepted_root_count += roots.accepted.size();
 
-        for (const double root : roots.accepted) {
-          if (result.candidates.size() >= kFrozenCandidateCap) {
-            result.failure = "CANDIDATE_CAP_EXCEEDED";
-            return result;
-          }
-          ++result.validator_calls;
-          auto trace = buildCandidate(
-            ego, obstacles, go_left, outside_is_left, target, root, entry, exit, stations,
-            generation++, result.runtime_reconstruction_us,
-            result.runtime_hard_validation_us);
-          trace.mapping_source = "FROZEN_V1";
-          trace.candidate_template = "FROZEN_V1_CURVATURE_CONTINUITY";
-          trace.source_cell = "ACTIVE_OUTER";
-          trace.component_id = result.corridor.branch_id;
-          const std::string side = go_left ? "LEFT" : "RIGHT";
-          trace.candidate_identity = "M0_V1_" + side + "_" + trace.path_digest;
-          trace.logical_identity = "M0_V1_" + side;
-          const std::size_t index = result.candidates.size();
-          if (trace.hard_valid) {
-            ++result.hard_valid_count;
-            if (!result.best_index.has_value() ||
-              betterFeasible(trace, result.candidates[*result.best_index]))
-            {
-              result.best_index = index;
+          for (const double root : roots.accepted) {
+            if (result.candidates.size() >= kFrozenCandidateCap) {
+              result.failure = "CANDIDATE_CAP_EXCEEDED";
+              cap_exceeded = true;
+              return steer;
             }
-          } else {
-            result.failure = "P3_CANDIDATE_HARD_INVALID";
+            ++result.validator_calls;
+            auto trace = buildCandidate(
+              ego, obstacles, go_left, outside_is_left, target, root, entry, exit, stations,
+              generation++, result.runtime_reconstruction_us,
+              result.runtime_hard_validation_us);
+            trace.mapping_source = "FROZEN_V1";
+            trace.candidate_template = "FROZEN_V1_CURVATURE_CONTINUITY";
+            trace.source_cell = "ACTIVE_OUTER";
+            trace.component_id = result.corridor.branch_id;
+            const std::string side = go_left ? "LEFT" : "RIGHT";
+            trace.candidate_identity = "M0_V1_" + side + "_" + trace.path_digest;
+            trace.logical_identity = "M0_V1_" + side;
+            const std::size_t index = result.candidates.size();
+            if (trace.hard_valid) {
+              ++result.hard_valid_count;
+              if (!result.best_index.has_value() ||
+                betterFeasible(trace, result.candidates[*result.best_index]))
+              {
+                result.best_index = index;
+              }
+            } else {
+              result.failure = "P3_CANDIDATE_HARD_INVALID";
+              if (steer == EntrySteer::kUnknown) {
+                steer = classifyEntrySteer(trace.rejection_reason);
+              }
+            }
+            result.candidates.push_back(std::move(trace));
           }
-          result.candidates.push_back(std::move(trace));
+        }
+        return steer;
+      };
+
+    const double entry_short = all_entries.front();
+    const double entry_long = all_entries.back();
+    const EntrySteer short_steer = offer_entry(entry_short, exits);
+    const EntrySteer long_steer = cap_exceeded ?
+      EntrySteer::kUnknown : offer_entry(entry_long, exits);
+
+    // 🔴 2026-08-17: 진입 눈금을 상수 집합에서 뽑지 않고 제약에서 찾는다.
+    //
+    // 종전에는 entryScales()가 돌려주는 눈금 중 **양 끝만** 썼다
+    // (entries{all_entries.front(), all_entries.back()}). 그래서 YAML의 중간값
+    // (entry_transition_fractions의 0.75, 1.00)은 한 번도 시도되지 않았다.
+    //
+    // 실해 — 2026-08-17 01:05 백, 매 랩 같은 자리에서 9.9 s 정지 (안전망 pinch_failure):
+    //   entry=0.5146(front)  peakK=1.976  곡률 초과 (한계 1.316)
+    //   entry=1.311 (back)   peakK=0.808  곡률 OK, 그러나 회랑 병목 침범
+    //   ── 실현 구간 [0.75, 1.05]가 두 눈금 사이에 통째로 끼어 건너뛰어졌다 ──
+    // 통과 가능한 갭인데 후보가 0개가 되어 안전정지가 걸렸고, 안전정지는 스스로 해제
+    // 조건(유효 회피 8사이클)을 막아 사람이 차를 옮겨야 풀렸다.
+    //
+    // 두 제약은 entry에 대해 서로 **반대 방향으로 단조**다. 이것은 관측이 아니라
+    // stationsFor의 구조에서 따라온다:
+    //   entry ↑ → entry_length ↑ → 램프가 길어져 곡률 ↓, 동시에 시작점(stations[0])이
+    //             자차 쪽으로 당겨져 좁은 구간을 더 깊이 지난다
+    // 따라서 실현 집합은 항상 하나의 구간이고, 기각 사유가 어느 벽인지 알려주므로
+    // 이분법의 신탁은 공짜다. 눈금을 더 촘촘히 박는 대신 구간을 직접 찾는다 —
+    // 새 상수도, 새 튜닝값도 없다.
+    //
+    // 고정 눈금이 이미 해를 냈으면 이 경로는 돌지 않는다(평소 비용 0). 탐색 중에는
+    // exit을 하나로 고정한다 — 위 실측처럼 진입 쪽 기각은 exit과 무관하게 같으므로
+    // exit을 3개로 늘리면 후보 예산만 3배로 쓴다. 구간을 찾은 뒤에 exit을 펼친다.
+    if (!cap_exceeded && !result.best_index.has_value() &&
+      short_steer == EntrySteer::kNeedsLongerRamp &&
+      long_steer == EntrySteer::kNeedsShorterRamp &&
+      entry_long > entry_short + kEpsilon)
+    {
+      const std::vector<double> probe_exits{exits.front()};
+      double lower_entry = entry_short;
+      double upper_entry = entry_long;
+      while (!cap_exceeded && !result.best_index.has_value() &&
+        result.candidates.size() + exits.size() <= kFrozenCandidateCap)
+      {
+        const double middle_entry = 0.5 * (lower_entry + upper_entry);
+        if (!(upper_entry - lower_entry > kEpsilon)) {
+          break;
+        }
+        const EntrySteer steer = offer_entry(middle_entry, probe_exits);
+        if (steer == EntrySteer::kNeedsLongerRamp) {
+          lower_entry = middle_entry;
+        } else if (steer == EntrySteer::kNeedsShorterRamp) {
+          upper_entry = middle_entry;
+        } else {
+          break;   // 진입 눈금과 무관한 기각이면 이분법의 전제가 깨진다.
         }
       }
+      // 구간을 찾았으면 그 눈금에서 exit을 펼쳐 나머지 후보를 준다. 못 찾았으면
+      // 아무것도 추가하지 않고 종전과 동일하게 실패한다.
+      if (!cap_exceeded && result.best_index.has_value()) {
+        const double solved_entry =
+          result.candidates[*result.best_index].entry_scale;
+        std::vector<double> remaining;
+        for (const double exit : exits) {
+          if (std::abs(exit - probe_exits.front()) > kEpsilon) {
+            remaining.push_back(exit);
+          }
+        }
+        if (!remaining.empty()) {
+          (void)offer_entry(solved_entry, remaining);
+        }
+      }
+    }
+    if (cap_exceeded) {
+      return result;
     }
     if (result.accepted_root_count == 0U) {
       result.failure = result.raw_root_count == 0U ? "NO_ALGEBRAIC_ROOT" :
@@ -1773,9 +2172,74 @@ P3ShadowResult RacelineSplinePlanner::evaluateP3Shadow(
   std::uint64_t global_reference_generation,
   const std::string & p0_failure_reason) const
 {
-  return P3ShadowEvaluator(*this).run(
+  // 🔴 2026-08-17: 내부 불변식 위반이 **노드를 죽이지 않게** 한다.
+  //
+  // 이 파일에는 후보 예산·구간 포함관계 같은 불변식을 지키는 throw std::runtime_error가
+  // 있다. 그런데 이 함수는 (a) local_planner_node의 타이머 콜백에서, (b) plan() 안에서
+  // 불린다. ROS 2 콜백을 넘어간 예외는 executor를 타고 나가 **local_planner_node를 통째로
+  // 종료시킨다** — 주행 중이면 회피도 안전정지도 남지 않는다. 종전에는 이 경계에 catch가
+  // 없었고, 노드 전체를 통틀어 catch는 진단용 std::stoll 하나뿐이었다.
+  //
+  // 불변식 위반은 버그이므로 조용히 삼키지 않는다 — 호출자가 볼 수 있도록 실패 분류를
+  // 남기고, 노드는 ERROR 로그를 던진다. 다만 그 대가가 "노드 사망"이어서는 안 된다.
+  // 평가 실패로 떨어지면 상위는 후보를 못 찾았을 때와 **같은 경로**(안전정지 사다리)를
+  // 탄다. 이것이 이미 검증된 실패 경로다.
+  try {
+    return evaluateP3ShadowUnguarded(
+      ego, obstacles, snapshot_source_stamp_ns, snapshot_epoch,
+      global_reference_generation, p0_failure_reason);
+  } catch (const std::exception & error) {
+    P3ShadowResult failed;
+    failed.enabled = true;
+    failed.snapshot_source_stamp_ns = snapshot_source_stamp_ns;
+    failed.snapshot_epoch = snapshot_epoch;
+    failed.global_reference_generation = global_reference_generation;
+    failed.p0_failure_reason = p0_failure_reason;
+    failed.failure_classification =
+      std::string("EVALUATOR_INVARIANT_VIOLATION: ") + error.what();
+    return failed;
+  }
+}
+
+P3ShadowResult RacelineSplinePlanner::evaluateP3ShadowUnguarded(
+  const EgoFrenetState & ego,
+  const std::vector<f110_msgs::msg::Obstacle> & obstacles,
+  std::int64_t snapshot_source_stamp_ns,
+  std::uint64_t snapshot_epoch,
+  std::uint64_t global_reference_generation,
+  const std::string & p0_failure_reason) const
+{
+  const P3ShadowEvaluator evaluator(*this);
+  P3ShadowResult strict = evaluator.run(
     ego, obstacles, snapshot_source_stamp_ns, snapshot_epoch,
     global_reference_generation, p0_failure_reason);
+  if (strict.would_recover || !strict.invoked || strict.cluster_obstacle_ids.empty()) {
+    return strict;
+  }
+  // strict(레이스 속도 예약) 게이트가 후보를 하나도 통과시키지 못했다. localization_reserve
+  // 인상(0.06→0.12, 2026-08-15) 이후 strict 최소 target이 벽 캡 바로 앞까지 밀려 후보 전체가
+  // footprint 검사에서 죽는 구간이 실측됐다(map s=16.5: 우측 여유 0.945 m에서 전멸). 기존
+  // 감속-게이트 재시도는 "strict가 트랙에 안 들어갈 때"만 발동해 이 경우를 놓친다. 여기서
+  // avoidance_minimum_speed_mps 게이트로 고려 범위만 넓혀 한 번 더 돈다 — 수용 기준(정확
+  // 검증, gap 기반 속도 상한)은 동일하므로 "느리지만 가능한" 통로만 추가로 살아난다.
+  P3ShadowResult relaxed = evaluator.run(
+    ego, obstacles, snapshot_source_stamp_ns, snapshot_epoch,
+    global_reference_generation, p0_failure_reason, true);
+  if (std::getenv("P3_DEBUG_RELAXED") != nullptr) {
+    std::fprintf(stderr, "[RELAXED] recover=%d fail=%s candidates=%zu\n",
+      relaxed.would_recover ? 1 : 0, relaxed.failure_classification.c_str(),
+      relaxed.candidates.size());
+    for (const auto & trace : relaxed.candidates) {
+      std::fprintf(stderr, "[RELAXED]  gen=%zu left=%d target=%.3f hard=%d rej=%s\n",
+        trace.generation_index, trace.go_left ? 1 : 0, trace.d_target,
+        trace.hard_valid ? 1 : 0, trace.rejection_reason.c_str());
+    }
+  }
+  if (relaxed.would_recover) {
+    relaxed.selected_source += "+RELAXED_CLEARANCE_GATE";
+    return relaxed;
+  }
+  return strict;
 }
 
 }  // namespace local_planning

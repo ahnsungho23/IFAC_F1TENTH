@@ -190,8 +190,24 @@ P3ManeuverLifecycleDecision P3ManeuverLifecycle::selectFresh(
   // validator independently confirms both that authority and the detector-owned raw geometry.
   // This adds no waiting frame or tolerance and cannot publish a hard-invalid path.
   decision.guarded_validation_attempted = true;
-  decision.validation = planner.evaluateP3PathCurrent(
-    snapshot.ego, selected.selected_path, snapshot.obstacles);
+  // The evaluator already validated this exact path against this exact ego/guarded-obstacle pair
+  // while constructing the candidate, and the FRESH_RESULT_SNAPSHOT_LINEAGE_MISMATCH guard above
+  // has already proven the inputs are that same snapshot. Reuse the certificate instead of running
+  // a bit-identical validation again; only a result produced before this field existed (or by a
+  // non-production evaluator) still needs the fallback. The RAW check below is NOT redundant and
+  // always runs: it tests different geometry.
+  // 인증서를 재사용하지 못할 때의 대체 검증도 후보 생성이 쓴 것과 같은 범위를 써야 한다.
+  // 범위가 다르면 "인증서 있음/없음"이라는 부수적 사정만으로 판정이 갈린다.
+  const std::optional<double> fresh_collision_horizon =
+    std::isfinite(selected.selected_cluster_end_forward_m) ?
+    std::optional<double>(
+    selected.selected_cluster_end_forward_m + planner.postMergeLookaheadM()) :
+    std::nullopt;
+  decision.guarded_validation_reused_certificate = selected.selected_validation_available;
+  decision.validation = selected.selected_validation_available ?
+    selected.selected_validation :
+    planner.evaluateP3PathCurrent(
+    snapshot.ego, selected.selected_path, snapshot.obstacles, 1.0, fresh_collision_horizon);
   decision.guarded_validation_hard_valid = decision.validation.hard_valid;
   decision.guarded_validation_rejection = decision.validation.rejection_reason.empty() ?
     "NONE" : decision.validation.rejection_reason;
@@ -207,7 +223,8 @@ P3ManeuverLifecycleDecision P3ManeuverLifecycle::selectFresh(
   }
   decision.raw_validation_attempted = true;
   const auto raw_validation = planner.evaluateP3PathCurrent(
-    snapshot.ego, selected.selected_path, snapshot.raw_obstacles);
+    snapshot.ego, selected.selected_path, snapshot.raw_obstacles, 1.0,
+    fresh_collision_horizon);
   decision.raw_validation_hard_valid = raw_validation.hard_valid;
   decision.raw_validation_rejection = raw_validation.rejection_reason.empty() ?
     "NONE" : raw_validation.rejection_reason;
@@ -432,6 +449,24 @@ P3ManeuverLifecycleDecision P3ManeuverLifecycle::continueCurrent(
   decision.output_path_digest = suffixDigest(suffix);
   decision.suffix_revalidated = true;
 
+  // 🔴 이 기동이 책임지는 범위. `generateP3Candidates`가 후보를 고를 때 쓰는 것과 **같은**
+  // 정의(클러스터 끝 + post_merge_lookahead)를 그대로 쓴다. 그 너머의 장애물은 다음 기동과
+  // 연쇄 재계획의 몫이고, merge 뒤 글로벌 꼬리는 애초에 이 기동의 기하가 아니다
+  // (AGENTS: "A post-merge controller-tail obstacle must not make the current maneuver fail").
+  //
+  // 이게 없으면 선택과 재검증이 서로 다른 범위를 본다: 선택기는 12 m lookahead 안에서
+  // horizon까지만 보고 통과시킨 경로를, 재검증은 트랙의 모든 장애물에 대해 꼬리 끝까지
+  // 검사해 다음 콜백에 폐기한다. 그러면 매 사이클 "선택 → 폐기 → 재선택"이 반복되고,
+  // 폐기 시점이 안전정지 버퍼 안이면 그대로 정지로 굳는다 (2026-08-16 시뮬 백
+  // rosbag2_2026_08_16-08_50_21: s=31.7 장애물 기동의 d=0 글로벌 꼬리가 12 m 앞 s=40.6
+  // 장애물을 지나가는 것 때문에 랩마다 s=28~30에서 완전 정지, 5랩 8회).
+  const std::optional<double> collision_horizon =
+    std::isfinite(record.expanded_cluster_end_s) ?
+    std::optional<double>(
+    planner.forwardDistance(snapshot.ego.s, record.expanded_cluster_end_s) +
+    planner.postMergeLookaheadM()) :
+    std::nullopt;
+
   // Reuse the pre-P3 committed-path Guard contract exactly: the guard frozen at selection owns
   // each exact obstacle ID while the live guarded envelope remains contained. A fresh empty
   // snapshot is treated as detector dropout and also retains the frozen guards. A non-empty
@@ -484,7 +519,7 @@ P3ManeuverLifecycleDecision P3ManeuverLifecycle::continueCurrent(
   }
   decision.guarded_validation_attempted = true;
   decision.validation = planner.evaluateP3PathCurrent(
-    snapshot.ego, suffix, validation_obstacles);
+    snapshot.ego, suffix, validation_obstacles, 1.0, collision_horizon);
   decision.suffix_hard_valid = decision.validation.hard_valid;
   decision.guarded_validation_hard_valid = decision.validation.hard_valid;
   decision.guarded_validation_rejection = decision.validation.rejection_reason.empty() ?
@@ -497,7 +532,8 @@ P3ManeuverLifecycleDecision P3ManeuverLifecycle::continueCurrent(
     // All other exact-validator failures remain immediate hard invalidations.
     PathValidationFailure guarded_failure;
     (void)planner.validatePath(
-      snapshot.ego, suffix, validation_obstacles, nullptr, &guarded_failure);
+      snapshot.ego, suffix, validation_obstacles, nullptr, &guarded_failure,
+      collision_horizon);
     if (guarded_failure.kind != PathValidationFailureKind::kObstacleCollision) {
       return invalidate("CURRENT_EXACT_HARD_INVALID:" + detail, decision);
     }
@@ -507,13 +543,13 @@ P3ManeuverLifecycleDecision P3ManeuverLifecycle::continueCurrent(
     const auto & raw_obstacles = snapshot.raw_obstacles;
     PathValidationFailure raw_failure;
     P3ShadowPathEvaluation raw_validation = planner.evaluateP3PathCurrent(
-      snapshot.ego, suffix, raw_obstacles);
+      snapshot.ego, suffix, raw_obstacles, 1.0, collision_horizon);
     decision.raw_validation_hard_valid = raw_validation.hard_valid;
     decision.raw_validation_rejection = raw_validation.rejection_reason.empty() ?
       "NONE" : raw_validation.rejection_reason;
     if (!raw_validation.hard_valid) {
       (void)planner.validatePath(
-        snapshot.ego, suffix, raw_obstacles, nullptr, &raw_failure);
+        snapshot.ego, suffix, raw_obstacles, nullptr, &raw_failure, collision_horizon);
       // Committed-path retention band (2026-08-12, user-requested freeze): when the full-reserve
       // raw validation fails only through obstacle clearance, re-validate with the retention
       // fraction of the tracking reserve (physical base clearance always intact). Progressive
@@ -527,7 +563,7 @@ P3ManeuverLifecycleDecision P3ManeuverLifecycle::continueCurrent(
         retention_fraction >= 0.0 && retention_fraction < 1.0)
       {
         retention_validation = planner.evaluateP3PathCurrent(
-          snapshot.ego, suffix, raw_obstacles, retention_fraction);
+          snapshot.ego, suffix, raw_obstacles, retention_fraction, collision_horizon);
         retention_holds = retention_validation.hard_valid;
       }
       if (!retention_holds) {

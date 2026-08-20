@@ -64,16 +64,29 @@ double positionSigma(double variance)
 f110_msgs::msg::Obstacle buildUncertaintyGuard(
   const f110_msgs::msg::Obstacle & obstacle,
   double track_length,
-  const ObstacleGuardParameters & parameters)
+  const ObstacleGuardParameters & parameters,
+  const ObstacleFaceUncertainty & faces)
 {
   auto guard = obstacle;
   const double longitudinal_inflation =
     parameters.minimum_longitudinal_inflation_m +
     parameters.uncertainty_sigma_scale * positionSigma(obstacle.s_var);
-  const double lateral_inflation = std::min(
+
+  // 이력이 있는 면은 자기 관측으로, 없는 면은 종전의 중심 분산으로. 상한은 두 경로가
+  // 공유하므로 잡음이 큰 면의 보호 수준은 변하지 않는다.
+  const double centre_inflation =
     parameters.minimum_lateral_inflation_m +
-    parameters.uncertainty_sigma_scale * positionSigma(obstacle.d_var),
-    parameters.maximum_lateral_inflation_m);
+    parameters.uncertainty_sigma_scale * positionSigma(obstacle.d_var);
+  const auto face_inflation = [&](double sigma) {
+      const double raw = sigma >= 0.0 ?
+        std::max(
+        parameters.measured_lateral_inflation_floor_m,
+        parameters.uncertainty_sigma_scale * sigma) :
+        centre_inflation;
+      return std::min(raw, parameters.maximum_lateral_inflation_m);
+    };
+  const double right_inflation = face_inflation(faces.sigma_right_m);
+  const double left_inflation = face_inflation(faces.sigma_left_m);
 
   const double half_span = 0.5 * shortestSpan(obstacle, track_length) + longitudinal_inflation;
   guard.s_start = wrapS(obstacle.s_center - half_span, track_length);
@@ -81,8 +94,8 @@ f110_msgs::msg::Obstacle buildUncertaintyGuard(
 
   const double raw_right = std::min(obstacle.d_right, obstacle.d_left);
   const double raw_left = std::max(obstacle.d_right, obstacle.d_left);
-  guard.d_right = raw_right - lateral_inflation;
-  guard.d_left = raw_left + lateral_inflation;
+  guard.d_right = raw_right - right_inflation;
+  guard.d_left = raw_left + left_inflation;
   guard.size = std::hypot(2.0 * half_span, guard.d_left - guard.d_right);
   return guard;
 }

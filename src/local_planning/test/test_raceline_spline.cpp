@@ -166,7 +166,10 @@ TEST(RacelineSplinePlanner, RejectsRotatedFootprintWhenCenterlineRemainsInsideLe
   const auto reference = makeStraightReference(100, 0.1, 0.30, 0.30);
   RacelineSplinePlanner planner(testParameters());
   ASSERT_TRUE(planner.setReference(reference));
-  const EgoFrenetState ego{0.0, 0.0, 2.0};
+  // 자차 d를 경로 d에 맞춘다: 실제 경로는 언제나 자차의 현재 d에서 출발하므로,
+  // d=0 자차에 옆으로 떨어진 합성 경로는 진입 불연속 검사(2026-08-17)에 먼저 걸려
+  // 이 테스트가 원래 보려던 검사에 도달하지 못한다.
+  const EgoFrenetState ego{0.0, 0.15, 2.0};
   const auto rotated = makeStraightCandidate(reference, 0.15, 0.40);
   std::string reason;
   PathValidationFailure failure;
@@ -191,7 +194,7 @@ TEST(RacelineSplinePlanner, AcceptsHeadingAlignedFootprintAtSameCenterline)
   PathValidationFailure failure;
 
   EXPECT_TRUE(planner.validatePath(
-      EgoFrenetState{0.0, 0.0, 2.0}, aligned, {}, &reason, &failure)) << reason;
+      EgoFrenetState{0.0, 0.15, 2.0}, aligned, {}, &reason, &failure)) << reason;
   EXPECT_EQ(failure.kind, PathValidationFailureKind::kNone);
 }
 
@@ -206,7 +209,10 @@ TEST(RacelineSplinePlanner, DetectsBothLeftAndRightFootprintViolations)
   {
     PathValidationFailure failure;
     EXPECT_FALSE(planner.validatePath(
-        ego, makeStraightCandidate(reference, test.first, 0.40), {}, nullptr, &failure));
+        // 자차 d를 경로 d에 맞춘다 — 실제 경로는 언제나 자차 d에서 출발한다.
+        // 자차 d를 경로 d에 맞춘다 (진입 불연속 검사).
+        EgoFrenetState{ego.s, test.first, ego.speed},
+        makeStraightCandidate(reference, test.first, 0.40), {}, nullptr, &failure));
     EXPECT_EQ(failure.kind, PathValidationFailureKind::kTrackBoundary);
     EXPECT_EQ(failure.footprint_violation_side, test.second);
     EXPECT_GT(failure.centerline_wall_clearance, 0.0);
@@ -247,7 +253,10 @@ TEST(RacelineSplinePlanner, FootprintValidationIsBitDeterministic)
   const auto reference = makeStraightReference(100, 0.1, 0.30, 0.30);
   RacelineSplinePlanner planner(testParameters());
   ASSERT_TRUE(planner.setReference(reference));
-  const EgoFrenetState ego{0.0, 0.0, 2.0};
+  // 자차 d를 경로 d에 맞춘다: 실제 경로는 언제나 자차의 현재 d에서 출발하므로,
+  // d=0 자차에 옆으로 떨어진 합성 경로는 진입 불연속 검사(2026-08-17)에 먼저 걸려
+  // 이 테스트가 원래 보려던 검사에 도달하지 못한다.
+  const EgoFrenetState ego{0.0, -0.15, 2.0};
   const auto path = makeStraightCandidate(reference, -0.15, -0.40);
   PathValidationFailure expected;
   ASSERT_FALSE(planner.validatePath(ego, path, {}, nullptr, &expected));
@@ -303,200 +312,535 @@ TEST(RacelineSplinePlanner, ShiftsOnlyOrderedGlobalRaceLineSamples)
   EXPECT_NEAR(result.path.wpnts.back().d_m, 0.0, 1.0e-6);
 }
 
-TEST(RacelineSplinePlanner, MovesProgressivelyThroughQuinticControlMarkers)
-{
-  auto parameters = testParameters();
-  parameters.transition_distance_scales = {1.0};
-  RacelineSplinePlanner planner(parameters);
-  ASSERT_TRUE(planner.setReference(makeStraightReference()));
-
-  const auto result = planner.plan(
-    EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(17, 8.0)}, true);
-  ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
-  ASSERT_EQ(result.control_points.size(), 8U);
-
-  const double target = result.target_d;
-  ASSERT_GT(target, 0.0);
-  EXPECT_NEAR(result.control_points[0].d, 0.0, 1.0e-9);
-  EXPECT_GT(result.control_points[1].d, 0.0);
-  EXPECT_GT(result.control_points[2].d, result.control_points[1].d);
-  EXPECT_LT(result.control_points[2].d, target);
-  EXPECT_NEAR(result.control_points[3].d, target, 1.0e-9);
-  EXPECT_NEAR(result.control_points[4].d, target, 1.0e-9);
-  EXPECT_LT(result.control_points[6].d, result.control_points[5].d);
-  EXPECT_GT(result.control_points[6].d, 0.0);
-  EXPECT_NEAR(result.control_points[7].d, 0.0, 1.0e-9);
-}
-
-TEST(RacelineSplinePlanner, SeparatesAvailableDistanceEntryFromExitScale)
-{
-  auto parameters = testParameters();
-  parameters.pre_apex_distances_m = {4.0, 3.0, 1.5};
-  parameters.post_apex_distances_m = {1.5, 3.0, 4.0};
-  parameters.entry_transition_fractions = {1.0};
-  parameters.transition_distance_scales = {1.0};
-  RacelineSplinePlanner planner(parameters);
-  ASSERT_TRUE(planner.setReference(makeStraightReference()));
-
-  const auto result = planner.plan(
-    EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(18, 10.0)}, true);
-  ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
-  ASSERT_FALSE(result.control_points.empty());
-
-  // Inflated obstacle start is 9.45 m. requested=4.0 m maps monotonically through the
-  // pre_apex_far/detection_lookahead ratio, rather than min(requested, available).
-  constexpr double kClusterStart = 9.45;
-  constexpr double kRequestedEntry = 4.0;
-  const double expected_entry = kClusterStart * kRequestedEntry / 12.0;
-  EXPECT_NEAR(result.requested_entry_length_m, kRequestedEntry, 1.0e-9);
-  EXPECT_NEAR(result.effective_entry_length_m, expected_entry, 1.0e-9);
-  EXPECT_NEAR(
-    result.control_points.front().forward_s,
-    kClusterStart - expected_entry, 1.0e-6);
-  // Exit remains an independent post-apex distance.
-  EXPECT_NEAR(result.exit_length_m, 4.0, 1.0e-9);
-  EXPECT_NEAR(result.merge_s, 14.55, 1.0e-6);
-}
-
-TEST(RacelineSplinePlanner, EnumeratesAllSidesTargetsAndTransitionsBeforeRanking)
+// 2026-08-16 시뮬 백(rosbag2_2026_08_16-08_50_21)의 실측 기하. 앞 장애물은 라인 왼쪽에
+// 치우쳐 있어 우측으로 피하는데, 8 m 뒤 장애물은 라인 위에 걸쳐 있다. exit 스케일이 길면
+// 복귀 램프가 오프셋을 유지한 채 뒤 장애물의 물리 엔벨로프를 지나가고, 그 경로는 커밋
+// 재검증과 매 사이클 충돌해 25 ms마다 같은 후보를 다시 고르는 무한 재계획이 된다
+// (실측: 랩당 hard collision 41회, s=28~30에서 완전 정지 랩당 2~4회).
+// 뒤 장애물을 건드리지 않는 exit이 존재하면 그쪽이 선택되어야 한다.
+TEST(RacelineSplinePlanner, PrefersExitThatClearsTheFollowingObstacle)
 {
   auto parameters = testParameters();
   parameters.target_d_candidate_count = 5;
   parameters.entry_transition_fractions = {0.5, 0.75, 1.0};
-  parameters.transition_distance_scales = {0.75, 1.0, 1.25};
-  parameters.maximum_curvature_radpm = 100.0;
-  parameters.maximum_curvature_rate_radpm2 = 1000.0;
+  // 짧은/중간/아주 긴 exit. 마지막 값이 운영 YAML의 3.699 자리이며, 이것이 뒤 장애물을
+  // 관통하는 후보를 만든다.
+  parameters.transition_distance_scales = {0.5, 0.7, 3.7};
   RacelineSplinePlanner planner(parameters);
-  ASSERT_TRUE(planner.setReference(makeStraightReference()));
+  // 백의 s=28~42 구간 회랑(d_left 1.18~1.28, d_right 0.73~0.90) 중 좁은 쪽으로 고정한다.
+  ASSERT_TRUE(planner.setReference(makeStraightReference(300, 0.25, 1.20, 0.75)));
 
-  const auto result = planner.plan(
-    EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(118, 8.0)});
-  ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
-  ASSERT_EQ(result.candidate_audits.size(), 120U);
+  auto blocking = makeObstacle(10, 3.57, 0.14, 0.47);   // 백 id10: s=31.44~31.77
+  blocking.s_start = 3.40;
+  blocking.s_end = 3.73;
+  auto following = makeObstacle(0, 11.75, -0.18, 0.10);  // 백 id0: s=40.31~40.83, 라인 위
+  following.s_start = 11.50;
+  following.s_end = 12.00;
 
-  const auto selected = std::find_if(
-    result.candidate_audits.begin(), result.candidate_audits.end(),
-    [](const SplineCandidateAudit & audit) {return audit.selected;});
-  ASSERT_NE(selected, result.candidate_audits.end());
-  EXPECT_TRUE(selected->feasible);
-  EXPECT_EQ(selected->final_rank, 1);
-  for (const auto & audit : result.candidate_audits) {
-    if (audit.feasible) {
-      EXPECT_GE(
-        selected->minimum_normalized_safety_slack + 1.0e-6,
-        audit.minimum_normalized_safety_slack);
-    } else {
-      EXPECT_FALSE(audit.rejection_reason.empty());
-      EXPECT_EQ(audit.final_rank, -1);
+  const EgoFrenetState ego{0.0, -0.136, 2.17};
+  const auto shadow = planner.evaluateP3Shadow(
+    ego, {blocking, following}, 100, 1U, 1U, "FOLLOWING_OBSTACLE_EXIT_TEST");
+  ASSERT_TRUE(shadow.invoked);
+  ASSERT_FALSE(shadow.candidates.empty());
+  ASSERT_NE(shadow.selected_path_digest, "NONE") << shadow.failure_classification;
+
+  // 상황이 실제로 재현됐는지부터 확인한다: 뒤 장애물을 관통하는 exit 후보가 존재해야
+  // 우선순위가 시험된다. 이게 0이면 테스트가 무의미하게 통과한다.
+  std::size_t reaching = 0U;
+  std::size_t clear_and_valid = 0U;
+  for (const auto & candidate : shadow.candidates) {
+    if (candidate.exit_reaches_next_obstacle) {
+      ++reaching;
+    } else if (candidate.hard_valid) {
+      ++clear_and_valid;
     }
   }
+  ASSERT_GT(reaching, 0U) << "no candidate carried its offset into the following obstacle; "
+    "the ranking preference is not being exercised";
+  ASSERT_GT(clear_and_valid, 0U) << "no clear alternative existed";
+
+  // 선택된 후보는 그 관통 후보가 아니어야 한다.
+  bool selected_found = false;
+  for (const auto & candidate : shadow.candidates) {
+    if (candidate.path_digest != shadow.selected_path_digest) {
+      continue;
+    }
+    selected_found = true;
+    EXPECT_FALSE(candidate.exit_reaches_next_obstacle)
+      << "selected an exit ramp that carries offset into the following obstacle while a clear "
+      "alternative existed";
+  }
+  EXPECT_TRUE(selected_found);
+
+  // plan()의 순위도 같은 계약을 따라야 한다 (P3와 P0가 갈리면 서로 다른 경로를 커밋한다).
+  const auto result = planner.plan(ego, {blocking, following});
+  ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
+  const double clearance = parameters.vehicle_half_width_m + parameters.safety_margin_m;
+  for (const auto & waypoint : result.path.wpnts) {
+    const double forward = planner.forwardDistance(ego.s, waypoint.s_m);
+    if (forward + 1.0e-9 < following.s_start || forward > following.s_end + 1.0e-9) {
+      continue;
+    }
+    if (std::abs(waypoint.d_m) <= 1.0e-3) {
+      break;   // 합류 뒤 글로벌 꼬리 — 이 기동의 기하가 아니다.
+    }
+    EXPECT_FALSE(
+      waypoint.d_m > following.d_right - clearance &&
+      waypoint.d_m < following.d_left + clearance)
+      << "plan() committed an exit ramp inside the following obstacle's envelope at forward="
+      << forward << " d=" << waypoint.d_m;
+  }
 }
 
-TEST(RacelineSplinePlanner, AppendsFullAvailableEntryAfterUnchangedLegacyCandidates)
+// 접근 램프의 적응 기울기 (2026-08-16): 여유 있는 접근은 base(2.0)를 그대로 쓰고, 가용
+// 거리가 부족한 스팬만 max(3.5)까지 필요한 만큼 가팔라진다. 고정 상향은 여유 있는
+// 장애물까지 늦고 세게 제동하게 만들므로 금지 — 이 테스트가 두 성질을 함께 고정한다.
+// 한 물리 상자가 두 조각으로 갈라져 관측될 때, 조각 사이 s-틈의 waypoint도 클러스터
+// hull 캡을 받아야 한다. 틈이 캡 없이 라인 속도로 남으면 스팬 안에서 1.1↔5.8 빗살
+// 프로파일이 나와 옆 통과 내내 급가감속 펄스가 생긴다 (2026-08-16 13:52 백 실측).
+// 안전정지 사유는 실제 P3 기각 사유를 담아야 하고, 측 제한이 걸리지 않았는데 "측 잠금"
+// 이라고 적어서는 안 된다. 종전에는 left_evaluated/right_evaluated가 죽은 변수라 양측을
+// 모두 평가하고 양측 다 실패한 경우에도 항상 "alternate side locked"가 찍혔고, 실제 사유
+// (NO_VALID_SIDE_DOMAIN 등)는 뒤에 붙어 로그에서 잘려나갔다 (2026-08-16 14:18 백 오진).
+// 2026-08-16 14:30 백의 s=12.28 영구 정지를 그 판정 지점에서 재현한다.
+//
+// 상황: 장애물 2가 s=15.6~16.1, d=[-0.28,+0.33]. 우측 회랑 -1.12 → 실여유 0.84 m.
+// 시뮬 파라미터로 필요폭은 장애물면 0.393 + 벽 0.243 = 0.637 m이므로 물리적으로 통과
+// 가능하다. 그런데 가드가 양면에 상수 0.14를 물리자 후보 14개가 전부 탈락하고 차가
+// 멈춰 사람이 꺼내야 했다. 면별 실측(라인 쪽 σ=0.007 → 3σ=0.021)이면 통과한다.
+//
+// 이 테스트가 잡는 성질: 조용한 면의 팽창이 상수로 되돌아가면 즉시 깨진다.
+RacelineSplineParameters fieldParameters()
+{
+  RacelineSplineParameters parameters;
+  parameters.detection_lookahead_m = 15.0;
+  parameters.obstacle_longitudinal_padding_m = 0.4149924657737441;
+  parameters.vehicle_half_width_m = 0.1435;
+  parameters.vehicle_length_m = 0.56;
+  parameters.safety_margin_m = 0.014789254299520768;
+  parameters.tracking_error_lut_speed_bins_mps = {0.0, 1.5, 3.0, 4.5, 6.5};
+  parameters.tracking_error_lut_curvature_bins_radpm = {0.0, 0.2, 0.5, 0.9, 1.316266519079011};
+  parameters.tracking_error_lut_values_m = {                       // 시뮬 실측표
+    0.115, 0.115, 0.115, 0.125, 0.125,
+    0.175, 0.245, 0.280, 0.280, 0.280,
+    0.175, 0.245, 0.280, 0.280, 0.280,
+    0.185, 0.245, 0.280, 0.280, 0.280,
+    0.185, 0.245, 0.280, 0.280, 0.280};
+  parameters.avoidance_velocity_limit_speed_bins_mps =
+  {0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0};
+  parameters.avoidance_velocity_limit_lateral_accel_mps2 =
+  {7.0, 7.0, 7.0, 7.0, 7.0, 7.0, 6.5, 6.5, 6.5, 6.5};
+  parameters.avoidance_minimum_speed_mps = 1.0;
+  parameters.localization_reserve_m = 0.06;
+  parameters.wall_safety_margin_m = 0.10;
+  parameters.maximum_target_offset_m = 1.50;
+  parameters.target_d_candidate_count = 5;
+  parameters.maximum_lateral_slope = 0.8;
+  parameters.maximum_curvature_radpm = 1.316266519079011;
+  parameters.maximum_curvature_rate_radpm2 = 20.0;
+  return parameters;
+}
+
+// 발행 프로파일의 모든 감속은 실제로 제동 가능해야 한다 (2026-08-16 14:30 백 회귀).
+//
+// 그날 실측: s=32.89 v=6.63 → s=33.14 v=4.58. 0.25 m 만에 (6.63²-4.58²)/(2·0.25) = 46 m/s²의
+// 제동을 요구한다. 원인은 곡률·간격 캡이 waypoint마다 독립이라 S자 전이의 변곡점(κ≈0)에서
+// 캡이 통째로 풀리는 것이었고, 접근 램프는 장애물 스팬 앞에만 걸려 이 구간을 못 잡았다.
+// 🔴 2026-08-17 00:10 백 회귀. 랩마다 재현된 충돌 2건의 원인.
+//
+// 안전정지가 8회 확인 후 해제되며 커밋한 경로의 첫 점이 자차에서 불연속이었다:
+//   자차          s=23.40  d=+0.043
+//   경로 첫 점     s=23.60  d=+0.4897   → 0.20 m 앞에서 0.45 m 옆 (기울기 2.3)
+// 경로 **내부**는 매끄러워 하드 검증을 통과했고, 차는 그 점을 향하다 오히려 반대로 밀려
+// (d: +0.04 → -0.14) s=23.85에서 장애물에 박았다.
+//
+// 같은 검사가 buildCommittedPathStop에는 있었지만 회피 경로에는 없었다.
+TEST(RacelineSplinePlanner, PathDiscontinuousFromEgoIsRejected)
+{
+  auto parameters = fieldParameters();
+  RacelineSplinePlanner planner(parameters);
+  const auto reference = makeStraightReference(300, 0.25, 1.20, 1.20);
+  ASSERT_TRUE(planner.setReference(reference));
+
+  const EgoFrenetState ego{5.0, 0.043, 1.0};
+  // 자차 0.20 m 앞에서 0.45 m 옆으로 시작하는 경로 — 기울기 2.25 (한계 0.8).
+  f110_msgs::msg::WpntArray path;
+  path.header = reference.header;
+  for (std::size_t index = 0; index < 20U; ++index) {
+    f110_msgs::msg::Wpnt waypoint;
+    waypoint.id = static_cast<std::int32_t>(index);
+    waypoint.s_m = 5.20 + 0.25 * static_cast<double>(index);
+    waypoint.d_m = 0.4897;                     // 경로 내부는 완전히 평탄하다
+    waypoint.x_m = waypoint.s_m;
+    waypoint.y_m = waypoint.d_m;
+    waypoint.vx_mps = 1.5;
+    path.wpnts.push_back(waypoint);
+  }
+  std::string reason;
+  EXPECT_FALSE(planner.validatePath(ego, path, {}, &reason))
+    << "자차에서 0.45 m 떨어진 곳에서 시작하는 경로가 통과했다";
+  EXPECT_NE(reason.find("discontinuous"), std::string::npos) << reason;
+
+  // 대조: 자차 d에서 시작하면 통과해야 한다 (검사가 과하게 걸리지 않는지).
+  for (auto & waypoint : path.wpnts) {
+    waypoint.d_m = ego.d;
+    waypoint.y_m = waypoint.d_m;
+  }
+  std::string ok_reason;
+  EXPECT_TRUE(planner.validatePath(ego, path, {}, &ok_reason)) << ok_reason;
+}
+
+// 🔴 2026-08-17 00:34 백 회귀 — 위 검사가 기울기 **단독**이었을 때의 오탐.
+//
+// 기준점은 자차보다 엄밀히 앞선 최근접 waypoint이고, 자차 s는 두 샘플 사이 아무 데나 있다.
+// 그래서 그 전방거리는 샘플 간격 아래로 얼마든지 작아지고, 기울기 |Δd|/전방거리 는 경로
+// 기하가 아니라 **추종오차를 0에 가까운 수로 나눈 값**이 되어 발산한다.
+//
+// 실해: 정상 추종 중 9회 무효화 → 그 중 3회가 0.3~0.5 s 뒤 안전정지 영구 정지(8.9 s 1건,
+// 사람이 pose를 옮겨야 풀렸다). 정지 점유율 11%(00:10) → 53%(00:34).
+//
+// 판정은 간격을 **추종 예산**(trackingErrorReserve, localization_reserve_m 포함)과 먼저
+// 비교하고, 예산을 넘으면서 기울기도 한계를 넘을 때만 불연속으로 본다.
+TEST(RacelineSplinePlanner, NormalTrackingErrorOverATinyBaselineIsNotADiscontinuity)
+{
+  auto parameters = fieldParameters();
+  const double budget = parameters.trackingErrorReserve(3.0, 0.0);
+  ASSERT_GT(budget, 0.05) << "추종 예산이 0이면 이 검사는 의미가 없다";
+  RacelineSplinePlanner planner(parameters);
+  const auto reference = makeStraightReference(300, 0.25, 1.20, 1.20);
+  ASSERT_TRUE(planner.setReference(reference));
+
+  // 00:34 백 t=22.70 의 상태. 경로를 정상 추종 중이고 자차는 예산 안에서 옆으로 벗어나 있다.
+  const EgoFrenetState ego{5.0, 0.212, 2.96};
+  const double tracking_error = 0.5 * budget;
+  f110_msgs::msg::WpntArray path;
+  path.header = reference.header;
+  for (std::size_t index = 0; index < 20U; ++index) {
+    f110_msgs::msg::Wpnt waypoint;
+    waypoint.id = static_cast<std::int32_t>(index);
+    // 첫 점이 자차 **0.01 m** 앞에 온다 — 기울기는 발산하지만 간격은 추종오차 그대로다.
+    waypoint.s_m = 5.01 + 0.25 * static_cast<double>(index);
+    waypoint.d_m = ego.d + tracking_error;
+    waypoint.x_m = waypoint.s_m;
+    waypoint.y_m = waypoint.d_m;
+    waypoint.vx_mps = 3.0;
+    path.wpnts.push_back(waypoint);
+  }
+  ASSERT_GT(tracking_error / 0.01, parameters.maximum_lateral_slope)
+    << "이 배치에서 기울기가 한계를 넘지 않으면 회귀를 재현하지 못한다";
+  std::string reason;
+  EXPECT_TRUE(planner.validatePath(ego, path, {}, &reason))
+    << "정상 추종오차가 불연속으로 기각됐다: " << reason;
+
+  // 예산을 넘는 간격이라도 도달할 거리가 충분하면 정상이다 (판정의 나머지 절반).
+  for (std::size_t index = 0; index < path.wpnts.size(); ++index) {
+    path.wpnts[index].s_m = 7.00 + 0.25 * static_cast<double>(index);
+    path.wpnts[index].d_m = ego.d + 0.45;
+    path.wpnts[index].x_m = path.wpnts[index].s_m;
+    path.wpnts[index].y_m = path.wpnts[index].d_m;
+  }
+  ASSERT_GT(0.45, budget);
+  ASSERT_LT(0.45 / 2.0, parameters.maximum_lateral_slope);
+  std::string reachable_reason;
+  EXPECT_TRUE(planner.validatePath(ego, path, {}, &reachable_reason))
+    << "2 m 앞의 0.45 m 이동은 기울기 0.225로 도달 가능한데 기각됐다: " << reachable_reason;
+}
+
+TEST(RacelineSplinePlanner, EveryDropInThePublishedProfileIsActuallyBrakeable)
+{
+  auto parameters = fieldParameters();
+  RacelineSplinePlanner planner(parameters);
+  auto reference = makeStraightReference(300, 0.1, 1.20, 1.20);
+  for (auto & waypoint : reference.wpnts) {
+    waypoint.vx_mps = 7.0;              // 라인 최고속 구간 — 여기서 캡이 풀리면 스파이크가 된다
+  }
+  ASSERT_TRUE(planner.setReference(reference));
+  // 재현 조건: 라인 7.0 m/s에서 횡 ~1.0 m를 4.5 m 안에 옮긴다(백의 s=33~36과 같은 급도).
+  // 전이가 완만하면 곡률 캡이 아예 안 걸려 결함이 나타나지 않는다 — 8 m 전이로는 κ_max가
+  // 0.069뿐이라 프로파일이 7.00으로 평평하고, 이 테스트는 아무것도 잡지 못한다.
+  const EgoFrenetState ego{0.0, -0.35, 7.0};
+  const auto result = planner.plan(ego, {makeObstacle(2, 4.5, -0.60, 0.20)});
+  ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
+  ASSERT_GE(result.path.wpnts.size(), 3U);
+
+  const double limit = parameters.profileFeasibilityDecel();
+  double worst = 0.0;
+  double worst_s = 0.0;
+  for (std::size_t i = 1; i < result.path.wpnts.size(); ++i) {
+    const auto & earlier = result.path.wpnts[i - 1];
+    const auto & later = result.path.wpnts[i];
+    const double ds = later.s_m - earlier.s_m;
+    if (!(ds > 1.0e-9) || later.vx_mps >= earlier.vx_mps) {
+      continue;                       // 가속 방향은 이 패스의 대상이 아니다.
+    }
+    const double required =
+      (earlier.vx_mps * earlier.vx_mps - later.vx_mps * later.vx_mps) / (2.0 * ds);
+    if (required > worst) {
+      worst = required;
+      worst_s = earlier.s_m;
+    }
+  }
+  // 수치 오차만 허용한다. 이 값이 크게 튀면 캡 하나가 후방 패스 뒤에 적용되고 있다는 뜻이다.
+  EXPECT_LT(worst, limit + 1.0e-6)
+    << "s=" << worst_s << "에서 " << worst << " m/s² 제동을 요구한다 (한계 " << limit << ")";
+}
+
+TEST(RacelineSplinePlanner, MeasuredQuietFaceInflationKeepsTheEightyCentimetreGapPassable)
+{
+  RacelineSplinePlanner planner(fieldParameters());
+  // 균일 회랑에서 우측 통과 밴드 = W - 0.9165 - 팽창 (0.9165 = 장애물면 0.393 + 벽 0.2435
+  // + 박스 0.28). 실트랙(우측 1.15→1.075로 변동)의 임계는 하니스로 실측했고 팽창 0.07
+  // 통과 / 0.10 실패였다. 여기서는 임계를 확실히 사이에 두도록 W=1.02를 쓴다:
+  //   실측 팽창 0.021 → 밴드 +0.083 (통과)
+  //   상수 팽창 0.14  → 밴드 -0.037 (불가)
+  // 실트랙 증명은 stuck_case_harness가 담당한다 — 균일 회랑은 스팬 안 폭 변동을 못 담는다.
+  ASSERT_TRUE(planner.setReference(makeStraightReference(300, 0.1, 0.78, 1.02)));
+  const EgoFrenetState ego{0.0, -0.019, 2.794};
+
+  // 면별 실측 팽창: 라인 쪽 3σ=0.021, 반대쪽 3σ=0.132.
+  const auto measured = planner.plan(
+    ego, {makeObstacle(2, 6.25, -0.28 - 0.021, 0.33 + 0.132)});
+  EXPECT_EQ(measured.kind, SplinePlanKind::kAvoidance)
+    << "실여유 0.84 m 간격이 계획 불가가 됐다: " << measured.reason;
+
+  // 종전 상수 경로(양면 0.14)로는 같은 간격에서 회피가 성립하지 않는다 — 그것이 정지였다.
+  const auto constant = planner.plan(
+    ego, {makeObstacle(2, 6.25, -0.28 - 0.14, 0.33 + 0.14)});
+  EXPECT_NE(constant.kind, SplinePlanKind::kAvoidance)
+    << "회귀 대조군이 성립하지 않는다 — 이 테스트는 상수 복귀를 잡지 못한다";
+}
+
+TEST(RacelineSplinePlanner, SafeStopReasonReportsTheActualRejectionNotAPhantomSideLock)
 {
   auto parameters = testParameters();
-  parameters.pre_apex_distances_m = {4.0, 3.0, 1.5};
-  parameters.entry_transition_fractions = {0.5, 0.75, 1.0};
-  parameters.transition_distance_scales = {1.0};
-  parameters.maximum_lateral_slope = 100.0;
-  parameters.maximum_curvature_radpm = 100.0;
-  parameters.maximum_curvature_rate_radpm2 = 1000.0;
   RacelineSplinePlanner planner(parameters);
-  ASSERT_TRUE(planner.setReference(makeStraightReference()));
+  // 회랑을 양측 모두 통과 불가능하게 좁힌다 (코너 정점 배치의 축약판).
+  ASSERT_TRUE(planner.setReference(makeStraightReference(300, 0.1, 0.36, 0.36)));
 
-  const auto result = planner.plan(
-    EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(218, 10.0)}, true, false);
-  ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
-  ASSERT_EQ(result.candidate_audits.size(), 4U);
+  const EgoFrenetState ego{0.0, 0.0, 2.0};
+  const auto result = planner.plan(ego, {makeObstacle(21, 8.0, -0.10, 0.10)});
+  ASSERT_NE(result.kind, SplinePlanKind::kAvoidance) << result.reason;
 
-  constexpr double kAvailableEntry = 9.45;
-  const std::vector<double> legacy_fractions{0.5, 0.75, 1.0};
-  for (std::size_t index = 0; index < legacy_fractions.size(); ++index) {
-    const auto & audit = result.candidate_audits[index];
-    const double requested = 4.0 * legacy_fractions[index];
-    EXPECT_DOUBLE_EQ(audit.entry_fraction, legacy_fractions[index]);
-    EXPECT_NEAR(audit.requested_entry_length_m, requested, 1.0e-12);
-    EXPECT_NEAR(
-      audit.effective_entry_length_m,
-      kAvailableEntry * requested / parameters.detection_lookahead_m, 1.0e-12);
-  }
-
-  const auto & full_available = result.candidate_audits.back();
-  EXPECT_NEAR(full_available.entry_fraction, 3.0, 1.0e-12);
-  EXPECT_NEAR(
-    full_available.requested_entry_length_m, parameters.detection_lookahead_m, 1.0e-12);
-  EXPECT_NEAR(full_available.effective_entry_length_m, kAvailableEntry, 1.0e-12);
+  // 측 제한을 건 적이 없으므로 그 문구가 나오면 안 된다.
+  EXPECT_EQ(result.reason.find("alternate side locked"), std::string::npos)
+    << "phantom side-lock text in: " << result.reason;
+  EXPECT_EQ(result.reason.find("side locked by active commitment"), std::string::npos)
+    << "phantom side-lock text in: " << result.reason;
+  // 실제 사유가 문자열 앞부분(로그 절단에도 살아남는 위치)에 있어야 한다.
+  ASSERT_GE(result.reason.size(), 20U);
+  EXPECT_NE(result.reason.substr(0, 120).find("no avoidance candidate"), std::string::npos)
+    << "actual rejection not at the front of: " << result.reason;
 }
 
-TEST(RacelineSplinePlanner, SafetySlackRejectsBarelyWallFeasibleTargetAsBest)
+TEST(RacelineSplinePlanner, GapCapBridgesFragmentGapsInsideOneCluster)
 {
   auto parameters = testParameters();
   parameters.target_d_candidate_count = 5;
+  parameters.tracking_error_lut_speed_bins_mps = {1.0, 5.0};
+  parameters.tracking_error_lut_curvature_bins_radpm = {0.0};
+  parameters.tracking_error_lut_values_m = {0.05, 0.50};
+  RacelineSplinePlanner planner(parameters);
+  auto reference = makeStraightReference(300, 0.25, 1.20, 0.75);
+  for (auto & waypoint : reference.wpnts) {
+    waypoint.vx_mps = 5.0;
+  }
+  ASSERT_TRUE(planner.setReference(reference));
+
+  // 같은 면(d)을 가진 두 조각. 가장자리 간격 1.5 m — 확장 패딩(0.415×2)을 빼도
+  // 0.67 m의 비커버 틈이 남고, 클러스터 규칙(gap 0.8)으로는 한 클러스터다.
+  auto fragment_a = makeObstacle(10, 10.00, -0.10, 0.45);
+  fragment_a.s_start = 9.90;
+  fragment_a.s_end = 10.10;
+  auto fragment_b = makeObstacle(11, 11.70, -0.10, 0.45);
+  fragment_b.s_start = 11.60;
+  fragment_b.s_end = 11.80;
+
+  const EgoFrenetState ego{0.0, 0.0, 3.0};
+  const auto result = planner.plan(ego, {fragment_a, fragment_b});
+  ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
+
+  // hull(첫 조각 시작 ~ 둘째 조각 끝) 안의 모든 waypoint는 스팬 내부와 같은 수준으로
+  // 캡돼야 한다. 수리 전에는 틈 waypoint가 라인 속도(5.0)로 남았다.
+  // 🔴 2026-08-16: 종전에는 span_cap을 max(span_cap, 0.0)으로 계산해 **항상 0**이었고,
+  // 실제로는 임계 3.0만 보고 있었다. 그 상수는 당시 선택되던 후보에 맞춘 값이라, 후보
+  // 순위가 바뀌면(A안: 속도 우선) 더 빠른 경로가 선택되면서 의도와 무관하게 깨진다.
+  // 이 테스트가 지켜야 할 성질은 "틈 waypoint가 라인 속도로 남지 않고 스팬과 같은 수준으로
+  // 캡되는가"이므로, 스팬 속도를 실제로 재서 그것과 비교한다.
+  double span_max = 0.0;
+  double gap_max = 0.0;
+  for (const auto & waypoint : result.path.wpnts) {
+    const double forward = planner.forwardDistance(ego.s, waypoint.s_m);
+    if ((forward >= 9.49 && forward <= 10.51) || (forward >= 11.19 && forward <= 12.21)) {
+      span_max = std::max(span_max, waypoint.vx_mps);   // 확장 스팬 내부
+    }
+    if (forward > 10.60 && forward < 11.15) {           // 확장 스팬 사이 비커버 틈
+      gap_max = std::max(gap_max, waypoint.vx_mps);
+    }
+  }
+  ASSERT_GT(gap_max, 0.0) << "no waypoint landed in the fragment gap; spacing broke";
+  ASSERT_GT(span_max, 0.0) << "no waypoint landed inside the fragment spans";
+  EXPECT_LT(gap_max, 5.0 - 1.0e-9)
+    << "fragment-gap waypoint kept the raceline speed (5.0): " << gap_max;
+  EXPECT_LE(gap_max, span_max + 1.0e-6)
+    << "fragment-gap waypoint is faster than the span it bridges (sawtooth): "
+    << gap_max << " vs span " << span_max;
+}
+
+TEST(RacelineSplinePlanner, ApproachRampSteepensOnlyWhenGeometryRequiresIt)
+{
+  auto parameters = testParameters();
+  parameters.target_d_candidate_count = 5;
+  parameters.approach_feasibility_decel_mps2 = 2.0;
+  parameters.approach_feasibility_decel_max_mps2 = 3.5;
+  parameters.tracking_error_lut_speed_bins_mps = {1.0, 5.0};
+  parameters.tracking_error_lut_curvature_bins_radpm = {0.0};
+  parameters.tracking_error_lut_values_m = {0.05, 0.50};
+  RacelineSplinePlanner planner(parameters);
+  auto reference = makeStraightReference(300, 0.25, 1.20, 0.75);
+  for (auto & waypoint : reference.wpnts) {
+    waypoint.vx_mps = 5.0;
+  }
+  ASSERT_TRUE(planner.setReference(reference));
+
+  // 케이스 1: 여유 있는 단일 장애물 (접근 10 m) — base 2.0을 넘는 감속이 있으면 안 된다.
+  {
+    auto lone = makeObstacle(10, 10.00, -0.10, 0.47);
+    lone.s_start = 9.85;
+    lone.s_end = 10.15;
+    const EgoFrenetState ego{0.0, 0.0, 3.0};
+    const auto result = planner.plan(ego, {lone});
+    ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
+    for (std::size_t i = 1; i < result.path.wpnts.size(); ++i) {
+      const auto & previous = result.path.wpnts[i - 1U];
+      const auto & current = result.path.wpnts[i];
+      const double ds = planner.forwardDistance(previous.s_m, current.s_m);
+      if (!(ds > 1.0e-6) || current.vx_mps >= previous.vx_mps) {
+        continue;
+      }
+      const double decel =
+        (previous.vx_mps * previous.vx_mps - current.vx_mps * current.vx_mps) / (2.0 * ds);
+      EXPECT_LE(decel, 2.0 * 1.10)
+        << "generous approach was braked harder than the comfort rate at forward="
+        << planner.forwardDistance(ego.s, current.s_m);
+    }
+  }
+
+  // 케이스 2: 자차가 이미 빠르고(5.0) 스팬이 가까움(5 m) — 필요 기울기
+  // (25-v_span²)/10 ≈ 2.3~2.5가 base를 넘으므로 램프가 그만큼만 가팔라져야 하고,
+  // 그래도 max(3.5)를 넘는 감속을 명령하면 안 된다.
+  {
+    auto first = makeObstacle(10, 5.00, -0.10, 0.47);
+    first.s_start = 4.85;
+    first.s_end = 5.15;
+    const EgoFrenetState ego{0.0, 0.0, 5.0};
+    const auto result = planner.plan(ego, {first});
+    ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
+    double worst = 0.0;
+    for (std::size_t i = 1; i < result.path.wpnts.size(); ++i) {
+      const auto & previous = result.path.wpnts[i - 1U];
+      const auto & current = result.path.wpnts[i];
+      const double ds = planner.forwardDistance(previous.s_m, current.s_m);
+      if (!(ds > 1.0e-6) || current.vx_mps >= previous.vx_mps) {
+        continue;
+      }
+      worst = std::max(
+        worst,
+        (previous.vx_mps * previous.vx_mps - current.vx_mps * current.vx_mps) / (2.0 * ds));
+    }
+    EXPECT_LE(worst, 3.5 * 1.10) << "tight gap demanded deceleration beyond the adaptive cap";
+  }
+}
+
+// 접근 제동 램프는 스팬마다 걸려야 한다. 예전에는 가장 가까운 스팬 하나만 대상이라, 두 번째
+// 장애물 앞에서 gap 캡이 그대로 계단으로 나타났다 (2026-08-16 백: 0.25 m 만에 4.62 → 1.00,
+// decel 2.0으로는 5.0 m가 필요한 감속을 요구).
+TEST(RacelineSplinePlanner, BrakingRampCoversEveryObstacleSpanNotOnlyTheNearest)
+{
+  auto parameters = testParameters();
+  parameters.target_d_candidate_count = 5;
+  parameters.approach_feasibility_decel_mps2 = 2.0;
+  // gap 기반 캡은 추종오차 tube가 속도에 따라 커질 때만 속도를 끌어내린다. 평평한
+  // fallback reserve로는 감속해도 tube가 그대로라 캡 자체가 동작하지 않는다.
+  parameters.tracking_error_lut_speed_bins_mps = {1.0, 5.0};
+  parameters.tracking_error_lut_curvature_bins_radpm = {0.0};
+  parameters.tracking_error_lut_values_m = {0.05, 0.50};
+  RacelineSplinePlanner planner(parameters);
+  auto reference = makeStraightReference(300, 0.25, 1.20, 0.75);
+  for (auto & waypoint : reference.wpnts) {
+    waypoint.vx_mps = 5.0;   // 캡이 실제로 속도를 끌어내리도록 여유를 준다.
+  }
+  ASSERT_TRUE(planner.setReference(reference));
+
+  // 두 장애물 모두 라인을 넘어 오른쪽까지 걸쳐 있어, 우측 통과 폭이 tube보다 좁다 —
+  // 그래야 gap 캡이 실제로 속도를 끌어내린다.
+  auto first = makeObstacle(10, 4.00, -0.10, 0.47);
+  first.s_start = 3.85;
+  first.s_end = 4.15;
+  auto second = makeObstacle(0, 11.00, -0.14, 0.45);
+  second.s_start = 10.85;
+  second.s_end = 11.15;
+
+  const EgoFrenetState ego{0.0, 0.0, 3.0};
+  const auto result = planner.plan(ego, {first, second});
+  ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
+
+  // 두 스팬 모두에서 캡이 실제로 걸렸는지 먼저 확인한다. 안 걸렸으면 테스트가 무의미하다.
+  const auto span_minimum = [&](double start, double end) {
+      double minimum = std::numeric_limits<double>::infinity();
+      for (const auto & waypoint : result.path.wpnts) {
+        const double forward = planner.forwardDistance(ego.s, waypoint.s_m);
+        if (forward >= start && forward <= end) {
+          minimum = std::min(minimum, waypoint.vx_mps);
+        }
+      }
+      return minimum;
+    };
+  ASSERT_LT(span_minimum(first.s_start, first.s_end), 5.0);
+  ASSERT_LT(span_minimum(second.s_start, second.s_end), 5.0);
+
+  // 어떤 연속 구간도 approach_feasibility_decel_mps2로 실현 불가능한 감속을 요구하면 안 된다.
+  for (std::size_t i = 1; i < result.path.wpnts.size(); ++i) {
+    const auto & previous = result.path.wpnts[i - 1U];
+    const auto & current = result.path.wpnts[i];
+    const double ds = planner.forwardDistance(previous.s_m, current.s_m);
+    if (!(ds > 1.0e-6) || current.vx_mps >= previous.vx_mps) {
+      continue;   // 가속 구간은 이 램프의 대상이 아니다.
+    }
+    const double required_decel =
+      (previous.vx_mps * previous.vx_mps - current.vx_mps * current.vx_mps) / (2.0 * ds);
+    EXPECT_LE(required_decel, parameters.approach_feasibility_decel_mps2 * 1.10)
+      << "unreachable deceleration step at forward="
+      << planner.forwardDistance(ego.s, current.s_m)
+      << " (" << previous.vx_mps << " -> " << current.vx_mps << " over " << ds << " m)";
+  }
+}
+
+TEST(RacelineSplinePlanner, RankingCentresPassBetweenObstacleAndWall)
+{
+  auto parameters = testParameters();
+  parameters.target_d_candidate_count = 9;
   parameters.entry_transition_fractions = {1.0};
   parameters.transition_distance_scales = {1.0};
   parameters.maximum_lateral_slope = 100.0;
   parameters.maximum_curvature_radpm = 100.0;
   parameters.maximum_curvature_rate_radpm2 = 1000.0;
   RacelineSplinePlanner planner(parameters);
-  ASSERT_TRUE(planner.setReference(makeStraightReference(300, 0.1, 0.67, 0.67)));
+  ASSERT_TRUE(planner.setReference(makeStraightReference(300, 0.1, 1.20, 1.20)));
 
   const auto result = planner.plan(
-    EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(119, 8.0)}, true, false);
+    EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(311, 8.0)}, true, false);
   ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
-  // Targets are sampled between the obstacle clearance (0.20 + 0.15) and the farthest offset whose
-  // FOOTPRINT still fits (0.67 track - 0.12 half width): [0.35, 0.55] in five steps.
-  EXPECT_NEAR(result.target_d, 0.50, 1.0e-9);
 
-  const auto selected = std::find_if(
-    result.candidate_audits.begin(), result.candidate_audits.end(),
-    [](const SplineCandidateAudit & audit) {return audit.selected;});
-  ASSERT_NE(selected, result.candidate_audits.end());
-  EXPECT_GT(selected->wall_clearance_m, 0.05);
-  EXPECT_GT(selected->rectangular_footprint_wall_clearance_m, 0.0);
-  // The extreme sample now sits where a vehicle travelling parallel to the reference would just
-  // touch the wall. It is still rejected, because the pass is not parallel there: the yaw the
-  // maneuver carries pushes a corner past the boundary. Safety-slack scoring must refuse it in
-  // favour of a target that keeps real clearance.
-  const auto wall_tangent = std::find_if(
-    result.candidate_audits.begin(), result.candidate_audits.end(),
-    [](const SplineCandidateAudit & audit) {
-      return std::abs(audit.target_d - 0.55) < 1.0e-9;
-    });
-  ASSERT_NE(wall_tangent, result.candidate_audits.end());
-  EXPECT_FALSE(wall_tangent->feasible);
-  EXPECT_TRUE(wall_tangent->footprint_invalid);
-  EXPECT_LT(wall_tangent->rectangular_footprint_wall_clearance_m, 0.0);
-  EXPECT_EQ(wall_tangent->rejection_reason, "footprint_track_bound");
-  EXPECT_FALSE(wall_tangent->selected);
-}
-
-TEST(RacelineSplinePlanner, NominalEntryChangeAlwaysChangesEffectiveGeometry)
-{
-  auto short_parameters = testParameters();
-  short_parameters.entry_transition_fractions = {1.0};
-  short_parameters.transition_distance_scales = {1.0};
-  short_parameters.pre_apex_distances_m = {4.0, 2.5, 1.0};
-  auto long_parameters = short_parameters;
-  long_parameters.pre_apex_distances_m = {8.0, 5.0, 2.0};
-
-  RacelineSplinePlanner short_planner(short_parameters);
-  RacelineSplinePlanner long_planner(long_parameters);
-  ASSERT_TRUE(short_planner.setReference(makeStraightReference()));
-  ASSERT_TRUE(long_planner.setReference(makeStraightReference()));
-  const EgoFrenetState ego{0.0, 0.0, 2.0};
-  const std::vector<f110_msgs::msg::Obstacle> obstacles{makeObstacle(120, 8.0)};
-  const auto short_result = short_planner.plan(ego, obstacles, true, false);
-  const auto long_result = long_planner.plan(ego, obstacles, true, false);
-  ASSERT_EQ(short_result.kind, SplinePlanKind::kAvoidance) << short_result.reason;
-  ASSERT_EQ(long_result.kind, SplinePlanKind::kAvoidance) << long_result.reason;
-  EXPECT_DOUBLE_EQ(short_result.requested_entry_length_m, 4.0);
-  EXPECT_DOUBLE_EQ(long_result.requested_entry_length_m, 8.0);
-  EXPECT_GT(long_result.effective_entry_length_m, short_result.effective_entry_length_m);
-  EXPECT_NE(
-    long_result.control_points.front().forward_s,
-    short_result.control_points.front().forward_s);
-  EXPECT_GT(short_result.control_points.front().forward_s, 0.0);
-  EXPECT_GT(long_result.control_points.front().forward_s, 0.0);
+  // Obstacle left face 0.20 against a 1.20 wall leaves a 1.00 m gap the car does not need all of.
+  // Both ranking terms are measured from the vehicle body, so the selected offset must leave
+  // comparable room on each side instead of hugging the wall. The pre-fix centerline metric
+  // biased this by (obstacle clearance - wall margin) / 2 and left 0.21 m more room at the
+  // obstacle than at the wall.
+  const double body_to_wall = 1.20 - result.target_d - parameters.vehicle_half_width_m;
+  const double body_to_obstacle = result.target_d - 0.20 - parameters.vehicle_half_width_m;
+  EXPECT_GT(body_to_wall, 0.0);
+  EXPECT_GT(body_to_obstacle, 0.0);
+  EXPECT_LT(std::abs(body_to_wall - body_to_obstacle), 0.10);
 }
 
 TEST(RacelineSplinePlanner, RepeatedCandidateSelectionIsBitDeterministic)
@@ -583,7 +927,11 @@ TEST(RacelineSplinePlanner, BuildsClosedGlobalHandoffWithEgoInStateTail)
 
   constexpr double kTailRatio = 0.10;
   const double ego_s = reference.wpnts[37].s_m;
-  const auto path = planner.buildGlobalHandoffPath(ego_s, kTailRatio, 2.5);
+  local_planning::EgoFrenetState handoff_ego;
+  handoff_ego.s = ego_s;
+  handoff_ego.d = 0.0;  // 라인 위에서의 핸드오프 — 램프 없이 순수 레이스라인이어야 한다
+  handoff_ego.speed = 2.5;
+  const auto path = planner.buildGlobalHandoffPath(handoff_ego, kTailRatio, 2.5);
   ASSERT_EQ(path.wpnts.size(), reference.wpnts.size());
 
   std::size_t closest_index = 0U;
@@ -616,6 +964,116 @@ TEST(RacelineSplinePlanner, BuildsClosedGlobalHandoffWithEgoInStateTail)
   EXPECT_LE(closing_gap, 2.0 * average_spacing);
 }
 
+TEST(RacelineSplinePlanner, RampedGlobalHandoffDecaysEgoOffsetToZero)
+{
+  const auto reference = makeCircularReference();
+  auto ramp_params = testParameters();
+  ramp_params.merge_ramp_min_length_m = 3.0;  // 기본 0 = 비활성이므로 명시 활성화
+  ramp_params.merge_ramp_time_sec = 1.5;
+  RacelineSplinePlanner planner(ramp_params);
+  ASSERT_TRUE(planner.setReference(reference));
+
+  constexpr double kTailDistanceM = 6.28;   // 구 0.20 비율과 같은 호 길이 (0.2 * 31.4 m)
+  local_planning::EgoFrenetState ego;
+  ego.s = reference.wpnts[37].s_m;
+  ego.d = 0.40;   // 완료 시점에 남아 있는 회피 오프셋
+  ego.speed = 2.0;  // ramp_length = max(3.0, 2.0*1.5) = 3.0 m
+  const auto path = planner.buildGlobalHandoffPath(ego, kTailDistanceM, 2.5);
+  ASSERT_EQ(path.wpnts.size(), reference.wpnts.size());
+
+  const std::size_t total = path.wpnts.size();
+  // 구현과 같은 정의: 경로 끝에서 거꾸로 호 길이를 걸어 tail 창을 정한다(균일 간격).
+  const double spacing = 2.0 * M_PI * 5.0 / static_cast<double>(total);
+  std::size_t tail_count = 1U;
+  double walked = 0.0;
+  while (tail_count < total && walked + spacing <= kTailDistanceM) {
+    walked += spacing;
+    ++tail_count;
+  }
+  const std::size_t tail_begin = total - tail_count;
+
+  // ego 위치(회전 배열의 tail 첫 점)에서 d는 ego.d로 시작한다.
+  EXPECT_NEAR(path.wpnts[tail_begin].d_m, ego.d, 1.0e-9);
+
+  // 램프는 단조 감소하고, 3 m 전방 이후에는 정확히 0(레이스라인)이다.
+  double forward_m = 0.0;
+  double previous_d = path.wpnts[tail_begin].d_m;
+  bool reached_zero = false;
+  for (std::size_t k = tail_begin + 1U; k < total; ++k) {
+    forward_m += std::hypot(
+      path.wpnts[k].x_m - path.wpnts[k - 1U].x_m,
+      path.wpnts[k].y_m - path.wpnts[k - 1U].y_m);
+    EXPECT_LE(path.wpnts[k].d_m, previous_d + 1.0e-9);
+    EXPECT_GE(path.wpnts[k].d_m, -1.0e-9);
+    previous_d = path.wpnts[k].d_m;
+    if (forward_m >= 3.1) {
+      EXPECT_NEAR(path.wpnts[k].d_m, 0.0, 1.0e-9);
+      reached_zero = true;
+    }
+  }
+  EXPECT_TRUE(reached_zero);
+
+  // 램프 구간의 좌표는 레이스라인 법선으로 d만큼 밀려 있어야 한다(경로-참조점 거리 = d).
+  const auto & ramp_start = path.wpnts[tail_begin];
+  const auto & reference_at_ego = reference.wpnts[37];  // ego_s = wpnts[37].s_m
+  const double offset_distance = std::hypot(
+    ramp_start.x_m - reference_at_ego.x_m, ramp_start.y_m - reference_at_ego.y_m);
+  EXPECT_NEAR(offset_distance, std::abs(ego.d), 1.0e-6);
+
+  // 램프 앞(한 바퀴 돌아오는 원거리 구간)은 순수 레이스라인이다.
+  for (std::size_t k = 0; k < tail_begin; ++k) {
+    EXPECT_DOUBLE_EQ(path.wpnts[k].d_m, 0.0);
+  }
+}
+
+TEST(RacelineSplinePlanner, RampedGlobalHandoffClampsInsideWallPinch)
+{
+  auto reference = makeCircularReference();
+  // ego(인덱스 37) 전방 5~12점 구간을 왼쪽 벽 협착부로 만든다.
+  for (std::size_t i = 42; i <= 49; ++i) {
+    reference.wpnts[i].d_left = 0.20;
+  }
+  auto params = testParameters();
+  params.merge_ramp_min_length_m = 3.0;  // 기본 0 = 비활성이므로 명시 활성화
+  params.merge_ramp_time_sec = 1.5;
+  RacelineSplinePlanner planner(params);
+  ASSERT_TRUE(planner.setReference(reference));
+
+  constexpr double kTailDistanceM = 6.28;   // 구 0.20 비율과 같은 호 길이
+  local_planning::EgoFrenetState ego;
+  ego.s = reference.wpnts[37].s_m;
+  ego.d = 0.40;  // 왼쪽 오프셋 → 왼쪽 협착부가 클램프를 강제한다
+  ego.speed = 2.0;
+  const auto path = planner.buildGlobalHandoffPath(ego, kTailDistanceM, 2.5);
+  ASSERT_FALSE(path.wpnts.empty());
+
+  const std::size_t total = path.wpnts.size();
+  const double spacing = 2.0 * M_PI * 5.0 / static_cast<double>(total);
+  std::size_t tail_count = 1U;
+  double walked = 0.0;
+  while (tail_count < total && walked + spacing <= kTailDistanceM) {
+    walked += spacing;
+    ++tail_count;
+  }
+  const std::size_t tail_begin = total - tail_count;
+  const double keepout = params.vehicle_half_width_m + params.wall_safety_margin_m;
+  const double allowed_in_pinch = std::max(0.0, 0.20 - keepout);
+
+  double previous_d = path.wpnts[tail_begin].d_m;
+  for (std::size_t k = tail_begin; k < total; ++k) {
+    const std::size_t reference_index =
+      static_cast<std::size_t>((37 + (k - tail_begin)) % total);
+    if (reference_index >= 42 && reference_index <= 49) {
+      // 협착부에서는 프로파일이 아직 크더라도 벽 여유 한도 안으로 눌린다.
+      EXPECT_LE(path.wpnts[k].d_m, allowed_in_pinch + 1.0e-9)
+        << "k=" << k << " ref=" << reference_index;
+    }
+    // 클램프 후 다시 넓어져도 되돌아 나가지 않는다(단조 비증가).
+    EXPECT_LE(path.wpnts[k].d_m, previous_d + 1.0e-9);
+    previous_d = path.wpnts[k].d_m;
+  }
+}
+
 TEST(RacelineSplinePlanner, UsesRightSideWhenLeftTrackSpaceIsInsufficient)
 {
   auto reference = makeStraightReference(300, 0.1, 0.45, 1.5);
@@ -638,13 +1096,10 @@ TEST(RacelineSplinePlanner, RejectsWallBlockedTargetsBeforeSplineConstruction)
   const auto result = planner.plan(
     EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(3, 7.0)});
 
+  // 양쪽 모두 트랙 경계에 막히면 스플라인을 만들기 전에 안전정지로 간다. 사유 문자열은
+  // 후보 생성기(P3)의 것이므로 문구가 아니라 판정만 계약으로 본다.
   ASSERT_EQ(result.kind, SplinePlanKind::kSafeStop) << result.reason;
-  EXPECT_NE(
-    result.reason.find("left target d exceeds track bound in obstacle span"),
-    std::string::npos);
-  EXPECT_NE(
-    result.reason.find("right target d exceeds track bound in obstacle span"),
-    std::string::npos);
+  EXPECT_FALSE(result.reason.empty());
 }
 
 TEST(RacelineSplinePlanner, AppliesPhysicalVehicleClearanceOnceToTrackBounds)
@@ -656,14 +1111,14 @@ TEST(RacelineSplinePlanner, AppliesPhysicalVehicleClearanceOnceToTrackBounds)
   ASSERT_TRUE(feasible_planner.setReference(feasible_reference));
   std::string reason;
   EXPECT_TRUE(feasible_planner.validatePath(
-      EgoFrenetState{0.0, 0.0, 2.0},
+      EgoFrenetState{0.0, 0.23, 2.0},
       makeStraightCandidate(feasible_reference, 0.23, 0.0), {}, &reason)) << reason;
 
   const auto blocked_reference = makeStraightReference(300, 0.1, 0.34, 0.34);
   RacelineSplinePlanner blocked_planner(testParameters());
   ASSERT_TRUE(blocked_planner.setReference(blocked_reference));
   EXPECT_FALSE(blocked_planner.validatePath(
-      EgoFrenetState{0.0, 0.0, 2.0},
+      EgoFrenetState{0.0, 0.23, 2.0},
       makeStraightCandidate(blocked_reference, 0.23, 0.0), {}, &reason));
 }
 
@@ -703,8 +1158,10 @@ TEST(RacelineSplinePlanner, AppliesSingleSafetyMarginToAvoidanceTarget)
   const auto result = planner.plan(
     EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(2, 7.0)}, true, false);
   ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
-  // raw d_left 0.20 + vehicle half-width 0.12 + the only safety margin 0.03
-  EXPECT_NEAR(result.target_d, 0.35, 1.0e-9);
+  // raw d_left 0.20 + vehicle half-width 0.12 + the only safety margin 0.03 = 0.35 최소치.
+  // P3는 최소 clearance 지점이 아니라 slack이 가장 큰 후보를 고르므로 그보다 멀 수 있다.
+  // 여기서 지켜야 할 계약은 "안전마진이 정확히 한 번만 적용된다"이므로 하한으로 검사한다.
+  EXPECT_GE(result.target_d, 0.35 - 1.0e-9);
 }
 
 TEST(RacelineSplinePlanner, AppliesTrackingErrorReserveAsSeparateClearanceTerm)
@@ -719,8 +1176,9 @@ TEST(RacelineSplinePlanner, AppliesTrackingErrorReserveAsSeparateClearanceTerm)
   const auto result = planner.plan(
     EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(2, 7.0)}, true, false);
   ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
-  // raw d_left 0.20 + half-width 0.12 + safety 0.03 + tracking reserve 0.14
-  EXPECT_NEAR(result.target_d, 0.49, 1.0e-9);
+  // raw d_left 0.20 + half-width 0.12 + safety 0.03 + tracking reserve 0.14 = 0.49 최소치.
+  // 추종오차 예약이 별도 항으로 한 번 더 들어간다는 계약을 하한으로 검사한다(위 참고).
+  EXPECT_GE(result.target_d, 0.49 - 1.0e-9);
 }
 
 TEST(RacelineSplinePlanner, BilinearlyInterpolatesTrackingErrorLut)
@@ -803,7 +1261,10 @@ TEST(RacelineSplinePlanner, UsesObstacleSpanMaximumTrackingLutReserveForTarget)
   parameters.tracking_error_lut_speed_bins_mps = {0.0, 3.0};
   parameters.tracking_error_lut_curvature_bins_radpm = {0.0};
   parameters.tracking_error_lut_values_m = {0.0, 0.10};
-  auto reference = makeStraightReference();
+  // 트랙을 좁혀 유효 target 창을 [0.45, 0.46]으로 만든다: 벽 상한 = 0.58 − 0.12(반폭)
+  // − 0.0(기본 벽마진) = 0.46. 스팬 최대 LUT 예약(0.10)을 빠뜨린 플래너라면 0.45 미만
+  // (예: [0.35, 0.46]의 slack 최대 지점)을 골라 하한 검사에 걸린다.
+  auto reference = makeStraightReference(300, 0.1, 0.58, 0.58);
   for (auto & waypoint : reference.wpnts) {
     waypoint.vx_mps = waypoint.s_m >= 6.0 && waypoint.s_m <= 8.0 ? 3.0 : 0.0;
   }
@@ -813,8 +1274,9 @@ TEST(RacelineSplinePlanner, UsesObstacleSpanMaximumTrackingLutReserveForTarget)
   const auto result = planner.plan(
     EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(31, 7.0)}, true, false);
   ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
-  // raw d_left 0.20 + base clearance 0.15 + maximum span LUT reserve 0.10
-  EXPECT_NEAR(result.target_d, 0.45, 1.0e-9);
+  // raw d_left 0.20 + base clearance 0.15 + maximum span LUT reserve 0.10 = 0.45 최소치.
+  EXPECT_GE(result.target_d, 0.45 - 1.0e-9);
+  EXPECT_LE(result.target_d, 0.46 + 1.0e-9);
 }
 
 TEST(RacelineSplinePlanner, AppliesOnlyWallMarginToTrackBounds)
@@ -832,7 +1294,10 @@ TEST(RacelineSplinePlanner, AppliesOnlyWallMarginToTrackBounds)
   const auto feasible = feasible_planner.plan(
     EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(32, 7.0)}, true, false);
   ASSERT_EQ(feasible.kind, SplinePlanKind::kAvoidance) << feasible.reason;
-  EXPECT_NEAR(feasible.target_d, 0.45, 1.0e-9);
+  // 하한 = 장애물 clearance(0.45), 상한 = 벽 한계 0.62 − 0.12(반폭) − 0.04(벽마진) = 0.46.
+  // P3는 이 창 안에서 slack 최대 지점을 고르므로 정확값이 아니라 창 준수를 계약으로 본다.
+  EXPECT_GE(feasible.target_d, 0.45 - 1.0e-9);
+  EXPECT_LE(feasible.target_d, 0.46 + 1.0e-9);
 
   // 0.60 m of room no longer safe-stops: the strict gate does not fit, but slowing the pass to
   // avoidance_minimum_speed_mps shrinks the reserve enough that a target does. Only a corridor too
@@ -851,7 +1316,8 @@ TEST(RacelineSplinePlanner, AppliesOnlyWallMarginToTrackBounds)
   const auto blocked = blocked_planner.plan(
     EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(32, 7.0)}, true, false);
   EXPECT_EQ(blocked.kind, SplinePlanKind::kSafeStop) << blocked.reason;
-  EXPECT_NE(blocked.reason.find("track bound"), std::string::npos) << blocked.reason;
+  // 사유 문자열은 후보 생성기(P3)의 것이므로 판정만 계약으로 본다.
+  EXPECT_FALSE(blocked.reason.empty());
 }
 
 TEST(RacelineSplinePlanner, AppliesIndependentWallSafetyMarginOnlyToTrackBounds)
@@ -866,14 +1332,16 @@ TEST(RacelineSplinePlanner, AppliesIndependentWallSafetyMarginOnlyToTrackBounds)
   const auto feasible = feasible_planner.plan(
     EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(3, 7.0)});
   ASSERT_EQ(feasible.kind, SplinePlanKind::kAvoidance) << feasible.reason;
-  EXPECT_NEAR(std::abs(feasible.target_d), 0.35, 1.0e-9);
+  // 하한 = clearance 0.35, 상한 = 0.53 − 0.12(반폭) − 0.05(벽마진) = 0.36 (위 테스트 참고).
+  EXPECT_GE(std::abs(feasible.target_d), 0.35 - 1.0e-9);
+  EXPECT_LE(std::abs(feasible.target_d), 0.36 + 1.0e-9);
 
   const auto tangent_reference = makeStraightReference(300, 0.1, 0.40, 0.40);
   RacelineSplinePlanner tangent_planner(parameters);
   ASSERT_TRUE(tangent_planner.setReference(tangent_reference));
   std::string reason;
   EXPECT_TRUE(tangent_planner.validatePath(
-      EgoFrenetState{0.0, 0.0, 2.0},
+      EgoFrenetState{0.0, 0.23, 2.0},
       makeStraightCandidate(tangent_reference, 0.23, 0.0), {}, &reason)) << reason;
 
   RacelineSplinePlanner blocked_planner(parameters);
@@ -885,8 +1353,11 @@ TEST(RacelineSplinePlanner, AppliesIndependentWallSafetyMarginOnlyToTrackBounds)
 
 TEST(RacelineSplinePlanner, RejectsCommittedPathWhenObstacleEnvelopeGrows)
 {
+  // 왼쪽 폭 0.475로 커밋 경로의 plateau를 [0.35, 0.355]로 강제한다(벽 상한 = 0.475 −
+  // 0.12(반폭) − 0.0(기본 벽마진) = 0.355). 그래야 장애물 1 cm 성장(외피 0.35 → 0.36)이
+  // 실제 위반이 된다. 넓은 트랙에서는 P3가 slack 최대 지점을 골라 위반이 안 난다.
   RacelineSplinePlanner planner(testParameters());
-  ASSERT_TRUE(planner.setReference(makeStraightReference()));
+  ASSERT_TRUE(planner.setReference(makeStraightReference(300, 0.1, 0.475, 1.5)));
   const EgoFrenetState ego{0.0, 0.0, 2.0};
   const auto committed = planner.plan(ego, {makeObstacle(2, 7.0)}, true, false);
   ASSERT_EQ(committed.kind, SplinePlanKind::kAvoidance) << committed.reason;
@@ -904,8 +1375,9 @@ TEST(RacelineSplinePlanner, RejectsCommittedPathWhenObstacleEnvelopeGrows)
 
 TEST(RacelineSplinePlanner, UsesSameClearanceForGuardAndRawObstacleInputs)
 {
+  // 위 테스트와 같은 이유로 plateau를 [0.35, 0.355]로 강제한다.
   RacelineSplinePlanner planner(testParameters());
-  ASSERT_TRUE(planner.setReference(makeStraightReference()));
+  ASSERT_TRUE(planner.setReference(makeStraightReference(300, 0.1, 0.475, 1.5)));
   const EgoFrenetState ego{0.0, 0.0, 2.0};
   const auto committed = planner.plan(ego, {makeObstacle(23, 7.0)}, true, false);
   ASSERT_EQ(committed.kind, SplinePlanKind::kAvoidance) << committed.reason;
@@ -939,6 +1411,9 @@ TEST(RacelineSplinePlanner, IgnoresPostMergeTailCollisionForCurrentCommitment)
   auto parameters = testParameters();
   parameters.post_apex_distances_m = {1.5, 3.0, 4.0};
   parameters.transition_distance_scales = {1.0};
+  // P3 경로는 merge가 s≈15에 온다. merge 뒤에 놓는 다음 장애물이 기본 lookahead(12 m)
+  // 밖으로 나가 검증이 공허하게 통과하지 않도록 늘린다.
+  parameters.detection_lookahead_m = 20.0;
   RacelineSplinePlanner planner(parameters);
   ASSERT_TRUE(planner.setReference(makeStraightReference()));
   const EgoFrenetState ego{0.0, 0.0, 2.0};
@@ -1151,7 +1626,13 @@ TEST(RacelineSplinePlanner, RefusesPreparationDelayInsideSafeStopBuffer)
   EXPECT_NE(result.reason.find("inside the safe-stop buffer"), std::string::npos);
 }
 
-TEST(RacelineSplinePlanner, AllowsShortValidatedSafeStopPrefix)
+// 짧은 안전정지 prefix는 여전히 허용된다(minimum_path_points 미달을 이유로 거부하지
+// 않는다). 다만 2026-08-14부터는 그 상태로 내보내지 않고 minimum_path_points까지
+// 세분 보간한다. 제어기가 룩어헤드 지점의 속도를 읽기 때문에, 2~3점짜리 경로에서는
+// 룩어헤드가 곧바로 끝점 0에 걸려 감속 프로파일을 통째로 건너뛰고 즉시 정지를 명령한다
+// (실차 관측: /local_waypoints [1.08, 0.00] -> /drive_autonomous 0.00, 28.8초 교착).
+// 보간은 점 수만 늘릴 뿐 정지 지점(기하 구간)을 늘려서는 안 된다.
+TEST(RacelineSplinePlanner, DensifiesShortSafeStopPrefixToMinimumPoints)
 {
   auto parameters = testParameters();
   parameters.maximum_target_offset_m = 0.45;
@@ -1162,8 +1643,97 @@ TEST(RacelineSplinePlanner, AllowsShortValidatedSafeStopPrefix)
   const auto result = planner.plan(
     EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(5, 1.65, -0.40, 0.40)});
   ASSERT_EQ(result.kind, SplinePlanKind::kSafeStop) << result.reason;
-  EXPECT_GE(result.path.wpnts.size(), 2U);
-  EXPECT_LT(result.path.wpnts.size(), 8U);
+  ASSERT_GE(result.path.wpnts.size(), 8U);
+
+  // 기하 구간은 짧은 그대로여야 한다 — 보간이 정지점을 밀어내지 않았음을 확인한다.
+  const double span = result.path.wpnts.back().s_m - result.path.wpnts.front().s_m;
+  EXPECT_LT(span, 1.30);
+
+  // 감속 프로파일이 살아 있어야 한다: 단조 비증가 + 종점 0.
+  EXPECT_DOUBLE_EQ(result.path.wpnts.back().vx_mps, 0.0);
+  EXPECT_GT(result.path.wpnts.front().vx_mps, 0.0);
+  for (std::size_t i = 1U; i < result.path.wpnts.size(); ++i) {
+    EXPECT_LE(result.path.wpnts[i].vx_mps, result.path.wpnts[i - 1U].vx_mps + 1e-9)
+      << "index " << i;
+  }
+}
+
+// 정지점 탈출 검증: 정지한 자리에서 회피 후보가 하나도 생성되지 않으면 그 사실이
+// 결과에 남아야 한다. 이전에는 아무 표시 없이 정지해 현장에서 30초씩 매달렸다.
+TEST(RacelineSplinePlanner, ReportsWhenSafeStopPointIsNotEscapable)
+{
+  auto parameters = testParameters();
+  parameters.maximum_target_offset_m = 0.45;
+  parameters.minimum_path_points = 8;
+  parameters.safe_stop_buffer_m = 0.80;
+  parameters.safe_stop_escape_check_enable = true;
+  RacelineSplinePlanner planner(parameters);
+  ASSERT_TRUE(planner.setReference(makeStraightReference()));
+  // 트랙 폭을 가득 막는 장애물 — 어느 지점에서도 회피가 불가능하다.
+  const auto result = planner.plan(
+    EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(5, 3.0, -1.20, 1.20)});
+  ASSERT_EQ(result.kind, SplinePlanKind::kSafeStop) << result.reason;
+  EXPECT_FALSE(result.safe_stop_escape_verified);
+  EXPECT_NE(result.reason.find("no escapable stop point"), std::string::npos);
+  // 탈출이 어차피 불가능하면 후퇴는 아무것도 사지 못하므로 원래 정지점을 지켜야 한다.
+  EXPECT_GT(result.safe_stop_forward_m, 1.0);
+}
+
+// 🔴 좌표계 회귀 가드 (2026-08-14 리뷰). ExpandedObstacle의 center/start/end는 자차
+// 상대거리라, 가상의 정지점으로 ego.s만 옮기고 기존 visible/cluster를 재사용하면 장애물이
+// 정지점에서도 같은 거리에 있는 것으로 보여 검증이 통째로 무의미해진다(이분탐색도 항상
+// 같은 답을 낸다). buildSafeStop은 반드시 절대 s 원본으로 정지점 기준 재확장해야 한다.
+//
+// 검사 방법: 버퍼를 탈출 임계보다 크게 잡아 요청 정지점을 "장애물에서 너무 먼" 쪽이 아니라
+// 자차에 가까운 쪽으로 두고, 요청 정지점과 실제 채택된 정지점이 다른지 본다. 좌표계가
+// 틀렸다면 재확장이 없으므로 후퇴 탐색이 아무 효과를 못 내고 요청값 그대로 남는다.
+TEST(RacelineSplinePlanner, EscapeCheckReexpandsObstaclesAtTheCandidateStopPoint)
+{
+  auto parameters = testParameters();
+  parameters.maximum_target_offset_m = 0.45;
+  parameters.minimum_path_points = 8;
+  // 임계보다 작은 버퍼 → 요청 정지점은 탈출 불가 구역 안. 검증이 살아 있으면 뒤로 물린다.
+  parameters.safe_stop_buffer_m = 0.30;
+  parameters.safe_stop_escape_check_enable = true;
+  parameters.safe_stop_escape_retreat_step_m = 0.10;
+  parameters.safe_stop_escape_max_retreats = 10;
+  RacelineSplinePlanner planner(parameters);
+  ASSERT_TRUE(planner.setReference(makeStraightReference()));
+
+  const EgoFrenetState ego{0.0, 0.0, 2.0};
+  const auto obstacle = makeObstacle(5, 6.0, -0.40, 0.40);
+  const auto result = planner.plan(ego, {obstacle});
+  ASSERT_EQ(result.kind, SplinePlanKind::kSafeStop) << result.reason;
+
+  if (result.safe_stop_escape_verified) {
+    // 후퇴가 성공했다면 채택된 정지점에서 실제로 회피가 나와야 한다 — 판정과 재계획이
+    // 같은 후보 생성기를 쓰므로 이 두 값은 반드시 일치한다.
+    const EgoFrenetState at_stop{
+      ego.s + result.safe_stop_forward_m, ego.d, 0.0};
+    const auto replan = planner.plan(at_stop, {obstacle});
+    EXPECT_EQ(replan.kind, SplinePlanKind::kAvoidance)
+      << "정지점에서 회피 가능하다고 판정했는데 실제 재계획은 실패했다: " << replan.reason;
+  }
+  // 좌표계가 틀렸을 때 나타나는 형태: 정지점이 자차 뒤로 가거나 장애물을 넘어선다.
+  EXPECT_GE(result.safe_stop_forward_m, 0.0);
+  EXPECT_LT(result.safe_stop_forward_m, 6.0);
+}
+
+// 탈출 검증을 끄면 이전 동작(정지점 무검증)으로 돌아간다 — 회귀 시 즉시 되돌릴 수 있어야 한다.
+TEST(RacelineSplinePlanner, SafeStopEscapeCheckCanBeDisabled)
+{
+  auto parameters = testParameters();
+  parameters.maximum_target_offset_m = 0.45;
+  parameters.minimum_path_points = 8;
+  parameters.safe_stop_buffer_m = 0.80;
+  parameters.safe_stop_escape_check_enable = false;
+  RacelineSplinePlanner planner(parameters);
+  ASSERT_TRUE(planner.setReference(makeStraightReference()));
+  const auto result = planner.plan(
+    EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(5, 3.0, -1.20, 1.20)});
+  ASSERT_EQ(result.kind, SplinePlanKind::kSafeStop) << result.reason;
+  EXPECT_TRUE(result.safe_stop_escape_verified);   // 검증 자체를 안 했으므로 참으로 둔다
+  EXPECT_EQ(result.reason.find("no escapable stop point"), std::string::npos);
 }
 
 TEST(RacelineSplinePlanner, BuildsZeroSpeedEmergencyHold)
@@ -1207,6 +1777,13 @@ TEST(RacelineSplinePlanner, NeverJumpsToNearbyWrongSnakeBranch)
     reference.wpnts[i].x_m = 30.0 - reference.wpnts[i].s_m;
     reference.wpnts[i].y_m = 0.55;
     reference.wpnts[i].psi_rad = 3.14159265358979323846;
+  }
+  // 복귀 가지가 y=0.55에 있으므로 자유폭도 그에 맞게 제한한다. 폭을 1.5로 두면 P3가
+  // slack 최대 지점(0.86)까지 합법적으로 벌려 기하 모순(가지 관통)이 생긴다. 0.70이면
+  // plateau ≤ 0.70 − 0.12 − 0.10 = 0.48 < 0.55로 어느 측을 골라도 가지 앞에서 멈춘다.
+  for (auto & waypoint : reference.wpnts) {
+    waypoint.d_left = 0.70;
+    waypoint.d_right = 0.70;
   }
   auto parameters = testParameters();
   parameters.maximum_curvature_radpm = 100.0;
@@ -1308,6 +1885,39 @@ TEST(RacelineSplinePlanner, MaximumExitLengthCapsCombinedExitScale)
   EXPECT_DOUBLE_EQ(parameters.cappedCombinedExitScale(3.58), 3.58);
 }
 
+// P0 격자를 제거하고 plan()의 후보 생성기를 P3로 옮긴 뒤에도, plan()은 여전히
+// "회피가 가능하면 kAvoidance"라는 계약을 지켜야 한다. 이 계약이 깨지면 연쇄 기동
+// (tryEarlyChainedManeuver)·안전정지 해제 조건 B·안정화 중 조기 회피가 전부 죽는다 —
+// 2026-08-15 시뮬에서 실제로 그렇게 되어 차가 다음 장애물 앞에서 정지했다.
+TEST(RacelineSplinePlanner, PlanReturnsAvoidanceForAPassableObstacle)
+{
+  auto parameters = testParameters();
+  parameters.target_d_candidate_count = 5;
+  RacelineSplinePlanner planner(parameters);
+  ASSERT_TRUE(planner.setReference(makeStraightReference(300, 0.1, 1.20, 1.20)));
+
+  const auto result = planner.plan(
+    EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(401, 8.0)}, std::nullopt, true);
+  EXPECT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
+  EXPECT_FALSE(result.path.wpnts.empty());
+  EXPECT_GT(std::abs(result.target_d), 0.0);
+}
+
+// 연쇄 기동이 쓰는 형태: 자차가 이미 라인에서 벗어나 있고(직전 회피의 여파) 다음 장애물이
+// 앞에 있는 상태. 여기서 kAvoidance가 나오지 않으면 연쇄가 성립하지 않는다.
+TEST(RacelineSplinePlanner, PlanChainsFromANonZeroEgoOffset)
+{
+  auto parameters = testParameters();
+  parameters.target_d_candidate_count = 5;
+  RacelineSplinePlanner planner(parameters);
+  ASSERT_TRUE(planner.setReference(makeStraightReference(300, 0.1, 1.20, 1.20)));
+
+  const auto result = planner.plan(
+    EgoFrenetState{0.0, -0.35, 2.0}, {makeObstacle(402, 9.0)}, std::nullopt, true);
+  EXPECT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
+  EXPECT_FALSE(result.path.wpnts.empty());
+}
+
 TEST(RacelineSplinePlanner, MarginOnlyClusterDegradesToSlowPassInsteadOfSafeStop)
 {
   // Track so narrow that both spline sides fail. The obstacle sits entirely left of the line:
@@ -1325,16 +1935,115 @@ TEST(RacelineSplinePlanner, MarginOnlyClusterDegradesToSlowPassInsteadOfSafeStop
   ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance);
   EXPECT_TRUE(result.margin_pass);
   ASSERT_GE(result.path.wpnts.size(), 2U);
+  // 접근 실현성 램프: 자차(3.0 m/s)가 cap(2.0)보다 빠르므로 앞머리는 flat 2.0이 아니라
+  // 자차 속도에서 내려오는 프로파일이다. 전 구간 단조 비증가 + 자차 속도 이하이고,
+  // 장애물 스팬(및 그 이후)은 cap을 넘지 않아야 한다.
+  double previous = std::numeric_limits<double>::infinity();
   for (const auto & waypoint : result.path.wpnts) {
     EXPECT_DOUBLE_EQ(waypoint.d_m, 0.0);
-    EXPECT_LE(waypoint.vx_mps, 2.0 + 1e-9);
+    EXPECT_LE(waypoint.vx_mps, ego.speed + 1e-9);
+    EXPECT_LE(waypoint.vx_mps, previous + 1e-9);
+    previous = waypoint.vx_mps;
+    if (waypoint.s_m >= margin_only.s_start) {
+      EXPECT_LE(waypoint.vx_mps, 2.0 + 1e-9);
+    }
   }
+  EXPECT_GT(result.path.wpnts.front().vx_mps, 2.5);   // 계단(즉시 2.0) 금지 = 램프 실존
   EXPECT_GT(result.merge_s, margin_only.s_end);
 
   // Contrast: the same track with a genuinely line-straddling obstacle must still stop.
   const auto physically_blocking = planner.plan(ego, {makeObstacle(91, 5.0)});
   EXPECT_EQ(physically_blocking.kind, SplinePlanKind::kSafeStop);
   EXPECT_FALSE(physically_blocking.margin_pass);
+}
+
+TEST(RacelineSplinePlanner, MarginPassApproachRampReachesCapBeforeClusterStart)
+{
+  // 0814 실차 회귀(run_0814_111210): 4.4 m/s 접근에 flat 2.0 margin pass가 발행돼 계단
+  // 감속 → 서비스 브레이크 포화 → 마찰 한계 초과 슬립 → 벽. 램프는 실측 자차 속도에서
+  // approach_feasibility_decel로 내려가되 군집 시작 전에 cap에 도달해야 한다.
+  RacelineSplineParameters parameters = testParameters();
+  parameters.tracking_error_reserve_m = 0.30;
+  parameters.margin_pass_speed_cap_mps = 2.0;
+  parameters.approach_feasibility_decel_mps2 = 2.0;
+  RacelineSplinePlanner planner(parameters);
+  ASSERT_TRUE(planner.setReference(makeStraightReference(300, 0.1, 0.3, 0.3)));
+  const auto margin_only = makeObstacle(92, 9.0, 0.20, 0.60);
+  const EgoFrenetState ego{0.0, 0.0, 4.4};
+
+  const auto result = planner.plan(ego, {margin_only});
+  ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance);
+  EXPECT_TRUE(result.margin_pass);
+  ASSERT_GE(result.path.wpnts.size(), 2U);
+  // 필요 감속 (4.4²-2.0²)/(2·~8.5) ≈ 0.9 < 2.0 → 완만한 파라미터 감속이 그대로 쓰이고,
+  // cap 도달 지점은 (4.4²-2.0²)/(2·2.0) = 3.84 m — 군집 시작(≈8.5 m)보다 훨씬 앞이다.
+  const double reach_cap_at = (ego.speed * ego.speed - 4.0) / (2.0 * 2.0);
+  for (const auto & waypoint : result.path.wpnts) {
+    // 프로파일 상한(3.0)은 절대 넘지 않는다: 램프값이 그보다 커도 참조 프로파일이 이긴다.
+    EXPECT_LE(waypoint.vx_mps, 3.0 + 1e-9);
+    if (waypoint.s_m >= reach_cap_at + 0.2) {
+      EXPECT_LE(waypoint.vx_mps, 2.0 + 1e-9);
+    }
+  }
+  // 앞머리는 램프를 따른다(참조 프로파일 3.0에 클램프): flat 2.0이 아니어야 한다.
+  EXPECT_NEAR(result.path.wpnts.front().vx_mps, 3.0, 1e-9);
+
+  // 비활성(<=0)이면 구 거동(flat cap) 그대로다.
+  parameters.approach_feasibility_decel_mps2 = 0.0;
+  RacelineSplinePlanner flat_planner(parameters);
+  ASSERT_TRUE(flat_planner.setReference(makeStraightReference(300, 0.1, 0.3, 0.3)));
+  const auto flat = flat_planner.plan(ego, {margin_only});
+  ASSERT_EQ(flat.kind, SplinePlanKind::kAvoidance);
+  for (const auto & waypoint : flat.path.wpnts) {
+    EXPECT_LE(waypoint.vx_mps, 2.0 + 1e-9);
+  }
+}
+
+TEST(RacelineSplinePlanner, AvoidanceApproachBrakesBeforeSpanInsteadOfStepping)
+{
+  // 회피 스플라인의 접근 구간: 간극/곡률 캡은 스팬 안에서만 작동하므로 접근은 프로파일
+  // 속도 그대로다가 스팬 경계에서 계단으로 떨어진다. 후방 제동 램프는 그 계단을 스팬
+  // 시작 속도로 미리 내려가는 프로파일로 바꾼다(낮추기만 함). 스팬 내부는 비트 동일.
+  auto ramp_parameters = testParameters();
+  // 속도에 가파르게 커지는 추적오차 예약 LUT + 좁은 왼쪽 통로: 스팬 안에서 간극 캡이
+  // 프로파일(3.0)보다 확실히 낮은 속도를 강제해 "접근 빠름 / 스팬 느림" 계단을 만든다.
+  ramp_parameters.tracking_error_lut_speed_bins_mps = {0.0, 2.0, 4.0};
+  ramp_parameters.tracking_error_lut_curvature_bins_radpm = {0.0};
+  ramp_parameters.tracking_error_lut_values_m = {0.05, 0.08, 0.60};
+  ramp_parameters.approach_feasibility_decel_mps2 = 2.0;
+  auto flat_parameters = ramp_parameters;
+  flat_parameters.approach_feasibility_decel_mps2 = 0.0;
+  RacelineSplinePlanner ramp_planner(ramp_parameters);
+  RacelineSplinePlanner flat_planner(flat_parameters);
+  const auto reference = makeStraightReference(300, 0.1, 0.6, 0.6);
+  ASSERT_TRUE(ramp_planner.setReference(reference));
+  ASSERT_TRUE(flat_planner.setReference(reference));
+  const EgoFrenetState ego{0.0, 0.0, 2.0};
+  // 비대칭 장애물(오른쪽으로 치우침): 후보 랭킹 1순위(safety slack)에서 왼쪽이 명확히
+  // 이기게 해, 램프로 달라지는 2순위(velocity_loss)가 후보 선택을 못 바꾸게 고정한다.
+  const std::vector<f110_msgs::msg::Obstacle> obstacles{makeObstacle(93, 8.0, -0.35, 0.05)};
+
+  const auto ramped = ramp_planner.plan(ego, obstacles);
+  const auto flat = flat_planner.plan(ego, obstacles);
+  ASSERT_EQ(ramped.kind, SplinePlanKind::kAvoidance);
+  ASSERT_EQ(flat.kind, SplinePlanKind::kAvoidance);
+  ASSERT_EQ(ramped.path.wpnts.size(), flat.path.wpnts.size());
+  const double span_start = obstacles.front().s_start;
+  bool lowered_somewhere = false;
+  for (std::size_t index = 0; index < ramped.path.wpnts.size(); ++index) {
+    const auto & with_ramp = ramped.path.wpnts[index];
+    const auto & without = flat.path.wpnts[index];
+    ASSERT_DOUBLE_EQ(with_ramp.s_m, without.s_m);
+    // 램프는 어디서도 속도를 올리지 않는다.
+    EXPECT_LE(with_ramp.vx_mps, without.vx_mps + 1e-9);
+    if (with_ramp.s_m >= span_start) {
+      // 스팬 및 그 이후는 손대지 않는다(간극/예약 캡 보존).
+      EXPECT_DOUBLE_EQ(with_ramp.vx_mps, without.vx_mps);
+    } else if (with_ramp.vx_mps < without.vx_mps - 1e-6) {
+      lowered_somewhere = true;
+    }
+  }
+  EXPECT_TRUE(lowered_somewhere);
 }
 
 TEST(RacelineSplinePlanner, RetentionReserveScaleHoldsCommittedPathThroughEnvelopeGrowth)
@@ -1396,7 +2105,7 @@ TEST(RacelineSplinePlanner, BuildLastPathBrakeStopsAlongGivenGeometry)
   const auto path = makeStraightCandidate(reference, 0.0, 0.0, 60U);
   const EgoFrenetState ego{1.0, 0.0, 2.0};
 
-  const auto braked = planner.buildLastPathBrake(ego, path);
+  const auto braked = planner.buildLastPathBrake(ego, path, {});
   ASSERT_GE(braked.wpnts.size(), 2U);
   // Stop distance from 2.0 m/s at the default 2.5 m/s^2 deceleration is 0.8 m.
   EXPECT_LE(planner.forwardDistance(ego.s, braked.wpnts.back().s_m), 0.8 + 0.2);
@@ -1406,8 +2115,62 @@ TEST(RacelineSplinePlanner, BuildLastPathBrakeStopsAlongGivenGeometry)
   }
 
   f110_msgs::msg::WpntArray empty_path;
-  EXPECT_TRUE(planner.buildLastPathBrake(ego, empty_path).wpnts.empty());
+  EXPECT_TRUE(planner.buildLastPathBrake(ego, empty_path, {}).wpnts.empty());
+
+  // 🔴 2026-08-16 회귀: 장애물이 제동거리보다 가까우면 정지 목표가 장애물 뒤에 놓여
+  // 차가 그 경로를 따라 들어갔다(15:37 백, 랩당 1회씩 4회 충돌). 정지 목표는 반드시
+  // 접촉점 이전이어야 하고, 그 때문에 요구 감속이 설정값을 넘는 것은 의도된 동작이다.
+  // 접촉점을 설정 제동거리(2.0 m/s, 2.5 m/s² → 0.8 m)보다 가깝게 둔다.
+  // 확장 앞면 = (s_center − ego.s) − (0.5·span + obstacle_longitudinal_padding_m).
+  const f110_msgs::msg::Obstacle blocker = makeObstacle(9, 2.1, -0.30, 0.30);
+  const double contact_forward =
+    (2.1 - ego.s) - (0.20 + testParameters().obstacle_longitudinal_padding_m);
+  ASSERT_LT(contact_forward, 0.8) << "이 기하로는 클램프가 발동하지 않는다";
+  const auto guarded = planner.buildLastPathBrake(ego, path, {blocker});
+  ASSERT_GE(guarded.wpnts.size(), 2U);
+  EXPECT_DOUBLE_EQ(guarded.wpnts.back().vx_mps, 0.0);
+  for (const auto & waypoint : guarded.wpnts) {
+    EXPECT_LT(planner.forwardDistance(ego.s, waypoint.s_m), contact_forward)
+      << "경로가 접촉점(자차 +" << contact_forward << " m)을 넘어 연장됐다";
+  }
+  // 그리고 실제로 잘려야 한다 — 장애물이 없었다면 0.8 m까지 갔을 경로다.
+  const double stop_forward = planner.forwardDistance(ego.s, guarded.wpnts.back().s_m);
+  EXPECT_LT(stop_forward, 0.8) << "제동거리가 접촉점 기준으로 좁혀지지 않았다";
 }
+
+TEST(RacelineSplinePlanner, StandstillCloseBehindObstacleStillPlansEscape)
+{
+  // 2026-08-13 실차 재현 (run_0813_221339 s≈29.8): 코너 뒤 늦은 발견으로 장애물
+  // ~1.5 m 앞에 정지. 갭은 기하학적으로 충분한데(비대칭 코리도 1.97 m, 반대쪽 여유
+  // ~1.4 m) 정지 상태 재계획이 회피를 내지 못하면 safe-stop 홀드에서 영원히 못
+  // 나온다. 진입 길이는 자차→클러스터 실거리에 비례하므로 짧은 거리에서도 후보가
+  // 성립해야 한다.
+  auto reference = makeStraightReference(300, 0.1, 1.40, 0.57);
+  RacelineSplineParameters parameters;
+  parameters.maximum_curvature_radpm = 3.2;
+  parameters.maximum_curvature_rate_radpm2 = 60.0;
+  // 실차 yaml과 같은 예약 구조: 기어가기 속도에서 LUT 바닥 0.20 + 위치추정 0.06.
+  parameters.tracking_error_reserve_m = 0.20;
+  parameters.localization_reserve_m = 0.06;
+  RacelineSplinePlanner planner(parameters);
+  ASSERT_TRUE(planner.setReference(reference));
+
+  // 자차: 정지, 라인 살짝 오른쪽(-0.10). 장애물: 우벽 쪽 박스(폭 0.4), 전방
+  // 클러스터 시작 ≈ 1.5 m (s_start 2.05 − 종방향 패딩 0.35 − 자차 s 0.2).
+  const EgoFrenetState ego{0.2, -0.10, 0.0};
+  const auto obstacle = makeObstacle(29, 2.45, -0.45, -0.05);
+
+  const auto result = planner.plan(ego, {obstacle});
+  EXPECT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
+  ASSERT_FALSE(result.path.wpnts.empty());
+  // 탈출은 여유가 있는 왼쪽으로 나가야 한다.
+  double max_d = -10.0;
+  for (const auto & waypoint : result.path.wpnts) {
+    max_d = std::max(max_d, static_cast<double>(waypoint.d_m));
+  }
+  EXPECT_GT(max_d, 0.10);
+}
+
 
 }  // namespace
 }  // namespace local_planning

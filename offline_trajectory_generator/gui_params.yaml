@@ -1,4 +1,4 @@
-map_yaml: src/monte_carlo_localization/maps/map.yaml
+map_yaml: src/kinematic_localization/maps/map.yaml
 output_dir: ~/2026_IFAC/offline_trajectory_generator/output/map
 velocity_limits_csv: offline_trajectory_generator/config/velocity_limits.csv
 optimizer: mincurv

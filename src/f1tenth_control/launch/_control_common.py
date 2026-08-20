@@ -21,11 +21,11 @@ def declare_common_args(sector_scale_enable_default='false'):
 
         # ── 조향 스케일러 (가감속/속도 구간별 조향 게인 완화) ──
         DeclareLaunchArgument(
-            'acceleration_scaler_for_steering', default_value='1.0',
+            'acceleration_scaler_for_steering', default_value='1.1',
             description='가속 중(acc_mean>=1.0) 조향각에 곱하는 스케일러'
         ),
         DeclareLaunchArgument(
-            'deceleration_scaler_for_steering', default_value='0.85',
+            'deceleration_scaler_for_steering', default_value='0.90',
             description='감속 중(acc_mean<=-1.0) 조향각에 곱하는 스케일러'
         ),
         DeclareLaunchArgument(
@@ -57,6 +57,15 @@ def declare_common_args(sector_scale_enable_default='false'):
 
         # ── 경로소스 신선도 ──
         DeclareLaunchArgument(
+            'odom_timeout', default_value='0.5',
+            description=(
+                'odom 워치독 [s], 0이면 비활성. 이 시간 넘게 <odom_topic> 미수신이면 '
+                '조향을 직전 각으로 유지한 채 속도 0으로 안전 정지. '
+                '0818 run_0818_134408: MCL 1.1s 정지 중 컨트롤러가 얼어붙은 명령을 '
+                '50Hz로 계속 발행해 벽 충돌'
+            )
+        ),
+        DeclareLaunchArgument(
             'local_fresh_timeout', default_value='0.3',
             description='이 시간(s) 넘게 /local_waypoints 미수신 시 글로벌 경로로 폴백'
         ),
@@ -64,7 +73,7 @@ def declare_common_args(sector_scale_enable_default='false'):
             'closest_idx_max_heading_err', default_value='1.40',
             description='경로 접선과 차량 헤딩의 허용 오차 [rad]. 0이면 게이트 비활성(구 거동)'
         ),
-        DeclareLaunchArgument(  
+        DeclareLaunchArgument(
             'l1_offset', default_value='0.6',
             description='L1 룩어헤드 거리의 **절편** [m] (공식: l1_offset + v*l1_speed_gain). '
                         '구 이름 l1_gain'
@@ -120,7 +129,7 @@ def declare_common_args(sector_scale_enable_default='false'):
                         '[track_length, (s0,s1,scale)×N], transient_local)'
         ),
         DeclareLaunchArgument(
-            'sector_scale_max', default_value='1.5',
+            'sector_scale_max', default_value='1.3',
             description='허용 최대 scale. 이보다 큰 값이 오면 테이블 전체를 버린다'
         ),
         DeclareLaunchArgument(
@@ -174,16 +183,12 @@ def declare_common_args(sector_scale_enable_default='false'):
 
         # ── 조향 생성: 자전거 역모델 + FF/FB 분리 (②-p) ───────────────────────
         # 구 LUT 역조회는 2026-08-17에 삭제됐다(롤백은 git 0d16173 — 메모리 참고).
-        # 🟢 2026-08-18: 1.0 → 0.9 (사용자 지정). FF는 100% 유지하고 오차 보정분만 90%로
-        #    줄인다. 곡률 일정 구간에서는 pure pursuit 기하상 lat_acc = κ·v² = a_ff 라
-        #    FB항이 0 → 정상 선회 거동은 바뀌지 않고, 직선 횡오차 복구와 코너 진입 선행분만
-        #    10% 약해진다. ⚠️ 저속 셰이크다운부터 확인할 것(작업 시 주의사항 참고).
         DeclareLaunchArgument(
-            'steering_fb_gain', default_value='0.9',
+            'steering_fb_gain', default_value='1.0',
             description='FF/FB 분리 게인 (bicycle 모델 전용). L1 명령 중 경로 곡률로 '
                         '설명되지 않는 보정분에만 곱한다. 1.0 = 분리 전과 수학적으로 동일 '
-                        '(안전한 출발점), 현재 기본 0.9. 낮추면 경로 추종은 FF가, 오차 보정은 '
-                        'L1이 맡아 l1_offset의 "정확도 vs 횡진동" 트레이드오프가 분리된다'
+                        '(안전한 출발점). 낮추면 경로 추종은 FF가, 오차 보정은 L1이 맡아 '
+                        'l1_offset의 "정확도 vs 횡진동" 트레이드오프가 분리된다'
         ),
         DeclareLaunchArgument(
             'curvature_ff_preview', default_value='0.0',
@@ -290,7 +295,32 @@ def declare_common_args(sector_scale_enable_default='false'):
         ),
         DeclareLaunchArgument(
             'understeer_gradient', default_value='0.014',
-            description='언더스티어 그래디언트 K_us [rad/(m/s^2)]. 0이면 조향 권한 캡 비활성'
+            description='언더스티어 그래디언트 K_us [rad/(m/s^2)]. 0이면 조향 권한 캡 비활성. '
+                        '좌/우 분리값(_left/_right)이 양수면 조향·캡·트림은 그쪽을 쓰고 '
+                        '이 값은 방향 미상(κ=0)일 때만 남는다'
+        ),
+        # ── 좌/우 분리 K_us (2026-08-18, rosbag2_..-20_34_05 실측) ──────────────
+        # 정상상태 요레이트 전달률 역산: 좌 ≈0.008 / 우 ≈0.024. 공용 0.014는 그 중간이라
+        # 우코너 FF가 만성 부족 → 매 랩 s25~31 우커브 탈출에서 +1.05 m 와이드(좌벽 0.38 m
+        # 스침), 복구 오버슈트로 s38.5 좌커브 진입이 밀려 우벽 스침/접촉의 직접 원인.
+        # 21:43 검증 런(67랩, 좌0.008/우0.024): 코너1 d +0.88→+0.32, 좌벽 0.25→0.67 m로
+        # 해결 확인. 대신 좌 하중별 실측이 0.0140(2~4)/0.0103(4~6)/0.0063(6~9)로 나와
+        # 고하중 좌커브(코너2)가 0.008로는 살짝 부족 → 주 대역(4~6) 실측치로 상향.
+        # 22:39 검증 런(좌0.011/우0.024, rosbag2_..-22_39_31) — 좌커브 와이드 해소 확인:
+        #   섹터별 바깥 이탈 p90   섹1 -0.54→-0.09 / 섹2 -0.46→-0.39 /
+        #                        코너2 -1.05→-0.59 / 랩넘김 -1.10→-0.19 m
+        #   요레이트 달성/필요     코너2 0.80→0.98, 랩넘김 0.89 (섹2만 0.83으로 잔존)
+        #   코너2 우벽 여유       med 0.38→0.78, worst 0.08→0.68 m
+        #   측벽<0.40m 스캔 비율   10.05%→0.70% (<0.30m 3.15%→0%), 랩타임 med 9.97→9.39s
+        #   14랩 연속 무접촉(|d| p95 0.47) 후 사람이 X로 종료 — 자율 중 사고 0건.
+        # 되돌리기: 둘 다 -1.0 (= 공용 understeer_gradient로 폴백).
+        DeclareLaunchArgument(
+            'understeer_gradient_left', default_value='0.011',
+            description='좌회전 K_us [rad/(m/s^2)]. <=0 = 공용 understeer_gradient 사용'
+        ),
+        DeclareLaunchArgument(
+            'understeer_gradient_right', default_value='0.024',
+            description='우회전 K_us [rad/(m/s^2)]. <=0 = 공용 understeer_gradient 사용'
         ),
         DeclareLaunchArgument(
             'steer_authority_ratio', default_value='0.95',
@@ -391,6 +421,8 @@ def build_control_map_node(*, odom_topic, max_speed, max_lateral_accel, base_max
             'min_speed': LaunchConfiguration('min_speed'),
             'max_lateral_accel': max_lateral_accel,
             'understeer_gradient': LaunchConfiguration('understeer_gradient'),
+            'understeer_gradient_left': LaunchConfiguration('understeer_gradient_left'),
+            'understeer_gradient_right': LaunchConfiguration('understeer_gradient_right'),
             'steer_authority_ratio': LaunchConfiguration('steer_authority_ratio'),
             'curvature_lookahead_count': ParameterValue(
                 LaunchConfiguration('curvature_lookahead_count'), value_type=int),
@@ -454,6 +486,7 @@ def build_control_map_node(*, odom_topic, max_speed, max_lateral_accel, base_max
             'downscale_factor': LaunchConfiguration('downscale_factor'),
             'speed_lookahead': LaunchConfiguration('speed_lookahead'),
             'speed_lookahead_for_steering': LaunchConfiguration('speed_lookahead_for_steering'),
+            'odom_timeout': LaunchConfiguration('odom_timeout'),
             'local_fresh_timeout': LaunchConfiguration('local_fresh_timeout'),
             'closest_idx_max_heading_err': LaunchConfiguration('closest_idx_max_heading_err'),
             # 섹터별 횡가속 권한 스케일 (기본 꺼짐 — 켜기 전 bag_analyzer 판정 필수)

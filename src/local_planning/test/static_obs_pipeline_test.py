@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Verify the live /scan -> /static_obs -> /avoid_waypoints pipeline."""
+"""Verify the live /scan -> /confirmed_static_obs -> /avoid_waypoints pipeline."""
 
 import math
 import sys
@@ -62,7 +62,7 @@ class StaticObstaclePipelineProbe(Node):
         self.static_tf = StaticTransformBroadcaster(self)
 
         self.static_sub = self.create_subscription(
-            ObstacleArray, '/static_obs', self.on_static_obstacles, 10)
+            ObstacleArray, '/confirmed_static_obs', self.on_static_obstacles, 10)
         self.path_sub = self.create_subscription(
             OTWpntArray, '/avoid_waypoints', self.on_avoidance_path, 10)
         self.static_marker_sub = self.create_subscription(
@@ -235,7 +235,7 @@ class StaticObstaclePipelineProbe(Node):
         if message.ot_line == 'raceline_static_prepare':
             return
         if max(abs(point.d_m) for point in message.wpnts) <= 0.05:
-            self.failure = 'local planner did not move laterally around /static_obs'
+            self.failure = 'local planner did not move laterally around /confirmed_static_obs'
             return
         self.saw_valid_path = True
 
@@ -254,11 +254,11 @@ def main():
                 node.saw_valid_static and node.saw_valid_static_marker
                 and node.saw_valid_path):
             print(
-                'PASS: /scan -> /static_obs + matching Frenet marker '
+                'PASS: /scan -> /confirmed_static_obs + matching Frenet marker '
                 '-> /avoid_waypoints is valid')
             return 0
         if not node.saw_valid_static:
-            print('FAIL: detector did not publish a valid Cartesian /static_obs')
+            print('FAIL: detector did not publish a valid Cartesian /confirmed_static_obs')
         elif not node.saw_valid_static_marker:
             print('FAIL: detector did not publish a matching /static_obs/markers boundary')
         else:

@@ -211,7 +211,7 @@ mincurv 비용의 세 항 중 곡률 항은 out-in-out(apex 클리핑), 길이 �
 ```bash
 for R in 0.0 0.5 -0.5 1.0 -1.0; do
   python3 offline_trajectory_generator/generate_global_trajectory.py \
-    --map-yaml src/monte_carlo_localization/maps/map.yaml \
+    --map-yaml src/kinematic_localization/maps/map.yaml \
     --optimizer d_ratio --d-ratio $R --width-mode hybrid --debug-image \
     --output-dir /tmp/dr_test/ratio_$R
 done
