@@ -108,20 +108,23 @@ RacelineSplineParameters operationalParameters()
 {
   RacelineSplineParameters p;
   p.detection_lookahead_m = 15.0;
-  // [PROTOTYPE] 마진 제거 — config/local_planning.yaml 과 일치해야 한다(params_match_yaml).
+  // config/local_planning.yaml 과 일치해야 한다(params_match_yaml).
   p.obstacle_longitudinal_padding_m = 0.0;
   p.vehicle_half_width_m = 0.15;
   p.vehicle_length_m = 0.56;
   p.safety_margin_m = 0.0;
-  p.tracking_error_reserve_m = 0.0;
-  p.tracking_error_lut_speed_bins_mps = {0.0, 1.5, 3.0, 4.5, 6.5};
-  p.tracking_error_lut_curvature_bins_radpm = {0.0, 0.2, 0.5, 0.9, 1.316266519079011};
+  p.tracking_error_reserve_m = 0.20;
+  // 2026-08-20 복원된 08-19 실측표 (config/local_planning.yaml 과 동일해야 한다).
+  p.tracking_error_lut_speed_bins_mps = {0.0, 1.0, 1.6, 2.2, 2.9, 4.5, 7.0};
+  p.tracking_error_lut_curvature_bins_radpm = {0.0, 0.1, 0.2, 0.35, 0.46};
   p.tracking_error_lut_values_m = {
-    0.200, 0.200, 0.200, 0.200, 0.200,
-    0.325, 0.395, 0.395, 0.395, 0.395,
-    0.330, 0.395, 0.395, 0.395, 0.395,
-    0.330, 0.395, 0.395, 0.395, 0.395,
-    0.330, 0.395, 0.395, 0.395, 0.395};
+    0.095, 0.095, 0.095, 0.130, 0.130,
+    0.100, 0.165, 0.165, 0.165, 0.165,
+    0.100, 0.165, 0.165, 0.165, 0.165,
+    0.145, 0.165, 0.190, 0.230, 0.230,
+    0.275, 0.275, 0.390, 0.390, 0.390,
+    0.275, 0.275, 0.390, 0.390, 0.390,
+    0.275, 0.275, 0.390, 0.390, 0.390};
   p.avoidance_velocity_limit_speed_bins_mps =
   {0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0};
   p.avoidance_velocity_limit_lateral_accel_mps2 =
@@ -183,10 +186,13 @@ RacelineSplineParameters operationalParameters()
 // `p.<name> = <number>;`만 운영 YAML과 대조하므로, 여기 값이 그 검사에 섞이면 안 된다.
 void applySimulationOverlay(RacelineSplineParameters & sim)
 {
+  // 축이 7행(0,1,1.6,2.2,2.9,4.5,7)으로 바뀌어 시뮬 오버레이도 같은 모양으로 확장.
   sim.tracking_error_lut_values_m = {
     0.115, 0.115, 0.115, 0.125, 0.125,
     0.175, 0.245, 0.280, 0.280, 0.280,
     0.175, 0.245, 0.280, 0.280, 0.280,
+    0.175, 0.245, 0.280, 0.280, 0.280,
+    0.185, 0.245, 0.280, 0.280, 0.280,
     0.185, 0.245, 0.280, 0.280, 0.280,
     0.185, 0.245, 0.280, 0.280, 0.280};
   sim.localization_reserve_m = 0.06;

@@ -48,6 +48,8 @@ install(TARGETS
 install(DIRECTORY include/
   DESTINATION include
 )
+install(PROGRAMS scripts/check_tracking_lut.py
+        DESTINATION lib/${PROJECT_NAME})
 
 install(DIRECTORY launch config docs
   DESTINATION share/${PROJECT_NAME}

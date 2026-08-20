@@ -34,8 +34,9 @@ local_planner_node:
     vehicle_half_width_m: 0.15
     # [PROTOTYPE] 원래 0.0147865 — 물리 클리어런스 위의 여유분. 제거.
     safety_margin_m: 0.0
-    # [PROTOTYPE] 원래 0.140 — LUT 무효 시 폴백. LUT를 비웠으므로 이 값이 실제로 쓰인다.
-    tracking_error_reserve_m: 0.0
+    # LUT 무효 시 폴백. LUT 가 정상이면 안 쓰인다. 0.20 = 복원한 표의 고속 직선값 근사 —
+    # 표가 깨져도 예약이 조용히 0 이 되지 않게 하는 안전장치다 (2026-08-20).
+    tracking_error_reserve_m: 0.20
     # values는 speed-major row-major입니다. 즉 한 speed 행마다 curvature bin 5개가 연속됩니다.
     # 범위 밖 입력은 가장 가까운 끝 셀로 clamp합니다.
     #
@@ -146,15 +147,36 @@ local_planner_node:
     # 재생성:
     #   python3 tools/cmaes_tuning/tracking_error_lut_from_traces.py ~/lut_traces/*_trace.csv \
     #       --waypoints ~/lut_traces/live_global_waypoints.csv --quantile 0.95 --safety-factor 1.25
-    # [PROTOTYPE] LUT 를 0 으로 채워 추종오차 예약을 없앤다.
+    # 🔴 2026-08-20 복원: prototype 이 이 표를 0 으로 비웠던 것을 08-19 실측표로 되돌린다.
+    # 예약 0 으로 이틀 주행한 결과가 근거다 — run_161657 자율 634 s 에서 장애물 접촉 17건:
+    #   s=16.7 직선(6 m/s): 계획 d +0.34~0.39 인데 실제 통과 +0.10~0.26 (오차 0.15~0.25).
+    #     스침이 장애물을 랩마다 밀어(−0.15 → +0.08, 총 23 cm) 뒤 랩이 점점 악화됐다.
+    #   s=41.5 곡선(R=4.9, ~5 m/s): 장애물이 우벽 쪽 −0.37 이라 기하상 라인이 뚫린다고
+    #     판단해 오프셋을 +0.15 까지 줄였는데, 곡선 추종오차 0.25~0.35 가 그걸 삼켜
+    #     계획 +0.15 → 실제 −0.13 으로 장애물에 박혔다 (|a| 20 m/s² 급 접촉 3건).
+    # 이 표가 덮는다: 직선 최고속 0.275 ≥ 실측 0.25, 곡선 0.310~0.365 ≥ 실측 0.35.
+    # 값의 출처는 아래 08-19 절 참고 (17랩·14,063표본·p95×1.25·단조성 보장).
+    # 단 v≥2.9 의 κ≥0.2 칸은 08-20 실측으로 0.310/0.365 → 0.390 상향: run_161657 자율
+    # 구간에서 회피 중 코너 추종오차 p95 가 0.390 (n=1455, scripts/check_tracking_lut.py,
+    # 과도·경로전환 배제 후)로 라인-단독 측정치를 넘었다. 회피 스플라인은 같은 κ 라도
+    # 진입·이탈 블렌딩이 겹쳐 오차가 더 크다.
+    # 좁은 갭에서는 발행 거부가 아니라 gapLimitedAvoidanceSpeed 의 이분 역산이 속도를
+    # 깎는다 — 최협소 s≈20(갭 0.64 m, κ=0.14)은 ~2.6 m/s 로 통과, 발행은 유지된다.
     # 🔴 빈 배열 [] 을 쓰면 안 된다 — YAML 의 빈 시퀀스는 타입을 알 수 없어 ROS 가
     #    "No parameter value set" 으로 처리하고, declare_parameter<vector<double>> 가
     #    InvalidParameterValueException 을 던져 노드가 기동 즉시 죽는다
     #    (2026-08-19 실차에서 겪음: local_planner_node exit code -6, /rosout 에 로그 0줄).
-    #    all_empty 경로는 C++ 기본값으로 셋 다 비었을 때만 유효하고 YAML 로는 못 만든다.
-    tracking_error_lut_speed_bins_mps: [0.0, 7.0]
-    tracking_error_lut_curvature_bins_radpm: [0.0, 0.46]
-    tracking_error_lut_values_m: [0.0, 0.0, 0.0, 0.0]
+    tracking_error_lut_speed_bins_mps: [0.0, 1.0, 1.6, 2.2, 2.9, 4.5, 7.0]
+    tracking_error_lut_curvature_bins_radpm: [0.0, 0.1, 0.2, 0.35, 0.46]
+    tracking_error_lut_values_m: [
+      0.095, 0.095, 0.095, 0.130, 0.130,
+      0.100, 0.165, 0.165, 0.165, 0.165,
+      0.100, 0.165, 0.165, 0.165, 0.165,
+      0.145, 0.165, 0.190, 0.230, 0.230,
+      0.275, 0.275, 0.390, 0.390, 0.390,
+      0.275, 0.275, 0.390, 0.390, 0.390,
+      0.275, 0.275, 0.390, 0.390, 0.390
+    ]
     # upstream/jazzy_main의 offline_trajectory_generator/config/velocity_limits.csv
     # (commit 3d5fb38)에서 speed와 max_lateral_accel 열을 옮긴 표입니다. 회피 spline의
     # 재계산 곡률에 v^2*|kappa| <= a_lat,max(v)를 만족하도록 waypoint 속도를 제한하고,
