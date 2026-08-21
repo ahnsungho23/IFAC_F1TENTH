@@ -74,8 +74,6 @@ ament_export_include_directories(include)
 install(DIRECTORY include/
   DESTINATION include
 )
-install(PROGRAMS scripts/check_tracking_lut.py
-        DESTINATION lib/${PROJECT_NAME})
 
 install(DIRECTORY launch config docs
   DESTINATION share/${PROJECT_NAME}
@@ -95,7 +93,6 @@ if(BUILD_TESTING)
   # (2026-08-14: 실제로 6개 값이 어긋난 채 탈출 임계를 재고 운영값을 정했다.)
   find_package(ament_cmake_pytest REQUIRED)
   ament_add_pytest_test(params_match_yaml test/test_params_match_yaml.py)
-  ament_add_pytest_test(velocity_limits_match_csv test/test_velocity_limits_match_csv.py)
 
   # Node-level: covers the subscription callbacks themselves (which arrays/references the node
   # accepts as authoritative). The algorithm gtests cannot reach that wiring.

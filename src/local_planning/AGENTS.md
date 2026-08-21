@@ -1,17 +1,5 @@
 # AGENTS.md for local_planning
 
-## 차량 한계표 (velocity_limits.csv)
-
-`avoidance_velocity_limit_accel_mps2` / `_decel_mps2` 는
-`offline_trajectory_generator/config/velocity_limits.csv` 의 `max_accel` / `max_decel` 열과
-**반드시 같아야 합니다** — `test/test_velocity_limits_match_csv.py` 가 검사합니다. 라인
-생성기와 로컬 플래너가 하나의 차량 모델을 쓰게 하는 것이 이 표의 목적이므로, VESC 를 다시
-재면 csv 를 고치고 그 테스트를 돌려 YAML 두 개(운영·시뮬)를 맞추십시오.
-
-`avoidance_velocity_limit_lateral_accel_mps2` 는 **csv 에서 가져오지 않습니다.** 실측 근거
-(2026-08-19 달성 횡가속 p90 6.71 m/s²)로 7.0/6.5 를 유지하며, `avoidanceVelocityLimitValid()`
-가 이 표에 **비증가**를 요구하므로 저속행만 낮추면 노드가 시작 시 throw 합니다.
-
 ## Package purpose
 
 - This package handles static-obstacle avoidance only.

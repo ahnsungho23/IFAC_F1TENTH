@@ -22,7 +22,6 @@
 //   source_stamp_ns              the accepted array's stamp
 //   global_reference_generation  advances only when a NEW reference is adopted
 
-#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -33,8 +32,6 @@
 #include "gtest/gtest.h"
 
 #include <f110_msgs/msg/obstacle_array.hpp>
-#include <f110_msgs/msg/ot_wpnt_array.hpp>
-#include <f110_msgs/msg/state_machine.hpp>
 #include <f110_msgs/msg/wpnt_array.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <rclcpp/rclcpp.hpp>
@@ -146,15 +143,6 @@ protected:
       "/confirmed_static_obs", volatile_qos);
     odometry_pub_ =
       helper_->create_publisher<nav_msgs::msg::Odometry>("/car_state/frenet/odom", volatile_qos);
-    state_pub_ =
-      helper_->create_publisher<f110_msgs::msg::StateMachine>("/state", global_qos);
-    avoid_sub_ = helper_->create_subscription<f110_msgs::msg::OTWpntArray>(
-      "/avoid_waypoints", rclcpp::QoS(50).reliable(),
-      [this](const f110_msgs::msg::OTWpntArray::SharedPtr message) {
-        last_avoid_line_ = message->ot_line;
-        last_avoid_points_ = message->wpnts.size();
-        avoid_lines_.push_back(message->ot_line);
-      });
     diagnostics_sub_ = helper_->create_subscription<std_msgs::msg::String>(
       "/local_planning/p3_shadow", rclcpp::QoS(1000).reliable(),
       [this](const std_msgs::msg::String::SharedPtr message) {last_diagnostic_ = message->data;});
@@ -215,19 +203,6 @@ protected:
     return false;
   }
 
-  void publishState(std::uint8_t state)
-  {
-    f110_msgs::msg::StateMachine message;
-    message.header.stamp = helper_->now();
-    message.state = state;
-    state_pub_->publish(message);
-  }
-
-  rclcpp::Publisher<f110_msgs::msg::StateMachine>::SharedPtr state_pub_;
-  rclcpp::Subscription<f110_msgs::msg::OTWpntArray>::SharedPtr avoid_sub_;
-  std::string last_avoid_line_;
-  std::size_t last_avoid_points_{0};
-  std::vector<std::string> avoid_lines_;
   std::shared_ptr<local_planning::LocalPlannerNode> planner_;
   std::shared_ptr<rclcpp::Node> helper_;
   rclcpp::Publisher<f110_msgs::msg::WpntArray>::SharedPtr waypoints_pub_;
@@ -239,35 +214,114 @@ protected:
 };
 
 
+// ── 확정 정적 장애물 기억 ───────────────────────────────────────────────────────────────
+//
+// 왜 (2026-08-17): 오늘 실패의 전부가 "짧은 지평에서 현재 위치로부터 급하게 계획하기"였다.
+// 한 랩 전에 위치를 알면 그 부류가 통째로 사라진다. 대회는 20랩이고 선두 차량이 10랩을
+// 완주하면 장애물이 제거되므로 3~10랩이 이득 구간이다.
+//
+// 계약이 셋이다. 셋 다 깨지면 실차에서 위험하다.
+
+// 1. 기억은 온라인을 **덮어쓰지 않는다**.
+//    권한이 둘이면 서로 싸운다(오늘 안전정지 래치와 FSM에서 겪었다). 온라인이 항상 최신이고,
+//    기억은 온라인에 없는 것만 채운다.
+TEST_F(LocalPlannerNodeTest, RememberedObstaclesNeverOverrideLiveDetection)
+{
+  waypoints_pub_->publish(ringReference());
+  publishOdometry(0.0);
+  spin(std::chrono::milliseconds(150));
+
+  // 같은 자리의 장애물을 두 번 보되, 두 번째는 폭이 다르다. 병합 후에도 **최신** 값이어야 한다.
+  auto first = validObstacle(21, 8.0);
+  publishObstacles({first}, 5);
+  ASSERT_TRUE(waitForAcceptedStamp(5, std::chrono::milliseconds(1500))) << last_diagnostic_;
+
+  auto grown = validObstacle(21, 8.0);
+  grown.d_left = 0.45;                       // 가까워지며 커진 관측
+  grown.d_right = -0.45;
+  publishObstacles({grown}, 6);
+  ASSERT_TRUE(waitForAcceptedStamp(6, std::chrono::milliseconds(1500))) << last_diagnostic_;
+
+  // 진단의 장애물 목록에 같은 s가 **하나만** 있어야 한다. 기억이 옛 관측을 따로 얹으면 둘이
+  // 되고, 그러면 플래너가 유령 장애물을 하나 더 피하려 든다.
+  const auto position = last_diagnostic_.find("\"obstacles\"");
+  ASSERT_NE(position, std::string::npos) << last_diagnostic_;
+  std::size_t count = 0;
+  for (std::size_t at = last_diagnostic_.find("\"s_start\"", position);
+    at != std::string::npos;
+    at = last_diagnostic_.find("\"s_start\"", at + 1))
+  {
+    ++count;
+  }
+  EXPECT_EQ(count, 1U)
+    << "기억이 온라인 관측 위에 중복으로 얹혔다 — 유령 장애물이 생긴다: " << last_diagnostic_;
+}
+
+// 2. 검출이 끊겨도 기억이 장애물을 유지한다.
+//    가림(오늘 실측: 폭 0.137 -> 0.473)이나 일시적 미검출로 장애물이 사라지면, 종전에는
+//    플래너가 "길이 열렸다"고 보고 커밋을 버렸다. 기억이 그것을 막는다.
+TEST_F(LocalPlannerNodeTest, RememberedObstaclesSurviveADetectionDropout)
+{
+  waypoints_pub_->publish(ringReference());
+  publishOdometry(0.0);
+  spin(std::chrono::milliseconds(150));
+
+  publishObstacles({validObstacle(31, 9.0)}, 5);
+  ASSERT_TRUE(waitForAcceptedStamp(5, std::chrono::milliseconds(1500))) << last_diagnostic_;
+
+  // 검출이 한 프레임 끊긴다. 자차는 아직 멀리 있으므로(s=0, 장애물 s=9) "지나쳤다"가 아니다.
+  publishObstacles({}, 6);
+  ASSERT_TRUE(waitForAcceptedStamp(6, std::chrono::milliseconds(1500))) << last_diagnostic_;
+
+  EXPECT_NE(last_diagnostic_.find("\"s_start\""), std::string::npos)
+    << "검출 한 프레임 끊김에 기억이 무너졌다 — 가림 때마다 커밋이 버려진다: "
+    << last_diagnostic_;
+}
+
+// 3. 시야 확보한 채 지나쳤는데 못 봤으면 **지워야 한다**.
+//    규정상 선두 차량이 10랩을 완주하면 장애물이 제거된다. 그 시점은 상대차 진행에 달려 있어
+//    우리 랩 카운터로는 맞출 수 없다. 지우지 못하면 레이스 후반 내내 없는 장애물을 피해 돈다.
+TEST_F(LocalPlannerNodeTest, RememberedObstaclesAreDroppedAfterPassingWithoutConfirmation)
+{
+  waypoints_pub_->publish(ringReference());
+  publishOdometry(0.0);
+  spin(std::chrono::milliseconds(150));
+
+  publishObstacles({validObstacle(41, 3.0)}, 5);
+  ASSERT_TRUE(waitForAcceptedStamp(5, std::chrono::milliseconds(1500))) << last_diagnostic_;
+
+  // 1회차 — 시야 안(기본 2.0 m)까지 접근했다가 지나친다.
+  publishOdometry(2.0);
+  publishObstacles({}, 6);
+  ASSERT_TRUE(waitForAcceptedStamp(6, std::chrono::milliseconds(1500))) << last_diagnostic_;
+  publishOdometry(30.0);
+  publishObstacles({}, 7);
+  ASSERT_TRUE(waitForAcceptedStamp(7, std::chrono::milliseconds(1500))) << last_diagnostic_;
+
+  // 아직 지우면 안 된다 (removal_passes=2, 2026-08-17). 통과 순간 검출이 한 프레임
+  // 끊기는 일은 실제로 일어난다 — 16:17 백 실측으로 제거 6건 중 4건이 이 형태의
+  // 오제거였고, 3건은 0.01초 뒤 같은 자리에 다시 생성됐다. 한 번의 미확정으로
+  // 지우면 매 랩 기억을 잃고 다시 배우기를 반복한다.
+  EXPECT_NE(last_diagnostic_.find("\"s_start\""), std::string::npos)
+    << "한 번 못 본 것만으로 기억을 지웠다 — 프레임 한 개 누락에 매 랩 기억이 무너진다: "
+    << last_diagnostic_;
+
+  // 2회차 — 다시 접근했다가 지나친다. 이제 제거되어야 한다.
+  publishOdometry(2.0);
+  publishObstacles({}, 8);
+  ASSERT_TRUE(waitForAcceptedStamp(8, std::chrono::milliseconds(1500))) << last_diagnostic_;
+  publishOdometry(30.0);
+  publishObstacles({}, 9);
+  ASSERT_TRUE(waitForAcceptedStamp(9, std::chrono::milliseconds(1500))) << last_diagnostic_;
+
+  EXPECT_EQ(last_diagnostic_.find("\"s_start\""), std::string::npos)
+    << "두 번 지나치도록 못 본 장애물이 기억에 남았다 — 제거 후에도 계속 피해 돈다: "
+    << last_diagnostic_;
+}
+
 // An array whose every entry fails the Frenet validity check is degraded perception. Accepting it
 // would store an empty snapshot indistinguishable from the explicitly-empty array that IS allowed
 // to erase the retained obstacle memory.
-// ⚠️ 커밋 래치(handoff_latch_commit_distance_m)의 단위 테스트는 **의도적으로 넣지 않았다**
-// (2026-08-20). 시도했으나 이 하네스로는 문제의 분기(local_planner_node.cpp 의
-// "No blocking obstacle remains while /state is still AVOID" 핸드오프 진입)에 도달하지
-// 못했다 — 링 레퍼런스 + 장애물 주입만으로는 P3 무효화 → 안전정지 해제 → kNoObstacle 로
-// 이어지는 실차 순서가 재현되지 않고, 래치를 코드에서 빼도 테스트가 그대로 통과했다.
-// 통과하든 말든 결과가 같은 테스트는 없느니만 못하므로 지웠다.
-//
-// 같은 이유로 holdForManeuverObstacleAhead() 의 단위 테스트도 넣지 않았다 — 이 하네스로는
-// "기동이 성립한 뒤 다음 콜백에 IDLE 로 떨어지는" 순서를 만들 수 없다.
-//
-// 실차 검증 방법 (2026-08-20 확장판):
-//   보류가 걸리면 1 초 throttle WARN —
-//     "P3 기동 종료를 보류한다: 기동 장애물의 뒤끝이 아직 전방 N m 에 있다"
-//   유효한 커밋 경로가 없어 안전정지로 넘어가면 —
-//     "보류 중 유효한 회피 경로가 없다 (...) — 옛 경로를 내보내지 않고 안전정지한다"
-//   보류 상한(completion_defer_max_sec)을 넘겨 풀리면 —
-//     "P3 기동 보류가 N s 를 넘겨 해제한다"
-//
-// 앞선 판(597e6f8)은 lifecycle.complete 분기에만 게이트가 있어 보류 직후 콜백에 IDLE 로
-// 떨어지면 그대로 뚫렸다(run_062020 t=537.80 보류 → 537.83 IDLE → 538.00 옛 경로 → 벽).
-// 그러므로 다음 백에서는 **보류 WARN 이 몇 번 떴는가**만이 아니라, 보류 직후에
-// /avoid_waypoints 의 max|d| 가 0 으로 무너지는 일이 남아 있는지를 같이 봐야 한다.
-// 그 사건은 오프라인으로 셀 수 있다: max|d| 가 0.10 이상에서 0.05 미만으로 떨어지는 순간에
-// 가장 가까운 전방 장애물의 뒤끝 거리가 양수인 경우 (2026-08-20 기준선: run_062020 20 회,
-// run_063551 41 회 — 이 수가 줄어야 수정이 먹은 것이다).
-
 TEST_F(LocalPlannerNodeTest, AllInvalidObstacleArrayRetainsThePreviousSnapshot)
 {
   waypoints_pub_->publish(ringReference());

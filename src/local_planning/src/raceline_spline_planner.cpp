@@ -254,52 +254,6 @@ bool RacelineSplineParameters::avoidanceVelocityLimitValid() const
   return valid_speed_axis && valid_lateral_limits;
 }
 
-bool RacelineSplineParameters::longitudinalVelocityLimitValid() const
-{
-  if (avoidance_velocity_limit_accel_mps2.empty() &&
-    avoidance_velocity_limit_decel_mps2.empty())
-  {
-    return true;   // 표 없음 = 종전 스칼라 거동. 옛 파라미터 파일도 그대로 뜬다.
-  }
-  if (avoidance_velocity_limit_speed_bins_mps.size() < 2U) {
-    return false;
-  }
-  const auto column_valid = [this](const std::vector<double> & column) {
-      return column.size() == avoidance_velocity_limit_speed_bins_mps.size() &&
-             std::all_of(
-        column.begin(), column.end(),
-        [](double value) {return std::isfinite(value) && value > 0.0;});
-    };
-  // 두 열은 함께 있어야 한다 — 한쪽만 있으면 어느 패스는 표를, 어느 패스는 스칼라를 쓰게 되어
-  // 플래너가 다시 차량 모델 두 개를 갖는다(2026-08-17 컨트롤러가 겪은 그 실패 형태다).
-  return column_valid(avoidance_velocity_limit_accel_mps2) &&
-         column_valid(avoidance_velocity_limit_decel_mps2);
-}
-
-double RacelineSplineParameters::accelLimitAt(double speed_mps) const
-{
-  if (avoidance_velocity_limit_accel_mps2.empty() || !longitudinalVelocityLimitValid()) {
-    return 0.0;
-  }
-  const auto interpolation =
-    interpolationFor(avoidance_velocity_limit_speed_bins_mps, std::max(0.0, speed_mps));
-  const double lower = avoidance_velocity_limit_accel_mps2[interpolation.lower];
-  const double upper = avoidance_velocity_limit_accel_mps2[interpolation.upper];
-  return lower + interpolation.ratio * (upper - lower);
-}
-
-double RacelineSplineParameters::decelLimitAt(double speed_mps) const
-{
-  if (avoidance_velocity_limit_decel_mps2.empty() || !longitudinalVelocityLimitValid()) {
-    return 0.0;
-  }
-  const auto interpolation =
-    interpolationFor(avoidance_velocity_limit_speed_bins_mps, std::max(0.0, speed_mps));
-  const double lower = avoidance_velocity_limit_decel_mps2[interpolation.lower];
-  const double upper = avoidance_velocity_limit_decel_mps2[interpolation.upper];
-  return lower + interpolation.ratio * (upper - lower);
-}
-
 double RacelineSplineParameters::limitedAvoidanceSpeed(
   double requested_speed_mps, double curvature_radpm) const
 {
@@ -1853,7 +1807,7 @@ void RacelineSplinePlanner::applyAvoidanceVelocityLimit(
   }
 
   applyApproachFeasibilityRamp(path, ego, visible);
-  applyLongitudinalFeasibility(path, ego);
+  applyLongitudinalFeasibility(path);
 }
 
 // 종방향 실현가능 후방 패스 (2026-08-16).
@@ -1933,17 +1887,9 @@ void RacelineSplinePlanner::applyApproachFeasibilityRamp(
   // 여유 있는 접근은 base(2.0)가 그대로 남고, 자차가 이미 빠르고 가까운 경우만 필요한
   // 만큼 [base, max]로 가팔라진다. max로도 모자라면 max 램프를 깔고(잔여 계단은 종전보다
   // 작다) 종전대로 안전정지 사다리가 받친다.
+  const double approach_decel_max =
+    std::max(approach_decel, parameters_.approach_feasibility_decel_max_mps2);
   const double ego_speed = std::max(0.0, ego.speed);
-  // 적응 램프의 상한도 차량 표에 종속시킨다 (2026-08-19). 3.5 는 velocity_limits.csv 가
-  // 어느 속도에서도 허용하지 않는 값이다(저속 3.0, v>=4 는 2.0). 표가 없으면 종전대로
-  // 파라미터 값을 그대로 쓴다. base(approach_decel) 아래로는 내리지 않는다 — 그러면
-  // std::clamp 의 lo > hi 가 되어 미정의 동작이고, base 는 comfort 목표라 별개다.
-  const double table_decel = parameters_.decelLimitAt(ego_speed);
-  const double approach_decel_max = std::max(
-    approach_decel,
-    table_decel > 0.0 ?
-    std::min(parameters_.approach_feasibility_decel_max_mps2, table_decel) :
-    parameters_.approach_feasibility_decel_max_mps2);
   for (auto & target : targets) {
     const double excess =
       ego_speed * ego_speed - target.target_speed * target.target_speed;
@@ -1966,53 +1912,12 @@ void RacelineSplinePlanner::applyApproachFeasibilityRamp(
 }
 
 void RacelineSplinePlanner::applyLongitudinalFeasibility(
-  f110_msgs::msg::WpntArray & path, const EgoFrenetState & ego) const
+  f110_msgs::msg::WpntArray & path) const
 {
-  if (path.wpnts.size() < 2U) {
+  const double decel = parameters_.profileFeasibilityDecel();
+  if (!(decel > 0.0) || path.wpnts.size() < 2U) {
     return;
   }
-  const bool has_table = parameters_.longitudinalVelocityLimitValid() &&
-    !parameters_.avoidance_velocity_limit_accel_mps2.empty();
-
-  // ── 1) 전진(가속) 패스 — 2026-08-19 신설 ────────────────────────────────────
-  // 이 패스가 없던 동안 프로파일의 **가속에는 제약이 하나도 없었다**. 아래 후방 패스는
-  // "이 속도까지 제동으로 내려갈 수 있나"만 보므로, 캡이 한 점을 눌렀다가 다음 점이 라인
-  // 속도로 되튀는 계단은 통과시킨다. 실차 백에서 발행 경로의 가속 요구가 velocity_limits.csv
-  // 한계를 넘은 비율이 v 5~9 m/s 에서 93.5% 였다.
-  //
-  // 🔑 시드는 경로 첫 점의 계획 속도가 아니라 **자차의 실측 속도**다. 정지 후 출발 구간에서
-  // 요구 가속 p90 이 30 m/s² 로 튀던 원인이 바로 첫 점에 라인 속도가 그대로 실려 있었던
-  // 것이고, 접근 램프(applyApproachFeasibilityRamp)가 이미 같은 이유로 실측 속도를 쓴다.
-  // 전진 패스는 min 으로만 쓰므로 속도를 올리는 일이 없다 — 안전정지 0 프로파일은 안전하다.
-  if (has_table) {
-    double speed = std::max(parameters_.longitudinal_launch_speed_floor_mps,
-      std::max(0.0, ego.speed));
-    double previous_s = ego.s;
-    for (auto & waypoint : path.wpnts) {
-      const double ds = forwardDistance(previous_s, waypoint.s_m);
-      if (ds > kEpsilon) {
-        const double accel = parameters_.accelLimitAt(speed);
-        if (accel > 0.0) {
-          speed = std::sqrt(speed * speed + 2.0 * accel * ds);
-        }
-      }
-      waypoint.vx_mps = std::min(std::max(0.0, waypoint.vx_mps), speed);
-      // 다음 구간은 실제로 채택된 속도에서 이어간다. 캡이 더 낮게 눌렀다면 그 자리에서
-      // 다시 가속 한계를 밟아 올라가야 하기 때문이다.
-      speed = std::max(0.0, waypoint.vx_mps);
-      previous_s = waypoint.s_m;
-    }
-  }
-
-  // ── 2) 후방(감속) 패스 ──────────────────────────────────────────────────────
-  // 순서가 전진 → 후방이어야 한다. 후방 패스가 낮추는 점은 정의상 감속 구간이므로 가속
-  // 제약이 그 자리에서 느슨해져 재위반이 생기지 않는다. 반대 순서면 전진 패스가 후방 패스의
-  // 제동 프로파일을 다시 깎아 두 제약이 서로를 무효화한다.
-  //
-  // 감속 한계는 이제 속도 의존이다 (2026-08-19). 상수 3.5 는 csv 의 v>=4 값(2.0)을 1.75배
-  // 넘어서, 실차 백에서 감속 요구가 한계를 넘은 비율이 v 5~9 에서 84.2% 였다. 두 점 중
-  // **큰 속도**에서 조회한다 — csv 의 감속 한계는 속도가 오를수록 작아지므로 그쪽이 보수적이다.
-  const double scalar_decel = parameters_.profileFeasibilityDecel();
   for (std::size_t index = path.wpnts.size() - 1U; index > 0U; --index) {
     auto & earlier = path.wpnts[index - 1U];
     const auto & later = path.wpnts[index];
@@ -2021,20 +1926,8 @@ void RacelineSplinePlanner::applyLongitudinalFeasibility(
       continue;
     }
     const double later_speed = std::max(0.0, later.vx_mps);
-    const double earlier_speed = std::max(0.0, earlier.vx_mps);
-    double decel = scalar_decel;
-    if (has_table) {
-      const double table_decel =
-        parameters_.decelLimitAt(std::max(earlier_speed, later_speed));
-      if (table_decel > 0.0) {
-        decel = table_decel;
-      }
-    }
-    if (!(decel > 0.0)) {
-      continue;
-    }
     const double reachable = std::sqrt(later_speed * later_speed + 2.0 * decel * ds);
-    earlier.vx_mps = std::min(earlier_speed, reachable);
+    earlier.vx_mps = std::min(std::max(0.0, earlier.vx_mps), reachable);
   }
 }
 
@@ -2176,12 +2069,8 @@ bool RacelineSplinePlanner::validateCandidate(
     if (entry_index < path.wpnts.size() && entry_forward <= 0.5 * track_length_) {
       const auto & entry = path.wpnts[entry_index];
       const double entry_lateral = std::abs(entry.d_m - ego.d);
-      // 예산에는 마진 정책과 무관한 하한을 건다 (2026-08-20). 예산이 0 이면 아래 AND 의
-      // 첫 조건이 상시 참이 되어 오탐 방지 장치가 사라지고, 검사가 기울기 하나로 무너진다
-      // — 자세한 근거는 entry_discontinuity_min_budget_m 선언부 주석 참고.
-      const double tracking_budget_m = std::max(
-        parameters_.trackingErrorReserve(ego.speed, entry.kappa_radpm),
-        std::max(0.0, parameters_.entry_discontinuity_min_budget_m));
+      const double tracking_budget_m =
+        parameters_.trackingErrorReserve(ego.speed, entry.kappa_radpm);
       const bool beyond_tracking_budget = entry_lateral > tracking_budget_m;
       const bool excessive_entry_slope =
         entry_lateral / entry_forward > parameters_.maximum_lateral_slope;

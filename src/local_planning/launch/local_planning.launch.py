@@ -36,16 +36,10 @@ from launch_ros.actions import Node, SetRemap
 def generate_launch_description():
     pkg_dir = get_package_share_directory('local_planning')
     default_config = os.path.join(pkg_dir, 'config', 'local_planning.yaml')
-    # 🔴 검출기 벽 필터의 기준맵은 **런타임 /map 과 같은 kissmap 렌더**여야 한다 (2026-08-20).
-    # 종전에는 particle_filter_cpp(구 MCL)의 map.yaml(165x385, origin -0.741,-1.626)을 서빙했는데,
-    # 실차 포즈·스캔은 kinematic_localization 의 kissmap 좌표계(438x190, origin -19.934,-2.016)에
-    # 있다. 두 맵은 같은 트랙의 다른 매핑 세션 산출물이라 좌표계가 다르고 변환도 없다.
-    # 실측(run_080532 자율 구간): 스캔 점 391,947개 중 옛 기준맵 격자 안은 13.4%뿐 — 나머지
-    # 86.6%는 distanceToWall()=-1 로 벽 필터를 통과해, 벽+장애물이 한 클러스터(대각 1~12 m)로
-    # 붙어 max_obs_size 0.8 에서 기각됐다. 오늘 자율 첫충돌 23건 중 14건(61%)이 이 미검출이다.
-    # ⚠️ map.kissmap 을 다시 뜨면 map_kissmap_render.{pgm,yaml} 도 함께 다시 만들어야 한다
-    #    (kinematic_localization/maps/ 의 렌더 yaml 주석 참고). F1_MAP 환경변수는 이 파일에는
-    #    더 이상 적용되지 않는다 — 렌더는 map.kissmap 하나에서만 나온다.
+    # 이 브랜치의 위치추정은 particle_filter_cpp(MCL)가 아니라 kinematic_localization(KICP)다.
+    # 런타임 /map 이 map.kissmap 에서 나오므로 기준맵도 그 렌더본이어야 좌표계가 맞는다 —
+    # map.yaml 을 쓰면 격자가 어긋나 스캔 점 대부분이 distanceToWall()=-1 로 벽 필터를
+    # 통과한다. 그래서 F1_MAP 은 이 파일에 적용하지 않는다(렌더는 map.kissmap 하나뿐).
     default_reference_map = os.path.join(
         get_package_share_directory('kinematic_localization'),
         'maps',
@@ -65,24 +59,8 @@ def generate_launch_description():
     )
     simulator_arg = DeclareLaunchArgument(
         'simulator',
-        # 🔴 기본값은 false 다 (2026-08-20 수정). true 는 obstacle_detector 의 ego odom 을
-        # /ego_racecar/odom(gym 전용)으로 바꾸는데, 실차에는 그 토픽이 없다.
-        #
-        # 기본값이 true 이던 동안 실차 백 10 개 · DIAG 창 4262 개에서 예외 없이
-        #   motion(fresh=false),  view 기각 합계 0,  "Ego odometry not received yet" 반복
-        # 이 찍혔다. 경고 문구가 전부 "not received yet"(= ego_s_ < 0)이고 "stale" 이 단
-        # 한 번도 없었다 — 늦게 온 게 아니라 한 번도 안 온 것이다.
-        # 그 결과 detector 의 시야창 게이트(`if (ego_s_ >= 0.0)` 안에 있다)가 통째로 꺼져
-        # 있었고, /opp_obs 는 전면 억제됐다.
-        #
-        # 같은 인자의 기본값이 obstacle_detector 쪽 런치 두 개에서는 이미 false 였다.
-        # 이 파일만 true 로 덮어써서 실차 실행을 깨뜨리고 있었다.
-        # 시뮬에서는 simulator:=true 를 **명시적으로** 넘긴다 (sim/run.sh, CLAUDE.md 참고).
-        default_value='false',
-        description=(
-            'true: gym ego odometry(/ego_racecar/odom) for the perception node. '
-            'false (default): real vehicle(/pf/pose/odom)'
-        ),
+        default_value='true',
+        description='Use gym ego odometry for the perception node',
     )
     use_sim_time_arg = DeclareLaunchArgument(
         'use_sim_time',

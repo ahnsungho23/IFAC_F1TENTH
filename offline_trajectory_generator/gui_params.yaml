@@ -1,4 +1,4 @@
-map_yaml: src/kinematic_localization/maps/map.yaml
+map_yaml: /home/haejun/2026_IFAC/src/kinematic_localization/maps/map.yaml
 output_dir: ~/2026_IFAC/offline_trajectory_generator/output/map
 velocity_limits_csv: offline_trajectory_generator/config/velocity_limits.csv
 optimizer: mincurv
@@ -16,8 +16,8 @@ raceline_smooth_sigma: 1.0
 safety_width: 0.4
 boundary_margin: 0.4
 max_width_distance: 2.4
-max_speed: 8.0
-min_speed: 3.4000000000000004
+max_speed: 9.0
+min_speed: 3.7
 max_curvature: 0.7000000000000001
 smooth_sigma: 4.1000000000000005
 median_kernel: 5

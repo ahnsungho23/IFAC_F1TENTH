@@ -326,16 +326,10 @@ ros2 topic echo /kinematic_localization/diagnostics   # inlier_ratio·residual_r
 ```bash
 cd ~/2026_IFAC && source install/setup.zsh
 echo "F1_MAP=$F1_MAP"     # 비었거나 map 이어야 한다 (§0-1)
-ros2 launch kinematic_localization kinematic_localization.launch.py map_name:=map use_sim_time:=false
+ros2 launch particle_filter_cpp mcl_launch.py mod:=real map_name:=map use_rviz:=false
 ```
-`map_name:=map` — 위치추정은 `F1_MAP`을 안 읽으므로 **항상 명시**한다. 여기서 읽는 건
-`kinematic_localization/maps/map.kissmap`(포인트 맵)이다.
-`use_sim_time:=false` — 실차 시계를 쓴다.
-
-> 🔴 **2026-08-20: 위치추정이 `particle_filter_cpp`(MCL) → `kinematic_localization`(KICP)로
-> 교체됐다.** 토픽·TF 인터페이스는 그대로(`/pf/pose/odom` + `map`→`odom` TF + `/initialpose`)라
-> 하위 노드는 손댈 게 없지만, 이 노드에는 자체 RViz가 없다(`use_rviz` 인자 소멸 — `/map`을
-> 직접 발행하므로 브리지 RViz의 2D Pose Estimate가 그대로 동작한다).
+`map_name:=map` — MCL은 `F1_MAP`을 안 읽으므로 **항상 명시**한다.
+`use_rviz:=false` — RViz는 본체에서 띄운다(젯슨 렌더 부하 0).
 
 ⚠️ MCL로 돌아가면 CLAUDE.md ②-u의 "가드 복구 안 함" 판정도 같이 되돌려야 한다.
 </details>
@@ -559,13 +553,10 @@ static TF              → base_link → laser
 (34 m 폐합 15.6 cm, 2바퀴 헤딩 +717.6°/720°, 자이로 스케일 오차 +0.06%).
 
 ⚠️ `odom→base_link`를 내는 쪽이 **반드시 살아 있어야 한다** — 실차는 f110 bringup
-(`vesc.yaml` `publish_tf: true`), 시뮬은 gym_bridge.
-
-> 🔴 **2026-08-20**: 위 `publish_odom_base_tf` / `mod:=bag`은 구 `particle_filter_cpp`(MCL)
-> 인자였고, 교체된 `kinematic_localization`에는 **둘 다 없다**(인자는 `map_name`,
-> `slam_mode`, `map_output_file`, `use_sim_time` 넷뿐). bag 재생으로 `odom→base_link`가
-> 비는 경우에는 그 TF를 내는 노드를 따로 띄워야 한다. 위 문단은 07-29 당시의 이중 발행
-> 해소 경위 기록으로만 읽을 것.
+(`vesc.yaml` `publish_tf: true`), 시뮬은 gym_bridge. 둘 다 없는 bag 재생에서만 켠다:
+```bash
+ros2 launch particle_filter_cpp mcl_launch.py mod:=bag publish_odom_base_tf:=true
+```
 
 ```bash
 ros2 topic info /tf --verbose

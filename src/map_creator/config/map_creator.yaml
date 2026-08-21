@@ -24,7 +24,7 @@ map_creator_node:
     # 양의 유한 double이 아니면 reason을 담아 거부합니다(그 reason이 아래 ERROR 로그로 나옴).
     # rollback_max_speed_mps: baseline rollback 스왑 시 복원 값 (0 = 미전송, 스왑 값 유지).
     control_node_name: "control_map_node"
-    swap_max_speed_mps: 8.0
+    swap_max_speed_mps: 10.0
     rollback_max_speed_mps: 0.0
 
     # ---- trigger / ledger ----

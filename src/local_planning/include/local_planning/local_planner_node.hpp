@@ -164,25 +164,6 @@ private:
     const SafeStopCycleDecision & decision);
   void handleSafeStopLatch(const EgoFrenetState & ego);
   bool commitmentComplete(const EgoFrenetState & ego);
-  // 커밋한 장애물이 전방 handoff_latch_commit_distance_m_ 안에 남아 있는가.
-  // true 면 이번 프레임에 그 장애물이 안 보여도 핸드오프로 넘어가지 않는다.
-  bool committedObstacleWithinLatch(const EgoFrenetState & ego) const;
-
-  // 활성 기동이 참조하는 장애물들의 뒤끝 s 를 최신 관측으로 갱신한다(미검출은 유지).
-  void rememberManeuverObstacleRears(const std::vector<int> & obstacle_ids);
-  // 기억해 둔 뒤끝 중 아직 자차 앞에 남아 있는 것의 최대 전방거리. 없으면 음수.
-  double maneuverObstacleRearAhead(const EgoFrenetState & ego) const;
-  // 기동 장애물을 아직 안 지났으면 이번 콜백을 붙잡는다 (2026-08-20 확장).
-  // true 를 돌려주면 이번 콜백은 여기서 끝난다 — 경로를 발행했거나 안전정지를 걸었다.
-  //
-  // ⚠️ complete 뿐 아니라 IDLE/무효화까지 덮는다. 앞선 판(597e6f8)은 lifecycle.complete
-  //    분기에만 걸려 있었는데, 실차에서는 보류가 걸린 바로 다음 콜백에 lifecycle 이
-  //    IDLE 로 떨어져 기동이 통째로 사라졌다 (run_062020 t=537.80 보류 → 537.83 IDLE →
-  //    538.00 옛 경로 재발행 → 538.5 벽). 한 콜백만 막은 셈이었다.
-  bool holdForManeuverObstacleAhead(
-    const P3CallbackSnapshot & snapshot,
-    const P3ShadowResult & evaluation,
-    const P3ManeuverLifecycleDecision & lifecycle);
   void resetCommitmentViolationConfirmation();
   void logObstacleCollision(
     const std::string & severity,
@@ -298,6 +279,38 @@ private:
   };
   std::map<int, FaceObservationWindow> face_observation_windows_;
 
+  // ── 확정 정적 장애물 기억 ───────────────────────────────────────────────────────────
+  //
+  // 왜 (2026-08-17): 오늘 실패의 전부가 "짧은 지평에서 현재 위치로부터 급하게 계획하기"가
+  // 뿌리였다 — cluster_start <= 0, 램프가 병목 관통, 격자가 실현 구간을 건너뜀, 가림 때문에
+  // 폭이 마지막 순간에 3.5배로 뜀. 한 랩 전에 장애물 위치를 알면 이 넷이 통째로 사라진다.
+  //
+  // 대회 규정: 20랩 중 선두 차량이 10랩을 완주하면 장애물이 제거된다. 1~2랩 학습 후
+  // 3~10랩이 이득 구간이다(최대 8랩, 10랩 경기면 8/10).
+  //
+  // 🔴 제거 시점은 **상대차 진행**에 달려 있다. 우리 랩 카운터로는 맞출 수 없다. 그래서
+  // 인지로 감지한다 — 그 자리를 시야 확보한 채 지났는데 검출기가 확정하지 못하면 제거다.
+  //
+  // 좌표 변환이 없다: /confirmed_static_obs 를 이미 Frenet(s/d)으로 받으므로 그대로 기억한다.
+  // (static_obstacle_map 은 map 좌표 x/y AABB만 다루므로 이 용도에는 재투영이 필요하고,
+  //  지금 스택에서 실행되지도 않는다 — 그래서 쓰지 않는다.)
+  struct RememberedObstacle
+  {
+    f110_msgs::msg::Obstacle obstacle;
+    std::uint64_t last_confirmed_sequence{0};
+    // 시야가 확보된 채 지나쳤는데 확정하지 못한 횟수. 임계에 닿으면 제거로 본다.
+    int unconfirmed_passes{0};
+    // 이번 통과에서 이미 판정했는지. 한 번 지날 때 여러 번 세지 않기 위한 것.
+    bool pass_pending{false};
+  };
+  std::vector<RememberedObstacle> remembered_obstacles_;
+  bool remembered_obstacle_enable_{true};
+  // 2 (2026-08-17): 통과 순간 검출 한 프레임 누락으로 진짜 장애물을 지우던 회귀 수리.
+  int remembered_obstacle_removal_passes_{2};
+  double remembered_obstacle_visibility_margin_m_{2.0};
+  double remembered_obstacle_match_tolerance_m_{0.60};
+  void updateRememberedObstacles();
+  std::vector<f110_msgs::msg::Obstacle> obstaclesWithMemory() const;
   std::size_t face_observation_window_size_{40};
   std::size_t face_observation_min_samples_{12};
   void updateFaceObservationWindows();
@@ -317,36 +330,6 @@ private:
   double initial_observation_max_wait_sec_{0.35};
   int commitment_soft_violation_confirm_cycles_{3};
   double chain_release_distance_m_{0.20};
-  // 🔴 커밋 래치 거리 [m] (2026-08-20 신설). 커밋한 장애물이 전방 이 거리 안에 있으면
-  // "이번 프레임 미검출"을 이유로 글로벌 핸드오프(= d 오프셋 0 인 라인)로 넘어가지 않는다.
-  //
-  // 근거 — 2026-08-19 run_034444 실차(자율 343 s):
-  //   원거리 LiDAR 각해상도의 물리적 한계로 클러스터가 min_cluster_points(5) 문턱을
-  //   넘나든다. 폭 0.45 m 물체가 10 m 에서 각폭 2.6° = 약 10 빔뿐이고, 코너 차체 롤
-  //   6~12° 가 그중 일부를 빗나가게 한다. 실측 미검출률(직전 1 s 내 관측 기준):
-  //     3~5 m 42.2%   5~7 m 47.7%   7~10 m 65.9%   (3~10 m 전체 50.9%)
-  //   깜빡임 자체는 못 없앤다. 문제는 플래너가 그 한 프레임을 "장애물 없음"으로 읽고
-  //   d=0 핸드오프를 발행하는 것이고, 재검출돼도 그 id 는 buildNextManeuverInput() 의
-  //   excluded 에 있어 재회피가 막힌다 — 그대로 정면 충돌한다.
-  //   실제로 장애물 0.35~1.35 m 앞까지 오프셋 0 을 유지한 정면 충돌이 5 건이었다
-  //   (t=244.1 / 276.6 / 278.3 / 341.2 / 545.2, 3.8~5.7 m/s).
-  //
-  // 값 8.0: 미검출이 시작되는 거리대(3~10 m)를 덮고, 5 m/s 정지거리(6~7 m)보다 크다.
-  // edge_test 의 avoid_planner 는 같은 개념을 latch_commit_distance_m 5.0 으로 넣었는데,
-  // 그쪽 미검출률은 7.9% 로 우리(50.9%)의 1/6 이라 더 크게 잡는다.
-  // 0 이면 래치가 꺼지고 종전 거동(미검출 즉시 핸드오프)으로 돌아간다.
-  double handoff_latch_commit_distance_m_{8.0};
-
-  // 🔴 기동 장애물의 **마지막으로 관측된 뒤끝 s** [id -> s_end] (2026-08-20).
-  // committed_obstacle_guards_ 는 commitAvoidance() 에서만 채워지므로 P3 가 경로를
-  // 소유하는 동안에는 비어 있다 — 그래서 완료 판정에 쓸 수 없다. 이 맵은 P3/P0 구분 없이
-  // 활성 기동이 참조하는 id 를 매 콜백 갱신하고, 미검출 프레임에는 마지막 값을 유지한다.
-  // 완료·핸드오프 판정이 "장애물을 실제로 지났는가"를 물으려면 이 기억이 필요하다.
-  std::map<int, double> maneuver_obstacle_rear_s_;
-  // 완료 보류가 시작된 시각. 보류가 이 시간을 넘으면 강제로 완료시킨다 — 차가 멈춰 있으면
-  // 장애물을 영영 못 지나므로 보류가 풀리지 않고 FSM 이 AVOID 에 갇힌다.
-  std::optional<rclcpp::Time> completion_deferred_since_;
-  double completion_defer_max_sec_{3.0};
   double commitment_lock_lateral_threshold_m_{0.10};
   double commitment_lock_longitudinal_m_{0.50};
 
