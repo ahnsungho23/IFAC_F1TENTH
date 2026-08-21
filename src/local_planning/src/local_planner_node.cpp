@@ -1073,20 +1073,9 @@ bool LocalPlannerNode::maybePublishRawSlowdownHint(const EgoFrenetState & ego)
 // 사라지면(홀드 만료) 다음 사이클 발행이 즉시 원래 속도로 돌아온다.
 void LocalPlannerNode::publishCommittedWithRawSlowdownOverlay(const EgoFrenetState & ego)
 {
-  double front = 0.0;
-  double span = 0.0;
-  if (selectRawSlowdownTarget(ego, &front, &span)) {
-    RacelineSplineResult overlay = committed_result_;
-    planner_.applyRawSlowdownProfile(
-      overlay.path, ego, front, span, raw_slowdown_speed_cap_mps_,
-      planner_parameters_.approach_feasibility_decel_mps2);
-    RCLCPP_INFO_THROTTLE(
-      get_logger(), *get_clock(), 2000,
-      "B1 오버레이: 커밋 재발행에 raw 감속 적용 (전방 %.2f m, 스팬 %.2f m, cap %.1f m/s).",
-      front, span, raw_slowdown_speed_cap_mps_);
-    publishResult(overlay);
-    return;
-  }
+  // B1 전분기 오버레이 이후(2026-08-21) 캡은 publishResult 관문에서 일괄 적용된다.
+  // 이 함수는 기존 호출부 4곳의 의미(커밋 재발행)를 유지하는 얇은 껍데기로 남긴다.
+  (void)ego;
   publishResult(committed_result_);
 }
 
@@ -3712,10 +3701,47 @@ void LocalPlannerNode::publishResult(const RacelineSplineResult & result)
   if (result.kind == SplinePlanKind::kAvoidance && !result.path.wpnts.empty()) {
     last_valid_guidance_path_ = result.path;
   }
+  // B1 전분기 오버레이 (2026-08-21, run_102718 s5.5 충돌): 종전에는 4개 재발행
+  // 분기에만 raw 감속 캡이 실렸고, 신규 커밋(plan-then-swap)·안전정지 발행 등
+  // 나머지 분기는 캡 없이 나가 raw 로 보이는 박스 앞 6.1 m/s 램프가 가능했다.
+  // 모든 발행이 지나는 이 관문에서 **나가는 복사본에만** min 캡을 씌운다 —
+  // committed_result_/last_valid_guidance_path_ 등 저장본은 원속도를 유지하므로
+  // raw 가 사라지면(홀드 만료) 다음 발행부터 즉시 원속도로 복귀한다.
+  f110_msgs::msg::WpntArray outgoing_path = result.path;
+  if (!outgoing_path.wpnts.empty()) {
+    nav_msgs::msg::Odometry odometry;
+    bool has_odometry = false;
+    {
+      std::lock_guard<std::mutex> lock(odometry_mutex_);
+      has_odometry = has_odometry_;
+      if (has_odometry) {
+        odometry = latest_odometry_;
+      }
+    }
+    if (has_odometry) {
+      EgoFrenetState overlay_ego;
+      overlay_ego.s = odometry.pose.pose.position.x;
+      overlay_ego.d = odometry.pose.pose.position.y;
+      overlay_ego.speed = std::abs(odometry.twist.twist.linear.x);
+      double raw_front = 0.0;
+      double raw_span = 0.0;
+      if (selectRawSlowdownTarget(overlay_ego, &raw_front, &raw_span)) {
+        planner_.applyRawSlowdownProfile(
+          outgoing_path, overlay_ego, raw_front, raw_span,
+          raw_slowdown_speed_cap_mps_,
+          planner_parameters_.approach_feasibility_decel_mps2);
+        RCLCPP_INFO_THROTTLE(
+          get_logger(), *get_clock(), 2000,
+          "B1 오버레이(전분기): 발행 경로에 raw 감속 적용 (전방 %.2f m, 스팬 %.2f m, "
+          "cap %.1f m/s).",
+          raw_front, raw_span, raw_slowdown_speed_cap_mps_);
+      }
+    }
+  }
   f110_msgs::msg::OTWpntArray output;
   output.header.stamp = eventNow();
   output.header.frame_id = frame_id_;
-  output.wpnts = result.path.wpnts;
+  output.wpnts = std::move(outgoing_path.wpnts);
   const bool stop_like =
     result.kind == SplinePlanKind::kSafeStop ||
     result.kind == SplinePlanKind::kPreparation;
