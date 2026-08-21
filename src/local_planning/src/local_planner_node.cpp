@@ -1771,7 +1771,7 @@ bool LocalPlannerNode::tryEarlyChainedManeuver(
 
   const int completed_id = committed_result_.obstacle_id;
   const double previous_merge_s = committed_result_.merge_s;
-  resetForChainedManeuver();
+  resetForChainedManeuver(ego);
   commitAvoidance(std::move(next_result), ego, next_obstacles);
   resetNextManeuverStabilization();
   RCLCPP_INFO(
@@ -1855,11 +1855,69 @@ std::vector<f110_msgs::msg::Obstacle> LocalPlannerNode::buildCurrentManeuverInpu
   return result;
 }
 
-void LocalPlannerNode::resetForChainedManeuver()
+// 재회피 차단 등록의 안전성 검사 (2026-08-21). 등록 조건만 바꾸고 소비처·해제
+// 사다리는 건드리지 않는다.
+//  - 실측 근거: 완료 판정은 merge_s 도달만 보므로 장애물을 지나기 전에 완료가 날 수
+//    있고(08-19 실측 85%), 그 상태로 차단하면 계획 입력에서 박스가 지워진다.
+//    run_102718 t=155.3(차단된 박스 관통 커밋→충돌), run_102438 t=123.7(재계획
+//    "막힘 없음" vs 회랑 "불청정" 모순 → 16.8 s 교착)이 그 결과다.
+//  - 차단이 안전한 경우 = 이미 지났거나(앞끝이 ego 뒤) ego 가 스팬 코앞/안쪽.
+//    후자가 이 차단의 원래 회귀 보호다: ego 가 패딩 스팬 안에서 재회피를 시도하면
+//    stop prefix 가 비어 안전정지 래치로 굳는다(원 주석의 v2 시나리오).
+bool LocalPlannerNode::safeToBlacklistCompletedObstacle(
+  const EgoFrenetState & ego, int id) const
 {
-  completed_obstacle_ids_.insert(
-    committed_result_.obstacle_ids.begin(), committed_result_.obstacle_ids.end());
-  if (committed_result_.obstacle_id >= 0) {
+  // 앞끝이 이 거리보다 명확히 전방이면 차단 금지. 웨이포인트 간격(0.25 m) 2배 —
+  // "코앞/스팬 안"(원 보호 케이스)과 "아직 접근 전"(사고 케이스)을 가르는 경계다.
+  constexpr double kClearlyAheadThresholdM = 0.5;
+  const double half_track = 0.5 * planner_.trackLength();
+  double s_start = std::numeric_limits<double>::quiet_NaN();
+  for (const auto & obstacle : static_obstacles_) {
+    if (obstacle.id == id) {
+      s_start = obstacle.s_start;
+      break;
+    }
+  }
+  if (!std::isfinite(s_start)) {
+    const auto guard = committed_obstacle_guards_.find(id);
+    if (guard != committed_obstacle_guards_.end()) {
+      s_start = guard->second.s_start;
+    }
+  }
+  if (!std::isfinite(s_start)) {
+    // 뒤끝 기억만 남은 경우: 뒤끝이 1 m 넘게 전방이면 몸통이 명확히 전방이다.
+    const auto rear = maneuver_obstacle_rear_s_.find(id);
+    if (rear != maneuver_obstacle_rear_s_.end()) {
+      const double rear_forward = planner_.forwardDistance(ego.s, rear->second);
+      return !(rear_forward < half_track &&
+             rear_forward > kClearlyAheadThresholdM +
+             planner_parameters_.obstacle_longitudinal_padding_m);
+    }
+    // 어디에서도 못 찾으면 종전 거동(차단)을 유지한다 — 보이지 않는 것은 어차피
+    // 재계획 대상이 아니고, 원 회귀 보호를 약화하지 않기 위해서다.
+    return true;
+  }
+  const double front_to_start = planner_.forwardDistance(ego.s, s_start);
+  const bool clearly_ahead = (front_to_start < half_track) &&
+    (front_to_start > kClearlyAheadThresholdM);
+  return !clearly_ahead;
+}
+
+void LocalPlannerNode::resetForChainedManeuver(const EgoFrenetState & ego)
+{
+  for (const int id : committed_result_.obstacle_ids) {
+    if (safeToBlacklistCompletedObstacle(ego, id)) {
+      completed_obstacle_ids_.insert(id);
+    } else {
+      RCLCPP_WARN(
+        get_logger(),
+        "완료 기동 장애물 %d 는 아직 전방이라 재회피 차단 목록에서 제외한다 "
+        "(조기 완료 — 다음 계획이 이 장애물을 계속 본다).", id);
+    }
+  }
+  if (committed_result_.obstacle_id >= 0 &&
+    safeToBlacklistCompletedObstacle(ego, committed_result_.obstacle_id))
+  {
     completed_obstacle_ids_.insert(committed_result_.obstacle_id);
   }
   const bool avoid_was_observed = has_state_ ?
@@ -1911,7 +1969,7 @@ bool LocalPlannerNode::beginChainedManeuverIfNeeded(
       "Chaining static avoidance during %s for new blocking cluster [%s]; "
       "swapping directly to a validated avoidance (plan-then-swap).",
       phase.c_str(), ids.c_str());
-    resetForChainedManeuver();
+    resetForChainedManeuver(ego);
     commitAvoidance(std::move(next_result), ego, next_obstacles);
     resetNextManeuverStabilization();
     return true;
@@ -1924,7 +1982,7 @@ bool LocalPlannerNode::beginChainedManeuverIfNeeded(
     "Chaining static avoidance during %s for new blocking cluster [%s]; "
     "no immediate avoidance from ego (%s) — releasing the completed maneuver's side lock.",
     phase.c_str(), ids.c_str(), next_result.reason.c_str());
-  resetForChainedManeuver();
+  resetForChainedManeuver(ego);
   promoteNextManeuverStabilization();
   return true;
 }
@@ -3144,7 +3202,19 @@ void LocalPlannerNode::onPlanningTimer()
     // cluster then starts at ego, the stop prefix is empty, and the safe-stop latch stalls the
     // car inside its own latched danger region (both v2 scenarios, .regression_check2).
     std::set<int> completed = completed_obstacle_ids_;
-    completed.insert(lifecycle.obstacle_ids.begin(), lifecycle.obstacle_ids.end());
+    for (const int id : lifecycle.obstacle_ids) {
+      // 조기 완료 방어 (2026-08-21): 위 08-19 실측처럼 merge_s 도달이 장애물 통과보다
+      // 먼저일 수 있다. 아직 명확히 전방인 장애물을 여기서 차단하면 계획 입력에서
+      // 지워져 관통 커밋(run_102718 t=155.3)·모순 교착(run_102438 t=123.7)이 된다.
+      if (safeToBlacklistCompletedObstacle(active_snapshot.maneuver.ego, id)) {
+        completed.insert(id);
+      } else {
+        RCLCPP_WARN(
+          get_logger(),
+          "P3 완료 장애물 %d 는 아직 전방이라 재회피 차단 목록에서 제외한다 "
+          "(조기 완료 — 다음 계획이 이 장애물을 계속 본다).", id);
+      }
+    }
     clearCommitment();
     resetP3SelectionEnvelope();
     completed_obstacle_ids_ = std::move(completed);

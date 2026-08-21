@@ -161,7 +161,13 @@ private:
     const EgoFrenetState & ego,
     std::vector<f110_msgs::msg::Obstacle> & next_obstacles,
     const std::string & phase);
-  void resetForChainedManeuver();
+  // 완료 기동의 장애물을 재회피 차단 목록에 넣기 전 안전성 검사 (2026-08-21,
+  // run_102718 t=155.3 / run_102438 t=123.7): 앞끝이 아직 명확히 전방인 장애물을
+  // 차단하면 계획 입력에서 지워져 (a) 그 박스를 관통하는 체이닝 커밋 (b) 재계획
+  // "막힘 없음" vs 회랑검사 "불청정" 모순 교착이 된다. 지났거나 ego 가 스팬 안일
+  // 때만 true — 후자가 이 차단의 원래 회귀 보호(옆 박스 재회피 정지) 케이스다.
+  bool safeToBlacklistCompletedObstacle(const EgoFrenetState & ego, int id) const;
+  void resetForChainedManeuver(const EgoFrenetState & ego);
   bool commitmentSideLocked(const EgoFrenetState & ego) const;
   bool activateGlobalHandoff(
     const EgoFrenetState & ego,
