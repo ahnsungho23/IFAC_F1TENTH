@@ -17,6 +17,20 @@ global_trajectory_publisher_node:
     # <output_base_dir>/<reload_map_name>/global_waypoints.json. YAML is not rewritten.
     reload_map_name: "obstacle_map"
     # map_path: ""   # optional initial-directory override (reload target remains obstacle_map)
+    #
+    # Lap-triggered one-way switch to a PRE-GENERATED bundle (Forza offline raceline).
+    # Reference path over a run: map -> (lap 3, map_creator swap) obstacle_map
+    #                                -> (lap 11, here) forza_map
+    # The bundle must exist before the run; generate it with
+    #   cd offline_trajectory_generator
+    #   python3 forza_trajectory_gui.py --output-dir output/forza_map ...
+    # (the Forza GUI's own default is output/<map>/forza, so pass --output-dir).
+    # A missing or invalid bundle is rejected and the live line is kept; the next lap
+    # message retries. Empty lap_switch_map_name disables the switch.
+    # map_creator cannot undo this: its post-swap stage is terminal (map_creator AGENTS.md).
+    lap_switch_map_name: "forza_map"
+    lap_switch_count: 11
+    lap_count_topic: "/lap_count"
     publish_markers: true
     publish_shortest_path: true
     publish_centerline: true

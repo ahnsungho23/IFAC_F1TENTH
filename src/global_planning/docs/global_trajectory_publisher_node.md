@@ -29,11 +29,42 @@ RViz 시각화 마커를 ROS 2 토픽으로 재발행(republish)한다.
    `<output_base_dir>/<reload_map_name>/global_waypoints.json`을 별도로 읽고 검증한다.
    검증에 성공한 경우에만 메모리 번들과 활성 참조 경로를 원자적으로 교체한다.
    기존 `<output_base_dir>/<map_name>` 파일과 YAML은 수정하지 않는다.
-6. 타이머(`publish_period_sec`)마다 현재 활성 번들 전체를 반복 발행한다.
+6. **`/lap_count`가 `lap_switch_count`에 도달하면 사전 생성 번들로 1회 전환한다.**
+   `lap_switch_map_name`이 비어 있지 않을 때만 동작하며, 기본값은 비활성이다.
+   reload와 동일한 읽기·검증 절차(`swapTo()`)를 거치므로 잘못된 번들은 거부되고
+   기존 라인이 유지된다.
+7. 타이머(`publish_period_sec`)마다 현재 활성 번들 전체를 반복 발행한다.
+
+### 2.1 주행 중 참조 경로 전환 순서
+
+```text
+기동          output/map                 (map_name)
+  ↓ 랩 3      output/obstacle_map        map_creator가 reload 서비스 호출
+  ↓ 랩 11     output/forza_map           /lap_count 구독 (이 노드)
+```
+
+- **랩 11 전환은 단방향·1회성이다.** `/lap_count`는 latched(`transient_local`)라
+  같은 값이 반복 전달되는데, 내부 플래그로 파일을 다시 읽지 않는다.
+- 비교는 `>=`다. 메시지를 한 번 놓쳐도 전환이 건너뛰어지지 않는다.
+- 전환에 실패하면(디렉토리 없음·검증 실패) **플래그를 세우지 않아 다음 랩에 재시도**한다.
+  그동안 활성 라인은 그대로다.
+- **map_creator가 이를 되돌리지 않는다.** 스왑 후 map_creator의 단계는 종착 상태이며
+  재스왑 경로가 제거되어 있다(`src/map_creator/AGENTS.md`).
+- ⚠️ **`forza_map` 번들은 주행 전에 만들어져 있어야 한다.** 없으면 랩 11에 WARN만 남고
+  `obstacle_map` 라인으로 계속 주행한다.
+- ⚠️ 라인이 바뀌면 `frenet_odom_node`가 CLCS를 재구성하고, `lap_counter_node`가 세는
+  기준 `s`도 함께 바뀐다. 새 라인의 `s_max`가 `finish_s_min`(기본 10.0)보다 작으면
+  **이후 랩이 세어지지 않는다.** 다른 맵/라인을 쓸 때 반드시 확인할 것.
 
 ## 3. 구독 토픽
 
-없음. 이 노드는 파일에서 데이터를 읽어 발행만 한다.
+| 토픽 | 타입 | 조건 |
+| --- | --- | --- |
+| `lap_count_topic` (기본 `/lap_count`) | `std_msgs/msg/Int32` | `lap_switch_map_name`이 비어 있지 않을 때만 구독 |
+
+> QoS는 `KeepLast(1)` + `reliable` + **`transient_local`** 로,
+> `lap_counter_node`의 발행 QoS와 일치시킨다. volatile로 구독하면 이미 발행된
+> latched 값을 못 받아 다음 랩까지 전환이 밀린다.
 
 ## 4. 발행 토픽
 
@@ -65,6 +96,9 @@ RViz 시각화 마커를 ROS 2 토픽으로 재발행(republish)한다.
 | `map_name` | `map` | 시작 시 `<output_base_dir>/<map_name>/global_waypoints.json`을 읽음 |
 | `map_path` | `""` | 시작 경로의 명시적 디렉토리 override |
 | `reload_map_name` | `obstacle_map` | reload 성공 시 전환할 별도 JSON 디렉토리 이름 |
+| `lap_switch_map_name` | `""` (코드 기본) / `forza_map` (YAML) | 랩 전환 대상 디렉토리 이름. **비우면 랩 전환 기능 자체가 비활성** |
+| `lap_switch_count` | `11` | 이 값 **이상**의 `/lap_count`에서 전환 |
+| `lap_count_topic` | `/lap_count` | 랩 카운트 구독 토픽 |
 | `publish_markers` | `true` | RViz 마커 발행 여부 |
 | `publish_shortest_path` | `true` | 최단경로 웨이포인트 발행 여부 |
 | `publish_centerline` | `true` | 센터라인 발행 여부 |
@@ -106,7 +140,27 @@ map creator 파라미터 파일을 바꿔야 하면
    - Fixed Frame은 마커의 `header.frame_id`(생성기 고정값 `map`)와 일치시켜야 한다.
 5. map creator가 `swapped`를 보고한 뒤 `ros2 param get
    /global_trajectory_publisher_node map_name`이 `obstacle_map`인지 확인한다.
-6. reload 이후 RViz에서 궤적선·경계선이 **사라지는지** 확인한다.
+6. 랩 11 전환은 노드 로그로 확인한다.
+
+```bash
+# 기동 시 (기능이 켜져 있으면)
+#   lap switch armed: at lap 11 the source becomes offline_trajectory_generator/output/forza_map
+# 전환 시
+#   lap 11 switch: loaded 349 waypoints from offline_trajectory_generator/output/forza_map
+# 실패 시
+#   lap 11 switch to ... rejected: <사유>
+```
+
+   수동 시험은 발행 QoS를 맞춰야 한다(§3 주석).
+
+```bash
+ros2 topic pub -1 -w 0 --qos-durability transient_local --qos-reliability reliable \
+  /lap_count std_msgs/msg/Int32 "{data: 11}"
+```
+
+   전환 후 마커가 다시 보인다 — Forza 번들은 마커를 갖고 있어
+   `obstacle_map`에서 `DELETEALL`로 비었던 화면이 복구된다.
+7. reload 이후 RViz에서 궤적선·경계선이 **사라지는지** 확인한다.
    이는 의도된 동작이다(§2-4). 옛 라인이 남아 있다면 `DELETEALL`이 발행되지 않은
    것이므로 버그다. 다음으로 확인할 수 있다:
 

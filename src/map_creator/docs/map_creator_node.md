@@ -15,11 +15,16 @@
 ```text
 IDLE ──(lap_count ≥ trigger, 원장 freeze)──▶ 판정+페인팅+저장 ──▶ GENERATING
   드라이버(bin/regenerate_obstacle_map, C++) 완료·물리 게이트 통과 ──▶ ARMED
-  lap_count 다음 갱신 ──▶ reload 호출 ──▶ MONITORING
-  (authoritative 스냅샷에서 사라진 뒤 2랩 → 원장 제거 → 재생성 /
-  전부 소실 → baseline 재시딩 + reload)
+  lap_count 다음 갱신 ──▶ reload 호출 ──▶ MONITORING (종착, 아무것도 하지 않음)
 어느 단계든 실패 → ABORTED (기존 라인 유지, 로컬 회피가 계속 커버)
 ```
+
+> 🔴 **스왑은 단방향·최종입니다.** 예전에는 MONITORING에서 장애물이 사라지면
+> 라인을 다시 만들거나(일부 소멸) baseline으로 되돌렸지만(전부 소멸), **두 경로 모두
+> 제거**했습니다. 프리즈 이후 새로 등장한 장애물도 라인에 반영되지 않습니다
+> (원래부터 그랬습니다 — MONITORING은 추가를 보지 않았습니다).
+> 스왑 이후 장애물 대응은 **전적으로 로컬 회피**이며, 아래 7번 게이트가 꺼진 채
+> 유지된다는 점을 함께 고려해야 합니다.
 
 1. **P0 투영 + 원장(ledger)**: `/adaptive_obstacle_map`은 Cartesian AABB만 싣습니다
    (static_obstacle_map은 Frenet 기준선을 소유하지 않음 — 해당 패키지 문서 계약).
@@ -29,11 +34,12 @@ IDLE ──(lap_count ≥ trigger, 원장 freeze)──▶ 판정+페인팅+저�
    투영하고 꼭짓점 4개는 중심 tangent 좌표계로 회전시키므로(obstacle_detector의
    `aabb_frenet_projector`와 같은 구성) 꼭짓점이 인접 branch로 튀지 않습니다.
    **한 장애물이라도 투영에 실패하면 스냅샷 전체를 거부**하고 원장을 갱신하지 않습니다
-   (개별 skip은 "소실"로 오역되어 `removal_miss_laps` 오삭제를 유발). 빈 배열은 정상
-   스냅샷입니다. 원장은 투영된 Frenet 중심의 wrap-aware 거리(`|Δs|<match_max_ds_m`,
-   `|Δd|<match_max_dd_m`)로 매칭하며, 매칭 기하가 배열에서 사라진 시점부터만
-   `removal_miss_laps`를 계산합니다(토픽 침묵·투영 실패는 소실이 아님).
-   별도 재확인은 하지 않고 persistent 항목을 그대로 freeze합니다.
+   (개별 skip이 "소실"로 오역되지 않도록). 빈 배열은 정상 스냅샷입니다.
+   원장은 투영된 Frenet 중심의 wrap-aware 거리(`|Δs|<match_max_ds_m`,
+   `|Δd|<match_max_dd_m`)로 매칭합니다. 별도 재확인은 하지 않고 persistent 항목을
+   그대로 freeze합니다.
+   `ObstacleLedger`는 소실 판정 API(`removalCandidates`/`removeAt`)를 여전히 갖고
+   있지만 **노드는 더 이상 호출하지 않습니다** (위 FSM 주석 참고).
    모든 s/d가 항상 P0 기준이므로 스왑으로 `/global_waypoints`가 바뀌어도(검출기는 새
    라인으로 CLCS를 재구축) 원장 매칭·소실 판정은 일관됩니다.
 2. **판정**: map_creator 전용 튜닝 파라미터(`decision.*`)로 만든 플래너 인스턴스에서
@@ -72,14 +78,16 @@ IDLE ──(lap_count ≥ trigger, 원장 freeze)──▶ 판정+페인팅+저�
 7. **AVOID 게이트 갱신**: 스왑 **성공 직후**(새 라인이 실제로 살아난 뒤에만)
    state_machine의 `allow_avoid_transition` 파라미터를 `false`로 내려
    GLOBAL→AVOID 진입을 차단한다. 새 라인이 장애물을 이미 우회하므로 로컬 회피가
-   불필요해지기 때문이다. 반대로 장애물 전부 소멸로 baseline rollback 스왑이
-   성공하면 `true`로 복원한다. `kArmed`(생성 검증 통과) 시점에는 절대 내리지
+   불필요해지기 때문이다. **복원 경로는 없다** — rollback 스왑이 제거되면서
+   `allow_avoid_transition`은 한 번 내려가면 주행이 끝날 때까지 `false`로 남는다.
+   스왑 이후 새로 나타난 장애물에 로컬 회피로 대응하려면
+   `disable_avoid_after_swap: false`로 두어야 한다.
+   `kArmed`(생성 검증 통과) 시점에는 절대 내리지
    않는다 — 스왑 전까지는 장애물을 통과하는 옛 라인 위라 회피가 계속 필요하다.
    파라미터 서비스 미준비 시 tick마다 재시도하며, 거부되면 로그만 남긴다.
 8. **제어 속도 상한 전송**: 같은 트리거(스왑 성공 직후)로 control 노드
    (`control_node_name`)의 `max_speed` 파라미터를 `swap_max_speed_mps`(기본 7.0)로
-   바꾼다. baseline rollback 스왑에서는 `rollback_max_speed_mps`(>0일 때만)를 보내
-   복원한다.
+   바꾼다. 복원 경로는 없다(rollback 스왑 제거).
    - **방향은 control 쪽 기동 기본값과의 비교로 정해진다.** 현재
      `control_real.launch.py`의 `max_speed`가 **5.0**이므로 7.0은 **올리는** 값이다 —
      랩1~2는 장애물 위치를 모르는 baseline 라인으로 도니 낮게 출발하고, 스왑 뒤엔
@@ -123,7 +131,6 @@ IDLE ──(lap_count ≥ trigger, 원장 freeze)──▶ 판정+페인팅+저�
 | `reseed_on_startup` | true | 시작 시 obstacle_map을 baseline 사본으로 재시딩 |
 | `control_node_name` | control_map_node | 스왑 후 max_speed를 보낼 control 노드 이름 |
 | `swap_max_speed_mps` | 7.0 | 장애물 라인 스왑 성공 직후 control max_speed 상한 [m/s] (≤0 = 미전송) |
-| `rollback_max_speed_mps` | 0.0 | baseline rollback 스왑 시 복원 값 [m/s] (≤0 = 미전송, 스왑 값 유지) |
 | `min_obstacle_clearance_after_m` | 0.42 | 새 라인↔장애물 최소 이격 (로컬 침묵 조건) |
 | `initial_smooth_sigma` | 4.1 | 1차 생성 smooth_sigma |
 | `retry_safety_width` | 0.4 | 게이트 실패 시에도 유지하는 safety_width |
@@ -177,4 +184,6 @@ ros2 launch global_planning global_planning.launch.py
 6. 랩 2+에서 로컬 플래너가 해당 장애물에 재개입하지 않는지 확인합니다.
 7. 스왑 직후 status `avoid gate disabled (obstacle line active)`와
    `ros2 param get /state_machine_node allow_avoid_transition`이 `false`인지
-   확인합니다 (baseline rollback 스왑 후에는 다시 `true`).
+   확인합니다 (**복원되지 않고 계속 `false`로 남습니다**).
+8. 스왑 후 장애물을 치워도 `map_name`이 `obstacle_map`에서 바뀌지 않는지 확인합니다
+   (rollback 제거 검증).

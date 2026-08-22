@@ -1,30 +1,12 @@
-# ForzaETH centerline + mincurv_iqp generator (forza_trajectory_gui.py).
-# Separate from gui_params.yaml, which belongs to the C++ generator's GUI.
-
-# Absolute path, like gui_params.yaml. The GUI rewrites this when you pick a map.
 map_yaml: /home/haejun/2026_IFAC/src/kinematic_localization/maps/map.yaml
-
-# Empty = derive per map as offline_trajectory_generator/output/<map>/forza,
-# which keeps Forza outputs out of output/<map>/ where the C++ generator writes
-# and global_trajectory_publisher_node reads. Point the node at a Forza bundle
-# with map_name: "<map>/forza" (the node joins output_base_dir and map_name with
-# a plain "/", so a nested name works unchanged).
-output_dir: ""
-
-# Relative paths resolve from offline_trajectory_generator/, not the workspace.
+output_dir: /home/haejun/2026_IFAC/offline_trajectory_generator/output
 optimizer_config_dir: config/forza
-
 occupancy_grid_threshold: 17.10619469
 filter_kernel_size: 7
-
-# Compared against the RAW skeleton contour perimeter (not the final raceline
-# s_max) with a +/-15% gate. Measured 42.7723 m for the map above; retune per map
-# with the procedure in docs/forza_generator.md. 0.0 disables the gate.
 expected_centerline_length: 42.7723
-
 safety_width: 1.0
 max_curvature: 0.8
-max_speed: 9.0
+max_speed: 10.0
 longitudinal_accel_scale: 3.7
 lateral_accel_scale: 1.0
 machine_accel_scale: 1.0

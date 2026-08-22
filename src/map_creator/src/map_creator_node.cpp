@@ -15,6 +15,13 @@
 // physical gates pass AND /lap_count advances, swap the global line through
 // /global_planning/reload_waypoints after the next lap transition.
 // Any failure keeps the previous line (local avoidance keeps covering).
+//
+// The swap is ONE-WAY and final. Obstacles disappearing later used to trigger a
+// regeneration (some gone) or a baseline rollback swap (all gone); both were
+// removed, so nothing re-swaps the global line once the pipeline commits it.
+// Obstacles appearing after the freeze were never reflected in the line either.
+// Everything post-swap is local avoidance's job -- note that the swap also
+// disables the GLOBAL->AVOID gate and nothing restores it.
 
 #include <algorithm>
 #include <atomic>
@@ -92,9 +99,7 @@ public:
       state_machine_param_client_ = std::make_shared<rclcpp::AsyncParametersClient>(
         this, state_machine_node_name_);
     }
-    if (!control_node_name_.empty() &&
-      (swap_max_speed_mps_ > 0.0 || rollback_max_speed_mps_ > 0.0))
-    {
+    if (!control_node_name_.empty() && swap_max_speed_mps_ > 0.0) {
       control_param_client_ = std::make_shared<rclcpp::AsyncParametersClient>(
         this, control_node_name_);
     }
@@ -125,12 +130,10 @@ private:
     // swapped line routes around the obstacles.
     declare_parameter<std::string>("control_node_name", "control_map_node");
     declare_parameter<double>("swap_max_speed_mps", 0.0);
-    declare_parameter<double>("rollback_max_speed_mps", 0.0);
 
     declare_parameter<int>("trigger_lap_count", 2);
     declare_parameter<double>("match_max_ds_m", 1.0);
     declare_parameter<double>("match_max_dd_m", 0.3);
-    declare_parameter<int>("removal_miss_laps", 2);
 
     declare_parameter<double>("ego_lookback_m", 12.0);
 
@@ -267,13 +270,11 @@ private:
     state_machine_node_name_ = get_parameter("state_machine_node_name").as_string();
     control_node_name_ = get_parameter("control_node_name").as_string();
     swap_max_speed_mps_ = get_parameter("swap_max_speed_mps").as_double();
-    rollback_max_speed_mps_ = get_parameter("rollback_max_speed_mps").as_double();
 
     trigger_lap_count_ = static_cast<int>(get_parameter("trigger_lap_count").as_int());
     ledger_.setMatchThresholds(
       get_parameter("match_max_ds_m").as_double(),
       get_parameter("match_max_dd_m").as_double());
-    removal_miss_laps_ = static_cast<int>(get_parameter("removal_miss_laps").as_int());
 
     ego_lookback_m_ = get_parameter("ego_lookback_m").as_double();
     reference_alignment_tolerance_m_ =
@@ -748,13 +749,11 @@ private:
           publishStatus("swapped: " + response->message);
           writeManifest("swapped", response->message);
           // Obstacle-line swap: the live global line now clears the obstacles,
-          // so the GLOBAL->AVOID entry gate is no longer needed. A baseline
-          // rollback swap (frozen_ empty) restores the gate instead.
-          scheduleAvoidGate(frozen_.empty());
-          // Same trigger for the control speed cap: cap on the obstacle line,
-          // optionally restore on baseline rollback.
-          scheduleControlMaxSpeed(
-            frozen_.empty() ? rollback_max_speed_mps_ : swap_max_speed_mps_);
+          // so the GLOBAL->AVOID entry gate is no longer needed. There is no
+          // rollback swap any more, so this gate is never restored -- local
+          // avoidance stays disabled for the rest of the run (deliberate).
+          scheduleAvoidGate(false);
+          scheduleControlMaxSpeed(swap_max_speed_mps_);
         } else {
           abort("reload rejected: " + response->message);
         }
@@ -955,33 +954,14 @@ private:
         break;
       }
 
-      case Stage::kMonitoring: {
-        const auto removals = ledger_.removalCandidates(lap_count_, removal_miss_laps_);
-        if (!removals.empty()) {
-          ledger_.removeAt(removals);
-          frozen_ = ledger_.snapshot();
-          baked_decisions_.clear();
-          if (frozen_.empty()) {
-            std::string why;
-            if (reseedBaseline(&why)) {
-              RCLCPP_INFO(get_logger(), "all obstacles gone: rolling back to baseline");
-              publishStatus("rollback: baseline reseeded, reloading");
-              requestSwap();
-              stage_ = Stage::kAborted;  // terminal; pipeline complete
-            } else {
-              abort("rollback reseed failed: " + why);
-            }
-          } else {
-            RCLCPP_INFO(get_logger(),
-              "obstacle set changed: regenerating with %zu obstacle(s)", frozen_.size());
-            if (runDecisionAndPaint()) {
-              retried_ = false;
-              startGeneration(std::nullopt, initial_smooth_sigma_, initial_morph_kernel_);
-            }
-          }
-        }
+      case Stage::kMonitoring:
+        // Terminal: the swapped line is final for the rest of the run.
+        // Obstacles disappearing used to trigger either a regeneration (some gone)
+        // or a baseline rollback swap (all gone); both were removed on purpose so
+        // nothing re-swaps the global line after the pipeline has committed it.
+        // Newly appearing obstacles were never reflected here either -- local
+        // avoidance owns everything that shows up after the swap.
         break;
-      }
 
       case Stage::kAborted:
         break;
@@ -995,9 +975,7 @@ private:
   std::string state_machine_node_name_;
   std::string control_node_name_;
   double swap_max_speed_mps_{0.0};
-  double rollback_max_speed_mps_{0.0};
   int trigger_lap_count_{2};
-  int removal_miss_laps_{2};
   double ego_lookback_m_{12.0};
   double reference_alignment_tolerance_m_{0.05};
   double max_obstacle_projection_d_m_{2.0};

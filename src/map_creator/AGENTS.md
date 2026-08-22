@@ -82,9 +82,17 @@ map_creator package rules. These instructions apply to `src/map_creator`.
   branch-flip). Incoming Frenet fields are ignored.
 - Snapshot ingestion is all-or-nothing: if any static obstacle in a snapshot fails projection
   (or the frame/AABB is invalid), reject the WHOLE snapshot and keep the previous ledger.
-  Dropping a single failed obstacle would read as a real disappearance and start the
-  `removal_miss_laps` hysteresis. An empty array is a valid snapshot. A trigger lap reached
-  while the last snapshot stands rejected aborts instead of freezing a stale ledger.
+  Dropping a single failed obstacle would read as a real disappearance. An empty array is
+  a valid snapshot. A trigger lap reached while the last snapshot stands rejected aborts
+  instead of freezing a stale ledger.
+- **The swap is one-way and final.** `kMonitoring` is a terminal do-nothing state. Obstacles
+  disappearing used to trigger a regeneration (some gone) or a baseline rollback swap (all
+  gone); both paths were REMOVED so nothing re-swaps the global line after the pipeline
+  commits it. Obstacles appearing after the freeze were never reflected either. Do not
+  reintroduce either path without an explicit decision — an in-race re-swap now also has to
+  reason about the lap-count switch in `global_trajectory_publisher_node`.
+- `ObstacleLedger` still exposes `removalCandidates`/`removeAt` (with unit tests) but the
+  node no longer calls them. Keep the class API; it is a ROS-free tested unit.
 - P0 immutability holds for the node's lifetime only: if map_creator alone restarts after a
   swap, the latched `/global_waypoints` already carries the obstacle line and is captured as
   the new reference. Projection, side decision, and painting stay mutually consistent (they
@@ -107,9 +115,11 @@ map_creator package rules. These instructions apply to `src/map_creator`.
 - After a SUCCESSFUL swap (and only then — never at kArmed, where the old line
   through the obstacles is still live), the node sets the state_machine's
   `allow_avoid_transition` parameter via its `set_parameters` service:
-  obstacle-line swap → `false` (the live line now clears the obstacles);
-  baseline-rollback swap (`frozen_` empty) → `true` (local avoidance must cover
-  again). Gated by `disable_avoid_after_swap`; target node name in
+  obstacle-line swap → `false` (the live line now clears the obstacles).
+  **There is no restore path**: rollback swaps are gone, so once lowered the gate
+  stays `false` for the rest of the run and local avoidance never comes back.
+  Set `disable_avoid_after_swap: false` if post-swap obstacles must still be
+  covered locally. Gated by `disable_avoid_after_swap`; target node name in
   `state_machine_node_name`. If the parameter service is not ready, the update
   stays pending and `tick()` retries; a rejected set is logged and dropped.
 
@@ -122,9 +132,9 @@ map_creator package rules. These instructions apply to `src/map_creator`.
   `map` source until this gated call switches it to the configured `obstacle_map` source.
 - Post-swap side effects fire ONLY from the reload-success callback, via per-target
   AsyncParametersClient sends retried each tick until the service is ready:
-  state_machine `allow_avoid_transition` (false on obstacle swap / true on rollback) and
-  control `max_speed` (`swap_max_speed_mps` on obstacle swap, `rollback_max_speed_mps`
-  on rollback when > 0). control_map_node accepts runtime updates for max_speed only;
+  state_machine `allow_avoid_transition` (false on obstacle swap; never restored) and
+  control `max_speed` (`swap_max_speed_mps`; never restored).
+  control_map_node accepts runtime updates for max_speed only;
   other parameters are warned about, not rejected, so `ros2 param get` can disagree with
   what control actually uses. Whether `swap_max_speed_mps` raises or lowers the cap
   depends on control's launch default (`control_real.launch.py max_speed`, currently 5.0,

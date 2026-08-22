@@ -22,16 +22,18 @@ map_creator_node:
     # (기동 기본값이 8.0이던 시절에는 같은 7.0이 "내리는" 값이었습니다.)
     # 수신 측은 f1tenth_control CLAUDE.md ②-t — max_speed만 런타임 변경을 수용하고
     # 양의 유한 double이 아니면 reason을 담아 거부합니다(그 reason이 아래 ERROR 로그로 나옴).
-    # rollback_max_speed_mps: baseline rollback 스왑 시 복원 값 (0 = 미전송, 스왑 값 유지).
+    # 스왑은 1회성이라 복원(rollback) 값은 없습니다 — 아래 trigger/ledger 주석 참고.
     control_node_name: "control_map_node"
     swap_max_speed_mps: 10.0
-    rollback_max_speed_mps: 0.0
 
     # ---- trigger / ledger ----
+    # 스왑은 단방향·최종입니다. 장애물이 나중에 사라져도 라인을 다시 만들거나
+    # baseline으로 되돌리지 않습니다(해당 로직 제거됨). 프리즈 이후 새로 생긴
+    # 장애물도 라인에 반영되지 않으며, 스왑 이후는 전부 로컬 회피 담당입니다.
+    # 단 disable_avoid_after_swap: true면 그 로컬 회피 게이트도 꺼진 채 유지됩니다.
     trigger_lap_count: 2          # freeze at the lap-2 finish (lap_count 1 -> 2)
     match_max_ds_m: 1.0           # P0 투영 Frenet s 기준 wrap-aware 기하 매칭
     match_max_dd_m: 0.3           # P0 투영 Frenet d 기준 기하 매칭
-    removal_miss_laps: 2          # authoritative snapshot에서 사라진 뒤 rollback hysteresis
 
     # ---- P0 projection (Cartesian AABB -> P0 Frenet) ----
     # /adaptive_obstacle_map 은 Cartesian AABB만 싣는다(Frenet 필드 미기입,

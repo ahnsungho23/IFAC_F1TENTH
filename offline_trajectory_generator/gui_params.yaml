@@ -1,11 +1,11 @@
-map_yaml: /home/haejun/2026_IFAC/src/kinematic_localization/maps/map.yaml
+map_yaml: /home/haejun/Downloads/map.yaml
 output_dir: ~/2026_IFAC/offline_trajectory_generator/output/map
 velocity_limits_csv: offline_trajectory_generator/config/velocity_limits.csv
 optimizer: mincurv
 width_mode: hybrid
 show_centerline: true
 show_rt_lane: true
-debug_image: true
+debug_image: false
 reverse: false
 straighten_straights: true
 no_flip_y: false
