@@ -5,6 +5,8 @@ from launch_ros.parameter_descriptions import ParameterValue
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 from launch.conditions import IfCondition
+from launch.substitutions import PathJoinSubstitution
+from launch_ros.substitutions import FindPackageShare
 
 IMU_LINEAR_SCALE_REAL = 9.80665      # g → m/s². VESC가 g로 발행(2026-07-19 소스 확인)
 IMU_LINEAR_SCALE_SIM  = 1.0          # sim_imu_bridge_node는 0 고정
@@ -18,6 +20,114 @@ IMU_ANGULAR_SCALE_SIM  = 1.0         # sim_imu_bridge_node는 이미 rad/s로 �
 def declare_common_args(sector_scale_enable_default='false'):
     """두 런치파일에서 동일하게 쓰는 인자 선언 목록."""
     return [
+
+        DeclareLaunchArgument(
+            'cruise_enable', default_value='true',
+            description='/opp_obs 기반 종방향 cruise speed cap 사용'
+        ),
+        # ── 크루즈 종방향 제어 튜닝 ──
+        # config/cruise_controller.yaml은 단독 실행용 기준값으로 남기고,
+        # sim/real 공통 launch에서는 아래 인자가 같은 이름의 ROS parameter를 덮어쓴다.
+        DeclareLaunchArgument(
+            'trailing_mode_distance', default_value='true',
+            description='true=고정 거리 추종, false=minimum_gap + trailing_gap*v 시간 간격 추종'
+        ),
+        DeclareLaunchArgument(
+            'trailing_gap', default_value='5.0',
+            description='고정 거리 모드의 목표 간격 [m] 또는 시간 간격 모드의 headway [s]'
+        ),
+        DeclareLaunchArgument(
+            'minimum_gap', default_value='0.8',
+            description='정지 시에도 유지할 최소 목표 간격 [m]'
+        ),
+        DeclareLaunchArgument(
+            'max_desired_gap', default_value='0.0',
+            description='목표 간격 상한 [m], 0=비활성. state_machine interference_distance_m 이하 필수'
+        ),
+        DeclareLaunchArgument(
+            'trailing_p_gain', default_value='1.0',
+            description='크루즈 간격 오차 P 게인'
+        ),
+        DeclareLaunchArgument(
+            'trailing_i_gain', default_value='0.0',
+            description='크루즈 간격 오차 I 게인'
+        ),
+        DeclareLaunchArgument(
+            'trailing_d_gain', default_value='0.5',
+            description='크루즈 상대속도 D 게인'
+        ),
+        DeclareLaunchArgument(
+            'integral_limit', default_value='2.0',
+            description='크루즈 간격 오차 적분 절댓값 상한'
+        ),
+        DeclareLaunchArgument(
+            'allow_accel_trailing', default_value='true',
+            description='true이면 추종 상한이 현재 ego 속도보다 높아지는 것을 허용'
+        ),
+        DeclareLaunchArgument(
+            'emergency_stop_distance', default_value='0.45',
+            description='보수적 간격이 이하일 때 속도 상한을 0으로 만드는 거리 [m]'
+        ),
+        DeclareLaunchArgument(
+            'relative_deceleration', default_value='1.8',
+            description='분해 제동값이 0일 때 사용하는 보수적 기본 감속도 [m/s^2]'
+        ),
+        DeclareLaunchArgument(
+            'ego_deceleration', default_value='0.0',
+            description='실측 ego 감속도 [m/s^2], 0=relative_deceleration으로 폴백'
+        ),
+        DeclareLaunchArgument(
+            'opponent_deceleration', default_value='0.0',
+            description='가정할 상대차 감속도 [m/s^2], 0=relative_deceleration으로 폴백'
+        ),
+        DeclareLaunchArgument(
+            'actuation_latency', default_value='0.0',
+            description='상대차 감속 관측부터 ego 실제 제동 개시까지의 실측 지연 [s]'
+        ),
+        DeclareLaunchArgument(
+            'ego_front_offset', default_value='0.25',
+            description='ego Frenet 기준점에서 앞범퍼까지 거리 [m]'
+        ),
+        DeclareLaunchArgument(
+            'uncertainty_sigma', default_value='2.0',
+            description='간격 표준편차에 곱해 raw gap에서 빼는 보수 배수'
+        ),
+        DeclareLaunchArgument(
+            'gap_uncertainty_horizon_max', default_value='1.0',
+            description='상대차 위치·속도 공분산 시간 전파 지평 상한 [s]'
+        ),
+        DeclareLaunchArgument(
+            'opp_speed_confidence_z', default_value='1.0',
+            description='상대차 속도 하한 계산에 쓰는 표준편차 배수'
+        ),
+        DeclareLaunchArgument(
+            'opponent_timeout', default_value='0.15',
+            description='CRUISE 중 /opp_obs 신선도 timeout [s]'
+        ),
+        DeclareLaunchArgument(
+            'ego_timeout', default_value='0.20',
+            description='CRUISE 중 ego Frenet odom 신선도 timeout [s]'
+        ),
+        DeclareLaunchArgument(
+            'state_timeout', default_value='0.30',
+            description='CRUISE 중 /state heartbeat 신선도 timeout [s]'
+        ),
+        DeclareLaunchArgument(
+            'clear_confirm_sec', default_value='1.00',
+            description='/opp_obs 빈 메시지가 지속돼야 타깃을 해제하는 확인 시간 [s]'
+        ),
+        DeclareLaunchArgument(
+            'blind_trailing_speed', default_value='1.5',
+            description='CRUISE 중 상대차·ego·state 입력이 stale일 때 속도 상한 [m/s]'
+        ),
+        DeclareLaunchArgument(
+            'cruise_speed_limit_timeout', default_value='0.15',
+            description='control_map_node의 /cruise_speed_limit 신선도 timeout [s]'
+        ),
+        DeclareLaunchArgument(
+            'cruise_stale_speed', default_value='1.5',
+            description='/cruise_speed_limit이 stale일 때 control_map_node 속도 상한 [m/s]'
+        ),
 
         # ── 조향 스케일러 (가감속/속도 구간별 조향 게인 완화) ──
         DeclareLaunchArgument(
@@ -386,7 +496,7 @@ def declare_common_args(sector_scale_enable_default='false'):
             description='곡률 사전감속 제동거리 산출용 감속 권한 [m/s^2]. 낮을수록 코너를 일찍 봄'
         ),
         DeclareLaunchArgument(
-            'ramp_lead_max', default_value='2.4',
+            'ramp_lead_max', default_value='3.5',
             description='명령 속도 램프가 실측보다 앞설 수 있는 최대폭 [m/s]. 0이면 비활성(구 거동)'
         ),
         DeclareLaunchArgument(
@@ -396,40 +506,6 @@ def declare_common_args(sector_scale_enable_default='false'):
                         '이 값은 방향 미상(κ=0)일 때만 남는다'
         ),
         # ── 좌/우 분리 K_us (2026-08-18 실측, 08-19 이식) ────────────────────────
-        # `rosbag2_2026_08_18-20_34_05` 정상상태 요레이트 전달률 역산: 좌 ≈0.008 / 우 ≈0.024.
-        # 공용 스칼라는 그 중간이라 우코너 FF가 만성 부족 → 매 랩 s25~31 우커브 탈출에서
-        # +1.05 m 와이드(좌벽 0.38 m 스침) → 복구 오버슈트로 다음 좌커브 진입이 밀려
-        # 우벽 스침/접촉. 실차 검증(22:39, 14랩 무접촉): 바깥 이탈 p90 −1.05 → −0.59 m,
-        # 측벽 40 cm 이내 진입 10.05% → 0.70%, 30 cm 이내 3.15% → 0%.
-        # ⚠️ 좌 0.011은 하중별 재측정 결과다(2~4:0.0140 / 4~6:0.0103 / 6~9:0.0063 →
-        #    주 대역 4~6에 맞춤). 처음 넣은 0.008은 고하중 좌커브에서 부족했다.
-        # ⚠️ `understeer_gradient_adapt_gain > 0`과 **동시 사용 불가** — 적응 스칼라가
-        #    좌우 공용으로 우선한다(추정기가 방향을 분리하지 않는다).
-        # 되돌리기: 둘 다 -1.0 (= 공용 understeer_gradient로 폴백).
-        # ── 2026-08-19 재측정 (0819 bag 2개, 마모 타이어) ────────────────────────
-        # 🔑 이번엔 **기울기와 절편을 분리해서** 쟀다. 앞선 측정(excess/a_lat 중앙값)은
-        #    트림을 K_us에 섞어 넣어 부호가 반대로 나왔다 — 컨트롤러는 트림을 FF와
-        #    **따로** 더하므로(②-n) FF가 메워야 하는 건 `K_true·a_lat + (b_dir − b_직선)`이다.
-        # 실측(pooled, 게이트 |dψ̇/dt|<2 · v>2.5):
-        #     좌  K_slope=+0.0041  b=+0.0116 rad      (n=870)
-        #     우  K_slope=+0.0163  b=−0.0516 rad      (n=144, R²=0.62)
-        #     직선 트림 기준 b_straight = −0.0369 rad
-        #   → 필요 FF 유효 K_us = K_slope + (b_dir − b_straight)/a_lat
-        #     좌: 0.0041 + 0.0485/a_lat → a_lat 4/5/6에서 0.0162 / 0.0138 / 0.0122
-        #     우: 0.0163 + 0.0147/a_lat → a_lat 4/5/6에서 0.0200 / 0.0192 / 0.0188
-        #   주 대역 a_lat 4~6에 맞춰 **좌 0.014 / 우 0.019**.
-        # ✅ 이 모델은 관측된 오차 **부호를 맞춘다**(구 값 0.011/0.024 기준):
-        #     a_lat 5에서 좌 −0.0141 rad 부족 → 좌코너 바깥 이탈, 우 +0.0239 rad 과다
-        #     → 우코너 안쪽 파고듦.  0819_114417(트림 수렴) 실측 좌코너 e=−0.085(바깥),
-        #     우코너 e=−0.038(안쪽)와 일치. 0819_115512(트림 미수렴)의 반대 부호도
-        #     트림이 −0.016까지만 간 것으로 설명된다.
-        # 🔴 **b(절편)가 좌우로 0.064 rad(3.7°) 갈린다** — 이건 K_us(기울기)가 아니라
-        #    링키지/서보 게인 비대칭이다. 지금은 K_us 기울기로 대신 메우고 있어
-        #    **a_lat 4~6 밖에서는 다시 어긋난다.** 근본 해결은 젯슨 좌/우 서보 게인
-        #    재측정이다(servo_range_probe.py).
-        # ⚠️ 이 값은 젯슨 `steering_angle_to_servo_offset` = 0.4672에서 유도했다.
-        #    offset을 바꾸면 b가 좌우 다르게(ΔC/0.5785 vs ΔC/0.4702) 움직이므로
-        #    **저속 셰이크다운으로 재확인할 것.**
         # 되돌리기: understeer_gradient_left:=0.011 understeer_gradient_right:=0.024
         DeclareLaunchArgument(
             'understeer_gradient_left', default_value='0.014',
@@ -457,6 +533,25 @@ def declare_common_args(sector_scale_enable_default='false'):
             'steer_authority_ratio', default_value='0.95',
             description='조향 한계 중 곡률 추종에 배정할 비율. 나머지는 횡오차·요레이트 보정 여유 '
                         '(1.0이면 보정 여력이 0)'
+        ),
+        # ── U1 그립 권한 속도 클램프 (2026-08-21 재작업) ─────────────────────────
+        # 요구 곡률 κ_L1 = 2|sinη|/L1 이 예산(마진 없는 MLA × margin)을 넘으면 목표
+        # 속도를 v ≤ √(예산/κ_L1) 로 캡한다. target_speed 단계 적용(종방향 램프 통과),
+        # 빠른 제한·느린 해제 필터, 하한 없음(안전 계산이 이김), 경로 전환 시 리셋.
+        # 🔴 기본 false — 단독 셰이크다운(저속 2랩 → 정상 3랩, 포화 경고 감소·진동 없음
+        #    확인) 후에만 켠다: grip_speed_clamp_enable:=true
+        DeclareLaunchArgument(
+            'grip_speed_clamp_enable', default_value='false',
+            description='U1: L1 요구 횡가속이 예산을 넘으면 목표 속도를 캡 (기본 꺼짐)'
+        ),
+        DeclareLaunchArgument(
+            'grip_speed_clamp_margin', default_value='1.0',
+            description='속도 예산 = 마진 없는 MLA × 이 값. 실측 스윕: 0.9=과보수(랩+2.15s), '
+                        '1.0=계약 기본(랩+1.93s 상한), 1.15=권한 일치(보정 여유 0, A/B용)'
+        ),
+        DeclareLaunchArgument(
+            'grip_speed_clamp_release_alpha', default_value='0.05',
+            description='요구 곡률 해제 필터 계수 (제한 진입은 즉시, 해제만 τ≈0.4 s)'
         ),
         # 전방 곡률 스캔 거리 = max(count*0.1, v²/(2·prebrake_decel)). count는 저속 하한.
         DeclareLaunchArgument(
@@ -571,6 +666,11 @@ def build_control_map_node(*, odom_topic, max_speed, max_lateral_accel, base_max
             'understeer_gradient_left': LaunchConfiguration('understeer_gradient_left'),
             'understeer_gradient_right': LaunchConfiguration('understeer_gradient_right'),
             'steer_authority_ratio': LaunchConfiguration('steer_authority_ratio'),
+            'grip_speed_clamp_enable': ParameterValue(
+                LaunchConfiguration('grip_speed_clamp_enable'), value_type=bool),
+            'grip_speed_clamp_margin': LaunchConfiguration('grip_speed_clamp_margin'),
+            'grip_speed_clamp_release_alpha':
+                LaunchConfiguration('grip_speed_clamp_release_alpha'),
             'curvature_lookahead_count': ParameterValue(
                 LaunchConfiguration('curvature_lookahead_count'), value_type=int),
             'base_max_accel': base_max_accel,
@@ -647,6 +747,13 @@ def build_control_map_node(*, odom_topic, max_speed, max_lateral_accel, base_max
             'odom_timeout': LaunchConfiguration('odom_timeout'),
             'local_fresh_timeout': LaunchConfiguration('local_fresh_timeout'),
             'closest_idx_max_heading_err': LaunchConfiguration('closest_idx_max_heading_err'),
+            'cruise_limit_enable': ParameterValue(
+                LaunchConfiguration('cruise_enable'), value_type=bool),
+            'cruise_speed_limit_topic': '/cruise_speed_limit',
+            'cruise_speed_limit_timeout': ParameterValue(
+                LaunchConfiguration('cruise_speed_limit_timeout'), value_type=float),
+            'cruise_stale_speed': ParameterValue(
+                LaunchConfiguration('cruise_stale_speed'), value_type=float),
             # 섹터별 횡가속 권한 스케일 (기본 꺼짐 — 켜기 전 bag_analyzer 판정 필수)
             'sector_scale_enable': LaunchConfiguration('sector_scale_enable'),
             'sector_scale_topic': LaunchConfiguration('sector_scale_topic'),
@@ -658,6 +765,68 @@ def build_control_map_node(*, odom_topic, max_speed, max_lateral_accel, base_max
             'sector_scale_state_timeout': LaunchConfiguration('sector_scale_state_timeout'),
             'sector_scale_timeout': LaunchConfiguration('sector_scale_timeout'),
         }]
+    )
+
+def build_cruise_controller_node(*, max_speed):
+    """전방 상대차 간격을 속도 상한으로 변환하는 종방향 보조 노드."""
+    config_file = PathJoinSubstitution([
+        FindPackageShare('f1tenth_control'), 'config', 'cruise_controller.yaml'
+    ])
+    return Node(
+        package='f1tenth_control',
+        executable='cruise_controller_node',
+        name='cruise_controller_node',
+        output='screen',
+        condition=IfCondition(LaunchConfiguration('cruise_enable')),
+        parameters=[config_file, {
+            'maximum_speed': ParameterValue(max_speed, value_type=float),
+            'trailing_mode_distance': ParameterValue(
+                LaunchConfiguration('trailing_mode_distance'), value_type=bool),
+            'trailing_gap': ParameterValue(
+                LaunchConfiguration('trailing_gap'), value_type=float),
+            'minimum_gap': ParameterValue(
+                LaunchConfiguration('minimum_gap'), value_type=float),
+            'max_desired_gap': ParameterValue(
+                LaunchConfiguration('max_desired_gap'), value_type=float),
+            'trailing_p_gain': ParameterValue(
+                LaunchConfiguration('trailing_p_gain'), value_type=float),
+            'trailing_i_gain': ParameterValue(
+                LaunchConfiguration('trailing_i_gain'), value_type=float),
+            'trailing_d_gain': ParameterValue(
+                LaunchConfiguration('trailing_d_gain'), value_type=float),
+            'integral_limit': ParameterValue(
+                LaunchConfiguration('integral_limit'), value_type=float),
+            'allow_accel_trailing': ParameterValue(
+                LaunchConfiguration('allow_accel_trailing'), value_type=bool),
+            'emergency_stop_distance': ParameterValue(
+                LaunchConfiguration('emergency_stop_distance'), value_type=float),
+            'relative_deceleration': ParameterValue(
+                LaunchConfiguration('relative_deceleration'), value_type=float),
+            'ego_deceleration': ParameterValue(
+                LaunchConfiguration('ego_deceleration'), value_type=float),
+            'opponent_deceleration': ParameterValue(
+                LaunchConfiguration('opponent_deceleration'), value_type=float),
+            'actuation_latency': ParameterValue(
+                LaunchConfiguration('actuation_latency'), value_type=float),
+            'ego_front_offset': ParameterValue(
+                LaunchConfiguration('ego_front_offset'), value_type=float),
+            'uncertainty_sigma': ParameterValue(
+                LaunchConfiguration('uncertainty_sigma'), value_type=float),
+            'gap_uncertainty_horizon_max': ParameterValue(
+                LaunchConfiguration('gap_uncertainty_horizon_max'), value_type=float),
+            'opp_speed_confidence_z': ParameterValue(
+                LaunchConfiguration('opp_speed_confidence_z'), value_type=float),
+            'opponent_timeout': ParameterValue(
+                LaunchConfiguration('opponent_timeout'), value_type=float),
+            'ego_timeout': ParameterValue(
+                LaunchConfiguration('ego_timeout'), value_type=float),
+            'state_timeout': ParameterValue(
+                LaunchConfiguration('state_timeout'), value_type=float),
+            'clear_confirm_sec': ParameterValue(
+                LaunchConfiguration('clear_confirm_sec'), value_type=float),
+            'blind_trailing_speed': ParameterValue(
+                LaunchConfiguration('blind_trailing_speed'), value_type=float),
+        }],
     )
 
 def build_sector_learner_node():
