@@ -131,10 +131,6 @@ install(FILES config/cruise_controller.yaml
   DESTINATION share/${PROJECT_NAME}/config
 )
 
-install(DIRECTORY docs
-  DESTINATION share/${PROJECT_NAME}
-)
-
 install(PROGRAMS scripts/sector_learner.py
   DESTINATION lib/${PROJECT_NAME}
 )
