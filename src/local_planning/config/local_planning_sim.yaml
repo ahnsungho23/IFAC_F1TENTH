@@ -140,18 +140,13 @@ local_planner_node:
       0.185, 0.245, 0.280, 0.280, 0.280,
       0.185, 0.245, 0.280, 0.280, 0.280
     ]
-    # upstream/jazzy_main의 offline_trajectory_generator/config/velocity_limits.csv
-    # (commit 3d5fb38)에서 speed와 max_lateral_accel 열을 옮긴 표입니다. 회피 spline의
-    # 재계산 곡률에 v^2*|kappa| <= a_lat,max(v)를 만족하도록 waypoint 속도를 제한하고,
-    # 장애물 tracking-error LUT도 이 제한된 속도로 조회합니다. 두 배열 길이는 같아야 하며
-    # 횡가속 한계는 속도가 증가할 때 커질 수 없습니다.
+    # 운영과 같게 local_planning_velocity_limits.csv lateral과 real control 7.6의 min.
+    # CSV 8.0은 7.6으로 clamp되고 나머지 7.0/6.5는 그대로 적용됩니다.
     avoidance_velocity_limit_speed_bins_mps: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]
-    avoidance_velocity_limit_lateral_accel_mps2: [7.0, 7.0, 7.0, 7.0, 7.0, 7.0, 6.5, 6.5, 6.5, 6.5]
+    avoidance_velocity_limit_lateral_accel_mps2: [7.6, 7.6, 7.6, 7.6, 7.0, 7.0, 7.0, 6.5, 6.5, 6.5]
     # ── 종방향 한계표 (2026-08-19 신설) ────────────────────────────────────────
     # 위 속도 축(avoidance_velocity_limit_speed_bins_mps)을 그대로 공유합니다. 값은
-    # offline_trajectory_generator/config/velocity_limits.csv 의 max_accel / max_decel 열
-    # 그대로이며, 이 차 VESC 에서 잰 표입니다. 라인 생성기와 로컬 플래너가 같은 차량 모델을
-    # 쓰게 하는 것이 목적이므로, VESC 를 다시 재면 csv 를 고치고 이 두 줄을 맞추십시오.
+    # config/local_planning_velocity_limits.csv의 max_accel/max_decel 열 그대로입니다.
     #
     # 왜 필요했나 (2026-08-19 실차 백 5개, 자율주행 구간만):
     #   가속 — 전진 패스가 아예 없어서 제약이 0이었습니다. 발행 경로의 가속 요구가 csv 한계를
@@ -159,8 +154,8 @@ local_planner_node:
     #   감속 — 상수 3.5 하나로 전 속도를 덮었는데 csv 는 v>=4 에서 2.0 입니다. 감속 요구가
     #          한계를 넘은 비율 v 4~5 에서 55.2%, v 5~9 에서 84.2%.
     # 두 줄을 모두 비우면 표 없음으로 보고 종전 스칼라 거동으로 폴백합니다(한쪽만 비우면 무효).
-    avoidance_velocity_limit_accel_mps2: [6.4, 6.3, 5.9, 3.7, 3.7, 3.47, 3.33, 3.0, 3.0, 3.0]
-    avoidance_velocity_limit_decel_mps2: [3.0, 3.0, 3.0, 3.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0]
+    avoidance_velocity_limit_accel_mps2: [3.7, 3.7, 3.7, 3.7, 3.7, 3.47, 3.33, 3.0, 3.0, 3.0]
+    avoidance_velocity_limit_decel_mps2: [2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0]
     # 전진 패스의 시드 하한 [m/s]. 시드는 자차 실측 속도인데, 정지 상태(0)에서 그대로 시작하면
     # 경로 첫 점이 0 근처로 눌려 컨트롤러 lookahead 가 그 점을 집고 출발을 못 합니다.
     # 전진 패스는 속도를 낮추기만 하므로 이 하한이 안전정지 0 프로파일을 되살리지 않습니다.
@@ -169,9 +164,17 @@ local_planner_node:
     # 6.0을 계단으로 실어 회피 종료 직후 3.7 m/s² 재가속 → 코너 탈출 그립 권한(6.9) 초과가
     # 두 충돌의 공통 사슬이었다. 자차 실측 속도 시드 가속 램프(velocity_limits 가속 열) +
     # 실제 기하(복귀 램프 포함) 곡률 횡가속 캡 + 후방 감속 패스를 핸드오프 루프에 적용한다.
-    # 🔴 기본 false (2026-08-21 검토 계약): 단계별 실차시험(웨이브 2)에서 단독 활성해
-    # 검증한 뒤에만 true 로 올린다. 켜면 ψ·부호 κ·ax 도 성형 후 재계산된다.
-    handoff_speed_shaping_enable: false
+    # 2026-08-24 사용자 선택 4B: offline 회귀 대상으로 ON. 실패 시 false로 롤백.
+    handoff_speed_shaping_enable: true
+    # entry 시작~padded cluster 뒤끝의 최저 곡률 제한속도를 cluster start~post-hold에 유지한다.
+    # 먼 exit의 코너/낮은 글로벌 속도는 표본에서 제외하고 점별 cap과 후방 패스가 처리한다.
+    confirmed_obstacle_speed_envelope_enable: true
+    # 운영과 같은 detector 뒤 최소 속도 hold. 실제 추가분은 max(0, 이 값-longitudinal padding)라
+    # 시뮬의 기존 padding 0.4149925와 합산되지 않고 detector 뒤 총 1.0 m가 됩니다.
+    confirmed_speed_post_hold_distance_m: 1.0
+    # 운영과 같은 confirmed 제어/액추에이터 응답지연 예약. 0은 legacy.
+    confirmed_speed_response_delay_sec: 0.15
+    analytic_path_geometry_enable: true
     # 경로가 자차를 "덮는다"고 인정할 최근접 웨이포인트 허용 간격 [m] — R1b(소진 꼬리
     # 재발행 금지)·크립 정지경로 재생성 공유. 웨이포인트 간격 0.25 m 의 4배.
     path_cover_max_gap_m: 1.0
@@ -222,11 +225,19 @@ local_planner_node:
     # 장애물 앞에서의 목표 속도. 2.8 근거: 실측 추종오차가 2.2~2.9 칸에서 0.12~0.13으로
     # 작아지는 구간의 상단 — 승격 후 LUT 사다리가 고르는 균형 속도와도 일치한다.
     raw_slowdown_speed_cap_mps: 2.8
+    # Legacy A/B only. false keeps 2.8 m/s as the obstacle-front target and applies distance
+    # scaling once inside applyRawSlowdownProfile.
+    raw_slowdown_distance_scaled: false
+    publish_feasibility_diagnostics_enable: true
     # raw가 스트릭 리셋으로 한두 프레임 빠져도 힌트를 유지하는 시간 (깜빡임 브리지).
     raw_slowdown_hold_sec: 1.0
+    # 종전 C++ 하드코딩과 같은 공간 hold [m]. 위 hold_sec와 다른 값이다.
+    raw_slowdown_post_hold_distance_m: 1.0
     # 라인 간섭 판정용 봉투 팽창 (차 반폭 0.15 + 벽 마진 0.10). 이보다 라인에서 먼
     # 물체(벽가 잔재)는 감속시키지 않는다.
     raw_slowdown_lateral_margin_m: 0.25
+    raw_slowdown_response_delay_sec: 0.15
+    raw_slowdown_distance_margin_m: 0.50
     # 종방향 실현가능 후방 패스의 감속 (2026-08-16). 곡률·간격 캡은 waypoint마다 독립이라
     # S자 전이의 변곡점(κ≈0)에서 캡이 통째로 풀려 프로파일이 튄다 — 14:30 백에서 s=32.89
     # v=6.63 → s=33.14 v=4.58, 즉 0.25 m 만에 46 m/s² 제동 요구. 접근 램프는 장애물 스팬
@@ -345,9 +356,17 @@ local_planner_node:
     # ⚠️ 마진이 살아 있는 구성(예: mongsen, 예산 0.215~0.485 m)에서는 이 하한이 걸리지
     #    않으므로 거동이 바뀌지 않습니다.
     entry_discontinuity_min_budget_m: 0.20
-    # f1tenth_control의 ±0.41 rad 조향 한계와 wheelbase 0.3302 m에 대응합니다.
+    # legacy 절대 곡률 상한. 실제 부호별 한계는 아래 control mirror와 min 합성합니다.
     maximum_curvature_radpm: 1.316266519079011
     maximum_curvature_rate_radpm2: 20.0
+    # 🔴 control_sim.launch.py/공용 제어 모델 mirror. control 변경 시 C++/운영 YAML/문서와
+    # 함께 반드시 동기화한다. 시뮬 차량은 좌우 대칭 ±0.410 rad이다.
+    control_wheelbase_m: 0.33
+    control_max_steering_left_rad: 0.410
+    control_max_steering_right_rad: 0.410
+    control_understeer_gradient_left_rad_per_mps2: 0.014
+    control_understeer_gradient_right_rad_per_mps2: 0.019
+    control_max_steering_rate_radps: 20.0
 
     # 좌우 spline이 모두 트랙 경계/장애물/기하 검사를 실패할 때 장애물 앞에서 정지합니다.
     # 정지 목표는 longitudinal padding까지 적용된 장애물 경계보다 safe_stop_buffer_m 앞입니다.

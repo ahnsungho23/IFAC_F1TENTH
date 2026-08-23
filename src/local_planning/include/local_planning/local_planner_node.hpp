@@ -386,6 +386,9 @@ private:
   double raw_slowdown_speed_cap_mps_{2.8};
   double raw_slowdown_hold_sec_{1.0};
   double raw_slowdown_lateral_margin_m_{0.25};
+  // raw 명령이 실제 종방향 응답으로 이어지기 전의 소프트웨어 지연과 거리 여유.
+  double raw_slowdown_response_delay_sec_{0.15};
+  double raw_slowdown_distance_margin_m_{0.50};
   // 🔴 raw 캡을 "승격 전"으로 되돌린다 (2026-08-22). 이 힌트의 선언된 목적은
   //    confirmed 승격 지연을 메우는 것인데(선언부 주석), 지금은 승격이 끝나고 회피 기동을
   //    커밋한 뒤에도 같은 장애물에 계속 2.8 캡을 씌운다.
@@ -398,8 +401,9 @@ private:
   //    run_102718 s5.5 충돌이 도입 근거였던 보호 경로는 유지된다.
   //    기본값 false = 종전 거동(운영 YAML 에서 켠다).
   bool raw_slowdown_skip_committed_{false};
-  // 🔵 2026-08-23: raw 캡을 sqrt(2·a·d) 로 스케일. false 면 종전 상수 거동.
-  bool raw_slowdown_distance_scaled_{true};
+  // Legacy A/B 전용. true는 목표속도와 접근 ramp에 같은 거리를 두 번 적용하므로 운영 기본 OFF.
+  bool raw_slowdown_distance_scaled_{false};
+  bool publish_feasibility_diagnostics_enable_{true};
   // F1 (2026-08-22): 보류 게이트가 마지막 유효 회피 기하를 재검증해 다시 쓸지.
   // false 면 종전 거동(커밋 경로만 보고, 없으면 안전정지)으로 돌아간다 — A/B 와 롤백용.
   bool hold_republish_last_guidance_{true};

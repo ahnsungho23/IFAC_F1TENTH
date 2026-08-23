@@ -1,16 +1,32 @@
 # AGENTS.md for local_planning
 
-## 차량 한계표 (velocity_limits.csv)
+## 차량 한계표 (`local_planning_velocity_limits.csv`)
 
-`avoidance_velocity_limit_accel_mps2` / `_decel_mps2` 는
-`offline_trajectory_generator/config/velocity_limits.csv` 의 `max_accel` / `max_decel` 열과
-**반드시 같아야 합니다** — `test/test_velocity_limits_match_csv.py` 가 검사합니다. 라인
-생성기와 로컬 플래너가 하나의 차량 모델을 쓰게 하는 것이 이 표의 목적이므로, VESC 를 다시
-재면 csv 를 고치고 그 테스트를 돌려 YAML 두 개(운영·시뮬)를 맞추십시오.
+`config/local_planning_velocity_limits.csv`가 local planner의 속도별 차량 한계 기준입니다.
+offline trajectory generator의 표와 소유권을 분리하여, 그 패키지 변경이 planner 계약을
+조용히 바꾸지 못하게 합니다. 런타임은 ROS YAML 배열을 읽고, 전용 CSV는 검토·갱신의
+단일 기준입니다. `test/test_velocity_limits_match_csv.py`가 운영/시뮬 YAML, C++ declare,
+`stuck_case_harness`의 speed/max_accel/max_decel이 CSV와 **반드시 같음**을 검사합니다.
 
-`avoidance_velocity_limit_lateral_accel_mps2` 는 **csv 에서 가져오지 않습니다.** 실측 근거
-(2026-08-19 달성 횡가속 p90 6.71 m/s²)로 7.0/6.5 를 유지하며, `avoidanceVelocityLimitValid()`
-가 이 표에 **비증가**를 요구하므로 저속행만 낮추면 노드가 시작 시 throw 합니다.
+횡가속 권한은 `min(CSV max_lateral_accel, control max_lateral_accel)`입니다. 현재 CSV의
+8.0/7.0/6.5 m/s²와 배포 control의 7.6 m/s²를 합성한 실제 planner 표는
+7.6/7.0/6.5 m/s²입니다. `test/test_control_contract_match.py`가 이 min 합성과
+C++/YAML 동기화를 검사합니다.
+
+VESC/타이어/노면 한계를 다시 재면 전용 CSV를 먼저 고치고 두 contract test를 돌려
+YAML/C++/하니스를 같이 맞추십시오. control의 `base_max_accel`/`prebrake_decel` 변경도
+종방향 표의 실측 근거를 무효화하지만, 스칼라와 속도별 표의 의미가 다르므로 실측
+전에 숫자를 강제로 복사하지 않습니다.
+
+### 🔴 Control sync is a blocking contract
+
+`f1tenth_control` 쪽에서 `max_lateral_accel`, `wheelbase`, `max_steering_left/right`,
+`understeer_gradient_left/right`, `max_steering_rate`를 하나라도 바꾸면 **같은 통합에서
+반드시** local planner C++ declare 기본값, `config/local_planning.yaml`,
+`config/local_planning_sim.yaml`, `docs/local_planner.md`를 동기화하십시오.
+`test/test_control_contract_match.py`가 source control launch와 planner mirror를 직접 비교하므로,
+이 테스트가 깨진 상태의 control 변경은 합치지 마십시오. 종방향 accel/decel 표는 예외로
+`local_planning_velocity_limits.csv` 계약을 계속 따릅니다.
 
 ## Package purpose
 
@@ -47,8 +63,10 @@
   gate has to be flipped to `"lut"` by hand and that shows up in `--show-args` and the bag.
   An unrecognised string falls back to `"lut"`, never to `"none"`: a typo must not silently
   remove obstacle margin. With the gate off, obstacle clearance is
-  `vehicle_half_width_m + safety_margin_m` (0.15 + 0.05) and `safety_margin_m` is the **only**
-  margin knob left; `gapLimitedAvoidanceSpeed` becomes the identity, so a narrow gap is a
+  `vehicle_half_width_m + safety_margin_m` (currently 0.15 + 0.00) and `safety_margin_m` is the
+  **only** margin knob left. The 0.00 is explicitly a measurement-pending placeholder, not a
+  validated safe margin; update it only from the user's obstacle-face/tracking measurement.
+  `gapLimitedAvoidanceSpeed` becomes the identity, so a narrow gap is a
   pass/fail decision instead of a slow-through ladder. Everything below describes the
   `"lut"` path, kept intact for rollback and exercised by `test_obstacle_reserve_gate`.
 - Obstacle bounds are raw detector geometry. Compute the tracking-error tube by bilinear
@@ -76,11 +94,22 @@
   (ApproachRampSteepensOnlyWhenGeometryRequiresIt locks both properties). Keep this inversion of the LUT strict: a reduced
   speed whose tube overshoots the available room by the validator's own tolerance spends room the
   path does not have, and the validator then rejects the candidate the cap existed to enable.
+  With `confirmed_obstacle_speed_envelope_enable=true`, compute one critical speed from the
+  minimum final-geometry curvature cap over P3 entry start through padded cluster end. Do not let
+  a remote exit corner or low global speed bind the obstacle pass: the exit keeps its pointwise
+  curvature cap and backward deceleration pass. Hold the critical speed from cluster start through
+  `confirmedSpeedHoldEndForwardM()`, whose detector-rear correction is
+  `max(obstacle_longitudinal_padding_m, confirmed_speed_post_hold_distance_m)` without double
+  counting. This is the confirmed-obstacle policy; never reuse the raw 2.8 m/s hint as the
+  confirmed pass speed. Both distance knobs are measurement-pending.
   Global waypoint `d_left/d_right` are reference-to-physical-boundary distances. Validate every
-  candidate's 0.56 m x 0.287 m, base-link-centred rectangular corners using candidate x/y/yaw and
+  candidate's operational 0.56 m x 0.300 m, base-link-centred rectangular corners using
+  candidate x/y/yaw and
   widths interpolated on the matching local reference segment. Subtract only
   `wall_safety_margin_m`, exactly once. Never add the tracking tube, obstacle margin, simulator TTC
-  sweep, scan-noise guard, or another boundary/commitment/fallback margin.
+  sweep, scan-noise guard, or another boundary/commitment/fallback margin. The operational 0.04 m
+  wall value is measurement-pending, not validated final authority; update it only after the user
+  measures map-boundary error and actual-versus-planned footprint deviation.
 - **One maneuver-scope collision horizon, used by every site that judges the same path**
   (2026-08-16). The obstacle check of a maneuver's geometry stops at
   `expanded cluster end + post_merge_lookahead_m`; track-bound and geometry checks always cover the
@@ -450,31 +479,57 @@ C is left and it waited 22.67 s.
   streak-reset flicker; do not remove it.
 - The hint must never stop the car and never trigger for objects that do not intersect the
   line — it is a hint, not a hazard response. Hazard responses stay confirmed-only.
-- **Committed republishes get the same protection (2026-08-21, run_20260821_015057 t=139
-  contact).** The handoff-cruise and retention branches return BEFORE the P0 hint hook, so a
-  raw obstacle reacquired 5.4 m ahead was approached at 5.2 m/s and only confirmed at 1.2 m.
-  Every `publishResult(committed_result_)` in those branches must go through
-  `publishCommittedWithRawSlowdownOverlay()`: it applies `applyRawSlowdownProfile` (min-only
-  speed cap) to a COPY of the committed path. Never mutate `committed_result_` itself — the
-  overlay must vanish the cycle after the raw target does.
+- **Every publication gets the same protection (2026-08-21, run_20260821_015057 t=139
+  contact).** `publishResult()` is the single choke point and applies `applyRawSlowdownProfile`
+  to an outgoing COPY only. Never move this back into selected republish branches or mutate
+  `committed_result_`/`last_valid_guidance_result_`.
+- **Raw cap semantics and release feasibility (2026-08-23).** The cap passed to
+  `applyRawSlowdownProfile` is the OBSTACLE-FRONT target, operationally 2.8 m/s.
+  `raw_slowdown_distance_scaled` stays false: true feeds `sqrt(2*a*front)` into a profile that
+  applies the same front distance again, inflating the ego cap by sqrt(2) beyond the crossover.
+  The profile is a complete min-only brake -> hold -> release envelope. Release uses
+  `accelLimitAt(v)` in ego-forward order (not array order), preserving zero-speed paths. Keep
+  `BRAKING_INFEASIBLE_RAW` diagnostic-only because raw has no stop authority; confirmed planning
+  owns avoidance and stopping.
 
-## Handoff speed shaping (R1, 2026-08-21 — default OFF until road-tested)
+## Handoff speed shaping (R1, enabled 2026-08-24; road validation still pending)
 
-- `shapeGlobalHandoffSpeed()` runs behind `handoff_speed_shaping_enable` (yaml default false;
-  enable only for its dedicated staged road test). With the flag off the handoff loop keeps the
-  legacy flat `state_handoff_speed_cap_mps` behaviour bit-for-bit
+- `shapeGlobalHandoffSpeed()` runs behind `handoff_speed_shaping_enable` (operational and sim YAML
+  true by the user's 2026-08-24 decision after offline regression). Real-vehicle validation is
+  still pending. The parameter-struct and node-declare fallbacks are both false; only the
+  operational YAML opts in. With the flag off the handoff loop keeps the legacy flat
+  `state_handoff_speed_cap_mps` behaviour bit-for-bit
   (test_handoff_speed_shaping.cpp pins this).
-- When enabled it walks in EGO-FORWARD order (`(tail_begin + j) % total`) — never array order:
-  the ego sits mid-array, so an array-order pass seeds the acceleration ramp on the wrong
-  points (that is why `applyLongitudinalFeasibility` cannot be reused here).
+- When enabled it walks in EGO-FORWARD order sorted by `forwardDistance(ego.s, waypoint.s_m)` —
+  never array order or merely `(tail_begin + j) % total`. `tail_begin` uses the nearest reference
+  point, which may sit behind ego and over-budget acceleration by the unused part of one waypoint
+  interval. The ego sits mid-array, so `applyLongitudinalFeasibility` cannot be reused here.
 - Passes, in order: actual-geometry curvature cap (Menger over post-ramp points, magnitude
   only) → forward accel ramp seeded from MEASURED ego speed (velocity_limits accel column) →
   backward decel pass stopping at the ego seam → `updateGeometryAndAcceleration` so ψ, SIGNED
   κ, and ax reflect the shaped geometry/speeds (controller curvature-FF consumes signed κ).
+- The passes can remove every internal handoff step but cannot rewrite measured ego speed. If ego
+  has already exceeded the first curve/raceline cap, publish the best lower profile and emit
+  `BRAKING_INFEASIBLE_HANDOFF`; do not mislabel it as a confirmed-obstacle failure.
 - `path_cover_max_gap_m` (default 1.0 = 4 waypoint spacings) is the shared "path still covers
   ego" tolerance for the exhausted-tail guard (R1b) and the latched-stop regeneration. Keep
   them on one parameter; diverging them re-creates the silent controller-side fallback the
   guard exists to prevent.
+
+## Analytic path geometry and publish diagnostics (2026-08-23)
+
+- `analytic_path_geometry_enable` is operationally ON from 2026-08-23 for bag regression and the
+  next low-speed road A/B; the declared C++ fallback remains false. When on,
+  fit the final ordered x/y samples with local cubics and analytically differentiate that fitted
+  Cartesian curve. Open endpoints use one-sided windows; closed paths use seam-crossing symmetric
+  windows. A degenerate window falls the entire path back to the legacy estimator; never mix
+  geometry models within one path.
+- In `finalizeP3ShadowPath`, compute geometry BEFORE curvature speed caps and recompute only ax
+  afterward. Never call the legacy geometry estimator after speed shaping and overwrite the
+  kappa that control curvature feed-forward consumes.
+- `publish_feasibility_diagnostics_enable` is diagnostic-only. Inspect the outgoing copy after raw
+  overlay; do not mutate or repair paths at this final gate until open/seam policies have separate
+  runtime validation.
 
 ## Interfaces
 

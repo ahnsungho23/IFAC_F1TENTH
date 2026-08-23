@@ -34,15 +34,41 @@ namespace
 
 CandidateRankKey makeKey(
   bool exit_reaches, double velocity_loss, double slack, double deviation,
-  std::size_t index)
+  std::size_t index, double braking_deficit_m = 0.0)
 {
   CandidateRankKey key;
   key.exit_reaches_next_obstacle = exit_reaches;
+  key.ego_braking_distance_deficit_m = braking_deficit_m;
   key.velocity_loss = velocity_loss;
   key.minimum_normalized_safety_slack = slack;
   key.global_path_deviation_m = deviation;
   key.tiebreak_index = index;
   return key;
+}
+
+TEST(CandidateRank, EgoBrakingFeasibilityOutranksVelocity)
+{
+  // 하드 기하를 둘 다 통과했더라도, 현재 속도에서 첫 감속 cap에 도달할 수
+  // 있는 후보가 빠르지만 이미 제동 지점을 놓친 후보보다 먼저다.
+  const auto infeasible_fast = makeKey(false, 0.1, 0.9, 0.0, 0U, 0.25);
+  const auto feasible_slow = makeKey(false, 2.0, 0.1, 1.0, 1U, 0.0);
+  EXPECT_TRUE(betterCandidateRank(feasible_slow, infeasible_fast));
+  EXPECT_FALSE(betterCandidateRank(infeasible_fast, feasible_slow));
+}
+
+TEST(CandidateRank, SmallerBrakingDeficitWinsWhenAllAreLate)
+{
+  // 5C: 모두 늦었다고 검증된 기하를 전멸시키지 않고 부족 거리가 작은 쪽을 쓴다.
+  const auto less_late = makeKey(false, 2.0, 0.1, 1.0, 1U, 0.10);
+  const auto more_late = makeKey(false, 0.1, 0.9, 0.0, 0U, 0.40);
+  EXPECT_TRUE(betterCandidateRank(less_late, more_late));
+}
+
+TEST(CandidateRank, NextObstacleExitConsistencyStillComesFirst)
+{
+  const auto exit_collision_but_brakeable = makeKey(true, 0.0, 1.0, 0.0, 0U, 0.0);
+  const auto exit_clear_but_late = makeKey(false, 9.0, -1.0, 9.0, 1U, 0.50);
+  EXPECT_TRUE(betterCandidateRank(exit_clear_but_late, exit_collision_but_brakeable));
 }
 
 TEST(CandidateRank, ExitReachingNextObstacleIsDemotedFirst)

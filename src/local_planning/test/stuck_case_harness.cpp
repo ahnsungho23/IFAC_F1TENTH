@@ -132,14 +132,18 @@ RacelineSplineParameters operationalParameters()
   p.avoidance_velocity_limit_speed_bins_mps =
   {0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0};
   p.avoidance_velocity_limit_lateral_accel_mps2 =
-  {7.0, 7.0, 7.0, 7.0, 7.0, 7.0, 6.5, 6.5, 6.5, 6.5};
-  // 종방향 한계표 — velocity_limits.csv 의 max_accel / max_decel 열.
+  {7.6, 7.6, 7.6, 7.6, 7.0, 7.0, 7.0, 6.5, 6.5, 6.5};
+  // 종방향 한계표 — local_planning_velocity_limits.csv와 동기.
   // test/test_velocity_limits_match_csv.py 가 YAML ↔ csv 일치를 검사한다.
   p.avoidance_velocity_limit_accel_mps2 =
-  {6.4, 6.3, 5.9, 3.7, 3.7, 3.47, 3.33, 3.0, 3.0, 3.0};
+  {3.7, 3.7, 3.7, 3.7, 3.7, 3.47, 3.33, 3.0, 3.0, 3.0};
   p.avoidance_velocity_limit_decel_mps2 =
-  {3.0, 3.0, 3.0, 3.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0};
+  {2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0};
   p.longitudinal_launch_speed_floor_mps = 1.0;
+  p.handoff_speed_shaping_enable = true;
+  p.confirmed_obstacle_speed_envelope_enable = true;
+  p.confirmed_speed_post_hold_distance_m = 1.0;
+  p.confirmed_speed_response_delay_sec = 0.15;
   p.avoidance_minimum_speed_mps = 1.0;
   p.margin_pass_speed_cap_mps = 2.0;
   p.approach_feasibility_decel_mps2 = 2.0;
@@ -160,6 +164,12 @@ RacelineSplineParameters operationalParameters()
   p.entry_continuity_baseline_m = 0.50;   // 2026-08-23: 진입 기울기 분모 바닥 (YAML 과 동기)
   p.maximum_curvature_radpm = 1.316266519079011;
   p.maximum_curvature_rate_radpm2 = 20.0;
+  p.control_wheelbase_m = 0.33;
+  p.control_max_steering_left_rad = 0.410;
+  p.control_max_steering_right_rad = 0.361;
+  p.control_understeer_gradient_left_rad_per_mps2 = 0.014;
+  p.control_understeer_gradient_right_rad_per_mps2 = 0.019;
+  p.control_max_steering_rate_radps = 20.0;
   // 🔴 2026-08-16: 아래 8개는 종전에 하니스가 설정하지 않아 **구조체 기본값**이 쓰였다.
   // 특히 post_merge_lookahead_m이 기본 2.0 / 운영 5.0으로 어긋나 하니스의 충돌 검사 범위가
   // 운영보다 3 m 짧았고, 그래서 "다음 장애물에 걸리는" 종류의 실패를 하니스가 통과시켰다.
@@ -173,6 +183,7 @@ RacelineSplineParameters operationalParameters()
   p.post_merge_lookahead_m = 5.0;
   p.post_merge_min_time_sec = 1.0;
   p.profile_feasibility_decel_mps2 = 3.5;
+  p.raw_slowdown_post_hold_distance_m = 1.0;
   p.safe_stop_buffer_m = 2.60;
   p.safe_stop_deceleration_mps2 = 1.8;
   p.minimum_path_points = 8;

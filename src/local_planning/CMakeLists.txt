@@ -70,6 +70,8 @@ if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
   ament_add_pytest_test(params_match_yaml test/test_params_match_yaml.py)
   ament_add_pytest_test(velocity_limits_match_csv test/test_velocity_limits_match_csv.py)
+  # control의 조향/횡가속 계약을 바꾸고 planner mirror를 안 바꾸는 통합을 금지한다.
+  ament_add_pytest_test(control_contract_match test/test_control_contract_match.py)
 
   # Node-level: covers the subscription callbacks themselves (which arrays/references the node
   # accepts as authoritative). The algorithm gtests cannot reach that wiring.

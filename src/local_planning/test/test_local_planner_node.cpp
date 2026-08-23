@@ -40,6 +40,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/string.hpp>
 
+#include "local_planning/handoff_latch_gate.hpp"
 #include "local_planning/local_planner_node.hpp"
 
 namespace
@@ -242,12 +243,13 @@ protected:
 // An array whose every entry fails the Frenet validity check is degraded perception. Accepting it
 // would store an empty snapshot indistinguishable from the explicitly-empty array that IS allowed
 // to erase the retained obstacle memory.
-// ⚠️ 커밋 래치(handoff_latch_commit_distance_m)의 단위 테스트는 **의도적으로 넣지 않았다**
-// (2026-08-20). 시도했으나 이 하네스로는 문제의 분기(local_planner_node.cpp 의
+// ⚠️ 커밋 래치의 핵심 거리 계약은 아래 HandoffLatchGate 테스트로 고정한다. 다만 이 ROS
+// 하네스로는 문제의 전체 분기(local_planner_node.cpp 의
 // "No blocking obstacle remains while /state is still AVOID" 핸드오프 진입)에 도달하지
 // 못했다 — 링 레퍼런스 + 장애물 주입만으로는 P3 무효화 → 안전정지 해제 → kNoObstacle 로
 // 이어지는 실차 순서가 재현되지 않고, 래치를 코드에서 빼도 테스트가 그대로 통과했다.
-// 통과하든 말든 결과가 같은 테스트는 없느니만 못하므로 지웠다.
+// 따라서 순수 함수 테스트는 **8.0 m 단위와 경계**를 증명하지만 전체 상태 전환은 백 재생이나
+// 실차 검증 대상이다.
 //
 // 같은 이유로 holdForManeuverObstacleAhead() 의 단위 테스트도 넣지 않았다 — 이 하네스로는
 // "기동이 성립한 뒤 다음 콜백에 IDLE 로 떨어지는" 순서를 만들 수 없다.
@@ -267,6 +269,35 @@ protected:
 // 그 사건은 오프라인으로 셀 수 있다: max|d| 가 0.10 이상에서 0.05 미만으로 떨어지는 순간에
 // 가장 가까운 전방 장애물의 뒤끝 거리가 양수인 경우 (2026-08-20 기준선: run_062020 20 회,
 // run_063551 41 회 — 이 수가 줄어야 수정이 먹은 것이다).
+
+TEST_F(LocalPlannerNodeTest, NewSpeedFeaturesRequireExplicitYamlEnable)
+{
+  // 노드의 declare 기본값도 파라미터 구조체와 같은 false여야 한다. 운영 launch는 YAML에서
+  // true로 명시하며, YAML 누락 시에는 검증된 구동작으로 실패 안전하게 돌아간다.
+  EXPECT_FALSE(planner_->get_parameter("handoff_speed_shaping_enable").as_bool());
+  EXPECT_FALSE(
+    planner_->get_parameter("confirmed_obstacle_speed_envelope_enable").as_bool());
+}
+
+TEST(HandoffLatchGate, UsesMetresAndIncludesTheConfiguredBoundary)
+{
+  constexpr double kHalfTrackM = 20.0;
+  constexpr double kLatchDistanceM = 8.0;
+  EXPECT_TRUE(local_planning::handoff_latch_gate::blocksGlobalHandoff(
+      7.99, kHalfTrackM, kLatchDistanceM));
+  EXPECT_TRUE(local_planning::handoff_latch_gate::blocksGlobalHandoff(
+      8.00, kHalfTrackM, kLatchDistanceM));
+  EXPECT_FALSE(local_planning::handoff_latch_gate::blocksGlobalHandoff(
+      8.01, kHalfTrackM, kLatchDistanceM));
+}
+
+TEST(HandoffLatchGate, IgnoresPassedDisabledAndInvalidEntries)
+{
+  EXPECT_FALSE(local_planning::handoff_latch_gate::blocksGlobalHandoff(21.0, 20.0, 8.0));
+  EXPECT_FALSE(local_planning::handoff_latch_gate::blocksGlobalHandoff(5.0, 20.0, 0.0));
+  EXPECT_FALSE(local_planning::handoff_latch_gate::blocksGlobalHandoff(
+      std::numeric_limits<double>::quiet_NaN(), 20.0, 8.0));
+}
 
 TEST_F(LocalPlannerNodeTest, AllInvalidObstacleArrayRetainsThePreviousSnapshot)
 {

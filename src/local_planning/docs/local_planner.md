@@ -130,10 +130,11 @@ guarded/raw exact 재검증으로 판별하므로 일회성 AABB 확대가 maneu
    횡방향 `d_right/d_left`는 실측 합집합을 그대로 유지합니다.
 3. 이 Guard를 종방향 `obstacle_longitudinal_padding_m`만큼 넓혀 전환 시작·종료 구간을
    확보합니다.
-4. 장애물 횡방향 계획 clearance는 `vehicle_half_width_m + safety_margin_m + e_track`입니다.
-   `e_track`은 velocity-limit 표로 제한한 속도와 절대곡률 LUT를 bilinear interpolation하며,
-   최초 목표 계산에는 장애물 reference 구간의 최댓값을 사용합니다. 현재 균일 LUT에서는
-   `0.1435 + 0.0147893 + 0.140 = 0.2982893 m`입니다.
+4. 장애물 횡방향 계획 clearance는
+   `vehicle_half_width_m + safety_margin_m + e_track`입니다. 운영
+   `obstacle_reserve_mode="none"`에서는 `e_track=localization_reserve_m=0`이라 현재 임시값은
+   `0.15 + 0.00 = 0.15 m`입니다. 이 0.00은 실측 대기값이지 검증된 안전마진이 아닙니다.
+   LUT 보간은 되돌리기 모드인 `"lut"`에서만 사용합니다.
 5. Guard의 가장 가까운 면이 글로벌 `d=0`에서 이 clearance 안에 들어올 때만 blocking
    장애물로 봅니다.
 6. `obstacle_cluster_gap_m`보다 가까운 후속 장애물은 같은 기동으로 처리합니다.
@@ -154,7 +155,7 @@ detector raw AABB
 
 | | 종전 | 현재 |
 |---|---|---|
-| 장애물 clearance | 0.15 + 0.00 + LUT(v,κ) 0.095~0.390 | **0.15 + 0.05** |
+| 장애물 clearance | 0.15 + 0.00 + LUT(v,κ) 0.095~0.390 | **0.15 + 0.00 (실측 대기)** |
 | 유일한 마진 손잡이 | LUT 35칸 | **`safety_margin_m` 상수 하나** |
 | `gapLimitedAvoidanceSpeed` | 속도 이분 역산 | **항등함수** (갭은 통과 가부의 이진 판정) |
 
@@ -164,9 +165,10 @@ detector raw AABB
 `--show-args` 와 백에 남습니다. 알 수 없는 문자열은 `"none"` 이 아니라 **`"lut"` 로 떨어집니다** —
 오타 하나가 조용히 장애물 마진을 걷어내면 안 되기 때문입니다.
 
-`safety_margin_m: 0.05` 근거: 반폭 0.15는 실측 전폭 0.287(반폭 0.1435)을 올림한 값이라 이미
-좌우 각 6.5 mm 를 포함합니다. 5 cm 를 더한 총 0.20 은 08-19 실측 추종오차의 저속 직선
-p95×1.25(=0.09)와 중속 칸(0.145~0.19)을 덮고, 고속 코너 칸(0.39)은 덮지 않습니다.
+`safety_margin_m: 0.00`은 기능 확인용 임시값입니다. 사용자가 실제 회피 주행의
+`|실제 차량 중심-계획 중심|`과 detector 장애물 면 오차를 같은 map/Frenet 기준으로 측정한 뒤
+보수 분위수로 올립니다. LUT를 사용하지 않으므로 이 값이 장애물 횡방향의 유일한 추가
+마진이며, 측정 전 0.00을 안전 검증값으로 인용하면 안 됩니다.
 
 **함께 켠 것**: `raw_slowdown_skip_committed: true`. 갭 사다리가 죽으면 raw 감속 힌트의
 2.8 캡이 유일하게 남는 장애물 캡이 되어 통과 속도를 그 값에 고정합니다.
@@ -176,8 +178,8 @@ p95×1.25(=0.09)와 중속 칸(0.145~0.19)을 덮고, 고속 코너 칸(0.39)은
 
 ---
 
-`vehicle_length_m=0.56`, `vehicle_half_width_m=0.1435`는 evaluator와 같은
-base_link 중심 직사각형 실차 footprint이고 마진이 아닙니다.
+`vehicle_length_m=0.56`, `vehicle_half_width_m=0.15`는 base_link 중심 직사각형 운영
+footprint이고 마진이 아닙니다(실측 전폭 0.287 m를 0.300 m로 올림).
 `safety_margin_m`는 물리 안전 여유입니다. 추종오차 LUT는 장애물 위치가 아니라 실제 후보
 waypoint의 제한된 `|vx_mps|`와 `|kappa_radpm|`에 따라 달라집니다. 회피속도는 먼저
 `avoidance_velocity_limit_*` 표에서 `v²|κ| <= a_lat,max(v)`를 만족하도록 제한합니다.
@@ -192,8 +194,11 @@ race 프로파일 총 6랩(5,360 표본)을 돌려 **전 셀을 실측**했습�
 과소 = 안전 구멍). `tracking_error_reserve_m`은 세 LUT 배열을 모두 비운 경우에만 쓰는
 fallback입니다.
 
-⚠️ **`maximum_curvature_radpm = 1.3163`은 임의 튜닝값이 아니라 차량 풀락 조향의 물리
-한계입니다** (tan(0.41 rad)/0.33 m = 1.317, 시뮬·실차 실측 도달각 동일). 레이스라인 최대
+⚠️ **`maximum_curvature_radpm = 1.3163`은 임의 튜닝값이 아니라 차량 풀락 조향의 legacy 절대
+한계입니다.** 현재 실차는 좌 0.410 rad, 우 0.361 rad로 도달각이 다르므로 검증은
+`min(maximum_curvature_radpm, tan(max_steering_side)/wheelbase)`를 부호별로 적용합니다.
+`wheelbase=0.33 m`에서 실효 상한은 좌 1.3163 rad/m(절대 상한이 먼저 물림),
+우 약 1.1441 rad/m입니다. 레이스라인 최대
 곡률과 같은 값이므로, **최대 곡률 코너 안/직후에 놓인 장애물은 어느 쪽으로도 회피가
 불가능**합니다 — 회피 경로는 코너 구간에서 곡률 증폭(κ/(1−dκ))을 일으켜 반드시 이 한계를
 넘습니다. v1 frozen FINALS/Q2 1번 장애물(s=9.114, κ=1.06 코너 출구 2.5 m 뒤)이 그 사례로,
@@ -339,10 +344,11 @@ exit를 절대 길이로 자르는 상한을 구현했으나 **기본 0(비활�
 제안하게 됩니다. 레이스라인 속도 기준 게이트가 안 맞으면 `avoidance_minimum_speed_mps` 기준
 게이트로 한 번 더 시도한 뒤에 그 side를 막습니다. 이는 *검토 대상*만 넓히며 *합격 기준*은
 넓히지 않습니다 — 모든 후보는 최종적으로 자기 속도에서 hard validation을 통과해야 합니다. 글로벌 waypoint의 `d_left/d_right`는 reference에서 물리
-track boundary까지의 거리입니다. 각 candidate waypoint의 실제 `x/y/yaw`에 0.56 x 0.287 m
+track boundary까지의 거리입니다. 각 candidate waypoint의 실제 `x/y/yaw`에 0.56 x 0.300 m
 직사각형 네 모서리를 배치하고, 동일 track branch의 local reference segment에 투영해 보간한
 좌·우 boundary와 비교합니다. 벽 검사에서는 `wall_safety_margin_m=0.04 m`만 정확히 한 번
-차감합니다. heading=reference heading이어도 물리 반폭을 포함하며, heading이 다르면 전후 corner
+차감합니다. 이 0.04는 사용자의 맵 경계/실제 footprint 편차 측정 대기값이며 최종 안전마진이
+아닙니다. heading=reference heading이어도 물리 반폭을 포함하며, heading이 다르면 전후 corner
 돌출이 추가됩니다. 추종오차·장애물 물리
 clearance·simulator TTC sweep·scan-noise guard는 이 물리 track-bound 검사에 포함하지 않습니다.
 종방향 uncertainty inflation은 접근 및 정지 시점을 보호하지만, 횡방향 팽창값은 최소·최대 모두
@@ -487,11 +493,10 @@ wall_headroom     = 경로 → 트랙 경계 거리 − (wall_safety_margin + ve
 fallback은 없습니다. 한쪽이 불가능하면 반대쪽을 평가하고, 양쪽 모두 불가능하면 safe-stop으로
 넘어갑니다.
 
-회피속도 표는 `upstream/jazzy_main`의
-`offline_trajectory_generator/config/velocity_limits.csv` 커밋 `3d5fb38`에서 speed와
-`max_lateral_accel` 열을 옮겼습니다. 0~5 m/s는 7.0 m/s², 6~9 m/s는 6.5 m/s²이며 중간값은
-선형 보간합니다. 이 제한은 정상 회피 spline에만 적용하고 safe-stop 감속과 global handoff 속도는
-각자의 기존 규칙을 유지합니다.
+초기 회피속도 표는 `upstream/jazzy_main`의 offline generator 표에서 시작했지만,
+현재 런타임 계약의 소유자는 `config/local_planning_velocity_limits.csv`입니다.
+CSV와 control 상한을 합성한 표를 정상 회피 spline과 R1 handoff 곡률 cap이
+공유하며, safe-stop은 별도 비상 제동 규칙을 유지합니다.
 
 ### 종방향 실현가능 2패스 (`applyLongitudinalFeasibility`, 2026-08-19)
 
@@ -522,18 +527,28 @@ fallback은 없습니다. 한쪽이 불가능하면 반대쪽을 평가하고, �
 그 자리에서 느슨해져 재위반이 생기지 않습니다. 반대 순서면 전진 패스가 후방 패스의 제동
 프로파일을 다시 깎아 두 제약이 서로를 무효화합니다.
 
-한계표는 `offline_trajectory_generator/config/velocity_limits.csv`의 `max_accel` /
-`max_decel` 열 그대로이며, **라인 생성기와 로컬 플래너가 같은 차량 모델을 쓰게 하는 것**이
-목적입니다. `test/test_velocity_limits_match_csv.py`가 YAML ↔ csv 일치를 검사하므로,
-VESC를 다시 재면 csv만 고치고 그 테스트를 돌려 YAML을 맞추면 됩니다.
+한계표의 단일 기준은 `config/local_planning_velocity_limits.csv`입니다.
+`test/test_velocity_limits_match_csv.py`가 speed/max_accel/max_decel을 운영·시뮬 YAML,
+C++ declare, `stuck_case_harness` 전부와 대조합니다. 런타임은 ROS 파라미터를
+읽으므로 CSV 파서/파일 I/O를 주행 루프에 추가하지 않습니다.
 접근 램프의 적응 상한(`approach_feasibility_decel_max_mps2`)도 이 표로 클램프합니다.
+control의 `base_max_accel`/`prebrake_decel`을 바꾸면 이 실측 표의 근거도 무효가 되므로,
+다음 실측 후 csv와 planner YAML을 반드시 함께 갱신해야 합니다. 단 스칼라와
+속도별 표는 의미가 다르므로 실측 전에 4.1/2.6을 그대로 복사하지 않았습니다.
 
-⚠️ **csv의 `max_lateral_accel` 열은 일부러 가져오지 않습니다.** csv는 저속에서 9~10 m/s²를
-허용하지만, 2026-08-19 실측 달성 횡가속은 p90 **6.71** m/s²(p95 7.76)였습니다. 그 열을
-동기화하면 플래너가 차가 못 내는 횡가속을 계획하게 됩니다. 횡가속 캡은 실측을 근거로
-7.0/6.5를 유지합니다. 또한 `avoidanceVelocityLimitValid()`가 이 표에 **비증가**를
+횡가속은 CSV 열을 쓰되 배포 control의 상한을 합성합니다.
+`a_lat,planner(v) = min(a_lat,csv(v), max_lateral_accel_control)`이므로, 현재 CSV의
+8.0/7.0/6.5와 control 7.6을 합성한 실제 표는 7.6/7.0/6.5 m/s²입니다.
+`avoidanceVelocityLimitValid()`가 이 표에 **비증가**를
 요구하므로(`limitedAvoidanceSpeed`의 이분법이 "속도가 낮을수록 항상 가능"을 전제) 저속행만
 낮추는 형태(예: `[6.0, 6.0, 6.0, 7.0, ...]`)는 **노드가 시작 시 throw** 합니다.
+
+🔴 **Control 변경 동기화 의무.** `f1tenth_control`의 `max_lateral_accel`, `wheelbase`,
+`max_steering_left/right`, `understeer_gradient_left/right`, `max_steering_rate` 중 하나라도
+바뀌면 local planner C++ declare, 운영/시뮬 YAML, 이 문서를 **같은 통합에서 무조건
+같이** 바꿔야 합니다. `test_control_contract_match.py`가 control launch와 planner mirror를
+직접 대조하므로 어느 한쪽만 바꾼 변경은 테스트 실패가 정상입니다. 종방향
+accel/decel은 control 스칼라와 직접 맞추지 않고 local planning 전용 CSV를 따릅니다.
 
 부작용: 감속 한계가 v≥4에서 3.5 → 2.0이 되므로 제동 개시가 1.75배 일찍 시작됩니다
 (4.5 m/s → 정지 기준 2.89 m → 5.06 m). 정지 지점이 장애물을 지나치던 문제는 구조적으로
@@ -591,9 +606,10 @@ parameter를 추가하지 않고 `entry_scale=detection_lookahead/pre_apex_far`�
 `outside_line_transition_scale`도 바깥쪽 복귀에만 적용하므로 entry와 exit 의미가 다시 섞이지
 않습니다.
 
-이 운영값과 `safety_margin_m=0.0147893`, `obstacle_longitudinal_padding_m=0.4149925`,
-`transition_distance_scales=[0.2740569, 0.6991538, 3.5816013]`는 변경된 동일 장애물 배치를 대상으로
-1.5 m/s CMA-ES 탐색 후 동일 후보를 포함해 3회 연속 무충돌 완주한 조합입니다.
+아래 `safety_margin_m=0.0147893`, `obstacle_longitudinal_padding_m=0.4149925`,
+`transition_distance_scales=[0.2740569, 0.6991538, 3.5816013]`는 과거 1.5 m/s CMA-ES 탐색에서
+3회 연속 무충돌 완주한 기록이며 **현재 운영값이 아닙니다**. 현재 횡·종마진은 사용자의 실차
+측정 후 다시 정합니다.
 
 그다음 ego부터 merge 뒤 global tail까지의 글로벌 waypoint를 순서대로 복사합니다. tail 길이는
 다음처럼 거리 하한과 계획 당시 속도 기준 시간 하한 중 큰 값입니다.
@@ -721,6 +737,14 @@ spline 경로에도 적용됩니다: 간극/곡률 캡으로 느려진 장애물
 거꾸로 올라가는 **후방 제동 램프**를 씌워(낮추기만 함) 제동이 스팬 경계 계단 대신 훨씬 전에
 완만하게 시작되게 합니다. 스팬 내부 속도(예약 기반)는 절대 건드리지 않습니다. `0 이하`면
 비활성(구 계단 거동).
+
+`confirmed_speed_response_delay_sec`(운영 0.15 s)는 이 confirmed 램프에
+`v_ego × delay`만큼의 명령 선행 거리를 더합니다. 스팬 시작점의 목표속도를
+먼저 명령하고 응답이 나오는 동안 유지하므로, 수식의 제동거리는 맞지만 실차가
+느리게 반응해 span에서 아직 빠른 구멍을 막습니다. 반면 실측 ego 속도에서 어떤
+후보의 첫 감속 cap도 도달할 수 없으면 그 후보를 하드 기각하지 않고
+`ego_braking_distance_deficit_m`으로 순위를 낮춥니다. 모든 후보가 늦은 경우에는 부족
+거리가 가장 작은 검증된 기하를 선택하고 `BRAKING_INFEASIBLE_CONFIRMED`를 남깁니다.
 margin-pass 커밋은 의도적으로 마진 밴드 안을 지나므로 마진 기반 커밋 검증을 건너뛰고, 대신
 매 사이클 물리 blocking 재검사로 지킵니다 — 원본 상자가 라인에 닿는 순간 일반 재계획으로
 복귀합니다. 최초 안정화 대기(preparation) 단계에서도 margin-only면 정지 준비 대신 같은 감속
@@ -1016,8 +1040,9 @@ commitment는 지우지 않으므로 odometry가 회복되면 다시 검증한 �
 
 1. 기하는 검증된 글로벌 핸드오프 루프(복귀 램프·벽 협착 클램프 포함)를 그대로 씁니다.
 2. 속도만 다시 씁니다: 장애물 앞끝에서 `raw_slowdown_speed_cap_mps`(기본 2.8)에 닿도록
-   `approach_feasibility_decel_mps2` 램프로 줄이고, 스팬+1 m 동안 cap 유지 후 글로벌 속도로
-   되돌립니다.
+   `approach_feasibility_decel_mps2` 램프로 줄이고, 스팬+1 m 동안 cap을 유지한 뒤
+   `velocity_limits.csv`의 `max_accel` 표로 글로벌 속도에 복귀합니다. 따라서 hold 경계의
+   `2.8 → 6~7 m/s` 계단을 발행하지 않습니다.
 3. raw 가 스트릭 리셋으로 한두 프레임 빠져도 `raw_slowdown_hold_sec`(기본 1.0 s) 동안
    기억한 위치로 힌트를 유지합니다 (깜빡임 브리지).
 4. 근거 (3개 백 실측): raw 는 4.5~11 m 전방에서 잡히는데 confirmed 승격은 시간 기준이라,
@@ -1025,6 +1050,14 @@ commitment는 지우지 않으므로 odometry가 회복되면 다시 검증한 �
    무산된 패스(run_080532 에서 14/107)도 저속 통과가 됩니다.
 5. 힌트는 절대 정지를 만들지 않고, 라인을 물지 않는 물체에는 발동하지 않습니다. 위험
    대응(회피·정지)은 종전대로 confirmed 전용입니다.
+
+`raw_slowdown_distance_scaled`의 운영 기본은 `false`입니다. `true`의
+`max(2.8,sqrt(2*a*front))`은 현재 위치 허용속도를 장애물 지점 목표속도 자리에 넣고,
+프로파일이 같은 `front`를 다시 적용해 거리가 이중 계산됩니다. `true`는 과거 A/B 재현용입니다.
+속도 의존 필요거리는
+`v*raw_slowdown_response_delay_sec + (v²-v_target²)/(2a) + raw_slowdown_distance_margin_m`으로
+계산합니다. 고정 trigger보다 길면 관측 범위를 확장하며, 최초 raw가 이미 필요거리 안쪽이면
+정지를 새로 만들지 않고 `BRAKING_INFEASIBLE_RAW` 경고와 가능한 최대 감속 힌트를 냅니다.
 
 **A1 — 무효화 시 커밋 정리.** P3 수명주기가 무효화되면 보류 게이트가 실행되기 **전에**
 `invalidateCommitment()` 로 커밋을 지웁니다. 무효화 이후의 `committed_result_` 는 관리자
@@ -1035,13 +1068,52 @@ commitment는 지우지 않으므로 odometry가 회복되면 다시 검증한 �
 **B1 커버리지 갭 수리 (2026-08-21).** 핸드오프 순항·유지 커밋의 재발행은 힌트 훅보다 먼저
 return 하므로 raw 가 전방을 물어도 감속이 나가지 않았다 (run_20260821_015057 t=139: raw
 재획득 전방 5.4 m, 5.2 m/s 유지 → confirmed 1.2 m → 2.0 g 접촉). 이제 그 재발행들은
-`publishCommittedWithRawSlowdownOverlay()` 를 지나며, raw 대상이 있으면 커밋 경로 **복사본**에
-min 전용 감속 오버레이를 씌워 발행한다. 원본 커밋은 불변 — raw 가 사라지면 즉시 원속도.
+모든 결과가 지나는 `publishResult()`에서 raw 대상이 있으면 경로 **복사본**에 min 전용
+제동-유지-가속 envelope를 씌워 발행합니다. 원본 커밋은 불변입니다.
 
-**R1 핸드오프 속도 성형 (2026-08-21, 기본 OFF).** `handoff_speed_shaping_enable`(기본 false)
-뒤에서, 핸드오프 루프를 자차-전방 순서로 걸어 실기하 곡률 캡 → 실측속도 시드 가속 램프 →
-후방 감속 패스를 적용하고 ψ·부호 κ·ax 를 재계산한다. 단계별 실차시험(웨이브 2)에서 단독
-활성으로 검증한 뒤 기본값을 올린다. 계약은 test_handoff_speed_shaping.cpp 가 고정한다.
+**R1 핸드오프 속도 성형 (2026-08-24 운영 ON, 실차 검증 대기).**
+`handoff_speed_shaping_enable=true`에서 핸드오프 루프를 자차-전방 순서로 걸어 실기하 곡률
+캡 → 실측속도 시드 가속 램프 → 후방 감속 패스를 적용하고 ψ·부호 κ·ax를 재계산합니다.
+순서는 배열의 `tail_begin`을 그대로 믿지 않고 `forwardDistance(ego.s, waypoint.s_m)`로
+정렬합니다. 최근접 기준점이 자차 뒤에 있을 때 웨이포인트 한 칸 전체를 가속거리로 잘못
+쓰던 seam 오차를 막습니다.
+10개 장애물 snapshot(1,786 frame)에 합성 handoff를 건 open-loop A/B에서는 이 정렬로
+`ego>=1 m/s` 가속 위반이 667건에서 0건, 경로 내부 감속 위반이 0건이 됐습니다. 다만 이
+snapshot은 실제 handoff 발생 순간만 모은 자료가 아니므로 실차 통과 증거는 아닙니다. 이미
+실측속도가 첫 곡률/라인 cap보다 빠른 경우는 속도를 올려 숨기지 않고
+`BRAKING_INFEASIBLE_HANDOFF`를 남긴 채 가능한 최저 프로파일을 유지합니다.
+오프라인 회귀 계약은 `test_handoff_speed_shaping.cpp`가 고정하며, 실차 검증은 아직 하지
+못했으므로 `false` 한 줄이 즉시 롤백 경로입니다. 구조체와 노드의 C++ fallback은 둘 다
+`false`이고, 운영·시뮬 YAML만 `true`로 명시해 설정 파일 누락 시 구동작으로 돌아갑니다.
+
+**확정 장애물 통과속도 envelope (2026-08-24 운영 ON).**
+`confirmed_obstacle_speed_envelope_enable=true`이면 P3의 최종 x/y 기하에서 entry 시작부터
+padded cluster 뒤끝까지만 가장 낮은 곡률 제한속도를 구합니다. 먼 exit 코너나 낮은 글로벌
+속도가 장애물 통과 전체를 묶지 않으며, exit 자체는 점별 곡률 cap과 후방 감속 패스가 처리합니다.
+속도는 cluster start부터 `confirmed_speed_post_hold_distance_m`이 보장하는 detector 뒤끝까지
+유지합니다. 총 뒤끝 보정은 `max(obstacle_longitudinal_padding_m,
+confirmed_speed_post_hold_distance_m)`라 이중 계상하지 않습니다. 확정 장애물 통과속도에는 raw
+힌트의 고정 2.8 m/s를 재사용하지 않습니다.
+
+발행 직전 진단은 운영 control의 모델
+`δ=κ(L+K_us·v²)`과 좌우 조향 clamp를 적용한 인접 waypoint 목표각에서
+요구 `dδ/dt`를 계산합니다. `control_max_steering_rate_radps`를 넘어도 첫 단계에서는
+경로를 재성형하지 않고 `PUBLISH_FEASIBILITY` 진단으로만 남깁니다. control이 수신 후
+곡률을 평활화하는 차이가 있으므로, 실차 로그 없이 즉시 하드 기각으로 올리지 않은 것입니다.
+
+**최종 x/y geometry A/B (2026-08-23, 운영 ON).** `analytic_path_geometry_enable=true`이면
+최종 Cartesian 표본에 ego-forward local cubic을 맞추고 다항식을 해석 미분하여 `psi_rad`와
+부호 있는 `kappa_radpm`을 계산합니다. 열린 경로 양 끝은 one-sided 창, 닫힌 루프는 seam을 넘는
+대칭 창을 사용하므로 3점 원의 끝점 이웃복사가 없습니다. 퇴화 창 하나라도 있으면 경로 전체가
+legacy 방식으로 복귀합니다. C++ 선언 fallback은 false지만 운영·시뮬 YAML은 bag 회귀검증과
+다음 저속 실차 A/B를 위해 true입니다.
+
+`publish_feasibility_diagnostics_enable=true`는 raw 오버레이까지 끝난 실제 `outgoing_path`를
+수정하지 않고 횡가속·종가감속 표 위반을 경고합니다. 확정 회피가 이미 제동 가능 거리를 잃은
+경우 `BRAKING_INFEASIBLE_CONFIRMED`, handoff 첫 cap과 실측속도가 이미 맞지 않는 경우
+`BRAKING_INFEASIBLE_HANDOFF`, safe-stop이 설정 비상 제동률을 넘겨야 하는 경우
+`SAFE_STOP_EGO_SEED_INFEASIBLE`을 따로 남깁니다. 모두 검증된 기하와 더 낮은 목표속도를
+유지하는 진단 전용 폴백입니다.
 
 **A2 — safe-stop 래치 우선.** 래치가 살아 있는 동안은 `handleSafeStopLatch` 가 유일한
 발행자입니다 (보류 게이트 안에서도). 해제는 기존 사다리(유효 회피 / 장애물 통과 / 정지 후
@@ -1111,14 +1183,24 @@ race line` 을 보고하는데도 래치가 유지되고, 그 재계획이 `kAvo
 - 기동 기억 수명(§4-x): `maneuver_memory_clear_frames`(3, 0=종전 거동),
   `maneuver_memory_max_ahead_m`(15.0)
 - 종방향 계획 확장: `obstacle_longitudinal_padding_m`
-- 물리 footprint: `vehicle_length_m=0.56`, `vehicle_half_width_m=0.1435`
+- 물리 footprint: `vehicle_length_m=0.56`, `vehicle_half_width_m=0.15`
 - 추종오차 LUT: `tracking_error_lut_speed_bins_mps`,
   `tracking_error_lut_curvature_bins_radpm`, `tracking_error_lut_values_m`
 - B1 raw 감속 힌트: `raw_slowdown_enable`, `raw_slowdown_topic`,
   `raw_slowdown_trigger_distance_m`, `raw_slowdown_speed_cap_mps`, `raw_slowdown_hold_sec`,
-  `raw_slowdown_lateral_margin_m`
-- R1 핸드오프 성형·경로 커버 판정: `handoff_speed_shaping_enable`(기본 false),
+  `raw_slowdown_post_hold_distance_m`,
+  `raw_slowdown_lateral_margin_m`, `raw_slowdown_distance_scaled`(운영 false),
+  `raw_slowdown_response_delay_sec`, `raw_slowdown_distance_margin_m`
+- 확정 통과속도: `confirmed_obstacle_speed_envelope_enable`(운영 true),
+  `confirmed_speed_post_hold_distance_m`(detector 뒤 최소 hold; padding과 max 합성),
+  `confirmed_speed_response_delay_sec`(제어 응답지연 선행 예약)
+- R1 핸드오프 성형·경로 커버 판정: `handoff_speed_shaping_enable`(운영 true),
   `path_cover_max_gap_m`
+- geometry/발행 진단: `analytic_path_geometry_enable`(운영 YAML true, C++ fallback false),
+  `publish_feasibility_diagnostics_enable`(기본 true), `control_wheelbase_m`,
+  `control_max_steering_left_rad`, `control_max_steering_right_rad`,
+  `control_understeer_gradient_left_rad_per_mps2`,
+  `control_understeer_gradient_right_rad_per_mps2`, `control_max_steering_rate_radps`
 - 회피속도 제한표: `avoidance_velocity_limit_speed_bins_mps`,
   `avoidance_velocity_limit_lateral_accel_mps2`
 - LUT fallback: `tracking_error_reserve_m` (세 LUT 배열이 모두 비었을 때만 사용)
@@ -1129,8 +1211,9 @@ race line` 을 보고하는데도 래치가 유지되고, 그 재계획이 `kAvo
   10 cm 초과는 전부 ≤0.07 s 단일사이클 MCL 보정 스파이크(최대 29.6 cm)로, 이는 정적
   마진이 아니라 retention 밴드가 흡수하는 몫이다(스파이크 최대치로 잡으면 통로 폐색).
   실차 이행 시 재측정 필요(측정 절차는 위 실차 LUT 절차와 동일한 프로브 사용).
-- 장애물 clearance: `vehicle_half_width_m + safety_margin_m + LUT(limited_v, |kappa|)
-  + localization_reserve_m`
+- 장애물 clearance: 운영 `none`에서는 `vehicle_half_width_m + safety_margin_m`만 사용
+  (현재 0.15 + 0.00, 실측 대기). `lut` 모드에서만 속도/곡률 LUT와
+  `localization_reserve_m`을 더함
 - margin-only 감속 통과: `margin_pass_speed_cap_mps` (0=비활성; 물리 판정은
   `vehicle_half_width_m + safety_margin_m`만 사용)
 - 커밋 경로 retention 밴드: `commitment_retention_reserve_fraction` (기본 0.5, 1.0=비활성;

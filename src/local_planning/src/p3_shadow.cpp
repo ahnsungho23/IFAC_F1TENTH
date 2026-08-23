@@ -285,8 +285,7 @@ public:
       result.selected_d_mid = selected->d_mid;
       result.selected_min_track_margin_m = selected->minimum_track_margin_m;
       result.selected_min_obstacle_margin_m = selected->minimum_obstacle_margin_m;
-      result.selected_curvature_margin =
-        parameters_.maximum_curvature_radpm - selected->peak_curvature_radpm;
+      result.selected_curvature_margin = selected->minimum_curvature_margin_radpm;
       result.selected_curvature_rate_margin =
         parameters_.maximum_curvature_rate_radpm2 - selected->peak_curvature_rate_radpm2;
       result.selected_slope_margin =
@@ -724,6 +723,7 @@ private:
   static EntrySteer classifyEntrySteer(const std::string & rejection_reason)
   {
     if (rejection_reason.find("maximum_curvature_radpm") != std::string::npos ||
+      rejection_reason.find("control steering curvature") != std::string::npos ||
       rejection_reason.find("maximum_curvature_rate_radpm2") != std::string::npos ||
       rejection_reason.find("maximum_lateral_slope") != std::string::npos)
     {
@@ -1078,6 +1078,7 @@ private:
     const double path_end = stations.back() + tail;
     const std::size_t first = planner_.nextReferenceIndex(ego.s);
     f110_msgs::msg::WpntArray path;
+    double confirmed_critical_speed_mps = std::numeric_limits<double>::quiet_NaN();
     path.header = planner_.reference_.header;
     for (std::size_t count = 0U; count < planner_.reference_.wpnts.size(); ++count) {
       const auto & global =
@@ -1094,7 +1095,8 @@ private:
       path.wpnts.push_back(waypoint);
     }
     if (path.wpnts.size() >= static_cast<std::size_t>(parameters_.minimum_path_points)) {
-      planner_.finalizeP3ShadowPath(path, ego, obstacles);
+      confirmed_critical_speed_mps = planner_.finalizeP3ShadowPath(
+        path, ego, obstacles, stations);
     }
     reconstruction_us += elapsedUs(reconstruction_start);
 
@@ -1129,12 +1131,18 @@ private:
     trace.minimum_track_margin_m = evaluation.minimum_track_margin_m;
     trace.minimum_obstacle_margin_m = evaluation.minimum_obstacle_margin_m;
     trace.peak_curvature_radpm = evaluation.peak_curvature_radpm;
+    trace.minimum_curvature_margin_radpm = evaluation.minimum_curvature_margin_radpm;
     trace.peak_curvature_rate_radpm2 = evaluation.peak_curvature_rate_radpm2;
     trace.peak_lateral_slope = peakSlope(ego, path);
     trace.velocity_loss = evaluation.velocity_loss;
     trace.global_path_deviation_m = evaluation.global_path_deviation_m;
+    trace.ego_braking_distance_deficit_m = evaluation.ego_braking_distance_deficit_m;
     trace.minimum_commanded_speed_mps = std::numeric_limits<double>::infinity();
     trace.maximum_commanded_speed_mps = 0.0;
+    trace.confirmed_critical_speed_mps = confirmed_critical_speed_mps;
+    trace.confirmed_speed_hold_start_forward_m = stations[1];
+    trace.confirmed_speed_hold_end_forward_m =
+      parameters_.confirmedSpeedHoldEndForwardM(stations[3]);
     for (const auto & waypoint : path.wpnts) {
       trace.minimum_commanded_speed_mps = std::min(
         trace.minimum_commanded_speed_mps, waypoint.vx_mps);
@@ -1206,6 +1214,7 @@ private:
   {
     CandidateRankKey key;
     key.exit_reaches_next_obstacle = trace.exit_reaches_next_obstacle;
+    key.ego_braking_distance_deficit_m = trace.ego_braking_distance_deficit_m;
     key.velocity_loss = trace.velocity_loss;
     key.minimum_normalized_safety_slack = trace.minimum_normalized_safety_slack;
     key.global_path_deviation_m = trace.global_path_deviation_m;

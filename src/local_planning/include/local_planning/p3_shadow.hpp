@@ -65,9 +65,11 @@ struct P3ShadowPathEvaluation
   double minimum_track_margin_m{std::numeric_limits<double>::quiet_NaN()};
   double minimum_obstacle_margin_m{std::numeric_limits<double>::quiet_NaN()};
   double peak_curvature_radpm{std::numeric_limits<double>::quiet_NaN()};
+  double minimum_curvature_margin_radpm{std::numeric_limits<double>::quiet_NaN()};
   double peak_curvature_rate_radpm2{std::numeric_limits<double>::quiet_NaN()};
   double velocity_loss{std::numeric_limits<double>::quiet_NaN()};
   double global_path_deviation_m{std::numeric_limits<double>::quiet_NaN()};
+  double ego_braking_distance_deficit_m{0.0};
   std::string rejection_reason;
   // 어떤 장애물과, 경로의 어느 지점에서 걸렸는가 (2026-08-16 진단).
   // 사유 문자열만으로는 "탈출 램프가 다음 장애물을 스쳤다"와 "라인으로 복귀하는 합류가
@@ -111,12 +113,21 @@ struct P3ShadowCandidateTrace
   double minimum_track_margin_m{std::numeric_limits<double>::quiet_NaN()};
   double minimum_obstacle_margin_m{std::numeric_limits<double>::quiet_NaN()};
   double peak_curvature_radpm{std::numeric_limits<double>::quiet_NaN()};
+  double minimum_curvature_margin_radpm{std::numeric_limits<double>::quiet_NaN()};
   double peak_curvature_rate_radpm2{std::numeric_limits<double>::quiet_NaN()};
   double peak_lateral_slope{std::numeric_limits<double>::quiet_NaN()};
   double velocity_loss{std::numeric_limits<double>::quiet_NaN()};
   double global_path_deviation_m{std::numeric_limits<double>::quiet_NaN()};
+  double ego_braking_distance_deficit_m{0.0};
   double minimum_commanded_speed_mps{std::numeric_limits<double>::quiet_NaN()};
   double maximum_commanded_speed_mps{std::numeric_limits<double>::quiet_NaN()};
+  // 확정 장애물 통과 envelope 진단. enabled일 때만 critical_speed가 finite다. Critical
+  // 표본은 entry 시작~padded cluster end, hold는 padded start~speed-only post-hold 끝이다.
+  // 뒤끝은 max(longitudinal padding, post-hold)로 합성해 이중 계상하지 않는다. 이 값들은
+  // 후보 선택에는 참여하지 않는 수동 진단 메타데이터다.
+  double confirmed_critical_speed_mps{std::numeric_limits<double>::quiet_NaN()};
+  double confirmed_speed_hold_start_forward_m{std::numeric_limits<double>::quiet_NaN()};
+  double confirmed_speed_hold_end_forward_m{std::numeric_limits<double>::quiet_NaN()};
   std::string rejection_reason;
   // True when this candidate's post-cluster exit ramp still carries enough lateral offset to reach
   // a NOT-in-cluster obstacle's physical envelope. Such a candidate is legal — the maneuver-scope

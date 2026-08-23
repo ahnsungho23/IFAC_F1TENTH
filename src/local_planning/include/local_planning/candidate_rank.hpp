@@ -53,6 +53,11 @@ struct CandidateRankKey
   // s=40.6 장애물을 d=-0.265 로 관통 → 랩당 hard collision 41 회, 25 ms 마다 같은
   // 후보를 재선택하는 무한 재계획).
   bool exit_reaches_next_obstacle{false};
+  // 자차 실측 속도에서 후보의 감속 cap까지 남은 거리가 제동거리+제어
+  // 응답지연 거리보다 부족한 최대값 [m]. 0이면 seam 실현 가능, 양수면 이미
+  // 제동 시작 지점을 놓친 후보다. 하드 기각하지 않고 실현 가능한 후보를 먼저
+  // 선택하며, 모두 부족하면 부족량이 작은 경로를 선택해 5C 폴백을 지킨다.
+  double ego_braking_distance_deficit_m{0.0};
   // A안 (2026-08-16 사용자 결정): 실현 가능한 후보끼리는 **속도를 slack 보다 먼저**
   // 본다. slack 은 하드 게이트를 통과한 뒤의 여분 마진이고 필요한 여유는 게이트가
   // 이미 보장하므로, 그 위로 더 버는 것보다 빨리 지나가는 편이 낫다. 종전 순서의
@@ -71,6 +76,18 @@ inline bool betterCandidateRank(const CandidateRankKey & first, const CandidateR
 {
   if (first.exit_reaches_next_obstacle != second.exit_reaches_next_obstacle) {
     return second.exit_reaches_next_obstacle;
+  }
+  const bool first_braking_feasible =
+    first.ego_braking_distance_deficit_m <= kCandidateRankEpsilon;
+  const bool second_braking_feasible =
+    second.ego_braking_distance_deficit_m <= kCandidateRankEpsilon;
+  if (first_braking_feasible != second_braking_feasible) {
+    return first_braking_feasible;
+  }
+  const double braking_deficit_delta = first.ego_braking_distance_deficit_m -
+    second.ego_braking_distance_deficit_m;
+  if (std::abs(braking_deficit_delta) > kCandidateRankEpsilon) {
+    return braking_deficit_delta < 0.0;
   }
   const double velocity_delta = first.velocity_loss - second.velocity_loss;
   if (std::abs(velocity_delta) > kCandidateRankEpsilon) {

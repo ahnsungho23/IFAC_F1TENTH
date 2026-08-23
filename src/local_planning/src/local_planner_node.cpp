@@ -31,6 +31,7 @@
 #include <geometry_msgs/msg/pose_stamped.hpp>
 
 #include "local_planning/hold_recovery_gate.hpp"
+#include "local_planning/handoff_latch_gate.hpp"
 #include "local_planning/maneuver_memory.hpp"
 #include "local_planning/raw_slowdown_gate.hpp"
 
@@ -366,24 +367,37 @@ void LocalPlannerNode::initializeParameters()
     declare_parameter<std::vector<double>>(
     "avoidance_velocity_limit_speed_bins_mps",
     std::vector<double>{0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0});
+  // local_planning_velocity_limits.csv의 lateral 열을 기본으로 쓰되, 배포된
+  // control max_lateral_accel=7.6 m/s^2를 절대 넘지 않게 min(CSV, control)로 합성한
+  // 실제 planner 권한이다. 즉 8.0 행은 7.6으로 clamp되고 나머지 7.0/6.5는
+  // CSV가 그대로 지배한다. control 또는 CSV를 바꾸면 declare/YAML/문서를
+  // **무조건 같이** 바꾸고 두 contract test를 통과시켜야 한다.
   planner_parameters_.avoidance_velocity_limit_lateral_accel_mps2 =
     declare_parameter<std::vector<double>>(
     "avoidance_velocity_limit_lateral_accel_mps2",
-    std::vector<double>{7.0, 7.0, 7.0, 7.0, 7.0, 7.0, 6.5, 6.5, 6.5, 6.5});
-  // 종방향 한계표 (2026-08-19). 기본값은 offline_trajectory_generator/config/velocity_limits.csv
-  // 의 max_accel / max_decel 열 그대로다 — 라인 생성기와 로컬 플래너가 같은 차량 모델을 쓴다.
+    std::vector<double>{7.6, 7.6, 7.6, 7.6, 7.0, 7.0, 7.0, 6.5, 6.5, 6.5});
+  // 종방향 한계표. 기본값은
+  // config/local_planning_velocity_limits.csv의 max_accel/max_decel 열 그대로다.
   planner_parameters_.avoidance_velocity_limit_accel_mps2 =
     declare_parameter<std::vector<double>>(
     "avoidance_velocity_limit_accel_mps2",
-    std::vector<double>{6.4, 6.3, 5.9, 3.7, 3.7, 3.47, 3.33, 3.0, 3.0, 3.0});
+    std::vector<double>{3.7, 3.7, 3.7, 3.7, 3.7, 3.47, 3.33, 3.0, 3.0, 3.0});
   planner_parameters_.avoidance_velocity_limit_decel_mps2 =
     declare_parameter<std::vector<double>>(
     "avoidance_velocity_limit_decel_mps2",
-    std::vector<double>{3.0, 3.0, 3.0, 3.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0});
+    std::vector<double>{2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0});
   planner_parameters_.longitudinal_launch_speed_floor_mps =
     declare_parameter<double>("longitudinal_launch_speed_floor_mps", 1.0);
   planner_parameters_.handoff_speed_shaping_enable =
     declare_parameter<bool>("handoff_speed_shaping_enable", false);
+  planner_parameters_.confirmed_obstacle_speed_envelope_enable =
+    declare_parameter<bool>("confirmed_obstacle_speed_envelope_enable", false);
+  planner_parameters_.confirmed_speed_post_hold_distance_m =
+    declare_parameter<double>("confirmed_speed_post_hold_distance_m", 1.0);
+  planner_parameters_.confirmed_speed_response_delay_sec =
+    declare_parameter<double>("confirmed_speed_response_delay_sec", 0.15);
+  planner_parameters_.analytic_path_geometry_enable =
+    declare_parameter<bool>("analytic_path_geometry_enable", false);
   planner_parameters_.avoidance_minimum_speed_mps =
     declare_parameter<double>("avoidance_minimum_speed_mps", 1.0);
   planner_parameters_.margin_pass_speed_cap_mps =
@@ -442,6 +456,20 @@ void LocalPlannerNode::initializeParameters()
     declare_parameter<double>("maximum_curvature_radpm", 3.20);
   planner_parameters_.maximum_curvature_rate_radpm2 =
     declare_parameter<double>("maximum_curvature_rate_radpm2", 20.0);
+  // 🔴 f1tenth_control/launch/control_real.launch.py + _control_common.py mirror.
+  // 제어쪽 변경을 planner에 동기화하지 않은 커밋은 control_contract_match가 깨져야 정상이다.
+  planner_parameters_.control_wheelbase_m =
+    declare_parameter<double>("control_wheelbase_m", 0.33);
+  planner_parameters_.control_max_steering_left_rad =
+    declare_parameter<double>("control_max_steering_left_rad", 0.410);
+  planner_parameters_.control_max_steering_right_rad =
+    declare_parameter<double>("control_max_steering_right_rad", 0.361);
+  planner_parameters_.control_understeer_gradient_left_rad_per_mps2 =
+    declare_parameter<double>("control_understeer_gradient_left_rad_per_mps2", 0.014);
+  planner_parameters_.control_understeer_gradient_right_rad_per_mps2 =
+    declare_parameter<double>("control_understeer_gradient_right_rad_per_mps2", 0.019);
+  planner_parameters_.control_max_steering_rate_radps =
+    declare_parameter<double>("control_max_steering_rate_radps", 20.0);
   planner_parameters_.safe_stop_buffer_m =
     declare_parameter<double>("safe_stop_buffer_m", 0.40);
   planner_parameters_.safe_stop_deceleration_mps2 =
@@ -531,14 +559,23 @@ void LocalPlannerNode::initializeParameters()
     0.5, declare_parameter<double>("raw_slowdown_speed_cap_mps", 2.8));
   raw_slowdown_hold_sec_ = std::max(
     0.0, declare_parameter<double>("raw_slowdown_hold_sec", 1.0));
+  planner_parameters_.raw_slowdown_post_hold_distance_m =
+    declare_parameter<double>("raw_slowdown_post_hold_distance_m", 1.0);
   raw_slowdown_lateral_margin_m_ = std::max(
     0.0, declare_parameter<double>("raw_slowdown_lateral_margin_m", 0.25));
+  raw_slowdown_response_delay_sec_ = std::max(
+    0.0, declare_parameter<double>("raw_slowdown_response_delay_sec", 0.15));
+  raw_slowdown_distance_margin_m_ = std::max(
+    0.0, declare_parameter<double>("raw_slowdown_distance_margin_m", 0.50));
   raw_slowdown_skip_committed_ =
     declare_parameter<bool>("raw_slowdown_skip_committed", false);
-  // 🔵 2026-08-23: 캡을 상수에서 거리 함수 sqrt(2·a·d) 로. 근거·실측은
-  //    raw_slowdown_gate.hpp 의 rawSlowdownSpeedCap 주석 참고. false 면 종전 상수.
+  // 2026-08-23: applyRawSlowdownProfile 자체가 front까지의 거리로 제동 envelope를 만든다.
+  // true의 sqrt(2*a*d)를 목표속도 자리에 다시 넣으면 같은 거리가 두 번 적용되므로 운영
+  // 기본은 false다. true는 재현/A-B용 legacy 모드로만 남긴다.
   raw_slowdown_distance_scaled_ =
-    declare_parameter<bool>("raw_slowdown_distance_scaled", true);
+    declare_parameter<bool>("raw_slowdown_distance_scaled", false);
+  publish_feasibility_diagnostics_enable_ =
+    declare_parameter<bool>("publish_feasibility_diagnostics_enable", true);
   hold_republish_last_guidance_ =
     declare_parameter<bool>("hold_republish_last_guidance", true);
   controller_lookahead_floor_m_ =
@@ -646,6 +683,10 @@ void LocalPlannerNode::initializeParameters()
             "pre/post apex arrays must contain three ordered positive values and transition "
             "scales must be positive");
   }
+  const bool control_steering_geometry_disabled =
+    planner_parameters_.control_wheelbase_m == 0.0 &&
+    planner_parameters_.control_max_steering_left_rad == 0.0 &&
+    planner_parameters_.control_max_steering_right_rad == 0.0;
   if (planning_period_ms_ <= 0 || merge_confirm_cycles_ <= 0 ||
     safe_stop_release_cycles_ <= 0 ||
     !std::isfinite(safe_stop_blind_release_sec_) ||
@@ -672,6 +713,12 @@ void LocalPlannerNode::initializeParameters()
     !std::isfinite(planner_parameters_.approach_feasibility_decel_max_mps2) ||
     !std::isfinite(planner_parameters_.profile_feasibility_decel_mps2) ||
     planner_parameters_.profile_feasibility_decel_mps2 < 0.0 ||
+    !std::isfinite(planner_parameters_.raw_slowdown_post_hold_distance_m) ||
+    planner_parameters_.raw_slowdown_post_hold_distance_m < 0.0 ||
+    !std::isfinite(planner_parameters_.confirmed_speed_post_hold_distance_m) ||
+    planner_parameters_.confirmed_speed_post_hold_distance_m < 0.0 ||
+    !std::isfinite(planner_parameters_.confirmed_speed_response_delay_sec) ||
+    planner_parameters_.confirmed_speed_response_delay_sec < 0.0 ||
     (planner_parameters_.approach_feasibility_decel_mps2 > 0.0 &&
     planner_parameters_.approach_feasibility_decel_max_mps2 <
     planner_parameters_.approach_feasibility_decel_mps2) ||
@@ -682,6 +729,18 @@ void LocalPlannerNode::initializeParameters()
     !std::isfinite(planner_parameters_.entry_discontinuity_min_budget_m) ||
     !std::isfinite(planner_parameters_.entry_continuity_baseline_m) ||
     planner_parameters_.entry_continuity_baseline_m < 0.0 ||
+    !std::isfinite(planner_parameters_.maximum_curvature_radpm) ||
+    planner_parameters_.maximum_curvature_radpm <= 0.0 ||
+    !std::isfinite(planner_parameters_.maximum_curvature_rate_radpm2) ||
+    planner_parameters_.maximum_curvature_rate_radpm2 <= 0.0 ||
+    (!control_steering_geometry_disabled &&
+    !planner_parameters_.controlSteeringGeometryValid()) ||
+    !std::isfinite(planner_parameters_.control_understeer_gradient_left_rad_per_mps2) ||
+    planner_parameters_.control_understeer_gradient_left_rad_per_mps2 < 0.0 ||
+    !std::isfinite(planner_parameters_.control_understeer_gradient_right_rad_per_mps2) ||
+    planner_parameters_.control_understeer_gradient_right_rad_per_mps2 < 0.0 ||
+    !std::isfinite(planner_parameters_.control_max_steering_rate_radps) ||
+    planner_parameters_.control_max_steering_rate_radps < 0.0 ||
     !std::isfinite(handoff_latch_commit_distance_m_) ||
     !std::isfinite(completion_defer_max_sec_) ||
     completion_defer_max_sec_ < 0.0 ||
@@ -1059,6 +1118,17 @@ bool LocalPlannerNode::selectRawSlowdownTarget(
   }
   const rclcpp::Time now = eventNow();
   const double half_track = 0.5 * track_length;
+  // 고정 12 m는 관측 horizon의 바닥으로 두고, 현재 속도에서 2.8까지 내려가는 데 더 긴
+  // 거리가 필요하면 그만큼 확장한다. raw가 그 거리에서 아직 보이지 않으면 최초 관측 순간
+  // BRAKING_INFEASIBLE_RAW 진단이 남고 가능한 최대 감속 envelope를 즉시 발행한다.
+  const double required_distance = local_planning::rawSlowdownRequiredDistance(
+    ego.speed, raw_slowdown_speed_cap_mps_,
+    planner_parameters_.approach_feasibility_decel_mps2,
+    raw_slowdown_response_delay_sec_, raw_slowdown_distance_margin_m_);
+  const double effective_trigger_distance = std::min(
+    half_track, std::max(
+      raw_slowdown_trigger_distance_m_,
+      std::isfinite(required_distance) ? required_distance : half_track));
   double best_front = std::numeric_limits<double>::infinity();
   double best_span = 0.0;
   bool found = false;
@@ -1085,7 +1155,7 @@ bool LocalPlannerNode::selectRawSlowdownTarget(
     } else {
       continue;                                     // 완전히 지나감
     }
-    if (front > raw_slowdown_trigger_distance_m_ || front >= best_front) {
+    if (front > effective_trigger_distance || front >= best_front) {
       continue;
     }
     best_front = front;
@@ -1112,7 +1182,7 @@ bool LocalPlannerNode::selectRawSlowdownTarget(
       raw_hint_hold_until_.reset();
       return false;
     }
-    if (best_front > raw_slowdown_trigger_distance_m_) {
+    if (best_front > effective_trigger_distance) {
       return false;
     }
     found = true;
@@ -1163,13 +1233,29 @@ bool LocalPlannerNode::maybePublishRawSlowdownHint(const EgoFrenetState & ego)
   const double hint_cap_mps = local_planning::rawSlowdownSpeedCap(
     raw_slowdown_distance_scaled_, raw_slowdown_speed_cap_mps_,
     planner_parameters_.approach_feasibility_decel_mps2, best_front);
+  const auto profile_window = local_planning::rawSlowdownProfileWindow(
+    best_front, best_span, ego.speed,
+    raw_slowdown_response_delay_sec_, raw_slowdown_distance_margin_m_);
+  const double required_distance = local_planning::rawSlowdownRequiredDistance(
+    ego.speed, hint_cap_mps, planner_parameters_.approach_feasibility_decel_mps2,
+    raw_slowdown_response_delay_sec_, raw_slowdown_distance_margin_m_);
+  const bool braking_infeasible =
+    ego.speed > hint_cap_mps + 1.0e-6 &&
+    std::isfinite(required_distance) && best_front + 1.0e-6 < required_distance;
   hint.path = planner_.buildRawSlowdownPath(
-    ego, state_handoff_tail_distance_m_, best_front, best_span,
+    ego, state_handoff_tail_distance_m_, profile_window.front_m, profile_window.span_m,
     hint_cap_mps, planner_parameters_.approach_feasibility_decel_mps2);
   if (hint.path.wpnts.empty()) {
     return false;
   }
-  hint.reason = "raw obstacle slowdown hint";
+  hint.reason = braking_infeasible ? "BRAKING_INFEASIBLE_RAW" : "raw obstacle slowdown hint";
+  if (braking_infeasible) {
+    RCLCPP_WARN_THROTTLE(
+      get_logger(), *get_clock(), 1000,
+      "BRAKING_INFEASIBLE_RAW: 전방 %.2f m, 필요 %.2f m (ego %.2f, 목표 %.2f m/s). "
+      "raw는 정지 권한이 없으므로 가능한 최대 감속 힌트를 발행하고 confirmed 안전계층을 기다린다.",
+      best_front, required_distance, ego.speed, hint_cap_mps);
+  }
   RCLCPP_INFO_THROTTLE(
     get_logger(), *get_clock(), 2000,
     "B1 raw 감속 힌트: 전방 %.2f m (스팬 %.2f m) — confirmed 승격 전 접근 속도를 "
@@ -1950,10 +2036,9 @@ bool LocalPlannerNode::committedObstacleWithinLatch(const EgoFrenetState & ego) 
     // 장애물의 **뒤쪽 경계**까지의 전방거리. 이것이 양수인 동안은 아직 안 지나간 것이다.
     const double rear_forward = planner_.forwardDistance(ego.s, entry.second.s_end) +
       planner_parameters_.obstacle_longitudinal_padding_m;
-    if (rear_forward > half_track) {
-      continue;   // 이미 지나쳤다(원형거리로 반 바퀴 넘음) — 래치 대상이 아니다.
-    }
-    if (rear_forward <= handoff_latch_commit_distance_m_) {
+    if (handoff_latch_gate::blocksGlobalHandoff(
+        rear_forward, half_track, handoff_latch_commit_distance_m_))
+    {
       return true;
     }
   }
@@ -4158,6 +4243,7 @@ void LocalPlannerNode::publishResult(const RacelineSplineResult & result)
   // committed_result_/last_valid_guidance_result_ 등 저장본은 원속도를 유지하므로
   // raw 가 사라지면(홀드 만료) 다음 발행부터 즉시 원속도로 복귀한다.
   f110_msgs::msg::WpntArray outgoing_path = result.path;
+  std::optional<EgoFrenetState> publish_ego;
   if (!outgoing_path.wpnts.empty()) {
     nav_msgs::msg::Odometry odometry;
     bool has_odometry = false;
@@ -4173,6 +4259,7 @@ void LocalPlannerNode::publishResult(const RacelineSplineResult & result)
       overlay_ego.s = odometry.pose.pose.position.x;
       overlay_ego.d = odometry.pose.pose.position.y;
       overlay_ego.speed = std::abs(odometry.twist.twist.linear.x);
+      publish_ego = overlay_ego;
       double raw_front = 0.0;
       double raw_span = 0.0;
       int raw_id = -1;
@@ -4187,8 +4274,24 @@ void LocalPlannerNode::publishResult(const RacelineSplineResult & result)
           const double overlay_cap_mps = local_planning::rawSlowdownSpeedCap(
             raw_slowdown_distance_scaled_, raw_slowdown_speed_cap_mps_,
             planner_parameters_.approach_feasibility_decel_mps2, raw_front);
+          const auto profile_window = local_planning::rawSlowdownProfileWindow(
+            raw_front, raw_span, overlay_ego.speed,
+            raw_slowdown_response_delay_sec_, raw_slowdown_distance_margin_m_);
+          const double required_distance = local_planning::rawSlowdownRequiredDistance(
+            overlay_ego.speed, overlay_cap_mps,
+            planner_parameters_.approach_feasibility_decel_mps2,
+            raw_slowdown_response_delay_sec_, raw_slowdown_distance_margin_m_);
+          if (overlay_ego.speed > overlay_cap_mps + 1.0e-6 &&
+            std::isfinite(required_distance) && raw_front + 1.0e-6 < required_distance)
+          {
+            RCLCPP_WARN_THROTTLE(
+              get_logger(), *get_clock(), 1000,
+              "BRAKING_INFEASIBLE_RAW(overlay): 전방 %.2f m, 필요 %.2f m "
+              "(ego %.2f, 목표 %.2f m/s).",
+              raw_front, required_distance, overlay_ego.speed, overlay_cap_mps);
+          }
           planner_.applyRawSlowdownProfile(
-            outgoing_path, overlay_ego, raw_front, raw_span,
+            outgoing_path, overlay_ego, profile_window.front_m, profile_window.span_m,
             overlay_cap_mps,
             planner_parameters_.approach_feasibility_decel_mps2);
           RCLCPP_INFO_THROTTLE(
@@ -4198,6 +4301,71 @@ void LocalPlannerNode::publishResult(const RacelineSplineResult & result)
             raw_front, raw_span, overlay_cap_mps, raw_slowdown_speed_cap_mps_);
         }
       }
+    }
+  }
+  // 우선 진단기로만 운용한다. 이 지점은 raw 오버레이까지 끝난 실제 outgoing_path이므로
+  // 후보 단계 검사로는 보이지 않던 release/분기 계단도 잡는다.
+  //
+  // 결정 5C (2026-08-24): 이미 제동 가능 거리를 잃은 경우에도 검증된 회피/정지 기하를
+  // 버리거나 목표속도를 다시 올리지 않는다. 가능한 가장 낮은 프로파일을 그대로 발행하고
+  // 아래 명시적 reason을 남겨 제어기가 최대 제동으로 따라가게 한다. 이는 물리 한계를
+  // "보장"하는 코드가 아니라, 늦게 발견한 위험에서 충돌 가능성을 더 키우지 않는 폴백이다.
+  if (publish_feasibility_diagnostics_enable_ && publish_ego.has_value() &&
+    !outgoing_path.wpnts.empty())
+  {
+    const auto report = planner_.inspectVelocityFeasibility(outgoing_path, publish_ego.value());
+    if (result.kind == SplinePlanKind::kSafeStop &&
+      report.maximum_deceleration_mps2 >
+      planner_parameters_.safe_stop_deceleration_mps2 + 1.0e-6)
+    {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 1000,
+        "SAFE_STOP_EGO_SEED_INFEASIBLE: 현재 속도에서 충돌 전 정지 프로파일을 따라가려면 "
+        "설정 제동보다 큰 감속이 필요하다 (required=%.2f, configured=%.2f m/s^2). "
+        "충돌 없는 마지막 기하는 유지하고 가능한 최대 제동을 요청한다.",
+        report.maximum_deceleration_mps2,
+        planner_parameters_.safe_stop_deceleration_mps2);
+    }
+    if (result.kind == SplinePlanKind::kAvoidance &&
+      report.deceleration_violations > 0U)
+    {
+      if (handoff_active_) {
+        RCLCPP_WARN_THROTTLE(
+          get_logger(), *get_clock(), 1000,
+          "BRAKING_INFEASIBLE_HANDOFF: 현재 실측속도에서 global handoff의 첫 곡률/라인 "
+          "속도 cap까지 남은 거리로는 종방향 감속표를 만족할 수 없다 "
+          "(required=%.2f m/s^2). handoff 내부 프로파일은 유지하고 가능한 최대 제동을 요청한다.",
+          report.maximum_deceleration_mps2);
+      } else {
+        RCLCPP_WARN_THROTTLE(
+          get_logger(), *get_clock(), 1000,
+          "BRAKING_INFEASIBLE_CONFIRMED: 확정 장애물 회피 속도 envelope까지 남은 거리로는 "
+          "종방향 감속표를 만족할 수 없다 (required=%.2f m/s^2). 검증된 회피 기하와 더 낮은 "
+          "목표속도를 유지하고 가능한 최대 제동을 요청한다.",
+          report.maximum_deceleration_mps2);
+      }
+    }
+    // safe-stop은 일반 주행 accel/decel LUT가 아니라 위 비상 제동률 계약으로 판단한다.
+    // confirmed/handoff 감속 위반도 위 전용 reason에서 이미 보고했으므로 일반 경고의 decel
+    // 항에서는 제외한다. 다만 같은 경로에 횡가속/가속 위반이 함께 있으면 그 독립 문제는
+    // 계속 남긴다.
+    const std::size_t generic_deceleration_violations =
+      result.kind == SplinePlanKind::kAvoidance ? 0U : report.deceleration_violations;
+    const bool generic_violation =
+      report.lateral_violations > 0U || report.acceleration_violations > 0U ||
+      generic_deceleration_violations > 0U || report.steering_rate_violations > 0U;
+    if (result.kind != SplinePlanKind::kSafeStop && generic_violation) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 1000,
+        "PUBLISH_FEASIBILITY violation: lat=%zu accel=%zu decel=%zu steer_rate=%zu "
+        "max_ratio=%.2f max_accel=%.2f max_decel=%.2f max_steer_rate=%.2f "
+        "(kind=%d, owner=%s).",
+        report.lateral_violations, report.acceleration_violations,
+        generic_deceleration_violations, report.steering_rate_violations,
+        report.maximum_lateral_ratio,
+        report.maximum_acceleration_mps2, report.maximum_deceleration_mps2,
+        report.maximum_steering_rate_radps,
+        static_cast<int>(result.kind), current_path_owner_.c_str());
     }
   }
   f110_msgs::msg::OTWpntArray output;
@@ -4328,13 +4496,16 @@ void LocalPlannerNode::publishCandidateAudit(
       get_logger(),
       "Candidate audit [%s]: generated=%zu feasible=%zu rank=%d side=%s target=%.6f "
       "entry_requested/effective=%.6f/%.6f exit=%.6f wall/obstacle=%.6f/%.6f "
-      "footprint_wall=%.6f peak_curvature/rate=%.6f/%.6f speed_loss=%.6f min_slack=%.6f",
+      "footprint_wall=%.6f peak_curvature/rate=%.6f/%.6f curvature_margin=%.6f "
+      "braking_deficit=%.6f speed_loss=%.6f min_slack=%.6f",
       decision.c_str(), result.candidate_audits.size(), feasible_count, selected->final_rank,
       selected->go_left ? "left" : "right", selected->target_d,
       selected->requested_entry_length_m, selected->effective_entry_length_m,
       selected->exit_length_m, selected->wall_clearance_m, selected->obstacle_clearance_m,
       selected->rectangular_footprint_wall_clearance_m,
       selected->peak_curvature_radpm, selected->peak_curvature_rate_radpm2,
+      selected->minimum_curvature_margin_radpm,
+      selected->ego_braking_distance_deficit_m,
       selected->velocity_loss, selected->minimum_normalized_safety_slack);
   } else {
     RCLCPP_INFO_THROTTLE(
@@ -4385,6 +4556,8 @@ void LocalPlannerNode::publishCandidateAudit(
            << ",\"wall_clearance_m\":" << jsonNumber(audit.wall_clearance_m)
            << ",\"obstacle_clearance_m\":" << jsonNumber(audit.obstacle_clearance_m)
            << ",\"peak_curvature_radpm\":" << jsonNumber(audit.peak_curvature_radpm)
+           << ",\"minimum_curvature_margin_radpm\":"
+           << jsonNumber(audit.minimum_curvature_margin_radpm)
            << ",\"peak_curvature_rate_radpm2\":"
            << jsonNumber(audit.peak_curvature_rate_radpm2)
            << ",\"velocity_loss\":" << jsonNumber(audit.velocity_loss)
@@ -4392,6 +4565,8 @@ void LocalPlannerNode::publishCandidateAudit(
            << jsonNumber(audit.global_path_deviation_m)
            << ",\"minimum_normalized_safety_slack\":"
            << jsonNumber(audit.minimum_normalized_safety_slack)
+           << ",\"ego_braking_distance_deficit_m\":"
+           << jsonNumber(audit.ego_braking_distance_deficit_m)
            << ",\"rejection_reason\":\"" << jsonEscape(audit.rejection_reason) << "\""
            << ",\"final_rank\":" << audit.final_rank
            << ",\"exit_reaches_next_obstacle\":"

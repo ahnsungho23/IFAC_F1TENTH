@@ -15,6 +15,7 @@
 #ifndef LOCAL_PLANNING__RACELINE_SPLINE_PLANNER_HPP_
 #define LOCAL_PLANNING__RACELINE_SPLINE_PLANNER_HPP_
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -65,13 +66,14 @@ struct RacelineSplineParameters
   std::vector<double> tracking_error_lut_speed_bins_mps;
   std::vector<double> tracking_error_lut_curvature_bins_radpm;
   std::vector<double> tracking_error_lut_values_m;
-  // Speed-dependent lateral-acceleration table copied from jazzy_main velocity_limits.csv.
-  // Avoidance waypoint speeds are capped so v^2 * |kappa| stays within the interpolated limit.
+  // Speed-dependent lateral-acceleration authority for the avoidance planner. Compose the
+  // local_planning_velocity_limits.csv lateral column with the deployed control contract as
+  // min(csv_limit, control_max_lateral_accel); planner authority must never exceed control.
   std::vector<double> avoidance_velocity_limit_speed_bins_mps;
   std::vector<double> avoidance_velocity_limit_lateral_accel_mps2;
   // Speed-dependent LONGITUDINAL limits, taken from the max_accel / max_decel columns of
-  // offline_trajectory_generator/config/velocity_limits.csv — the very table the raceline
-  // generator uses, so planner and generator finally share one vehicle model (2026-08-19).
+  // config/local_planning_velocity_limits.csv. This package owns that runtime planning contract;
+  // offline trajectory-generator changes cannot silently alter local-planner behavior.
   // Both share avoidance_velocity_limit_speed_bins_mps as their speed axis.
   //
   // 🔴 이게 왜 들어왔나 (2026-08-19 실차 백 5개, 자율주행 구간만 계측):
@@ -93,7 +95,31 @@ struct RacelineSplineParameters
   // R1 (2026-08-20): 핸드오프 루프 속도 성형. flat 캡 대신 자차 실측 속도에서 시작하는
   // 가속 램프 + 실제 기하(복귀 램프 포함) 곡률의 횡가속 캡 + 후방 감속 패스를 건다.
   // run_220742 충돌 A·B 의 재가속 계단(그립 권한 포화)이 도입 근거다.
-  bool handoff_speed_shaping_enable{true};
+  // C++ fallback은 구동작(false)이다. 운영/시뮬 YAML이 검증된 실행에서만 true로 켠다.
+  // 파라미터 파일이 누락됐을 때 실차 미검증 기능이 조용히 활성화되어서는 안 된다.
+  bool handoff_speed_shaping_enable{false};
+  // P3가 이미 알고 있는 다섯 station [entry start, cluster start, middle, padded cluster end,
+  // exit end]를 속도 정책에도 그대로 쓴다. entry start~padded cluster end에서 가장 낮은
+  // 곡률 제한 속도를 구하고 cluster start~속도 전용 post-hold까지 유지한 뒤 기존 전진/후방
+  // feasibility로만 풀어 준다. 먼 exit는 점별 cap과 후방 패스가 따로 처리한다. 따라서
+  // 장애물 옆 kappa~=0 plateau가 global 속도로 재가속했다가 exit에서 다시 급제동하지 않는다.
+  // false는 점별 곡률 cap만 쓰던 이전 동작으로 즉시 롤백한다.
+  bool confirmed_obstacle_speed_envelope_enable{false};
+  // Confirmed P3의 detector 뒤끝 기준 최소 속도 hold [m]. P3 station[3]에는 이미
+  // obstacle_longitudinal_padding_m이 들어 있으므로 실제 추가분은
+  // max(0, post_hold - longitudinal_padding)이다. 결과적으로 detector 뒤 총 보정은
+  // max(longitudinal_padding, post_hold)가 되어 두 값을 나중에 조정해도 이중 계상하지 않는다.
+  // 1.0 m는 raw spatial hold와 같은 임시 보수값이며 detector 뒤면 실측 후 다시 정한다.
+  double confirmed_speed_post_hold_distance_m{1.0};
+  // Confirmed 속도 명령에도 raw와 같이 제어/액추에이터 응답 지연 거리
+  // v_ego * delay를 예약한다. 가감속 표의 숫자와 독립적인 시간 계약이며, 0은
+  // 지연을 고려하지 않던 legacy 램프다. C++ 직접 사용/구형 스냅샷은 0으로
+  // 보존하고 ROS node+YAML이 현재 보수 가정 0.15 s를 명시한다. 내일 실측에서
+  // path/odom 수신 → 실제 감속 시작의 end-to-end 지연을 재서 갱신한다.
+  double confirmed_speed_response_delay_sec{0.0};
+  // 최종 x/y 표본에 ego-forward local cubic을 맞추고 그 다항식을 해석 미분해 psi/kappa를
+  // 계산한다. false는 3점 원 + 끝점 이웃복사 legacy 방식이며 실차 A/B 즉시 복귀용이다.
+  bool analytic_path_geometry_enable{false};
   // The lateral-acceleration cap above only binds in curves, so an obstacle sitting on a straight
   // is planned at full race-line speed and reserves the widest tracking error in the LUT -- which
   // is what makes an otherwise passable gap unusable. Slow down for the gap itself instead: the
@@ -249,9 +275,25 @@ struct RacelineSplineParameters
   double entry_continuity_baseline_m{0.50};
   double maximum_curvature_radpm{3.20};
   double maximum_curvature_rate_radpm2{20.0};
+  // 🔴 CONTROL SYNC CONTRACT (2026-08-24): f1tenth_control의 wheelbase, 좌/우 최대
+  // 조향각, 좌/우 K_us, max_steering_rate 중 하나라도 바뀌면 local_planning의
+  // C++ declare 기본값, 운영/시뮬 YAML, 문서, test_control_contract_match.py를 **같은
+  // 통합에서 반드시 같이 바꿔야 한다**. 나중에 한쪽만 바꾸는 변경은 테스트
+  // 실패로 막는다. 0으로 둔 직접 라이브러리/구형 하니스는 legacy 대칭
+  // maximum_curvature_radpm으로 폴백하지만 ROS node와 YAML은 배포값을 명시한다.
+  double control_wheelbase_m{0.0};
+  double control_max_steering_left_rad{0.0};
+  double control_max_steering_right_rad{0.0};
+  double control_understeer_gradient_left_rad_per_mps2{0.0};
+  double control_understeer_gradient_right_rad_per_mps2{0.0};
+  double control_max_steering_rate_radps{0.0};
 
   double safe_stop_buffer_m{0.40};
   double safe_stop_deceleration_mps2{2.5};
+  // Raw 장애물의 detector s_end는 앞면 위주 LiDAR에서 짧게 잡힐 수 있으므로 cap을 물체
+  // span 뒤에도 이 거리만큼 유지한다. 종전 하드코딩 +1.0 m를 동작 그대로 파라미터화했다.
+  // confirmed P3는 이 값과 독립된 confirmed_speed_post_hold_distance_m을 쓴다.
+  double raw_slowdown_post_hold_distance_m{1.0};
   int minimum_path_points{8};
 
   // 안전정지 정지점 탈출 검증. safe_stop_buffer_m은 손으로 맞춘 상수라, 기하에 따라
@@ -274,6 +316,9 @@ struct RacelineSplineParameters
   // 횡가속 표와 달리 단조성을 요구하지 않는다 — 이분법이 아니라 단순 보간에만 쓰인다.
   double accelLimitAt(double speed_mps) const;
   double decelLimitAt(double speed_mps) const;
+  bool controlSteeringGeometryValid() const;
+  double maximumCurvatureFor(double signed_curvature_radpm) const;
+  double modeledControlSteeringRad(double signed_curvature_radpm, double speed_mps) const;
   double limitedAvoidanceSpeed(double requested_speed_mps, double curvature_radpm) const;
   // Largest speed not above `requested_speed_mps` whose tracking-error reserve still fits inside
   // `admissible_reserve_m`, never going below avoidance_minimum_speed_mps. The reserve is
@@ -283,6 +328,7 @@ struct RacelineSplineParameters
   // Clamp a combined (outside-multiplier-applied) exit transition scale so that
   // post_apex_distances_m.back() * scale never exceeds maximum_exit_length_m.
   double cappedCombinedExitScale(double combined_exit_scale) const;
+  double confirmedSpeedHoldEndForwardM(double padded_cluster_end_forward_m) const;
   double trackingErrorReserve(double speed_mps, double curvature_radpm) const;
   double avoidanceTrackingErrorReserve(double speed_mps, double curvature_radpm) const;
   double obstacleBaseClearance() const;
@@ -303,6 +349,24 @@ struct EgoFrenetState
   double s{0.0};
   double d{0.0};
   double speed{0.0};
+};
+
+struct VelocityFeasibilityReport
+{
+  std::size_t lateral_violations{0U};
+  std::size_t acceleration_violations{0U};
+  std::size_t deceleration_violations{0U};
+  std::size_t steering_rate_violations{0U};
+  double maximum_lateral_ratio{0.0};
+  double maximum_acceleration_mps2{0.0};
+  double maximum_deceleration_mps2{0.0};
+  double maximum_steering_rate_radps{0.0};
+
+  bool feasible() const
+  {
+    return lateral_violations == 0U && acceleration_violations == 0U &&
+           deceleration_violations == 0U && steering_rate_violations == 0U;
+  }
 };
 
 enum class SplinePlanKind
@@ -359,10 +423,12 @@ struct SplineCandidateAudit
   double wall_clearance_m{std::numeric_limits<double>::quiet_NaN()};
   double obstacle_clearance_m{std::numeric_limits<double>::quiet_NaN()};
   double peak_curvature_radpm{std::numeric_limits<double>::quiet_NaN()};
+  double minimum_curvature_margin_radpm{std::numeric_limits<double>::quiet_NaN()};
   double peak_curvature_rate_radpm2{std::numeric_limits<double>::quiet_NaN()};
   double velocity_loss{std::numeric_limits<double>::quiet_NaN()};
   double global_path_deviation_m{std::numeric_limits<double>::quiet_NaN()};
   double minimum_normalized_safety_slack{-std::numeric_limits<double>::infinity()};
+  double ego_braking_distance_deficit_m{0.0};
   std::string rejection_reason;
 };
 
@@ -483,6 +549,10 @@ public:
     f110_msgs::msg::WpntArray & path, const EgoFrenetState & ego,
     double obstacle_front_m, double obstacle_span_m,
     double cap_mps, double decel_mps2) const;
+  // 발행 경로를 수정하지 않고 ego-forward 반바퀴의 횡가속·종가감속·제어
+  // bicycle 모델 기반 조향 변화율 제약을 진단한다. 조향 항은 진단이며 경로를 깎지 않는다.
+  VelocityFeasibilityReport inspectVelocityFeasibility(
+    const f110_msgs::msg::WpntArray & path, const EgoFrenetState & ego) const;
   // 원본 없이 ego.d 를 따라가는 0 속도 홀드. `minimum_forward_m` 은 컨트롤러가 L1 목표를
   // 고를 수 있도록 확보할 전방 거리다 (F3) — 0 이면 종전처럼 점 수 하한만 쓴다.
   f110_msgs::msg::WpntArray buildEmergencyStopPath(
@@ -750,22 +820,25 @@ private:
   RacelineSplineResult buildMarginSlowPass(
     const EgoFrenetState & ego,
     const std::vector<ExpandedObstacle> & cluster) const;
-  void applyAvoidanceVelocityLimit(
+  double applyAvoidanceVelocityLimit(
     f110_msgs::msg::WpntArray & path,
     const EgoFrenetState & ego,
-    const std::vector<ExpandedObstacle> & visible) const;
+    const std::vector<ExpandedObstacle> & visible,
+    const std::array<double, 5> & maneuver_stations) const;
   void applyApproachFeasibilityRamp(
     f110_msgs::msg::WpntArray & path,
     const EgoFrenetState & ego,
     const std::vector<ExpandedObstacle> & visible) const;
-  // R1 (2026-08-21): 핸드오프 루프 전용 속도 성형. 자차-전방 순서(tail_begin 회전)로
-  // 곡률 캡 → 실측속도 시드 가속 램프 → 후방 감속 패스를 걸고, 마지막에 ψ·부호 κ·ax 를
-  // 실제 기하·최종 속도로 재계산한다. handoff_speed_shaping_enable 뒤에서만 실행.
+  // R1 (2026-08-21): 핸드오프 루프 전용 속도 성형. 배열 위치가 아니라 ego 기준 실제
+  // 전방거리로 순서를 만들어 곡률 캡 → 실측속도 시드 가속 램프 → 후방 감속 패스를 걸고,
+  // 마지막에 ψ·부호 κ·ax 를 실제 기하·최종 속도로 재계산한다.
+  // handoff_speed_shaping_enable 뒤에서만 실행.
   void shapeGlobalHandoffSpeed(
-    f110_msgs::msg::WpntArray & path, const EgoFrenetState & ego,
-    std::size_t tail_begin) const;
+    f110_msgs::msg::WpntArray & path, const EgoFrenetState & ego) const;
   void applyLongitudinalFeasibility(
     f110_msgs::msg::WpntArray & path, const EgoFrenetState & ego) const;
+  void updateGeometry(f110_msgs::msg::WpntArray & path) const;
+  void updateAccelerationOnly(f110_msgs::msg::WpntArray & path) const;
   void updateGeometryAndAcceleration(f110_msgs::msg::WpntArray & path) const;
   bool validateCandidate(
     const EgoFrenetState & ego,
@@ -784,10 +857,11 @@ private:
     const EgoFrenetState & ego,
     const std::vector<f110_msgs::msg::Obstacle> & obstacles,
     bool relaxed_clearance_gate = false) const;
-  void finalizeP3ShadowPath(
+  double finalizeP3ShadowPath(
     f110_msgs::msg::WpntArray & path,
     const EgoFrenetState & ego,
-    const std::vector<f110_msgs::msg::Obstacle> & obstacles) const;
+    const std::vector<f110_msgs::msg::Obstacle> & obstacles,
+    const std::array<double, 5> & maneuver_stations) const;
   P3ShadowPathEvaluation validateP3ShadowPath(
     const EgoFrenetState & ego,
     const f110_msgs::msg::WpntArray & path,

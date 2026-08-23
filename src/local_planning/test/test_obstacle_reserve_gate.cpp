@@ -171,9 +171,8 @@ TEST(RawSlowdownSkip, NegativeIdNeverSkips)
 }  // namespace
 }  // namespace local_planning
 
-// 🔵 2026-08-23: raw 캡의 거리 스케일. 핵심은 **오직 완화만 한다**는 것이다 —
-// 가까운 거리에서는 종전 상수와 비트 단위로 같아야 하고, 먼 거리에서만 풀려야 한다.
-TEST(RawSlowdownSpeedCap, NearRangeIsBitIdenticalToTheLegacyConstant)
+// Legacy distance-scaled A/B 식은 재현 가능하게 남기되 운영 기본은 false다.
+TEST(RawSlowdownSpeedCapLegacyMode, NearRangeMatchesTheConstant)
 {
   const double kFloor = 2.8;
   const double kDecel = 2.0;
@@ -187,7 +186,7 @@ TEST(RawSlowdownSpeedCap, NearRangeIsBitIdenticalToTheLegacyConstant)
   }
 }
 
-TEST(RawSlowdownSpeedCap, FarRangeRelaxesAlongTheBrakingCurve)
+TEST(RawSlowdownSpeedCapLegacyMode, FarRangeReproducesTheOldFormula)
 {
   const double kFloor = 2.8;
   const double kDecel = 2.0;
@@ -205,7 +204,7 @@ TEST(RawSlowdownSpeedCap, FarRangeRelaxesAlongTheBrakingCurve)
   }
 }
 
-TEST(RawSlowdownSpeedCap, DisabledOrDegenerateInputsFallBackToTheConstant)
+TEST(RawSlowdownSpeedCapLegacyMode, DisabledOrDegenerateInputsFallBackToTheConstant)
 {
   const double kFloor = 2.8;
   EXPECT_DOUBLE_EQ(local_planning::rawSlowdownSpeedCap(false, kFloor, 2.0, 12.0), kFloor);
@@ -215,4 +214,35 @@ TEST(RawSlowdownSpeedCap, DisabledOrDegenerateInputsFallBackToTheConstant)
   EXPECT_DOUBLE_EQ(
     local_planning::rawSlowdownSpeedCap(
       true, kFloor, 2.0, std::numeric_limits<double>::quiet_NaN()), kFloor);
+}
+
+TEST(RawSlowdownRequiredDistance, IncludesBrakingDelayAndMargin)
+{
+  // (5^2 - 2.8^2) / (2*2) = 4.29 m, software delay 0.75 m, margin 0.50 m.
+  EXPECT_NEAR(
+    local_planning::rawSlowdownRequiredDistance(5.0, 2.8, 2.0, 0.15, 0.50),
+    5.54, 1.0e-9);
+  EXPECT_NEAR(
+    local_planning::rawSlowdownRequiredDistance(7.16, 2.8, 2.0, 0.15, 0.50),
+    12.4304, 1.0e-4);
+  EXPECT_NEAR(
+    local_planning::rawSlowdownRequiredDistance(2.0, 2.8, 2.0, 0.15, 0.50),
+    0.80, 1.0e-9);
+  EXPECT_TRUE(std::isinf(
+    local_planning::rawSlowdownRequiredDistance(5.0, 2.8, 0.0, 0.15, 0.50)));
+}
+
+TEST(RawSlowdownProfileWindow, PullsBrakingEarlierWithoutMovingTheHoldEnd)
+{
+  const auto window = local_planning::rawSlowdownProfileWindow(
+    5.0, 0.4, 5.0, 0.15, 0.50);
+  EXPECT_NEAR(window.reserved_distance_m, 1.25, 1.0e-9);
+  EXPECT_NEAR(window.front_m, 3.75, 1.0e-9);
+  EXPECT_NEAR(window.span_m, 1.65, 1.0e-9);
+  EXPECT_NEAR(window.front_m + window.span_m, 5.4, 1.0e-9);
+
+  const auto clipped = local_planning::rawSlowdownProfileWindow(
+    0.4, 0.4, 5.0, 0.15, 0.50);
+  EXPECT_NEAR(clipped.front_m, 0.0, 1.0e-9);
+  EXPECT_NEAR(clipped.span_m, 0.8, 1.0e-9);
 }

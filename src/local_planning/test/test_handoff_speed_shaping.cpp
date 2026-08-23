@@ -18,7 +18,7 @@
 //  - 성형은 자차-전방 순서(tail_begin 회전)로 걷는다 — seam(랩 경계) 넘어서도 자차
 //    실측 속도에서 가속 램프가 시작되어야 한다.
 //  - 성형 후 κ 는 실제 기하의 부호 있는 값으로 재계산된다.
-//  - 오버레이는 min 캡만 적용한다(속도를 절대 올리지 않는다).
+//  - 오버레이는 min 캡만 적용하며, 통과 뒤에도 차량 가속표로 복귀한다.
 
 #include <gtest/gtest.h>
 
@@ -61,6 +61,41 @@ f110_msgs::msg::WpntArray ringReference(double vx)
   return reference;
 }
 
+f110_msgs::msg::WpntArray ellipseReference(double vx)
+{
+  constexpr double kMajor = 10.0;
+  constexpr double kMinor = 5.0;
+  f110_msgs::msg::WpntArray reference;
+  reference.wpnts.reserve(kCount);
+  double station = 0.0;
+  double previous_x = kMajor;
+  double previous_y = 0.0;
+  for (std::size_t index = 0U; index < kCount; ++index) {
+    const double angle = 2.0 * kPi * static_cast<double>(index) /
+      static_cast<double>(kCount);
+    const double x = kMajor * std::cos(angle);
+    const double y = kMinor * std::sin(angle);
+    if (index > 0U) {
+      station += std::hypot(x - previous_x, y - previous_y);
+    }
+    f110_msgs::msg::Wpnt waypoint;
+    waypoint.id = static_cast<std::int32_t>(index);
+    waypoint.s_m = station;
+    waypoint.x_m = x;
+    waypoint.y_m = y;
+    // 입력 geometry를 일부러 틀리게 둔다. analytic mode가 최종 x/y에서 다시 만들어야 한다.
+    waypoint.psi_rad = 0.0;
+    waypoint.kappa_radpm = 0.0;
+    waypoint.vx_mps = vx;
+    waypoint.d_left = 3.0;
+    waypoint.d_right = 3.0;
+    reference.wpnts.push_back(waypoint);
+    previous_x = x;
+    previous_y = y;
+  }
+  return reference;
+}
+
 RacelineSplineParameters shapingParameters(bool enable)
 {
   RacelineSplineParameters parameters;
@@ -95,6 +130,14 @@ std::vector<std::pair<double, double>> forwardProfile(
   }
   std::sort(profile.begin(), profile.end());
   return profile;
+}
+
+TEST(SpeedFeatureDefaults, RequireExplicitOperationalEnable)
+{
+  const RacelineSplineParameters parameters;
+  // YAML을 빠뜨린 하네스/임시 launch가 검증 전 신규 속도정책을 묵시적으로 켜지 않는다.
+  EXPECT_FALSE(parameters.handoff_speed_shaping_enable);
+  EXPECT_FALSE(parameters.confirmed_obstacle_speed_envelope_enable);
 }
 
 TEST(HandoffSpeedShaping, DisabledKeepsFlatCapAndReferenceKappa)
@@ -138,6 +181,9 @@ TEST(HandoffSpeedShaping, EnabledSeedsAccelRampFromMeasuredEgoSpeed)
     }
   }
   EXPECT_TRUE(checked_near);
+  const auto feasibility = planner.inspectVelocityFeasibility(path, ego);
+  EXPECT_EQ(feasibility.acceleration_violations, 0U);
+  EXPECT_EQ(feasibility.deceleration_violations, 0U);
   // 인접 점 사이 가속 요구가 표 한계(3.0)를 넘지 않는다 (자차-전방 순서).
   for (std::size_t i = 1; i < profile.size(); ++i) {
     const double ds = profile[i].first - profile[i - 1].first;
@@ -148,6 +194,32 @@ TEST(HandoffSpeedShaping, EnabledSeedsAccelRampFromMeasuredEgoSpeed)
       (profile[i].second * profile[i].second -
       profile[i - 1].second * profile[i - 1].second) / (2.0 * ds);
     EXPECT_LE(accel, 3.0 + 1.0e-6) << "forward=" << profile[i].first;
+  }
+}
+
+TEST(VelocityFeasibility, ReportsControlModeledSteeringRateWithoutMutatingPath)
+{
+  auto parameters = shapingParameters(false);
+  parameters.control_wheelbase_m = 0.33;
+  parameters.control_max_steering_left_rad = 0.410;
+  parameters.control_max_steering_right_rad = 0.361;
+  parameters.control_understeer_gradient_left_rad_per_mps2 = 0.014;
+  parameters.control_understeer_gradient_right_rad_per_mps2 = 0.019;
+  parameters.control_max_steering_rate_radps = 1.0;  // 테스트용 낮은 임계
+  auto planner = plannerWith(parameters, 5.0);
+  auto path = ringReference(5.0);
+  for (std::size_t index = 0U; index < path.wpnts.size(); ++index) {
+    path.wpnts[index].kappa_radpm = index < 10U ? 0.0 : 1.0;
+  }
+  const auto before = path;
+  const auto report = planner.inspectVelocityFeasibility(
+    path, EgoFrenetState{0.0, 0.0, 5.0});
+  EXPECT_GT(report.steering_rate_violations, 0U);
+  EXPECT_GT(report.maximum_steering_rate_radps, 1.0);
+  ASSERT_EQ(path.wpnts.size(), before.wpnts.size());
+  for (std::size_t index = 0U; index < path.wpnts.size(); ++index) {
+    EXPECT_DOUBLE_EQ(path.wpnts[index].vx_mps, before.wpnts[index].vx_mps);
+    EXPECT_DOUBLE_EQ(path.wpnts[index].kappa_radpm, before.wpnts[index].kappa_radpm);
   }
 }
 
@@ -195,6 +267,39 @@ TEST(HandoffSpeedShaping, EnabledCapsToActualCurvatureAndRecomputesSignedKappa)
   EXPECT_GT(recomputed, kCount - 6U);
 }
 
+TEST(AnalyticPathGeometry, ClosedEndpointUsesCubicDerivativeInsteadOfNeighbourCopy)
+{
+  auto parameters = shapingParameters(true);
+  parameters.analytic_path_geometry_enable = true;
+  RacelineSplinePlanner planner;
+  planner.setParameters(parameters);
+  std::string error;
+  ASSERT_TRUE(planner.setReference(ellipseReference(4.0), &error)) << error;
+  EgoFrenetState ego;
+  ego.s = 0.0;
+  ego.speed = 2.0;
+  const auto path = planner.buildGlobalHandoffPath(ego, 6.0, 4.0);
+  ASSERT_EQ(path.wpnts.size(), kCount);
+
+  // handoff는 ego가 tail_begin에 오도록 배열을 회전한다. 배열 첫 점의 ellipse parameter를
+  // x/y에서 복원해 그 점 자신의 해석값과 비교한다.
+  const auto & first = path.wpnts.front();
+  const double angle = std::atan2(first.y_m / 5.0, first.x_m / 10.0);
+  const double expected_psi = std::atan2(5.0 * std::cos(angle), -10.0 * std::sin(angle));
+  const double psi_error = std::atan2(
+    std::sin(first.psi_rad - expected_psi), std::cos(first.psi_rad - expected_psi));
+  const double curvature_denominator = std::pow(
+    100.0 * std::sin(angle) * std::sin(angle) +
+    25.0 * std::cos(angle) * std::cos(angle), 1.5);
+  const double expected_kappa = 50.0 / curvature_denominator;
+  EXPECT_NEAR(psi_error, 0.0, 0.01);
+  EXPECT_NEAR(first.kappa_radpm, expected_kappa, 0.02);
+  // legacy 구현은 front를 [1]에서 비트 단위 복사한다. local cubic은 endpoint 자신의
+  // 대칭 창을 미분하므로 비상수 곡률에서 두 값이 달라야 한다.
+  EXPECT_GT(
+    std::abs(path.wpnts.front().kappa_radpm - path.wpnts[1U].kappa_radpm), 1.0e-5);
+}
+
 TEST(RawSlowdownProfile, OverlayOnlyLowersSpeedAheadOfObstacle)
 {
   auto planner = plannerWith(shapingParameters(false), 8.0);
@@ -217,9 +322,15 @@ TEST(RawSlowdownProfile, OverlayOnlyLowersSpeedAheadOfObstacle)
     } else if (forward <= 5.0 + 0.4 + 1.0) {
       EXPECT_LE(waypoint.vx_mps, 2.8 + 1.0e-6);   // 스팬+1 m 동안 cap 유지
     } else {
-      EXPECT_NEAR(waypoint.vx_mps, 6.0, 1.0e-9);   // 그 뒤는 원속도
+      const double release_limit = std::sqrt(
+        2.8 * 2.8 + 2.0 * 3.0 * (forward - (5.0 + 0.4 + 1.0)));
+      EXPECT_NEAR(waypoint.vx_mps, std::min(6.0, release_limit), 1.0e-9);
     }
   }
+  const auto report = planner.inspectVelocityFeasibility(path, ego);
+  EXPECT_EQ(report.lateral_violations, 0U);
+  EXPECT_EQ(report.acceleration_violations, 0U);
+  EXPECT_EQ(report.deceleration_violations, 0U);
   // min 전용 계약: 이미 0 인 점(정지 프로파일)은 절대 올리지 않는다.
   auto stop_path = planner.buildGlobalHandoffPath(ego, 6.0, 6.0);
   for (auto & waypoint : stop_path.wpnts) {
@@ -229,6 +340,41 @@ TEST(RawSlowdownProfile, OverlayOnlyLowersSpeedAheadOfObstacle)
   for (const auto & waypoint : stop_path.wpnts) {
     EXPECT_NEAR(waypoint.vx_mps, 0.0, 1.0e-12);
   }
+}
+
+TEST(RawSlowdownProfile, ReleaseUsesSpeedDependentAccelerationTable)
+{
+  auto parameters = shapingParameters(false);
+  parameters.raw_slowdown_post_hold_distance_m = 0.6;
+  parameters.avoidance_velocity_limit_speed_bins_mps = {0.0, 3.0, 10.0};
+  parameters.avoidance_velocity_limit_lateral_accel_mps2 = {4.0, 4.0, 4.0};
+  parameters.avoidance_velocity_limit_accel_mps2 = {1.0, 2.0, 3.0};
+  parameters.avoidance_velocity_limit_decel_mps2 = {3.0, 3.0, 3.0};
+  auto planner = plannerWith(parameters, 8.0);
+  EgoFrenetState ego;
+  ego.s = 30.0;
+  ego.speed = 5.0;
+  auto path = planner.buildGlobalHandoffPath(ego, 6.0, 8.0);
+  planner.applyRawSlowdownProfile(path, ego, 5.0, 0.4, 2.8, 2.0);
+
+  const auto profile = forwardProfile(planner, path, ego.s);
+  const double hold_until = 5.0 + 0.4 + parameters.raw_slowdown_post_hold_distance_m;
+  double previous_forward = hold_until;
+  double previous_speed = 2.8;
+  bool checked_release = false;
+  for (const auto & [forward, speed] : profile) {
+    if (forward <= hold_until || forward >= 0.5 * planner.trackLength()) {
+      continue;
+    }
+    const double ds = forward - previous_forward;
+    const double accel = parameters.accelLimitAt(previous_speed);
+    const double reachable = std::sqrt(previous_speed * previous_speed + 2.0 * accel * ds);
+    EXPECT_LE(speed, reachable + 1.0e-9);
+    previous_forward = forward;
+    previous_speed = speed;
+    checked_release = true;
+  }
+  EXPECT_TRUE(checked_release);
 }
 
 }  // namespace

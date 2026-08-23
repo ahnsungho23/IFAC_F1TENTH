@@ -38,6 +38,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <vector>
 
 namespace local_planning
@@ -68,39 +69,12 @@ inline bool rawSlowdownHandledByCommitment(
     raw_obstacle_id) != confirmed_obstacle_ids.end();
 }
 
-// ── 🔵 2026-08-23: 캡을 상수에서 **거리 함수**로 바꾼다 ──────────────────────
-//
-// 종전: raw 가 trigger 거리(12 m) 안에 잡히면 전방거리와 무관하게 늘 같은 상수(2.8)를
-//       씌웠다. 12 m 앞이든 1 m 앞이든 똑같이 2.8 이다.
-//
-// 왜 바꾸는가 (롤보정 OFF 백 6개, 발동 표본 4,599 실측):
-//   · 승격 지연은 옛 설정(10/15 표) 기준으로 잡은 값인데, 현행 검출기는
-//     min_hits_confirm 3 / confirmation_window 5 @ 39.3 Hz 라 **p50 0.139 s** 다.
-//     그 지연이 먹는 거리는 5.0 m/s 접근에서 0.70 m — 2.8 로 깎아 봐야 0.31 m 를
-//     벌 뿐이다. 전방거리 p50 은 3.27 m 이므로 대부분 **너무 일찍, 너무 많이** 깎는다.
-//   · 다만 꼬리는 크다(지연 p90 1.46 s). 캡을 없애면 그 경우가 위험해지므로
-//     "없애기"가 아니라 "거리에 맞추기"가 맞다.
-//
-// 형태: 등가속 정지거리 d = v²/(2a) 를 v 에 대해 뒤집는다.
-//         v = sqrt(2·a·d)  = 남은 거리 d 안에서 감속을 끝낼 수 있는 최대 속도
-//       a 는 새 상수를 만들지 않고 approach_feasibility_decel_mps2(2.0) 를 재사용한다 —
-//       이 오버레이의 램프 기울기가 이미 같은 값이라 두 식이 서로 싸우지 않는다.
-//
-// 바닥(floor)을 두는 이유와 방향:
-//       v_cap = max(sqrt(2·a·d), floor)     ← **min 이 아니라 max** 다.
-//   · floor 는 종전 상수(raw_slowdown_speed_cap_mps, 2.8)를 그대로 재해석한 것이다.
-//   · 교차점 d* = floor²/(2a) = 2.8²/4.0 = **1.96 m**.
-//       d < 1.96 m → 바닥이 이긴다 → **종전과 완전히 동일한 거동**
-//       d > 1.96 m → 제동식이 이긴다 → 종전보다 **완화**
-//   · 즉 이 변경은 **오직 완화만** 한다. 지금보다 느려지거나 더 자주 멈추는 경우가
-//     구조적으로 생기지 않는다 — 대회 직전 변경으로서 안전한 방향이다.
-//   · raw 는 아직 승격 안 된 검출이다. 오검출일 수 있는 물체 때문에 0.5 m 앞에서
-//     1.4 m/s 로 기어가면 안 된다. 진짜 회피·정지는 승격 후 커밋된 기동이 맡는다.
-//
-// 실측 효과(같은 4,599 표본): d > 1.96 m 인 표본 **69%** 가 완화되고,
-//   캡 중앙값 2.80 → **3.53** m/s (p90 5.15). 나머지 31% 는 종전과 같다.
-//
-// 되돌리기: raw_slowdown_distance_scaled 를 false 로 (런치 인자, 재빌드 불필요).
+// 2026-08-23 이전 거리 스케일 A/B를 재현하는 호환 함수다. 반환값은
+// applyRawSlowdownProfile의 "장애물 지점 목표속도" 자리에 들어간다. true 모드의
+// max(floor,sqrt(2*a*front))은 현재 위치 허용속도를 그 자리에 넣고 profile이 같은 front를
+// 다시 적용하므로, 교차점 이후 ego cap을 올바른 제동 envelope보다 sqrt(2)배 부풀린다.
+// 운영 기본은 false이며 true는 비교/rollback 재현 외에는 사용하지 않는다. 이 파라미터는
+// launch.py의 DeclareLaunchArgument로 노출되지 않고 YAML/ROS parameter override로 바꾼다.
 inline double rawSlowdownSpeedCap(
   bool distance_scaled,
   double floor_cap_mps,
@@ -113,6 +87,43 @@ inline double rawSlowdownSpeedCap(
     return floor_cap_mps;
   }
   return std::max(floor_cap_mps, std::sqrt(2.0 * decel_mps2 * obstacle_front_m));
+}
+
+inline double rawSlowdownRequiredDistance(
+  double ego_speed_mps, double target_speed_mps, double decel_mps2,
+  double response_delay_sec, double distance_margin_m)
+{
+  const double speed = std::isfinite(ego_speed_mps) ? std::max(0.0, ego_speed_mps) : 0.0;
+  const double target = std::isfinite(target_speed_mps) ? std::max(0.0, target_speed_mps) : 0.0;
+  const double delay = std::isfinite(response_delay_sec) ? std::max(0.0, response_delay_sec) : 0.0;
+  const double margin = std::isfinite(distance_margin_m) ? std::max(0.0, distance_margin_m) : 0.0;
+  const double excess = speed * speed - target * target;
+  if (excess > 0.0 && (!(decel_mps2 > 0.0) || !std::isfinite(decel_mps2))) {
+    return std::numeric_limits<double>::infinity();
+  }
+  const double braking = excess > 0.0 ? excess / (2.0 * decel_mps2) : 0.0;
+  return speed * delay + braking + margin;
+}
+
+struct RawSlowdownProfileWindow
+{
+  double front_m{0.0};
+  double span_m{0.0};
+  double reserved_distance_m{0.0};
+};
+
+inline RawSlowdownProfileWindow rawSlowdownProfileWindow(
+  double obstacle_front_m, double obstacle_span_m, double ego_speed_mps,
+  double response_delay_sec, double distance_margin_m)
+{
+  const double front = std::isfinite(obstacle_front_m) ? std::max(0.0, obstacle_front_m) : 0.0;
+  const double span = std::isfinite(obstacle_span_m) ? std::max(0.0, obstacle_span_m) : 0.0;
+  const double speed = std::isfinite(ego_speed_mps) ? std::max(0.0, ego_speed_mps) : 0.0;
+  const double delay = std::isfinite(response_delay_sec) ? std::max(0.0, response_delay_sec) : 0.0;
+  const double margin = std::isfinite(distance_margin_m) ? std::max(0.0, distance_margin_m) : 0.0;
+  const double reserve = std::min(front, speed * delay + margin);
+  // 감속 시작 목표를 reserve만큼 당기되 hold 끝(front+span+1 m)은 그대로 둔다.
+  return {front - reserve, span + reserve, reserve};
 }
 
 }  // namespace local_planning
