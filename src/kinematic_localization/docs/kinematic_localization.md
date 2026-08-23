@@ -22,6 +22,9 @@ Kinematic-ICP(kiss-icp 파생) 기반의 **동결 맵(frozen map) localization**
    - `/odom` 토픽 히스토리를 스캔 창 양끝 시각으로 **보간**해 휠 odometry 델타
      (모션 프라이어)를 구한다(TF가 아닌 토픽 기준 — bag/실차의 odom TF에는
      수백 ms 공백이 있어 보간 프라이어가 깨지기 쉽다).
+   - 롤 보상이 켜져 있으면 같은 odometry 델타에서 `a_lat = v·yaw_rate`를 구하고
+     `roll = roll_gradient·a_lat`로 스캔면을 수평화한다. 별도 IMU나 별도 timestamp
+     경로는 사용하지 않는다.
    - `RegisterFrame(points, timestamps, extrinsic, delta)` 호출 — 낶적으로
      deskew → voxelize → ICP(휠 odom 프라이어 + adaptive regularization)를 수행한다.
      정차 중에도 항상 등록한다(동결 맵은 오염되지 않으므로 정차 중 ICP가 포즈를
@@ -65,6 +68,29 @@ T_out     = T_pred * exp(diag(alpha, alpha_rot) * log(err))         # 성분별 
 - SLAM 모드에서 **맵 누적은 ICP 생 포즈 기준**을 유지한다. 누적 맵은 ICP
   추정과 일관되어야 하고, 필터 지연(lag)이 맵에 번지는 것을 막기 위해서다.
   출력만 필터링한다.
+
+### 차체 롤 보상
+
+`transition_global`의 차체 기울기 보정만 prototype 파이프라인에 이식했다. prototype의
+scan-end FIFO, strict odometry bracket, deskew 기준, 자동 초기화와 KICP 튜닝은 변경하지 않는다.
+
+```text
+yaw_rate = log(delta_odom.rotation).z / dt
+speed    = |delta_odom.translation| / dt
+a_lat    = speed * yaw_rate
+roll     = clamp(roll_gradient_rad_per_mps2 * a_lat, +/-tilt_max_angle_rad)
+```
+
+롤은 `base_link` 축에서 정의되므로 LiDAR 외향 파라미터를 이용해 LiDAR 프레임 회전으로
+켤레변환한 뒤 각 점에 적용한다. 보정된 점은 2D 동결 맵과 맞도록 z=0에 투영한다.
+`tilt_max_point_height_m > 0`이면 기울였을 때 맵 평면에서 벗어나는 점을 버리지만, 10점
+미만이 남으면 ICP 입력 고갈을 막기 위해 원본 스캔으로 자동 복귀한다.
+
+- 현재 YAML은 롤 보상을 켜고(`true`) 실측 기울기 `0.0270 rad/(m/s²)`를 사용한다.
+- 피치 기울기와 높이 필터는 측정 근거가 없어 0.0으로 유지한다.
+- 저속 occupancy/SLAM 기반 맵은 런타임 보상만 켜도 된다. 고속 주행 bag으로
+  `mapping_node` 맵을 다시 만들 때는 mapping/localization YAML의 tilt 값을 동일하게 둔다.
+- 즉시 되돌리려면 `tilt_compensation_enable: false`로 바꾼다.
 
 ### 내장 `/map` 맵 서버
 
@@ -143,6 +169,24 @@ downsampled 포인트를 최종 포즈로 map 프레임(odom 프레임 기준)�
 
 파일: `config/kinematic_localization.yaml` (검증된 튜닝값 반영)
 
+### 4.1 E2 파라미터 적용 가드
+
+두 launch 파일은 설치된 YAML의 절대경로가 실제 파일인지 먼저 확인합니다. 파일이 없거나
+symlink가 깨졌으면 노드를 시작하지 않습니다. 이어서 각 노드는 YAML의
+`config_schema_version`을 컴파일된 기대 버전과 대조합니다. 따라서 다른 세대의 YAML이나
+파라미터 파일 없이 `ros2 run`으로 직접 시작하는 경우도 즉시 실패합니다.
+
+정상 기동 시 `/rosout`에 `E2 parameter summary` 한 줄이 기록됩니다. 실차 주행 전에는 다음
+순서로 확인합니다.
+
+1. launch가 오류 없이 시작되는지 확인합니다.
+2. localization 요약의 `schema`, `gate`, `smoothing_alpha_rot`, `source_voxel_size`,
+   `voxel_size`, `tilt`, `roll_gradient`를 확인합니다.
+3. 매핑 세션에서는 mapping 요약의 schema와 KICP 설정도 확인합니다.
+
+YAML을 의도적으로 삭제하거나 깨진 symlink로 바꿨을 때 launch가 즉시 실패하고, YAML의
+schema 값을 바꿨을 때 노드가 FATAL로 종료해야 가드가 정상입니다.
+
 | 파라미터 | 기본값 | 설명 |
 |---|---|---|
 | `lidar_topic` | `/scan` | 입력 스캔 토픽 |
@@ -169,6 +213,11 @@ downsampled 포인트를 최종 포즈로 map 프레임(odom 프레임 기준)�
 | `use_adaptive_threshold` | `true` | 적응 correspondence threshold |
 | `use_adaptive_odometry_regularization` | `true` | 휠 odom 프라이어 적응 정규화 |
 | `deskew` | `true` | 스캔 왜곡 보정 |
+| `tilt_compensation_enable` | `false` (YAML `true`) | odometry 기반 차체 롤/피치 스캔면 보상. `false`면 prototype 원래 입력 유지 |
+| `roll_gradient_rad_per_mps2` | `0.0270` | `roll = gradient·v·yaw_rate`의 차체별 롤 기울기 [rad/(m/s²)] |
+| `pitch_gradient_rad_per_mps2` | `0.0` | 종가속도 기반 피치 기울기. 측정 전에는 0 유지 |
+| `tilt_max_angle_rad` | `0.26` | 롤/피치 보상 절대 상한 [rad] |
+| `tilt_max_point_height_m` | `0.0` | 평면 이탈점 제거 임계 [m]. 0이면 제거하지 않음 |
 | `position_covariance` / `orientation_covariance` | `0.1` | 출력 odometry 기본 공분산 (dead reckoning 중에는 §7.2 규칙으로 증가) |
 
 강건화(§7) 파라미터:
@@ -342,7 +391,9 @@ slam_mode에서는 강제 off (외삽 재시드가 누적 맵을 오염시키므
 `inlier_ratio`(대응점/소스점), `residual_rms`, `tau`, `beta`, `iterations`,
 `converged`, `final_dx_norm`, `speed`, `alpha`(상보필터), `dead_reckoning_sec`,
 게이트 상태(`gate_rejected`·`gate_d2`·`gate_reject_streak`),
-`pose_impermissible`. rqt의 diagnostics 뷰어로 바로 볼 수 있다.
+`pose_impermissible`, 롤 보상 상태(`tilt_roll_deg`·`tilt_pitch_deg`·
+`tilt_dropped_points`). rqt의 diagnostics 뷰어로 바로 볼 수 있다. 워치독의
+odom-only 발행은 새 스캔 보정이 아니므로 tilt 세 값이 0으로 나온다.
 
 - `residual_rms`는 마지막 반복 **진입 시점** 값(1반복 stale)이다. 미수렴
   프레임은 `converged=false` + `final_dx_norm`으로 구분한다.

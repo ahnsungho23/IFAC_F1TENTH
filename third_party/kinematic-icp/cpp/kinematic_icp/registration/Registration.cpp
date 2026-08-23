@@ -190,7 +190,9 @@ Sophus::SE3d KinematicRegistration::ComputeRobotMotion(const std::vector<Eigen::
                                                        const kiss_icp::VoxelHashMap &voxel_map,
                                                        const Sophus::SE3d &last_robot_pose,
                                                        const Sophus::SE3d &relative_wheel_odometry,
-                                                       const double max_correspondence_distance) {
+                                                       const double max_correspondence_distance,
+                                                       const bool free_mode,
+                                                       const int free_mode_max_iterations) {
     Sophus::SE3d current_estimate = last_robot_pose * relative_wheel_odometry;
     // Localization patch (2026_IFAC): fresh per-frame diagnostics, also for the
     // early-out paths (a stale snapshot on exactly the broken frames would
@@ -239,23 +241,30 @@ Sophus::SE3d KinematicRegistration::ComputeRobotMotion(const std::vector<Eigen::
             return fixed_regularization_;
         }
     }();
-    diag_.beta = regularization_term;
+    diag_.beta = free_mode ? 0.0 : regularization_term;
+    diag_.free_mode = free_mode;
+    // §8 free_mode: no cap-driven early stop, run until the step vanishes.
+    const int iteration_budget = free_mode ? free_mode_max_iterations : max_num_iterations_;
     // ICP-loop
     if (!lateral_dof_enable_) {
         // Upstream 2-DoF path (longitudinal + yaw, non-holonomic arc) — the
         // arithmetic is bit-identical to upstream when the lateral DoF is off.
-        const Eigen::Matrix2d Omega = Eigen::Vector2d(regularization_term, 0).asDiagonal();
-        for (int j = 0; j < max_num_iterations_; ++j) {
+        const Eigen::Matrix2d Omega =
+            free_mode ? Eigen::Matrix2d::Zero()
+                      : Eigen::Matrix2d(Eigen::Vector2d(regularization_term, 0).asDiagonal());
+        for (int j = 0; j < iteration_budget; ++j) {
             const auto solved = ComputePerturbation<2>(correspondences, current_estimate, Omega);
             const auto &dx = solved.dx;
+            if (!dx.allFinite()) break;  // §8: Omega=0 -> JTJ can be singular
             diag_.iterations = j + 1;
             diag_.final_dx_norm = dx.norm();
             diag_.residual_rms = std::sqrt(solved.squared_residual_mean);
             diag_.JTJ = solved.JTJ_normalized;
             const auto delta_motion = motion_model(dx);
             current_estimate = current_estimate * delta_motion;
-            // Break loop
-            if (dx.norm() < convergence_criterion_) {
+            // Break loop. §8 free_mode: the convergence gate is dropped; only a
+            // numerically vanishing step (1e-9) stops the loop.
+            if (dx.norm() < (free_mode ? 1e-9 : convergence_criterion_)) {
                 diag_.converged = true;
                 break;
             }
@@ -281,17 +290,20 @@ Sophus::SE3d KinematicRegistration::ComputeRobotMotion(const std::vector<Eigen::
         const double beta_lat = std::max(lateral_regularization_floor_tau2_ / tau2,
                                          lateral_regularization_scale_ * regularization_term);
         const Eigen::Matrix3d Omega =
-            Eigen::Vector3d(regularization_term, beta_lat, 0).asDiagonal();
-        for (int j = 0; j < max_num_iterations_; ++j) {
+            free_mode ? Eigen::Matrix3d::Zero()
+                      : Eigen::Matrix3d(
+                            Eigen::Vector3d(regularization_term, beta_lat, 0).asDiagonal());
+        for (int j = 0; j < iteration_budget; ++j) {
             const auto solved = ComputePerturbation<3>(correspondences, current_estimate, Omega);
             const auto &dx = solved.dx;
+            if (!dx.allFinite()) break;  // §8: Omega=0 -> JTJ can be singular
             diag_.iterations = j + 1;
             diag_.final_dx_norm = dx.norm();
             diag_.residual_rms = std::sqrt(solved.squared_residual_mean);
             diag_.JTJ = solved.JTJ_normalized;
             const auto delta_motion = motion_model_lateral(dx);
             current_estimate = current_estimate * delta_motion;
-            if (dx.norm() < convergence_criterion_) {
+            if (dx.norm() < (free_mode ? 1e-9 : convergence_criterion_)) {
                 diag_.converged = true;
                 break;
             }

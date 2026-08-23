@@ -49,7 +49,9 @@ KinematicICP::Vector3dVectorTuple KinematicICP::RegisterFrame(
     const std::vector<Eigen::Vector3d> &frame,
     const std::vector<double> &timestamps,
     const Sophus::SE3d &lidar_to_base,
-    const Sophus::SE3d &relative_odometry) {
+    const Sophus::SE3d &relative_odometry,
+    const bool free_mode,
+    const int free_mode_max_iterations) {
     // Need to deskew in lidar frame
     const Sophus::SE3d &relative_odometry_in_lidar =
         lidar_to_base.inverse() * relative_odometry * lidar_to_base;
@@ -73,7 +75,8 @@ KinematicICP::Vector3dVectorTuple KinematicICP::RegisterFrame(
                                                            local_map_,         // voxel_map
                                                            last_pose_,         // last_pose
                                                            relative_odometry,  // robot_motion
-                                                           tau);  // max_correspondence_dist
+                                                           tau,   // max_correspondence_dist
+                                                           free_mode, free_mode_max_iterations);
 
     // Compute the difference between the prediction and the actual estimate
     const auto odometry_error = (last_pose_ * relative_odometry).inverse() * new_pose;

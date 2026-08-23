@@ -17,13 +17,22 @@ IMU_ANGULAR_SCALE_SIM  = 1.0         # sim_imu_bridge_node는 이미 rad/s로 �
 # 일부러 여기로 옮기지 않고 각 진입점 파일에 그대로 둔다(환경을 잘못 골라 안전
 # 기능이 빠진 채 기동되는 실수를 구조적으로 차단하기 위함).
 
-def declare_common_args(sector_scale_enable_default='false'):
+def declare_common_args(
+        sector_scale_enable_default='false', hfi_launch_guard_enable_default='false'):
     """두 런치파일에서 동일하게 쓰는 인자 선언 목록."""
     return [
 
+        # 🔴 2026-08-21: 기본 false. state_machine 이 allow_cruise_transition:false 로
+        #    STATE_CRUISE 진입을 막아 두었으므로 노드를 띄워도 항상 maximum_speed 만
+        #    발행하는 no-op 이다. 그럼에도 끄는 이유는 페일세이프 값 때문이다 —
+        #    blind_trailing_speed / cruise_stale_speed 기본 1.5 m/s 가 실측 구동계
+        #    데드존(~2.5 m/s) **아래**라, CRUISE 로 잘못 들어간 상태에서 입력이 stale 이면
+        #    차가 데드존에 걸터앉아 못 나간다. run_0821_092111 에 정지(0.00 m/s) 상태로
+        #    0.90 s 동안 STATE_CRUISE 에 머문 기록이 실제로 있다.
+        #    켜기 전에 그 두 값을 데드존 위로 올릴지 먼저 결정할 것: cruise_enable:=true
         DeclareLaunchArgument(
-            'cruise_enable', default_value='true',
-            description='/opp_obs 기반 종방향 cruise speed cap 사용'
+            'cruise_enable', default_value='false',
+            description='/opp_obs 기반 종방향 cruise speed cap 사용 (기본 꺼짐)'
         ),
         # ── 크루즈 종방향 제어 튜닝 ──
         # config/cruise_controller.yaml은 단독 실행용 기준값으로 남기고,
@@ -209,7 +218,7 @@ def declare_common_args(sector_scale_enable_default='false'):
                         '구 이름 l1_gain'
         ),
         DeclareLaunchArgument(
-            'l1_speed_gain', default_value='0.35',
+            'l1_speed_gain', default_value='0.32',
             description='L1 룩어헤드 거리의 **속도 계수** [s] (공식: l1_offset + v*l1_speed_gain). '
                         '구 이름 l1_distance'
         ),
@@ -500,6 +509,84 @@ def declare_common_args(sector_scale_enable_default='false'):
             description='명령 속도 램프가 실측보다 앞설 수 있는 최대폭 [m/s]. 0이면 비활성(구 거동)'
         ),
         DeclareLaunchArgument(
+            'hfi_launch_guard_enable', default_value=hfi_launch_guard_enable_default,
+            description='HFI 실차 정지출발 중 저속 포착 구간 속도 상한 사용 여부'
+        ),
+        DeclareLaunchArgument(
+            'hfi_launch_speed_cap', default_value='0.9',
+            description='HFI 정지출발 포착 전 발행 속도 상한 [m/s]. 현재 4420 ERPM/(m/s)에서 '
+                        '약 3978 ERPM으로 HFI 전환 문턱 3000 ERPM에 충분한 여유를 둠'
+        ),
+        DeclareLaunchArgument(
+            'hfi_launch_exit_speed', default_value='0.5',
+            description='실측 속도가 이 값을 넘으면 HFI 정지출발 상한 해제 [m/s]'
+        ),
+        DeclareLaunchArgument(
+            'hfi_launch_standstill_speed', default_value='0.12',
+            description='필터된 VESC 절대속도가 이 값 미만이면 정지 상태로 진입 [m/s]'
+        ),
+        DeclareLaunchArgument(
+            'hfi_launch_standstill_exit_speed', default_value='0.20',
+            description='VESC 절대속도가 이 값 이상이면 정지 상태를 즉시 해제 [m/s]'
+        ),
+        DeclareLaunchArgument(
+            'hfi_launch_standstill_filter_tau', default_value='0.10',
+            description='정지 판정용 VESC 속도 저역통과 시정수 [s]'
+        ),
+        DeclareLaunchArgument(
+            'hfi_launch_timeout', default_value='4.0',
+            description='HFI 시도 1회가 exit 조건을 못 채우면 중단하는 시간 [s]. 0이면 timeout 비활성'
+        ),
+        DeclareLaunchArgument(
+            'hfi_launch_exit_hold', default_value='0.1',
+            description='VESC 전진속도가 exit 이상으로 연속 유지돼야 하는 시간 [s]'
+        ),
+        DeclareLaunchArgument(
+            'hfi_launch_relatch_time', default_value='0.5',
+            description='HFI가 실제 0을 발행하고 VESC도 완전정지해야 다음 출발을 무장하는 시간 [s]'
+        ),
+        DeclareLaunchArgument(
+            'hfi_launch_moving_bypass_speed', default_value='0.5',
+            description='이미 이 전진속도 이상이면 정지출발 재무장을 우회해 수동→자율을 연속 인계 [m/s]. '
+                        '0 이하면 비활성'
+        ),
+        DeclareLaunchArgument(
+            'hfi_launch_moving_bypass_hold', default_value='0.1',
+            description='HFI 주행중 우회 속도를 연속 확인하는 시간 [s]'
+        ),
+        DeclareLaunchArgument(
+            'hfi_launch_retry_cooldown', default_value='0.5',
+            description='시도 실패 뒤 VESC 완전정지를 유지해야 자동 재시도하는 시간 [s]'
+        ),
+        DeclareLaunchArgument(
+            'hfi_launch_no_progress_timeout', default_value='2.0',
+            description='이 시간까지 최소 순전진거리를 못 채우면 4초를 기다리지 않고 재시도 [s]'
+        ),
+        DeclareLaunchArgument(
+            'hfi_launch_no_progress_min_distance', default_value='0.05',
+            description='HFI 출발 진행 판정 최소 순전진거리 [m]'
+        ),
+        DeclareLaunchArgument(
+            'hfi_launch_reverse_abort_speed', default_value='0.10',
+            description='지속 역회전 조기중단 판정 속도 [m/s]'
+        ),
+        DeclareLaunchArgument(
+            'hfi_launch_reverse_abort_hold', default_value='0.15',
+            description='역회전 속도를 이 시간 연속 관측하면 즉시 재시도 [s]'
+        ),
+        DeclareLaunchArgument(
+            'hfi_launch_max_attempts', default_value='2',
+            description='한 출발 요청에서 허용할 총 HFI 시도 횟수(기본: 최초 1회+재시도 1회)'
+        ),
+        DeclareLaunchArgument(
+            'hfi_launch_speed_topic', default_value='/odom',
+            description='HFI 출발/역회전/정지 판정 전용 VESC odom 토픽'
+        ),
+        DeclareLaunchArgument(
+            'hfi_launch_speed_timeout', default_value='0.2',
+            description='HFI VESC odom 신선도 제한 [s]. 초과 시 출발 명령을 0으로 차단, 0이면 비활성'
+        ),
+        DeclareLaunchArgument(
             'understeer_gradient', default_value='0.010',
             description='언더스티어 그래디언트 K_us [rad/(m/s^2)]. 0이면 조향 권한 캡 비활성. '
                         '좌/우 분리값(_left/_right)이 양수면 조향·권한캡·트림 추정은 그쪽을 쓰고 '
@@ -538,11 +625,13 @@ def declare_common_args(sector_scale_enable_default='false'):
         # 요구 곡률 κ_L1 = 2|sinη|/L1 이 예산(마진 없는 MLA × margin)을 넘으면 목표
         # 속도를 v ≤ √(예산/κ_L1) 로 캡한다. target_speed 단계 적용(종방향 램프 통과),
         # 빠른 제한·느린 해제 필터, 하한 없음(안전 계산이 이김), 경로 전환 시 리셋.
-        # 🔴 기본 false — 단독 셰이크다운(저속 2랩 → 정상 3랩, 포화 경고 감소·진동 없음
-        #    확인) 후에만 켠다: grip_speed_clamp_enable:=true
+        # 🟢 2026-08-21: 기본 true. 실차 A/B(run_0821_091925 OFF vs 092111 ON)를 통과해
+        #    5274698f 로 켰고, 대회 상시 적용으로 결정했다. 08/21 sync 병합에서 false 로
+        #    되돌아왔던 것을 다시 true 로 복구한다.
+        #    되돌리기: grip_speed_clamp_enable:=false
         DeclareLaunchArgument(
-            'grip_speed_clamp_enable', default_value='false',
-            description='U1: L1 요구 횡가속이 예산을 넘으면 목표 속도를 캡 (기본 꺼짐)'
+            'grip_speed_clamp_enable', default_value='true',
+            description='U1: L1 요구 횡가속이 예산을 넘으면 목표 속도를 캡 (대회 상시 적용)'
         ),
         DeclareLaunchArgument(
             'grip_speed_clamp_margin', default_value='1.0',
@@ -677,6 +766,29 @@ def build_control_map_node(*, odom_topic, max_speed, max_lateral_accel, base_max
             'base_max_decel': LaunchConfiguration('base_max_decel'),
             'prebrake_decel': LaunchConfiguration('prebrake_decel'),
             'ramp_lead_max': LaunchConfiguration('ramp_lead_max'),
+            'hfi_launch_guard_enable': ParameterValue(
+                LaunchConfiguration('hfi_launch_guard_enable'), value_type=bool),
+            'hfi_launch_speed_cap': LaunchConfiguration('hfi_launch_speed_cap'),
+            'hfi_launch_exit_speed': LaunchConfiguration('hfi_launch_exit_speed'),
+            'hfi_launch_standstill_speed': LaunchConfiguration('hfi_launch_standstill_speed'),
+            'hfi_launch_standstill_exit_speed': LaunchConfiguration('hfi_launch_standstill_exit_speed'),
+            'hfi_launch_standstill_filter_tau': LaunchConfiguration('hfi_launch_standstill_filter_tau'),
+            'hfi_launch_timeout': LaunchConfiguration('hfi_launch_timeout'),
+            'hfi_launch_exit_hold': LaunchConfiguration('hfi_launch_exit_hold'),
+            'hfi_launch_relatch_time': LaunchConfiguration('hfi_launch_relatch_time'),
+            'hfi_launch_moving_bypass_speed':
+                LaunchConfiguration('hfi_launch_moving_bypass_speed'),
+            'hfi_launch_moving_bypass_hold':
+                LaunchConfiguration('hfi_launch_moving_bypass_hold'),
+            'hfi_launch_retry_cooldown': LaunchConfiguration('hfi_launch_retry_cooldown'),
+            'hfi_launch_no_progress_timeout': LaunchConfiguration('hfi_launch_no_progress_timeout'),
+            'hfi_launch_no_progress_min_distance': LaunchConfiguration('hfi_launch_no_progress_min_distance'),
+            'hfi_launch_reverse_abort_speed': LaunchConfiguration('hfi_launch_reverse_abort_speed'),
+            'hfi_launch_reverse_abort_hold': LaunchConfiguration('hfi_launch_reverse_abort_hold'),
+            'hfi_launch_max_attempts': ParameterValue(
+                LaunchConfiguration('hfi_launch_max_attempts'), value_type=int),
+            'hfi_launch_speed_topic': LaunchConfiguration('hfi_launch_speed_topic'),
+            'hfi_launch_speed_timeout': LaunchConfiguration('hfi_launch_speed_timeout'),
             'launch_boost_enable': ParameterValue(LaunchConfiguration('launch_boost_enable'), value_type=bool),
             'launch_boost_speed': LaunchConfiguration('launch_boost_speed'),
             'launch_boost_time': LaunchConfiguration('launch_boost_time'),

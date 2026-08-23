@@ -294,18 +294,25 @@ graph TD
 7. **도달각 보상**(`steering_reach_ratio`, ②-e) → **rate limit**(`max_steering_rate`, dt 비례)
    → 좌우 물리 한계 클리핑(real 좌 0.410 / 우 0.410, sim ±0.41)
 8. **램프 안티와인드업**(`ramp_lead_max`, 2026-08-08 신설, ②-i) — 램프 상태가 실측보다
-   `ramp_lead_max`(2.4 m/s) 이상 앞서지 못하게 자른다. 출발 탈조 중 램프가 감겨 관통 순간
+   `ramp_lead_max`(현재 3.5 m/s) 이상 앞서지 못하게 자른다. 출발 탈조 중 램프가 감겨 관통 순간
    급발진하는 것을 막는다. 상한만 자르므로 **감속에는 개입하지 않는다**
-9. **engage 게이트 (bumpless transfer)** — `/drive_mode`가 `autonomous`가 아니면 속도 램프를
+9. **HFI 정지출발 보호**(`hfi_launch_guard_*`, 2026-08-21 신설) — 실차 완전 정지에서
+   발행값과 내부 램프 상태를 0.7 m/s로 함께 제한한다. 경로용 PF odom과 분리한 VESC `/odom`의
+   **전진**속도 +0.5 m/s를 0.1초 연속 유지해야 해제한다(역회전·단일 스파이크 성공 처리 금지).
+   4.0초 실패 시 속도 0+VESC 정지 0.5초 뒤 1회 자동 재시도하고, 두 번째 실패만 최종 래치한다.
+   재무장도 정지 목표/자율 해제와 VESC 정지가 0.5초 연속일 때만 허용한다.
+   `ramp_lead_max=3.5`의 주행·세이프스톱 재가속 권한은 유지하면서 HFI 포착 구간만 분리한다.
+   real 기본 on / sim 기본 off이며 수동 경로는 이 노드를 거치지 않아 영향이 없다.
+10. **engage 게이트 (bumpless transfer)** — `/drive_mode`가 `autonomous`가 아니면 속도 램프를
    실측에 고정. 자율 진입 순간 계단 명령이 VESC에 꽂히는 것(급발진)을 막는다. `/drive_mode`
    미수신 시 자동 비활성이라 시뮬은 무영향
-10. **런치 킥** (🔵 2026-08-07부터 런치 기본 **false**) — 자율 정지출발 시 짧게 높은 속도를 명령해 VESC 센서리스 데드존을 관통.
+11. **런치 킥** (🔵 2026-08-07부터 런치 기본 **false**) — 자율 정지출발 시 짧게 높은 속도를 명령해 VESC 센서리스 데드존을 관통.
     램프 상태(`final_speed`)는 안 건드리고 **발행값만** 덮으므로 킥 종료 후 램프가 이어진다
-11. **NaN/Inf 게이트 + odom 워치독**(`odom_timeout`, 🟢 2026-08-18 **복구**) — MCL 붕괴로 pose에
+12. **NaN/Inf 게이트 + odom 워치독**(`odom_timeout`, 🟢 2026-08-18 **복구**) — MCL 붕괴로 pose에
     NaN이 실려 오면 그 샘플을 콜백에서 버린다(안 버리면 NaN 조향각이 그대로 발행된다). odom을
     **한 번도 못 받은 상태에서는 출발하지 않고**(`odom_seen_`), 받다가 `odom_timeout`(0.5s) 넘게
     **끊기면 안전 정지**한다. ②-t 참고 — 08-04에 제거됐다가 0818 크래시로 되살렸다
-12. **dt 클램프**(2026-07-30, [0.001, 0.1]) — `wall_timer`는 실시간 보장이 없다. dt는 램프
+13. **dt 클램프**(2026-07-30, [0.001, 0.1]) — `wall_timer`는 실시간 보장이 없다. dt는 램프
     증분·런치 킥 타이머·발행 가속도에 전부 곱해지므로, 젯슨에서 한 사이클 0.2s 밀리면 램프가
     한 스텝에 1.6 m/s 튄다(= 계단 명령 = 07-27 급발진과 같은 형태)
 
@@ -434,7 +441,11 @@ rad/s 규약 위반). `imu_angular_scale`을 real = π/180 = 0.0174533, sim = 1.
 | `launch_exit_speed` / `launch_standstill_speed` | **1.2** / 0.3 | 관통 성공 판정 속도 / 정지 판정 속도 [m/s] (히스테리시스) |
 | `launch_relatch_time` | **0.0**(=끔) | 🟢 2026-08-20 신설. 킥이 `launch_boost_time` 안에 관통 못 해 포기한 뒤, **정지가 이 시간[s]만큼 더 지속되고 여전히 갈 의도(`target_speed`>0.1)가 있으면 래치를 풀고 다시 무장**한다. 0 = 구 거동(차가 실제로 `launch_exit_speed`를 넘을 때까지 **영구** 래치). 🔑 **실제 차이는 플래너 목표가 킥 바닥(2.0)보다 낮은 재출발에서만 난다** — 회피 세이프스톱 재출발이 정확히 그 경우다. 0819 `run_0819_214041` 실측: 킥 5.51 s 무장 → **7.01 s에 정확히 1.50 s로 만료** → 명령이 2.00에서 플래너 목표 **1.49**로 떨어짐 → 7.43 s 인계 시도는 킥 없이 붕괴 → 7.71 s에야 돌파(총 1.82 s, 최초 출발 1.10 s의 1.7배). 🔑 **성공하는 출발에는 비용이 정확히 0**이다(래치가 안 서면 타이머가 돌지도 않는다) — 폐루프 하네스 A/B에서 정상 출발 트레이스가 두 설정 완전 동일(킥 0.37~0.85 s, 24샘플). ⚠️ 조건이 "경과 시간"이 아니라 **"정지 지속"**인 것이 핵심 — 데드존을 걸터앉아 0.5 m/s로 기어가는 중에는 재무장하지 않는다(검증 완료). 🔴 **런치 기본은 0(끔)**: 0810 실측이 반대 방향을 시사한다(인계 토크 계단 = `s_pid_kp`×명령ERPM 오차라 **못 나갈수록 명령이 높아지고 높을수록 인계가 더 깨진다** — 44 A 9회 vs 34 A 1회). 재시도가 순이득인지 실차로 못 갈랐으니 **A/B로 켤 것**: `launch_relatch_time:=2.0` |
 | `base_max_decel` | 8.0 | **명령 속도 하강 rate limit** [m/s²]. 낮추면 감속 명령이 늦게 도달 → 높게 유지 (②-a) |
-| `ramp_lead_max` | **2.4** | 🔴 2026-08-08 신설. 속도 램프가 **실측보다 앞설 수 있는 최대폭** [m/s], 0이면 비활성. 출발 탈조 중 램프 와인드업 → 관통 순간 급발진을 막는다(②-i). **상한만 자르므로 감속에는 개입하지 않는다** |
+| `ramp_lead_max` | **3.5** | 🔴 2026-08-08 신설, 08-21 2.4→3.5. 속도 램프가 **실측보다 앞설 수 있는 최대폭** [m/s], 0이면 비활성. 출발 탈조 중 램프 와인드업 → 관통 순간 급발진을 막는다(②-i). **상한만 자르므로 감속에는 개입하지 않는다** |
+| `hfi_launch_guard_enable` / `hfi_launch_speed_cap` / `hfi_launch_exit_speed` / `hfi_launch_standstill_speed` / `hfi_launch_standstill_exit_speed` / `hfi_launch_timeout` | real **true** / **0.7** / **0.5** / **0.12** / **0.20** / **4.0 s** | HFI 실차 완전 정지출발에서 내부 램프와 발행값을 0.7 m/s로 함께 제한한다. 정지 판정은 VESC `/odom`의 0.12/0.20 m/s Schmitt hysteresis와 0.10 s 필터를 사용해 0.13~0.15 노이즈로 dwell이 리셋되지 않는다. 전진 +0.5 m/s를 0.1초 연속 유지해야 해제한다. sim 기본 off, 수동 경로 무개입. |
+| `hfi_launch_exit_hold` / `hfi_launch_relatch_time` / `hfi_launch_retry_cooldown` / `hfi_launch_max_attempts` | **0.1** / **0.5** / **0.5** / **2** | 해제 연속 유지 / 정지 목표+VESC 정지 재무장 / 실패 후 정지 재시도 dwell [s] / 총 시도 횟수. 목표 0 단일 샘플이나 VESC 역회전으로 상태기가 우회되지 않게 한다. |
+| `hfi_launch_no_progress_timeout` / `hfi_launch_no_progress_min_distance` / `hfi_launch_reverse_abort_speed` / `hfi_launch_reverse_abort_hold` | **1.2 s** / **0.05 m** / **0.10 m/s** / **0.15 s** | 1.2초 동안 순전진 5 cm 미만이거나 0.10 m/s 이상 역회전이 0.15초 지속되면 4초 hard timeout 전에 정지·재시도한다. 정상 느린 출발의 관측 진행량(1.2초 약 0.111 m)은 통과한다. |
+| `hfi_launch_speed_topic` / `hfi_launch_speed_timeout` | **`/odom`** / **0.2 s** | HFI 판정 전용 VESC odom과 수신 신선도. HFI 상태기가 속도를 필요로 하는 중 stale이면 발행 속도를 0으로 차단한다. 경로 추종 odom은 기존 `<odom_topic>`을 그대로 쓴다. |
 | `prebrake_decel` | **3.5** (2026-08-19 2.6→3.5) | 🔴 **3.5가 실측 상한이다 — 4.2로 더 올리지 말 것.** 생성기는 max_decel 4.2를 쓰지만 `run_0819_115512` 실측에서 **서비스 브레이크 전류가 8.0 A 상한에 38.7% 붙어 있다**(p90 = 8.00) — 지속 감속 −2.69~−3.17 / 피크 −4.23이 하드웨어 천장이다. ⚠️ **CLAUDE.md 08-07 기록 "상한 8.0 A에 닿는 건 0.9%뿐, 게인이 아니라 프로파일이 병목"은 stale**이다(이제 38.7%). `brake_max_current`는 락업 방지 하드캡이므로 8.0을 넘기지 말 것. 아래는 구 서술: | **곡률 사전감속 제동거리 산출용 감속 권한** [m/s²]. 낮을수록 코너를 일찍 봄. 2026-07-30 1.0→2.5 상향 → 08-01 1.0으로 잠깐 되돌림 → 08-02 **2.6**(젯슨 `brake_gain` 페어링, ②-a 하단 표 참고). 실측 coast ~0.4 대비 여전히 낙관치라, 코너 진입 언더스티어 시 **가장 먼저 되돌릴 값** (②-a) |
 | `curvature_lookahead_count` | **80** | 곡률 룩어헤드 스캔 거리 하한 (×0.1m → **8m**) |
 | `steering_accel_margin` | **1.15** | 🟢 **2026-08-19 신설.** 조향 명령 클램프 = (섹터 스케일 적용된) `max_lateral_accel` × 이 값. **속도 캡에는 적용 안 됨** — 이 분리가 "보수적 라인 + 주행 중 자가학습"을 성립시키는 전제다(②-y). 1.0 = 구 거동(보정 예산 0, K_us +25%에서 max 1.29 m 발산) |
@@ -2187,7 +2198,12 @@ VESC는 speed/brake 모드가 배타적(나중 명령이 이김)이라 이 중�
 ⚠️ **한 번에 하나씩 바꿀 것.** 이번에 ①②를 같이 넣어서 어느 쪽이 악화 원인인지 bag 없이는
 가릴 수 없게 됐다(07-28 스윕이 이 값들을 **올린** 것도 같은 이유였다).
 
-#### 🔴 HFI는 이 모터에서 불가능하다 — 다시 제안하지 말 것 (2026-08-11 최종)
+#### ~~HFI는 이 모터에서 불가능~~ — 2026-08-11의 과거 결론, 2026-08-22 폐기
+
+> **2026-08-22 갱신:** 사용자가 `vesc_mcconf_hfi_test.xml`(`foc_sensor_mode=3`)로 실차 수동
+> 출발을 확인했다. 아래 내용은 당시 센서리스 설정과 HFI 후보값에서 실패했던 이력이지 현재 HFI
+> 모드를 금지하는 결론이 아니다. 현재 HFI 검증·자율주행에는 `vesc_mcconf_hfi_test.xml`을 기준으로
+> 하고, `vesc_mcconf.xml`(`foc_sensor_mode=0`)과 혼동하지 말 것.
 
 `vesc_mcconf.xml`에 HFI 파라미터가 **전부 들어 있어서** "켜면 되지 않나"로 보이지만,
 **`foc_sensor_mode`가 0(순수 센서리스)인 건 의도된 상태다.**
@@ -2503,7 +2519,7 @@ sudo ufw reload && ros2 daemon stop     # ← daemon stop 빼면 빈 캐시가 �
   </details>
 - ⚠️ 이 파일은 "실차 플래시의 최신 사본"이라는 전제로 쓰이므로, **플래시를 바꾸면 즉시 export해서 덮어쓸 것** — 안 그러면 여기 적힌 모든 환산·진단이 조용히 틀어진다.
 - ℹ️ VESC Tool `Motor Settings → FOC → Sensorless` 하단에 **Openloop 프리셋**이 있다(`Generic` / `Fast Start` / `Heavy Inertial Load` / `Propeller` / `Same as FW < 5.02`). 우리 차(관성 큰 부하)는 **Heavy Inertial Load**가 설계 의도에 맞는 출발점이다 — 손으로 6개를 흔들기 전에 프리셋을 적용하고 **export + diff로 무엇이 바뀌는지 먼저 볼 것**([[vesc-tool-gui-xml-param-mapping]] 방식).
-- `vesc_mcconf.xml` / `vesc_appconf.xml` — VESC 모터/앱 설정. 🔑 **이건 참고용이 아니라 실차 플래시의 최신 사본이다**(08-05 실물 대조 확인) — `l_current_max` 60A, `l_max_erpm` **45000**, `s_pid_kp` **0.006**, `s_pid_ramp_erpms_s` **21160**, 오픈루프 `boost_q` **30** / `max_q` **40** / `time_lock` **0.2** / `time_ramp` **0.52** / `time`(dwell) **0.3** / `foc_openloop_rpm` **3400**(2026-08-20 실물 export), `foc_sl_erpm_start` **2250**(= 데드존 상단) / `foc_sl_erpm` **2500**, `foc_motor_r` 0.0064, `foc_sensor_mode` **0 = 센서리스**(HFI 불가 확정, 위 참고). 🔑 **오픈루프 총시간 = 0.2+0.52+0.3 = 1.02 s**(0819까지는 0.92)이고, 0811 실측 출발 탈조 **1.08~1.27 s**(6회)·0818~0819 실측 돌파 **1.08~1.26 s**가 이 합에 정확히 대응한다 — 덜그럭 길이는 이 합이 직접 정한다. ⚠️ dwell을 늘리면 **인계 실패 재시도는 줄지만 매 출발이 그만큼 길어진다**(+0.1 s). 출발 덜그럭 진단은 위 "출발 시 덜그럭" 참고
+- `vesc_mcconf.xml` / `vesc_mcconf_hfi_test.xml` / `vesc_appconf.xml` — VESC 모터/앱 설정. `vesc_mcconf.xml`은 `foc_sensor_mode=0` 센서리스 사본이고, **2026-08-22 HFI 실차 검증 기준은 별도 `vesc_mcconf_hfi_test.xml`(`foc_sensor_mode=3`)**이다. 두 파일을 혼동하지 말 것. 센서리스 파일의 `l_current_max` 60A, `l_max_erpm` **45000**, `s_pid_kp` **0.006**, `s_pid_ramp_erpms_s` **21160**, 오픈루프 `boost_q` **30** / `max_q` **40** / `time_lock` **0.2** / `time_ramp` **0.52** / `time`(dwell) **0.3** / `foc_openloop_rpm` **3400**, `foc_sl_erpm_start` **2250** / `foc_sl_erpm` **2500**, `foc_motor_r` 0.0064. 🔑 센서리스 오픈루프 총시간 = 1.02 s이고 과거 탈조 기록은 이 설정에 대한 것이다. 플래시를 바꾸면 해당 XML을 즉시 다시 export할 것.
 - `docs/` — 하드웨어/IMU 통합 가이드, Technical Description Paper, `lookup_steer_angle.py`(C++
   `SteeringLookupTable`의 포팅 원본, 실행 안 됨 — 2026-07-14 `control_code/`에서 이동) (.gitignore로
   git 제외됨)

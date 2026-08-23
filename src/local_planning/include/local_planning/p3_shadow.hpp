@@ -75,6 +75,17 @@ struct P3ShadowPathEvaluation
   int failure_obstacle_id{-1};
   double failure_waypoint_s{std::numeric_limits<double>::quiet_NaN()};
   double failure_waypoint_d{std::numeric_limits<double>::quiet_NaN()};
+  // footprint_track_bound 기각의 기하 (2026-08-23 진단). 이 사유가 후보 기각의 91%를
+  // 차지하는데, 사유 문자열과 s 만으로는 "그 지점 트랙이 좁다"와 "경로가 비스듬해 회전한
+  // 사각형의 모서리가 튀어나왔다"를 구분할 수 없다. 둘은 수리가 반대다 — 전자는 목표
+  // 오프셋을, 후자는 램프 길이(=기울기)를 줄여야 한다.
+  //   failure_footprint_side          : 어느 쪽 벽에 걸렸는가 ("left"/"right")
+  //   failure_heading_relative_rad    : 그 지점 경로가 레퍼런스 대비 몇 rad 기울었는가
+  //   failure_corner_protrusion_m     : 회전 때문에 반폭(0.15) 너머로 더 나간 양
+  // protrusion 이 크면 기울기 문제, 0 에 가까우면 순수 폭 문제다.
+  std::string failure_footprint_side;
+  double failure_heading_relative_rad{std::numeric_limits<double>::quiet_NaN()};
+  double failure_corner_protrusion_m{std::numeric_limits<double>::quiet_NaN()};
 };
 
 // Complete production P3 candidate trace. The evaluator ranks these internally; the node may

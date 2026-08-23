@@ -8,6 +8,7 @@
 #include <tf2_ros/buffer.h>
 
 #include <Eigen/Core>
+#include <algorithm>
 #include <chrono>
 #include <deque>
 #include <laser_geometry/laser_geometry.hpp>
@@ -20,6 +21,7 @@
 #include <rosbag2_cpp/reader.hpp>
 #include <sensor_msgs/msg/laser_scan.hpp>
 #include <sophus/se3.hpp>
+#include <stdexcept>
 #include <string>
 #include <tf2_msgs/msg/tf_message.hpp>
 #include <vector>
@@ -29,9 +31,25 @@
 
 namespace kinematic_localization {
 
+namespace {
+constexpr int kExpectedConfigSchemaVersion = 20260824;
+}  // namespace
+
 class MappingNode : public rclcpp::Node {
 public:
     MappingNode() : Node("kinematic_mapping") {
+        const int config_schema_version =
+            declare_parameter<int>("config_schema_version", 0);
+        if (config_schema_version != kExpectedConfigSchemaVersion) {
+            const std::string message =
+                "config_schema_version mismatch: expected " +
+                std::to_string(kExpectedConfigSchemaVersion) + ", got " +
+                std::to_string(config_schema_version) +
+                ". Launch with the installed config/mapping.yaml.";
+            RCLCPP_FATAL(get_logger(), "%s", message.c_str());
+            throw std::runtime_error(message);
+        }
+
         bag_path_ = declare_parameter<std::string>("bag_path", "");
         lidar_topic_ = declare_parameter<std::string>("lidar_topic", "/scan");
         odom_topic_ = declare_parameter<std::string>("odom_topic", "/odom");
@@ -58,9 +76,30 @@ public:
             "use_adaptive_odometry_regularization", config.use_adaptive_odometry_regularization);
         config.fixed_regularization = declare_parameter<double>("fixed_regularization", 0.0);
         config.deskew = declare_parameter<bool>("deskew", true);
+        tilt_compensation_enable_ =
+            declare_parameter<bool>("tilt_compensation_enable", false);
+        tilt_cfg_.roll_gradient_rad_per_mps2 =
+            declare_parameter<double>("roll_gradient_rad_per_mps2", 0.0270);
+        tilt_cfg_.pitch_gradient_rad_per_mps2 =
+            declare_parameter<double>("pitch_gradient_rad_per_mps2", 0.0);
+        tilt_cfg_.max_angle_rad =
+            std::max(0.0, declare_parameter<double>("tilt_max_angle_rad", 0.26));
+        tilt_cfg_.max_point_height_m =
+            std::max(0.0, declare_parameter<double>("tilt_max_point_height_m", 0.0));
         config.freeze_local_map = false;  // mapping mode: scans build the map
         voxel_size_ = config.voxel_size;
         max_range_ = config.max_range;
+
+        RCLCPP_INFO(
+            get_logger(),
+            "E2 parameter summary | schema=%d max_range=%.1f min_range=%.1f "
+            "voxel_size=%.3f max_points_per_voxel=%d iterations=%d deskew=%s "
+            "tilt=%s roll_gradient=%.4f",
+            config_schema_version, config.max_range, config.min_range, config.voxel_size,
+            config.max_points_per_voxel, config.max_num_iterations,
+            config.deskew ? "true" : "false",
+            tilt_compensation_enable_ ? "true" : "false",
+            tilt_cfg_.roll_gradient_rad_per_mps2);
 
         icp_ = std::make_unique<kinematic_icp::pipeline::KinematicICP>(config);
         tf_buffer_ = std::make_unique<tf2_ros::Buffer>(get_clock());
@@ -127,6 +166,8 @@ public:
         std::optional<Sophus::SE3d> lidar_to_base;
         bool pose_initialized = false;
         size_t processed = 0;
+        double last_speed = 0.0;
+        bool has_last_speed = false;
         utils::TimeStampHandler timestamps_handler;
         laser_geometry::LaserProjection laser_projector;
 
@@ -161,7 +202,35 @@ public:
             const Sophus::SE3d delta = T_begin->inverse() * (*T_end);
             if (delta.log().norm() <= 1e-3) continue;
 
-            const auto &result = icp_->RegisterFrame(points, timestamps, *lidar_to_base, delta);
+            std::vector<Eigen::Vector3d> registration_points = points;
+            std::vector<double> registration_timestamps = timestamps;
+            const double dt = (end_stamp - begin_stamp).seconds();
+            if (tilt_compensation_enable_ && dt > 1e-6) {
+                const double speed = delta.translation().norm() / dt;
+                const double lateral_acceleration = speed * (delta.so3().log().z() / dt);
+                const double longitudinal_acceleration =
+                    has_last_speed ? (speed - last_speed) / dt : 0.0;
+                last_speed = speed;
+                has_last_speed = true;
+                utils::TiltResult tilt_result;
+                registration_points = utils::LevelScan(
+                    points, *lidar_to_base, lateral_acceleration, longitudinal_acceleration,
+                    tilt_cfg_, &tilt_result);
+                if (registration_points.size() != points.size()) {
+                    registration_timestamps.clear();
+                    if (timestamps.size() == points.size() &&
+                        tilt_result.kept_indices.size() == registration_points.size()) {
+                        registration_timestamps.reserve(tilt_result.kept_indices.size());
+                        for (const size_t index : tilt_result.kept_indices) {
+                            registration_timestamps.push_back(timestamps[index]);
+                        }
+                    }
+                }
+            }
+
+            const auto &result =
+                icp_->RegisterFrame(registration_points, registration_timestamps,
+                                    *lidar_to_base, delta);
             // Accumulate the downsampled registration points in the map frame
             const Sophus::SE3d &pose = icp_->pose();
             for (const auto &p : std::get<1>(result)) accumulated.push_back(pose * p);
@@ -191,6 +260,8 @@ private:
     std::string bag_path_, lidar_topic_, odom_topic_, output_path_, tf_topic_, tf_static_topic_;
     std::string base_frame_;
     double voxel_size_ = 1.0, max_range_ = 30.0;
+    bool tilt_compensation_enable_ = false;
+    utils::TiltParams tilt_cfg_;
     std::unique_ptr<kinematic_icp::pipeline::KinematicICP> icp_;
     std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
 };

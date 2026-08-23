@@ -1,5 +1,8 @@
 kinematic_localization:
   ros__parameters:
+    # E2: launch 파일 존재 검사만으로는 잘못된/구버전 YAML 적용을 잡을 수 없다.
+    # 노드가 이 값을 코드의 기대 버전과 대조하고 다르면 즉시 종료한다.
+    config_schema_version: 20260824
     use_sim_time: false
 
     # Topics / frames (drop-in compatible with particle_filter_cpp MCL)
@@ -140,6 +143,83 @@ kinematic_localization:
     # trajectory stability improved. beta_lat = max(floor / tau^2,
     # scale * beta). Forced off in slam_mode. Rollback:
     # -p lateral_dof_enable:=false -p gate_enable:=false
+    # §8 fast-corner free mode (2026-08-21). true 이면 아래 조건을 만족하는
+    # 프레임만 다섯 관문을 통째로 우회한다:
+    #   ① 오도메트리 정규화 Omega  ② 횡 정규화 하한  ③ 반복 상한/수렴 조기종료
+    #   ④ Mahalanobis 게이트       ⑤ 출력 상보필터
+    # 조건: speed >= corner_speed_thresh AND
+    #       (yaw_rate >= corner_yaw_rate_thresh OR v*w >= corner_lat_accel_thresh)
+    #
+    # 🔴 실차 검증 전에는 켜지 말 것. 근거는 "코너에서 포즈오차가 배로 뛴다"
+    #    (요레이트 <0.3에서 7.7cm/0.72°, >0.8에서 16.1cm/2.03°)는 실측이지만,
+    #    그 오차는 계통 편향이 아니라 **산포**다(부호 회귀 설명력 2% 미만).
+    #    구속을 풀면 산포가 더 커질 수도 있다 — 검증 없이는 알 수 없다.
+    # 🔴 Omega=0이면 JTJ가 특이해질 수 있어(긴 복도 등) 해당 프레임은 비유한
+    #    포즈 방어에 걸려 통째로 폐기된다. 코너에서 프레임 유실률을 같이 볼 것.
+    fast_corner_free_mode: false
+    corner_yaw_rate_thresh: 0.8      # rad/s — 1차 기준
+    corner_speed_thresh: 3.0         # m/s
+    corner_lat_accel_thresh: 6.0     # m/s^2 — v*w, 그립포화 경고가 7~12에서 뜬다
+    corner_free_max_iterations: 200  # 상한 제거 대신 큰 값 (무한루프 방지)
+
+    # ── §9 스캔 끝-시각 동기화 (2026-08-22) ────────────────────────────────────
+    # 등록 prior 와 발행 스탬프를 **스캔 스윕의 끝**(= KISS 의 deskew 기준)에 맞춘다.
+    #
+    # 종전 문제는 둘이 서로 달랐다는 것이다: 포즈는 KISS 의 end_stamp(header+스윕)로
+    # 나가는데 odom prior 는 원 header 에서 끝났다. 한 스윕(18.75 ms)만큼 어긋난다.
+    #
+    # 🔴 어느 쪽이 진짜 기준인지는 **재생 A/B 가 정했다** (추론이 아니라 측정).
+    #    run_20260822_035120 을 백의 첫 포즈로 시드해 3팔, 나머지 조건 동일:
+    #
+    #      팔                          yaw 보정 p95   >1°   >2°   잔차 p95   대기
+    #      A 현행(prior@header)           0.77°      182    29     0.567     0 ms
+    #      B sync + convention "end"      0.69°      165    28     0.567    15 ms
+    #      C sync + convention "begin"    0.40°       80    12     0.417    35 ms
+    #
+    #    "begin"(scan_end = header + (N−1)·time_increment)이 전 지표에서 이긴다.
+    #    즉 header 는 **첫 빔의 시각**이고 deskew 기준은 header+스윕이 맞다.
+    #    클린랩(034812)에서도 같은 방향: yaw 보정 p95 0.19° → 0.10°.
+    #
+    # ⚠️ 도착 지연으로 규약을 추정하면 **정반대 답이 나오고 그건 틀렸다**:
+    #    이 차의 수신−헤더는 /scan −2.3 ms (IQR 0.1) 인데 /odom +1.1, /imu +0.2 다.
+    #    스캔은 다 찍기 전에 발행될 수 없으니 begin 이면 최소 한 스윕이어야 하는데
+    #    음수다. urg_node 스탬프가 **호스트 시계가 아니기** 때문이다(디바이스 시계
+    #    매핑 편향 ~+21 ms). 노드는 이 값을 로그로만 남기고 절대 따르지 않는다.
+    #
+    # ⚠️ 2026-08-21 에 odom_window_at_scan_end 를 그냥 켰다가 2배 나빠진 기록이
+    #    있다. 원인은 OdomAt() 이 100 ms 안이면 최신값으로 **클램프**해 prior 가
+    #    이동이 아니라 **절단**된 것이었다. §9 는 OdomAtStrict(클램프 금지) +
+    #    bracket odom 을 기다리는 FIFO 로 그것을 고친다.
+    #
+    # 🔴 실차 A/B/A 로 검증 완료 (2026-08-22). 같은 세션, 장애물 없음,
+    #    조향 권한 7.93 동일 — §9 말고는 아무것도 안 바꿨다:
+    #
+    #      팔             지연     lat_err 코너 p95   자세보정 yaw(ω>0.8)   랩타임
+    #      A1 065117    6.2 ms       0.307             0.83°          8.57/8.51/8.47
+    #      B  065236   15.6 ms       0.216             0.43°          8.58/8.64/8.54
+    #      A2 065444    7.5 ms       0.202             0.87°          8.60/8.61/8.56
+    #
+    #    자세 보정이 0.83 -> 0.43 -> 0.87 로 **양쪽에서 돌아온다** — 표류가 아니라
+    #    §9 효과다(-49%, 재생 A/B 예측 -48% 와 일치). 지연도 6.2 -> 15.6 -> 7.5 로
+    #    깨끗이 돌아온다(+8.7 ms).
+    #
+    #    비용이 추종오차로 나타나지 않는다: 지연 8.7 ms x 4.6 m/s = 4 cm 인데
+    #    A2 대비 코너 p95 차이는 1.4 cm 뿐이다. 랩타임 차이 +0.04 s(측정 노이즈).
+    #    residual p50 은 세 팔 모두 0.157~0.160 으로 동일.
+    #    ⚠️ 각 팔 3랩씩이라 랩타임·추종오차의 미세한 차이는 못 가른다. 확실히 하려면
+    #       각 팔 10랩이 필요하다 — 자세 보정만 표본이 충분하다(수천 프레임).
+    #
+    #    되돌리기: 이 줄만 false (다른 §9 값은 그때 읽히지 않는다).
+    odom_window_at_scan_end: true
+    # "begin" = 헤더가 스윕 시작 → scan_end = header + (N−1)·time_increment (실측)
+    # "end"   = 헤더가 스윕 끝   → scan_end = header                        (되돌리기)
+    scan_stamp_convention: "begin"
+    # bracket odom 을 기다리는 상한. 초과하거나 큐가 넘치면 그 스캔을 버린다 —
+    # 외삽한 prior 로 등록하느니 출력에 구멍을 내는 편이 낫다.
+    # (034812 의 26 초 센서 암전에서 실제로 드롭 5회가 찍혔다.)
+    odom_end_sync_max_wait_sec: 0.08
+    odom_end_sync_max_queue: 4
+
     lateral_dof_enable: true
     lateral_regularization_scale: 1.0
     lateral_regularization_floor_tau2: 1.0
@@ -179,6 +259,20 @@ kinematic_localization:
     use_adaptive_odometry_regularization: true
     fixed_regularization: 0.0
     deskew: true
+
+    # Chassis-roll compensation ported from transition_global without its
+    # stamp PLL/deskew changes. The prototype's strictly bracketed
+    # scan-end-to-scan-end odometry supplies a_lat = v*yaw_rate.
+    # roll_gradient was measured on the current chassis; remeasure after a
+    # suspension/tire change. Set tilt_compensation_enable=false for rollback.
+    tilt_compensation_enable: false
+    roll_gradient_rad_per_mps2: 0.0270
+    # Longitudinal pitch is intentionally disabled until separately measured.
+    pitch_gradient_rad_per_mps2: 0.0
+    tilt_max_angle_rad: 0.26
+    # 0 disables out-of-plane point rejection; keep it off until LiDAR height
+    # and floor/ceiling returns provide a measured threshold.
+    tilt_max_point_height_m: 0.0
 
     # Fixed covariance published on /pf/pose/odom
     position_covariance: 0.1

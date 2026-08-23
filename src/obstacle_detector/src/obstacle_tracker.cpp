@@ -113,6 +113,40 @@ VelocityEvidenceResult evaluateVelocityEvidence(
     return result;
 }
 
+VelocityEvidenceResult evaluateFrenetVelocityEvidence(
+    double longitudinal_velocity,
+    double longitudinal_velocity_variance,
+    const TrackerParams &params)
+{
+    VelocityEvidenceResult result;
+    if (!std::isfinite(longitudinal_velocity) ||
+        !std::isfinite(longitudinal_velocity_variance) ||
+        longitudinal_velocity_variance < -params.covariance_regularization_epsilon)
+    {
+        return result;
+    }
+
+    const double regularized_variance =
+        std::max(longitudinal_velocity_variance, params.minimum_velocity_covariance) +
+        params.covariance_regularization_epsilon;
+    result.statistic = longitudinal_velocity * longitudinal_velocity / regularized_variance;
+    if (!std::isfinite(result.statistic))
+    {
+        result.statistic = std::numeric_limits<double>::quiet_NaN();
+        return result;
+    }
+
+    result.covariance_valid = true;
+    if (result.statistic > params.frenet_dynamic_chi2_threshold)
+    {
+        result.evidence = MotionEvidence::DynamicEvidence;
+    }
+    // No static branch on purpose: this filter is driven by the raw AABB centre in s, so a small
+    // Ts is also what a partially revealed stationary obstacle produces. Only the map-frame
+    // statistic may certify StaticEvidence.
+    return result;
+}
+
 double anchoredAxisTranslation(
     double previous_min, double previous_max, double current_min, double current_max)
 {
@@ -152,6 +186,8 @@ void ObstacleTracker::configure(const TrackerParams &params, const FrenetProject
     invalid(!(params.static_chi2_threshold > 0.0) ||
             !(params.dynamic_chi2_threshold > params.static_chi2_threshold),
             "chi-square thresholds must satisfy 0 < static < dynamic");
+    invalid(!(params.frenet_dynamic_chi2_threshold > 0.0),
+            "frenet_dynamic_chi2_threshold must be positive");
     invalid(params.dynamic_vote_window <= 0 || params.dynamic_vote_required <= 0 ||
             params.dynamic_vote_required > params.dynamic_vote_window,
             "dynamic vote requirement must fit its window");
@@ -176,8 +212,11 @@ void ObstacleTracker::configure(const TrackerParams &params, const FrenetProject
     invalid(params.translation_corroboration_enable &&
             (!(params.translation_window_sec > 0.0) ||
              params.translation_history_max_samples < 2 ||
-             !(params.dynamic_min_translation_m >= 0.0)),
+             !(params.dynamic_min_translation_m >= 0.0) ||
+             !(params.dynamic_translation_persistence_sec >= 0.0)),
             "translation corroboration parameters are invalid");
+    invalid(!(params.static_min_observation_sec >= 0.0),
+            "static_min_observation_sec must be non-negative");
     invalid(params.physical_id_reassociation_gap_s < 0.0 ||
             params.physical_id_reassociation_gap_d < 0.0 ||
             params.physical_id_reassociation_gap_map < 0.0 ||
@@ -507,6 +546,12 @@ void ObstacleTracker::kalmanUpdate(Track &t, const Detection &detection) const
 
 bool ObstacleTracker::mapKalmanUpdate(Track &t, const Detection &detection) const
 {
+    // The measurement is the raw AABB centre. Feeding an accumulated two-edge translation here
+    // instead was tried (a48b374) and reverted: min(|dmin|,|dmax|) is biased towards zero, so it
+    // under-reported real speed by 25-50% under centimetre edge noise, and being a pure
+    // integrator with no re-anchoring it random-walked away from the object under pose jitter.
+    // The two-edge proof still guards DYNAMIC entry -- as a vote gate in classify(), not as the
+    // filter's measurement.
     const double measurement_x = 0.5 * (detection.x_min + detection.x_max);
     const double measurement_y = 0.5 * (detection.y_min + detection.y_max);
     if (!std::isfinite(measurement_x) || !std::isfinite(measurement_y))
@@ -665,7 +710,11 @@ void ObstacleTracker::updateTranslationEvidence(
 {
     if (!p_.translation_corroboration_enable)
     {
+        t.provable_map_translation_m = std::numeric_limits<double>::quiet_NaN();
+        t.provable_frenet_translation_m = std::numeric_limits<double>::quiet_NaN();
         t.provable_translation_m = std::numeric_limits<double>::quiet_NaN();
+        t.translation_corroborated_since = std::numeric_limits<double>::quiet_NaN();
+        t.translation_evidence_persistent = false;
         return;
     }
 
@@ -684,17 +733,71 @@ void ObstacleTracker::updateTranslationEvidence(
     // Compare against every retained sample rather than only the oldest: the widest separation any
     // pair proves is the strongest translation evidence inside the window, so a genuinely moving
     // object is never hidden by where the window happens to start.
-    double widest = 0.0;
+    double widest_map = 0.0;
+    double widest_frenet = 0.0;
     for (const MeasuredAabbSample &sample : t.measured_aabb_history)
     {
         const double translation_x = anchoredAxisTranslation(
             sample.x_min, sample.x_max, detection.x_min, detection.x_max);
         const double translation_y = anchoredAxisTranslation(
             sample.y_min, sample.y_max, detection.y_min, detection.y_max);
-        widest = std::max(widest, std::hypot(translation_x, translation_y));
+        widest_map = std::max(widest_map, std::hypot(translation_x, translation_y));
+
+        // Apply the same two-edge proof in the track-aligned Frenet frame. A turning vehicle's
+        // map AABB changes width/height as its heading rotates, but its longitudinal Frenet
+        // envelope translates coherently. Conversely, one-sided revelation still moves only one
+        // edge and proves no translation in either frame.
+        const double delta_s_center =
+            frenet_ ? frenet_->wrapDelta(detection.s, sample.s) : detection.s - sample.s;
+        const double translation_s = anchoredAxisTranslation(
+            -sample.s_half_extent, sample.s_half_extent,
+            delta_s_center - detection.s_half_extent,
+            delta_s_center + detection.s_half_extent);
+        const double previous_d_a = sample.d + sample.d_right_offset;
+        const double previous_d_b = sample.d + sample.d_left_offset;
+        const double current_d_a = detection.d + detection.d_right_offset;
+        const double current_d_b = detection.d + detection.d_left_offset;
+        const double translation_d = anchoredAxisTranslation(
+            std::min(previous_d_a, previous_d_b),
+            std::max(previous_d_a, previous_d_b),
+            std::min(current_d_a, current_d_b),
+            std::max(current_d_a, current_d_b));
+        widest_frenet =
+            std::max(widest_frenet, std::hypot(translation_s, translation_d));
     }
-    t.provable_translation_m = t.measured_aabb_history.empty() ?
-        std::numeric_limits<double>::quiet_NaN() : widest;
+    if (t.measured_aabb_history.empty())
+    {
+        t.provable_map_translation_m = std::numeric_limits<double>::quiet_NaN();
+        t.provable_frenet_translation_m = std::numeric_limits<double>::quiet_NaN();
+        t.provable_translation_m = std::numeric_limits<double>::quiet_NaN();
+    }
+    else
+    {
+        t.provable_map_translation_m = widest_map;
+        t.provable_frenet_translation_m = widest_frenet;
+        t.provable_translation_m = std::max(widest_map, widest_frenet);
+    }
+
+    // A localization jump translates both edges at once, so it passes the two-edge proof. It only
+    // does so while the pre-jump samples stay in the window, however: once they age out the proof
+    // collapses back to ~0. A genuinely moving object sustains it indefinitely. Timing the proof
+    // therefore separates the two without raising the distance threshold to a value no slow
+    // opponent can reach. The requirement is a duration, so it is independent of scan rate.
+    const bool corroborated =
+        std::isfinite(t.provable_translation_m) &&
+        t.provable_translation_m >= p_.dynamic_min_translation_m;
+    if (!corroborated)
+    {
+        t.translation_corroborated_since = std::numeric_limits<double>::quiet_NaN();
+    }
+    else if (!std::isfinite(t.translation_corroborated_since) ||
+             stamp < t.translation_corroborated_since)
+    {
+        t.translation_corroborated_since = stamp;
+    }
+    t.translation_evidence_persistent =
+        corroborated && std::isfinite(t.translation_corroborated_since) &&
+        (stamp - t.translation_corroborated_since) >= p_.dynamic_translation_persistence_sec;
 
     MeasuredAabbSample sample;
     sample.stamp = stamp;
@@ -702,6 +805,11 @@ void ObstacleTracker::updateTranslationEvidence(
     sample.x_max = detection.x_max;
     sample.y_min = detection.y_min;
     sample.y_max = detection.y_max;
+    sample.s = detection.s;
+    sample.d = detection.d;
+    sample.s_half_extent = detection.s_half_extent;
+    sample.d_right_offset = detection.d_right_offset;
+    sample.d_left_offset = detection.d_left_offset;
     t.measured_aabb_history.push_back(sample);
 }
 
@@ -737,12 +845,13 @@ bool ObstacleTracker::holdEligibleWhileUnmeasured(const Track &t) const
            t.provable_translation_m < p_.dynamic_min_translation_m;
 }
 
-void ObstacleTracker::classify(Track &t, bool measurement_received) const
+void ObstacleTracker::classify(Track &t, bool measurement_received, double stamp) const
 {
     if (t.track_status != TrackStatus::Confirmed)
     {
         t.motion_status = MotionStatus::Unknown;
         t.is_static = true;
+        t.motion_status_since = std::numeric_limits<double>::quiet_NaN();
         updateStaticConfidence(t, MotionEvidence::Uncertain, measurement_received);
         return;
     }
@@ -752,26 +861,45 @@ void ObstacleTracker::classify(Track &t, bool measurement_received) const
         t.is_static = t.motion_status != MotionStatus::Dynamic;
         return;
     }
+    if (!std::isfinite(t.motion_status_since) || stamp < t.motion_status_since)
+    {
+        t.motion_status_since = stamp;
+    }
 
     Eigen::Matrix2d velocity_covariance;
     velocity_covariance << t.map_P(1, 1), t.map_P(1, 3),
                            t.map_P(3, 1), t.map_P(3, 3);
-    const VelocityEvidenceResult evidence = evaluateVelocityEvidence(
+    const VelocityEvidenceResult map_evidence = evaluateVelocityEvidence(
         Eigen::Vector2d(t.mapVx(), t.mapVy()), velocity_covariance, p_);
-    t.velocity_statistic = evidence.statistic;
-    t.velocity_covariance_valid = evidence.covariance_valid;
+    const VelocityEvidenceResult frenet_evidence = evaluateFrenetVelocityEvidence(
+        t.vs(), t.P(1, 1), p_);
+    t.velocity_statistic = map_evidence.statistic;
+    t.velocity_covariance_valid = map_evidence.covariance_valid;
+    t.frenet_velocity_statistic = frenet_evidence.statistic;
+    t.frenet_velocity_covariance_valid = frenet_evidence.covariance_valid;
 
-    // A map-frame velocity large enough to look dynamic is only believed once the measured AABB
-    // proves the object actually translated. While a stationary obstacle is progressively revealed
-    // its centroid travels several centimetres with both edges never moving together, so the
-    // uncorroborated vote is downgraded to Uncertain and the track keeps its layer instead of
-    // vanishing from /static_obs.
-    MotionEvidence voted_evidence = evidence.evidence;
+    // Dynamic entry is an OR: Frenet longitudinal motion recovers a turning opponent whose map
+    // CV covariance grows through centripetal acceleration. StaticEvidence can only come from the
+    // map statistic, because evaluateFrenetVelocityEvidence never reports it -- requiring both
+    // views to agree on "stationary" left partially revealed obstacles stuck in UNKNOWN, so they
+    // never reached /confirmed_static_obs.
+    MotionEvidence combined_evidence = map_evidence.evidence;
+    if (frenet_evidence.evidence == MotionEvidence::DynamicEvidence)
+    {
+        combined_evidence = MotionEvidence::DynamicEvidence;
+    }
+
+    // A large map/Frenet velocity statistic is only believed once the measured map AABB or Frenet
+    // envelope proves two-edge translation, and holds that proof for longer than the proof window
+    // itself. Progressive revelation moves a raw centroid while leaving one edge anchored, and a
+    // one-off pose jump moves both edges once; neither survives the persistence requirement, so
+    // the uncorroborated vote is downgraded to Uncertain and the track keeps its safety layer
+    // instead of vanishing from /static_obs.
+    MotionEvidence voted_evidence = combined_evidence;
     t.dynamic_evidence_suppressed = false;
     if (p_.translation_corroboration_enable &&
         voted_evidence == MotionEvidence::DynamicEvidence &&
-        std::isfinite(t.provable_translation_m) &&
-        t.provable_translation_m < p_.dynamic_min_translation_m)
+        !t.translation_evidence_persistent)
     {
         voted_evidence = MotionEvidence::Uncertain;
         t.dynamic_evidence_suppressed = true;
@@ -798,15 +926,38 @@ void ObstacleTracker::classify(Track &t, bool measurement_received) const
         t.motion_evidence_history, MotionEvidence::StaticEvidence, p_.static_vote_window);
     ++t.motion_observations_since_transition;
 
+    // Every gate below this line except these two counts FRAMES. At 250 Hz (the gym bridge scan
+    // timer) the 15-frame vote window is 60 ms and the 15-sample position RMS spans 12 cm of
+    // travel even at 2 m/s, so a freshly spawned track -- whose map velocity is still the zero it
+    // was initialized with -- satisfied every STATIC condition 44 ms after birth and published a
+    // moving opponent on /confirmed_static_obs (2026-08-20 two-agent run). Both conditions here
+    // are times or distances, so neither moves with the scan rate:
+    //   * the track must hold its current motion status for static_min_observation_sec, which is
+    //     longer than translation_window_sec, so the proof below is fully populated;
+    //   * that proof must say the measured shape did NOT translate -- the same two-edge evidence
+    //     that gates DYNAMIC entry, read in the opposite direction.
+    const double motion_status_age =
+        std::isfinite(t.motion_status_since) ? stamp - t.motion_status_since : 0.0;
+    const bool observation_span_satisfied =
+        motion_status_age >= p_.static_min_observation_sec;
+    const bool translation_proves_stationary =
+        !p_.translation_corroboration_enable ||
+        (std::isfinite(t.provable_translation_m) &&
+         t.provable_translation_m < p_.dynamic_min_translation_m);
+    const bool static_admissible =
+        observation_span_satisfied && translation_proves_stationary;
+
     if (t.dynamic_vote_count >= p_.dynamic_vote_required &&
         t.motion_status != MotionStatus::Dynamic)
     {
         t.motion_status = MotionStatus::Dynamic;
         t.motion_observations_since_transition = 0;
+        t.motion_status_since = stamp;
     }
     else if (t.motion_status == MotionStatus::Dynamic)
     {
         const bool conservative_static_reentry =
+            static_admissible &&
             t.motion_observations_since_transition >=
                 p_.dynamic_to_static_min_observations &&
             t.static_vote_count >= p_.dynamic_to_static_vote_required &&
@@ -818,11 +969,13 @@ void ObstacleTracker::classify(Track &t, bool measurement_received) const
         {
             t.motion_status = MotionStatus::Static;
             t.motion_observations_since_transition = 0;
+            t.motion_status_since = stamp;
         }
     }
     else if (t.motion_status == MotionStatus::Unknown)
     {
         const bool static_entry =
+            static_admissible &&
             t.static_vote_count >= p_.static_vote_required &&
             static_cast<int>(t.map_position_history.size()) >=
                 p_.static_min_observations &&
@@ -832,6 +985,7 @@ void ObstacleTracker::classify(Track &t, bool measurement_received) const
         {
             t.motion_status = MotionStatus::Static;
             t.motion_observations_since_transition = 0;
+            t.motion_status_since = stamp;
         }
     }
 
@@ -842,7 +996,8 @@ void ObstacleTracker::classify(Track &t, bool measurement_received) const
 void ObstacleTracker::update(
     const std::vector<Detection> &detections, double stamp,
     double ego_yaw_rate, bool yaw_rate_fresh, bool ego_motion_transient,
-    const FreeSpaceRefuter &free_space_refuter)
+    const FreeSpaceRefuter &free_space_refuter,
+    const RearBlindPredicate &rear_blind_predicate)
 {
     // Retained in the public call signature for source compatibility. Map-frame classification no
     // longer needs an ego-yaw gate because scan points have already been transformed into map.
@@ -1025,14 +1180,25 @@ void ObstacleTracker::update(
             // the retained (smoothed) extents BEFORE updating them. Morphing scatter keeps
             // resetting the streak; stable physical obstacles reach the publish gate
             // within min_hits_confirm frames.
+            //
+            // B2-① 비대칭 리셋 (2026-08-20, run_192006 접촉 #4 실측): 접근 중 보이는 면이
+            // 커지는 것은 진짜 장애물의 정상 현상인데(id35: 0.21→0.45 m 성장), 대칭 리셋은
+            // 그 성장 프레임마다 스트릭을 0으로 만들었고 smoothExtent 는 유지 extent 를
+            // 즉시 키워 다음 프레임에 복귀시켰다 — 결과는 두 발행 토픽 모두에서 정확히
+            // 2 프레임짜리 구멍 5회/2초. 플래너는 그 구멍마다 순간 실명했다. 그래서
+            // **확장은 리셋하지 않는다** (smoothExtent 의 "확장은 즉시 반영" 철학과 동일
+            // 방향). 산란 유령의 서명인 수축·중심 요동은 종전대로 리셋한다 — 커졌다
+            // 작아졌다를 반복하는 산란은 수축 프레임마다 잡힌다.
             const double center_shift = std::sqrt(
                 frenetDistSquared(t.s(), t.d(), det.s, det.d));
-            const double envelope_shift = std::max(
-                {std::abs(det.s_half_extent - t.s_half_extent),
-                 std::abs(det.d_right_offset - t.d_right_offset),
-                 std::abs(det.d_left_offset - t.d_left_offset)});
+            // 오프셋은 부호 규약이 축마다 다르므로(d_right_offset 은 음수) smoothExtent 와
+            // 같은 **크기(절댓값)** 기준으로 판정한다. 양수 = 수축.
+            const double envelope_shrink = std::max(
+                {std::abs(t.s_half_extent) - std::abs(det.s_half_extent),
+                 std::abs(t.d_right_offset) - std::abs(det.d_right_offset),
+                 std::abs(t.d_left_offset) - std::abs(det.d_left_offset)});
             if (center_shift <= p_.envelope_stability_tolerance_m &&
-                envelope_shift <= p_.envelope_stability_tolerance_m)
+                envelope_shrink <= p_.envelope_stability_tolerance_m)
             {
                 ++t.envelope_stable_streak;
             }
@@ -1071,13 +1237,14 @@ void ObstacleTracker::update(
                 ++t.total_measurement_updates;
             }
             updateTrackStatus(t, true);
-            classify(t, map_updated);
+            classify(t, map_updated, stamp);
             if (t.track_status == TrackStatus::Confirmed)
             {
                 t.physical_identity_eligible = true;
             }
             captureStableIdentityAnchor(t, det);
             t.freespace_refute_streak = 0;
+            t.rear_blind_streak = 0;
             t.ttl = t.is_static ? p_.ttl_static : p_.ttl_dynamic;
         }
         else
@@ -1115,7 +1282,31 @@ void ObstacleTracker::update(
             {
                 t.freespace_refute_streak = 0;
             }
-            if (hold_candidate && !freespace_refuted)
+            // 후방 사각 회수 (2026-08-22). 위 반증은 "상자를 관통한 빔"을 증거로 쓰므로
+            // 상자가 시야 안에 있어야만 성립한다. 마지막 실측 봉투가 통째로 FOV 밖으로
+            // 넘어가면 그 증거는 영영 못 모으고, hold 는 static_lost_hold_sec 를 끝까지
+            // 채운 뒤 어차피 죽는다. 그 사이의 hold 는 갱신 가능성이 0 이라 정보가 없고,
+            // 하류(플래너 안전정지 해제 사다리)만 붙잡는다 — 그래서 여기서 끝낸다.
+            bool rear_blind_retire = false;
+            if (hold_candidate && rear_blind_predicate &&
+                p_.static_hold_rear_blind_retire_frames > 0)
+            {
+                if (rear_blind_predicate(t))
+                {
+                    ++t.rear_blind_streak;
+                }
+                else
+                {
+                    t.rear_blind_streak = 0;
+                }
+                rear_blind_retire =
+                    t.rear_blind_streak >= p_.static_hold_rear_blind_retire_frames;
+            }
+            else
+            {
+                t.rear_blind_streak = 0;
+            }
+            if (hold_candidate && !freespace_refuted && !rear_blind_retire)
             {
                 t.ttl = std::max(t.ttl, 1);
             }
@@ -1123,14 +1314,15 @@ void ObstacleTracker::update(
             {
                 t.envelope_stable_streak = 0;
             }
-            if (freespace_refuted)
+            if (freespace_refuted || rear_blind_retire)
             {
                 // 홀드 없는 track의 frame-TTL 잔여분까지 기다리지 않는다. 반증은 "거기 없다"는
-                // 직접 증거이므로 이번 스캔에서 회수한다.
+                // 직접 증거이고, 후방 사각은 "여기서는 그 질문에 답할 수단이 영영 없다"는
+                // 직접 증거다 — 어느 쪽이든 이번 스캔에서 회수한다.
                 t.ttl = 0;
             }
             updateTrackStatus(t, false);
-            classify(t, false);
+            classify(t, false, stamp);
         }
     }
 
@@ -1263,7 +1455,7 @@ void ObstacleTracker::update(
             t.total_measurement_updates = 1;
         }
         updateTrackStatus(t, true);
-        classify(t, map_updated);
+        classify(t, map_updated, stamp);
         if (t.track_status == TrackStatus::Confirmed)
         {
             t.physical_identity_eligible = true;

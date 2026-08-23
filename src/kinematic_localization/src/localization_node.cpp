@@ -56,18 +56,38 @@
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/point_cloud2_iterator.hpp>
 #include <sophus/se3.hpp>
+#include <stdexcept>
 #include <std_srvs/srv/trigger.hpp>
 #include <string>
 #include <vector>
 
 #include "kinematic_icp/pipeline/KinematicICP.hpp"
+#include "scan_odom_sync.hpp"
 #include "utils.hpp"
 
 namespace kinematic_localization {
 
+namespace {
+constexpr int kExpectedConfigSchemaVersion = 20260824;
+}  // namespace
+
 class LocalizationNode : public rclcpp::Node {
 public:
     LocalizationNode() : Node("kinematic_localization") {
+        // E2: launch file 존재 검사는 누락/깨진 symlink를 잡고, 이 표식은 다른 YAML이나
+        // 구버전 install overlay가 붙는 경우를 잡는다. 기본값 0으로 조용히 계속하지 않는다.
+        const int config_schema_version =
+            declare_parameter<int>("config_schema_version", 0);
+        if (config_schema_version != kExpectedConfigSchemaVersion) {
+            const std::string message =
+                "config_schema_version mismatch: expected " +
+                std::to_string(kExpectedConfigSchemaVersion) + ", got " +
+                std::to_string(config_schema_version) +
+                ". Launch with the installed config/kinematic_localization.yaml.";
+            RCLCPP_FATAL(get_logger(), "%s", message.c_str());
+            throw std::runtime_error(message);
+        }
+
         // Topics / frames
         lidar_topic_ = declare_parameter<std::string>("lidar_topic", "/scan");
         odom_topic_ = declare_parameter<std::string>("odom_topic", "/odom");
@@ -106,6 +126,63 @@ public:
         // 미탐(false accept)의 대가는 벽이므로 **애매하면 거부하는 쪽으로 잡는다.**
         // 실패하면 미초기화로 되돌리고 /initialpose를 기다린다(= 발행 없음 →
         // 컨트롤러 odom 워치독이 차를 세운다, fail-safe).
+        // §8 (2026-08-21): fast-corner free mode. When the corner condition below
+        // holds, this frame is registered with every prior-side constraint
+        // dropped — odometry regularization Omega, the lateral regularization
+        // floor, the iteration cap, the convergence early-exit — and the two
+        // output-side gates (Mahalanobis, smoothing) are bypassed as well.
+        //
+        // Rationale (run_20260821_021805, 200-frame replay): the pose error
+        // scales with yaw rate, not speed — 7.7 cm / 0.72 deg below 0.3 rad/s
+        // vs 16.1 cm / 2.03 deg above 0.8 rad/s.
+        //
+        // 🔴 Signed regression showed the corner error is SCATTER, not bias
+        //    (correlation 0.04-0.15, under 2 % explained). Free mode is a
+        //    "let ICP see the data unconstrained" experiment, NOT a correction:
+        //    it may just as well widen the scatter. Off by default; validate on
+        //    the car before enabling.
+        // 🔴 With Omega = 0 the solve is bare Gauss-Newton and JTJ can be
+        //    singular in a degenerate view. The non-finite rollback below is
+        //    what keeps such frames from poisoning last_pose_ — do not remove it.
+        fast_corner_free_mode_ = declare_parameter<bool>("fast_corner_free_mode", false);
+        corner_yaw_rate_thresh_ = declare_parameter<double>("corner_yaw_rate_thresh", 0.8);
+        corner_speed_thresh_ = declare_parameter<double>("corner_speed_thresh", 3.0);
+        corner_lat_accel_thresh_ = declare_parameter<double>("corner_lat_accel_thresh", 6.0);
+        corner_free_max_iterations_ =
+            declare_parameter<int>("corner_free_max_iterations", 200);
+
+        // §7 (2026-08-21, rewritten 2026-08-22): master switch for the
+        // scan-end-synchronised registration path. See ProcessScan / §9.
+        odom_window_at_scan_end_ =
+            declare_parameter<bool>("odom_window_at_scan_end", true);
+        // §9 (2026-08-22) scan-end synchronisation. Full reasoning and the
+        // measured A/B table live in scan_odom_sync.hpp — the short version:
+        //
+        //    "begin" -> scan_end = header + (N-1)*increment   (this car)
+        //    "end"   -> scan_end = header                     (rollback)
+        //
+        // The legacy path published at KISS's end_stamp (header + sweep) while
+        // ending the odometry prior at the raw header — the two disagreed by a
+        // sweep. A three-arm replay of run_20260822_035120 settled which one is
+        // the real deskew reference: "begin" cut the cornering yaw correction
+        // p95 from 0.77 to 0.40 deg and >2 deg frames from 29 to 12.
+        // ⚠️ The arrival-lag heuristic says "end" on this car and is wrong —
+        //    the urg_node stamp is not on the host clock. See the header.
+        scan_stamp_convention_ =
+            declare_parameter<std::string>("scan_stamp_convention", "begin");
+        if (!sync::IsKnownConvention(scan_stamp_convention_)) {
+            RCLCPP_ERROR(get_logger(),
+                         "scan_stamp_convention='%s' is not 'begin' or 'end' — using 'begin'",
+                         scan_stamp_convention_.c_str());
+            scan_stamp_convention_ = "begin";
+        }
+        // How long a scan may sit in the queue waiting for the odom sample that
+        // brackets its end stamp. With convention "end" the bracket is normally
+        // already available or one odom period (<=20 ms) away.
+        odom_end_sync_max_wait_sec_ =
+            std::max(0.0, declare_parameter<double>("odom_end_sync_max_wait_sec", 0.08));
+        odom_end_sync_max_queue_ =
+            std::max(1, static_cast<int>(declare_parameter<int>("odom_end_sync_max_queue", 4)));
         auto_init_validate_frames_ =
             declare_parameter<int>("auto_init_validate_frames", 40);
         auto_init_max_residual_ =
@@ -188,6 +265,19 @@ public:
             "use_adaptive_odometry_regularization", config.use_adaptive_odometry_regularization);
         config.fixed_regularization = declare_parameter<double>("fixed_regularization", 0.0);
         config.deskew = declare_parameter<bool>("deskew", true);
+        // Chassis attitude compensation is deliberately independent of the
+        // prototype scan-end synchronisation. It consumes the same strictly
+        // bracketed end-to-end odometry delta used by the ICP prior.
+        tilt_compensation_enable_ =
+            declare_parameter<bool>("tilt_compensation_enable", false);
+        tilt_cfg_.roll_gradient_rad_per_mps2 =
+            declare_parameter<double>("roll_gradient_rad_per_mps2", 0.0270);
+        tilt_cfg_.pitch_gradient_rad_per_mps2 =
+            declare_parameter<double>("pitch_gradient_rad_per_mps2", 0.0);
+        tilt_cfg_.max_angle_rad =
+            std::max(0.0, declare_parameter<double>("tilt_max_angle_rad", 0.26));
+        tilt_cfg_.max_point_height_m =
+            std::max(0.0, declare_parameter<double>("tilt_max_point_height_m", 0.0));
         // Robustness plan §6: soft lateral DoF (core patch). Default OFF —
         // requires the §5 gate safety net and measured symptoms before use.
         config.lateral_dof_enable = declare_parameter<bool>("lateral_dof_enable", false);
@@ -220,6 +310,21 @@ public:
 
         position_covariance_ = declare_parameter<double>("position_covariance", 0.1);
         orientation_covariance_ = declare_parameter<double>("orientation_covariance", 0.1);
+
+        // E2 기동 증거. 스키마 가드가 누락 자체를 막고, 이 한 줄은 실차 백의 /rosout만으로
+        // 실제 핵심 튜닝이 무엇이었는지 사후 확인할 수 있게 한다.
+        RCLCPP_INFO(
+            get_logger(),
+            "E2 parameter summary | schema=%d gate=%s smoothing_alpha=%.3f "
+            "smoothing_alpha_rot=%.3f source_voxel_size=%.3f voxel_size=%.3f "
+            "max_range=%.1f lateral_dof=%s pose_check=%s tilt=%s roll_gradient=%.4f "
+            "slam_mode=%s",
+            config_schema_version, gate_enable_ ? "true" : "false", smoothing_alpha_,
+            smoothing_alpha_rot_, config.source_voxel_size, config.voxel_size, config.max_range,
+            config.lateral_dof_enable ? "true" : "false",
+            pose_check_enable_ ? "true" : "false",
+            tilt_compensation_enable_ ? "true" : "false",
+            tilt_cfg_.roll_gradient_rad_per_mps2, slam_mode_ ? "true" : "false");
 
         icp_ = std::make_unique<kinematic_icp::pipeline::KinematicICP>(config);
 
@@ -272,11 +377,15 @@ public:
                 if (!odom_history_.empty() && stamp <= odom_history_.back().first) return;
                 odom_history_.emplace_back(stamp, utils::PoseToSophus(msg->pose.pose));
                 while (odom_history_.size() > 400) odom_history_.pop_front();
+                odom_twist_history_.emplace_back(stamp, msg->twist.twist);
+                while (odom_twist_history_.size() > 400) odom_twist_history_.pop_front();
                 // Wheel twist is forwarded verbatim on /pf/pose/odom (MCL convention):
                 // a pose-delta velocity is far noisier than the wheel signal and
                 // dithered the controller's L1 lookahead / speed PI (run_0818_173938:
                 // vx noise std 0.285 m/s vs 0.086 for wheel-sourced MCL twist).
                 latest_odom_twist_ = msg->twist.twist;
+                // §9: a scan may be queued waiting for exactly this sample.
+                if (odom_window_at_scan_end_) TryProcessPendingScans();
             });
         // MCL 호환 자동 초기화 입력. 발행자가 transient_local이라 늦게 떠도 받는다.
         if (auto_init_from_waypoints_ && !slam_mode_) {
@@ -485,6 +594,12 @@ private:
         initialized_ = true;
         last_valid_icp_pose_ = T_map_base;
         pending_scan_.reset();
+        // §9: the queued scans and the prior anchor predate this pose — keeping
+        // either would apply an odometry prior spanning the jump.
+        pending_scans_.clear();
+        has_prev_scan_end_ = false;
+        last_odom_window_end_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
+        timestamps_handler_ = utils::TimeStampHandler{};
         // Reset the output filter: the first output after (re-)initialization
         // is the raw ICP pose.
         last_out_ = T_map_base;
@@ -495,6 +610,10 @@ private:
         dead_reckoning_sec_ = 0.0;
         gate_reject_streak_ = 0;
         low_inlier_frames_ = 0;
+        has_last_speed_ = false;
+        last_roll_rad_ = 0.0;
+        last_pitch_rad_ = 0.0;
+        last_tilt_dropped_ = 0;
         validate_residuals_.clear();
     }
 
@@ -516,11 +635,101 @@ private:
                 return;
             }
         }
-        // Process with one scan of lag: the odom TF bracketing the scan end
-        // stamp is published right after the scan, so the lookup only succeeds
-        // once the *next* scan arrives (same effect as upstream's tf_timeout).
-        if (pending_scan_) ProcessScan(pending_scan_);
-        pending_scan_ = msg;
+        ProbeScanStampConvention(msg);
+        if (!odom_window_at_scan_end_) {
+            // Legacy path (bit-identical to before §9): process with one scan of
+            // lag so the bracketing odom has usually arrived.
+            if (pending_scan_) ProcessScan(pending_scan_);
+            pending_scan_ = msg;
+            return;
+        }
+        // §9 path: queue and process as soon as odom brackets the scan end.
+        pending_scans_.emplace_back(now(), msg);
+        TryProcessPendingScans();
+    }
+
+    // One-shot INFO that states, from measurement rather than assumption, which
+    // stamp convention this LiDAR uses. `receive - header` must be at least one
+    // sweep for a begin-stamped scan (it cannot be published before it is
+    // acquired), so a value near zero means the header is the sweep end.
+    void ProbeScanStampConvention(const sensor_msgs::msg::LaserScan::ConstSharedPtr &msg) {
+        const double sweep = SweepSeconds(msg);
+        last_sweep_ms_ = 1000.0 * sweep;
+        const rclcpp::Time header(msg->header.stamp);
+        const rclcpp::Time recv = now();
+        if (recv.nanoseconds() > 0 && header.nanoseconds() > 0 &&
+            recv.get_clock_type() == header.get_clock_type()) {
+            last_scan_lag_ms_ = 1000.0 * (recv - header).seconds();
+        }
+        if (scan_convention_logged_) return;
+        scan_convention_logged_ = true;
+        const char *lag_says = sync::LagSuggestedConvention(last_scan_lag_ms_, last_sweep_ms_);
+        RCLCPP_INFO(get_logger(),
+                    "§9 scan stamp probe: sweep %.2f ms, receive-header %.2f ms "
+                    "(arrival lag alone would suggest '%s'); configured '%s', scan-end sync %s",
+                    last_sweep_ms_, last_scan_lag_ms_, lag_says,
+                    scan_stamp_convention_.c_str(), odom_window_at_scan_end_ ? "ON" : "OFF");
+        if (std::string(lag_says) != scan_stamp_convention_) {
+            // Expected on this car: the urg_node stamp is not on the host clock,
+            // so the lag test reads 'end' while the registration A/B says 'begin'.
+            // Logged, never acted on — only a registration measurement decides.
+            RCLCPP_INFO(get_logger(),
+                        "§9 arrival lag disagrees with the configured convention. That is "
+                        "expected when the LiDAR stamp is not on the host clock; only a "
+                        "registration A/B decides this. Configured '%s' stands.",
+                        scan_stamp_convention_.c_str());
+        }
+    }
+
+    // §9 dispatcher: a scan is registered only once the odom history brackets
+    // its end stamp. Never extrapolates; drops rather than guessing.
+    void TryProcessPendingScans() {
+        while (!pending_scans_.empty()) {
+            const auto &queued = pending_scans_.front();
+            const auto &msg = queued.second;
+            const rclcpp::Time scan_end = ScanEndStamp(msg);
+
+            // Clock went backwards (bag restart / replay loop): drop the anchor
+            // so the next scan starts a fresh prior instead of integrating
+            // across the jump.
+            if (has_prev_scan_end_ && scan_end < prev_scan_end_) {
+                RCLCPP_WARN(get_logger(),
+                            "§9 scan stamp went backwards (%.3f s) — resetting the prior anchor",
+                            (prev_scan_end_ - scan_end).seconds());
+                has_prev_scan_end_ = false;
+            }
+
+            Sophus::SE3d probe;
+            const OdomLookup status = OdomAtStrict(scan_end, &probe);
+            const double waited = (now().nanoseconds() > 0 && queued.first.nanoseconds() > 0)
+                                      ? (now() - queued.first).seconds()
+                                      : 0.0;
+            const sync::SyncAction action =
+                sync::DecideSyncAction(status, waited, pending_scans_.size(),
+                                       odom_end_sync_max_wait_sec_, odom_end_sync_max_queue_);
+            if (action == sync::SyncAction::Wait) {
+                ++odom_sync_wait_count_;
+                last_sync_wait_ms_ = 1000.0 * waited;
+                return;  // keep waiting; the next odom callback retries
+            }
+            if (action == sync::SyncAction::Drop) {
+                ++odom_sync_drop_count_;
+                RCLCPP_WARN_THROTTLE(
+                    get_logger(), *get_clock(), 2000,
+                    "§9 dropping a scan: %s after %.3f s (queue %zu, cumulative drops %lu)",
+                    status == OdomLookup::TooOld ? "older than the odometry history"
+                                                 : "no odometry brackets its end stamp",
+                    waited, pending_scans_.size(), odom_sync_drop_count_);
+                pending_scans_.pop_front();
+                has_prev_scan_end_ = false;  // the prior would span the hole
+                continue;
+            }
+            last_sync_wait_ms_ = 1000.0 * waited;
+            last_bracket_ms_ = 1000.0 * (odom_history_.back().first - scan_end).seconds();
+            auto scan = msg;  // keep alive across the pop
+            pending_scans_.pop_front();
+            ProcessScan(scan);
+        }
     }
 
     void ProcessScan(const sensor_msgs::msg::LaserScan::ConstSharedPtr &msg) {
@@ -548,32 +757,112 @@ private:
         // extrapolate beyond the newest odom message during live playback.
         const auto &processed = timestamps_handler_.ProcessTimestamps(*cloud);
         const auto &timestamps = std::get<2>(processed);
-        const rclcpp::Time out_stamp = std::get<1>(processed);  // scan end (deskew reference)
+        rclcpp::Time out_stamp = std::get<1>(processed);  // scan end (deskew reference)
         const rclcpp::Time stamp(msg->header.stamp);
-        const rclcpp::Time begin_stamp =
-            last_scan_stamp_.nanoseconds() > 0 ? last_scan_stamp_ : stamp;
-        last_scan_stamp_ = stamp;
+        // Window used for the wheel-odometry prior. Upstream ends it at the raw
+        // msg stamp, which is one scan duration (~25 ms) *before* the deskew
+        // reference (out_stamp). While cornering that offset feeds ICP a prior
+        // rotated by yaw_rate * scan_duration: 2.4 rad/s x 25 ms = 3.4 deg.
+        // Measured on run_20260821_021805: the residual pose correction scales
+        // with yaw rate (0.72 deg below 0.3 rad/s -> 2.03 deg above 0.8 rad/s)
+        // and not with speed, which is the signature of exactly this offset.
+        // odom_window_at_scan_end aligns the window with the deskew reference.
+        // 🔴 MEASURED AND REFUTED (2026-08-21, run_20260821_021805 334-375 s replay).
+        // Turning it on makes everything worse, roughly 2x:
+        //   corner yaw correction 2.84 -> 5.18 deg, corner position 15.5 -> 23.4 cm,
+        //   scan-to-map p50 0.096 -> 0.107 m, outliers >0.3 m 15.0 -> 21.9 %,
+        //   iterations 6 -> 10, yaw jerk 31 -> 64.
+        // Cause: OdomAt() clamps to the newest message once the end stamp runs
+        // past it, so the prior is *truncated* rather than shifted, and a
+        // truncated prior is worse than an offset one. Keep this false. The
+        // parameter is retained only so the experiment is not repeated blind.
+        // §9 (2026-08-22): with scan-end sync on, BOTH the prior window and the
+        // published stamp are the deskew reference, and the reference itself is
+        // derived from the measured stamp convention (scan_stamp_convention)
+        // rather than from KISS's begin/end guess — which cannot work here
+        // because laser_geometry hands it relative per-point stamps.
+        rclcpp::Time window_end = stamp;
+        if (odom_window_at_scan_end_) {
+            window_end = ScanEndStamp(msg);
+            out_stamp = window_end;
+        }
+        const rclcpp::Time anchor =
+            odom_window_at_scan_end_
+                ? (has_prev_scan_end_ ? prev_scan_end_ : window_end)
+                : (last_odom_window_end_.nanoseconds() > 0 ? last_odom_window_end_ : window_end);
+        const rclcpp::Time begin_stamp = anchor;
+        last_odom_window_end_ = window_end;
+        last_scan_stamp_ = stamp;  // watchdog anchor stays on the raw msg stamp
 
         // Wheel odometry prior from the /odom history, interpolated to the
         // window boundaries (nearest-message matching quantizes the prior by
         // up to half an odom period, which matters at 5 m/s)
-        const auto T_begin = OdomAt(begin_stamp);
-        const auto T_end = OdomAt(stamp);
-        const double dt = (stamp - begin_stamp).seconds();
+        std::optional<Sophus::SE3d> T_begin;
+        std::optional<Sophus::SE3d> T_end;
+        if (odom_window_at_scan_end_) {
+            // Strict: the dispatcher already proved the end is bracketed. If the
+            // begin anchor fell out of the history, start a fresh prior
+            // (identity) rather than integrating across the hole.
+            Sophus::SE3d b, e;
+            if (OdomAtStrict(window_end, &e) == OdomLookup::Ready) T_end = e;
+            if (has_prev_scan_end_ && OdomAtStrict(begin_stamp, &b) == OdomLookup::Ready) {
+                T_begin = b;
+            } else if (T_end.has_value()) {
+                T_begin = *T_end;  // identity prior on the first frame after a reset
+            }
+        } else {
+            T_begin = OdomAt(begin_stamp);
+            T_end = OdomAt(window_end);
+        }
+        const double dt = (window_end - begin_stamp).seconds();
+        last_prior_begin_ = begin_stamp;
+        last_prior_end_ = window_end;
         Sophus::SE3d delta_odom;  // identity when no odometry is available
         double speed = 0.0;
         bool gate_rejected = false;
         double gate_d2 = 0.0;
         bool pose_ok = true;
         bool registered = false;
+        bool is_fast_corner = false;  // §8
         if (T_begin.has_value() && T_end.has_value()) {
             delta_odom = T_begin->inverse() * (*T_end);
             if (dt > 1e-6) speed = delta_odom.translation().norm() / dt;
+            // §8 fast-corner detection. yaw_rate is the primary criterion (the
+            // measured error scales with it); lateral accel is the secondary
+            // one because it lines up with the controller's grip-saturation
+            // warnings (7-12 m/s^2 in the same run).
+            const double yaw_rate =
+                (dt > 1e-6) ? std::abs(delta_odom.so3().log().z()) / dt : 0.0;
+            const double lat_accel = speed * yaw_rate;
+            is_fast_corner = fast_corner_free_mode_ &&
+                             speed >= corner_speed_thresh_ &&
+                             (yaw_rate >= corner_yaw_rate_thresh_ ||
+                              lat_accel >= corner_lat_accel_thresh_);
             // Always register, even when (nearly) stationary: the frozen map
             // is never polluted by scans, and ICP can pull the pose back onto
             // the map while the car stands still.
+            std::vector<size_t> kept_indices;
+            const auto leveled_points =
+                ApplyTiltCompensation(points, delta_odom, dt, &kept_indices);
+            std::vector<double> filtered_timestamps;
+            const std::vector<double> *registration_timestamps = &timestamps;
+            if (leveled_points.size() != points.size()) {
+                // Height rejection changes point indices; deskew timestamps must
+                // be filtered by the exact same mask. If an upstream projector
+                // ever violates the one-stamp-per-point contract, disable deskew
+                // for this frame instead of silently pairing the wrong stamps.
+                if (timestamps.size() == points.size() &&
+                    kept_indices.size() == leveled_points.size()) {
+                    filtered_timestamps.reserve(kept_indices.size());
+                    for (const size_t index : kept_indices) {
+                        filtered_timestamps.push_back(timestamps[index]);
+                    }
+                }
+                registration_timestamps = &filtered_timestamps;
+            }
             const auto &result =
-                icp_->RegisterFrame(points, timestamps, *lidar_to_base_, delta_odom);
+                icp_->RegisterFrame(leveled_points, *registration_timestamps, *lidar_to_base_,
+                                    delta_odom, is_fast_corner, corner_free_max_iterations_);
             registered = true;
             // Deep defense against the core NaN paths (see the Registration.cpp
             // patch): never let a non-finite pose reach the output or poison
@@ -591,7 +880,9 @@ private:
             // the §3 diagnostics (R = rms^2 * JTJ^-1). Rejected frames publish
             // the prediction and roll the core back through the non-const
             // pose() accessor (SetPose would clear the frozen map).
-            if (gate_enable_ && has_last_out_) {
+            // §8: in a fast corner the gate is bypassed — it would reject
+            // exactly the large corrections this mode exists to let through.
+            if (gate_enable_ && has_last_out_ && !is_fast_corner) {
                 gate_rejected = ApplyGate(delta_odom, &gate_d2);
             }
             // Pose validity (§4): never rejects on its own (a wide veto blocks
@@ -628,7 +919,7 @@ private:
         Sophus::SE3d T_out = T_icp;
         double alpha_used = 1.0;
         double alpha_rot_used = 1.0;
-        if (smoothing_enable_ && has_last_out_) {
+        if (smoothing_enable_ && has_last_out_ && !is_fast_corner) {  // §8 bypass
             const Sophus::SE3d T_pred = last_out_ * delta_odom;
             const Sophus::SE3d err = T_pred.inverse() * T_icp;
             double alpha = smoothing_alpha_;
@@ -659,12 +950,27 @@ private:
         last_out_ = T_out;
         has_last_out_ = true;
 
-        // Latest wheel odom pose (MCL convention) for the map->odom TF
-        const std::optional<Sophus::SE3d> T_odom_base =
-            odom_history_.empty() ? std::nullopt
-                                  : std::make_optional(odom_history_.back().second);
+        // Wheel odom pose for the map->odom TF.
+        // §9: T_map_odom = T_map_base * T_odom_base^-1 is only consistent when
+        // all three terms carry the SAME time. Taking odom_history_.back() here
+        // uses whatever arrived last — which, once the dispatcher waits for the
+        // bracketing sample, is *newer* than the scan end. Interpolate instead.
+        std::optional<Sophus::SE3d> T_odom_base;
+        if (odom_window_at_scan_end_) {
+            Sophus::SE3d at_end;
+            if (OdomAtStrict(out_stamp, &at_end) == OdomLookup::Ready) T_odom_base = at_end;
+        }
+        if (!T_odom_base.has_value() && !odom_history_.empty()) {
+            T_odom_base = odom_history_.back().second;
+        }
         SetOutputCovariance(0.0);  // fresh registration: base covariance
-        PublishOdometry(T_out, out_stamp, T_odom_base);
+        PublishOdometry(T_out, out_stamp, T_odom_base,
+                        odom_window_at_scan_end_ ? std::make_optional(TwistAt(out_stamp))
+                                                 : std::nullopt);
+        if (odom_window_at_scan_end_) {
+            prev_scan_end_ = window_end;
+            has_prev_scan_end_ = true;
+        }
 
         // Watchdog anchor (§2): a real scan was registered and published.
         last_scan_processed_time_ = now();
@@ -696,8 +1002,91 @@ private:
         }
     }
 
+    // §9 (2026-08-22) Strict odometry lookup for registration.
+    //
+    // OdomAt() below clamps to the newest sample whenever the request is up to
+    // 100 ms in the future. That is right for the watchdog (it wants "the best
+    // pose we have") and WRONG for scan alignment: the prior is then truncated
+    // rather than shifted, which is worse than an offset prior — measured on
+    // run_20260821_021805 when odom_window_at_scan_end was first tried
+    // (corner yaw correction 2.84 -> 5.18 deg, position 15.5 -> 23.4 cm).
+    // With the one-scan lag the old code hit that clamp ~79 % of frames.
+    // Registration therefore uses this function, which never extrapolates and
+    // never clamps: it either brackets the stamp or reports why it cannot.
+    using OdomLookup = sync::OdomLookup;
+
+    OdomLookup OdomAtStrict(const rclcpp::Time &stamp, Sophus::SE3d *pose) const {
+        const double oldest =
+            odom_history_.empty() ? 0.0 : odom_history_.front().first.seconds();
+        const double newest =
+            odom_history_.empty() ? 0.0 : odom_history_.back().first.seconds();
+        const OdomLookup status =
+            sync::BracketStatus(stamp.seconds(), oldest, newest, odom_history_.size());
+        if (status != OdomLookup::Ready) return status;
+        if (stamp == odom_history_.back().first) {
+            if (pose) *pose = odom_history_.back().second;
+            return OdomLookup::Ready;
+        }
+        const auto upper =
+            std::lower_bound(odom_history_.begin(), odom_history_.end(), stamp,
+                             [](const auto &entry, const rclcpp::Time &t) {
+                                 return entry.first < t;
+                             });
+        if (upper == odom_history_.begin()) {
+            if (pose) *pose = upper->second;
+            return OdomLookup::Ready;
+        }
+        const auto lower = upper - 1;
+        const double span = (upper->first - lower->first).seconds();
+        if (span <= 0.0) {
+            if (pose) *pose = upper->second;
+            return OdomLookup::Ready;
+        }
+        const double alpha = (stamp - lower->first).seconds() / span;
+        if (pose) {
+            *pose = lower->second *
+                    Sophus::SE3d::exp(alpha * (lower->second.inverse() * upper->second).log());
+        }
+        return OdomLookup::Ready;
+    }
+
+    // Wheel twist interpolated to `stamp`, so the published twist carries the
+    // same time as the pose and the TF. Falls back to the newest sample.
+    geometry_msgs::msg::Twist TwistAt(const rclcpp::Time &stamp) const {
+        if (odom_twist_history_.empty()) return latest_odom_twist_;
+        if (stamp <= odom_twist_history_.front().first) return odom_twist_history_.front().second;
+        if (stamp >= odom_twist_history_.back().first) return odom_twist_history_.back().second;
+        const auto upper =
+            std::lower_bound(odom_twist_history_.begin(), odom_twist_history_.end(), stamp,
+                             [](const auto &entry, const rclcpp::Time &t) {
+                                 return entry.first < t;
+                             });
+        const auto lower = upper - 1;
+        const double span = (upper->first - lower->first).seconds();
+        if (span <= 0.0) return upper->second;
+        const double a = (stamp - lower->first).seconds() / span;
+        geometry_msgs::msg::Twist out;
+        out.linear.x = lower->second.linear.x + a * (upper->second.linear.x - lower->second.linear.x);
+        out.linear.y = lower->second.linear.y + a * (upper->second.linear.y - lower->second.linear.y);
+        out.angular.z =
+            lower->second.angular.z + a * (upper->second.angular.z - lower->second.angular.z);
+        return out;
+    }
+
+    // Sweep end of this scan, per the configured stamp convention (§9 header).
+    rclcpp::Time ScanEndStamp(const sensor_msgs::msg::LaserScan::ConstSharedPtr &msg) const {
+        const double offset = sync::ScanEndOffsetSeconds(
+            scan_stamp_convention_, msg->ranges.size(), msg->time_increment);
+        return rclcpp::Time(msg->header.stamp) + rclcpp::Duration::from_seconds(offset);
+    }
+
+    static double SweepSeconds(const sensor_msgs::msg::LaserScan::ConstSharedPtr &msg) {
+        return sync::SweepSeconds(msg->ranges.size(), msg->time_increment);
+    }
+
     // Odom pose interpolated to the requested stamp. Falls back to the
     // nearest message (within 100 ms) at the history edges.
+    // ⚠️ Watchdog use only — registration must call OdomAtStrict (see above).
     std::optional<Sophus::SE3d> OdomAt(const rclcpp::Time &stamp) const {
         if (odom_history_.empty()) return std::nullopt;
         if (stamp <= odom_history_.front().first) {
@@ -872,13 +1261,62 @@ private:
         // it now would apply a backwards odometry prior spanning the whole
         // gap. Drop it — the first post-gap scan re-fills the pipeline.
         pending_scan_.reset();
+        pending_scans_.clear();
+        // §9 reseed: the watchdog just advanced the pose to `odom_stamp`, so
+        // that is where the next prior must START. Clearing the anchor instead
+        // would make the returning scan integrate from a pre-gap time and
+        // double-count the whole gap.
+        prev_scan_end_ = odom_stamp;
+        has_prev_scan_end_ = true;
+        last_odom_window_end_ = odom_stamp;
+        timestamps_handler_ = utils::TimeStampHandler{};
         dead_reckoning_sec_ = gap;
         SetOutputCovariance(gap);
-        PublishOdometry(T_out, odom_stamp, std::make_optional(T_now));
+        PublishOdometry(T_out, odom_stamp, std::make_optional(T_now),
+                        odom_window_at_scan_end_ ? std::make_optional(TwistAt(odom_stamp))
+                                                 : std::nullopt);
         const double speed = dt > 1e-6 ? delta_odom.translation().norm() / dt : 0.0;
+        // A watchdog sample did not register a scan, so it must not repeat the
+        // last scan's applied tilt as if it were a fresh compensation result.
+        last_roll_rad_ = 0.0;
+        last_pitch_rad_ = 0.0;
+        last_tilt_dropped_ = 0;
         PublishDiagnostics(odom_stamp, speed, 0.0, 0.0, false, 0.0, true);
         RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
                              "Scan gap %.2f s: publishing wheel-odometry dead reckoning", gap);
+    }
+
+    // Flatten the scan plane using the wheel-odometry motion over the same
+    // scan-end-to-scan-end interval as the ICP prior. No IMU or additional
+    // timestamp path is introduced, so prototype's strict odometry bracketing
+    // and scan-end publication semantics remain unchanged.
+    std::vector<Eigen::Vector3d> ApplyTiltCompensation(
+        const std::vector<Eigen::Vector3d> &points, const Sophus::SE3d &delta_odom, double dt,
+        std::vector<size_t> *kept_indices) {
+        last_roll_rad_ = 0.0;
+        last_pitch_rad_ = 0.0;
+        last_tilt_dropped_ = 0;
+        if (kept_indices) kept_indices->clear();
+        if (!tilt_compensation_enable_ || !lidar_to_base_.has_value() || dt <= 1e-6) {
+            return points;
+        }
+
+        const double speed = delta_odom.translation().norm() / dt;
+        const double yaw_rate = delta_odom.so3().log().z() / dt;
+        const double lateral_acceleration = speed * yaw_rate;
+        const double longitudinal_acceleration =
+            has_last_speed_ ? (speed - last_speed_) / dt : 0.0;
+        last_speed_ = speed;
+        has_last_speed_ = true;
+
+        utils::TiltResult result;
+        auto leveled = utils::LevelScan(points, *lidar_to_base_, lateral_acceleration,
+                                        longitudinal_acceleration, tilt_cfg_, &result);
+        last_roll_rad_ = result.roll_rad;
+        last_pitch_rad_ = result.pitch_rad;
+        last_tilt_dropped_ = result.dropped;
+        if (kept_indices) *kept_indices = std::move(result.kept_indices);
+        return leveled;
     }
 
     // Published pose covariance: base value, inflated while dead reckoning
@@ -932,6 +1370,9 @@ private:
         add("residual_rms", fmt(d.residual_rms));
         add("tau", fmt(d.threshold_tau));
         add("beta", fmt(d.beta));
+        // §8: 이 프레임이 free mode로 등록됐는지. beta==0 같은 간접 추정 없이
+        // 바로 확인할 수 있어야 실차 검증이 한 줄로 끝난다.
+        add("free_mode", d.free_mode ? "true" : "false");
         add("iterations", std::to_string(d.iterations));
         add("converged", d.converged ? "true" : "false");
         add("final_dx_norm", fmt(d.final_dx_norm));
@@ -943,12 +1384,30 @@ private:
         add("gate_d2", fmt(gate_d2));
         add("gate_reject_streak", std::to_string(gate_reject_streak_));
         add("pose_impermissible", pose_ok ? "false" : "true");
+        // §9 scan-end synchronisation. odom_end_bracket_ms must be >= 0 on every
+        // synced frame — a negative value means the prior was extrapolated.
+        add("scan_end_sync", odom_window_at_scan_end_ ? "true" : "false");
+        add("scan_stamp_convention", scan_stamp_convention_);
+        add("scan_duration_ms", fmt(last_sweep_ms_));
+        add("scan_stamp_lag_ms", fmt(last_scan_lag_ms_));
+        add("odom_sync_wait_ms", fmt(last_sync_wait_ms_));
+        add("odom_end_bracket_ms", fmt(last_bracket_ms_));
+        add("pending_scan_queue_size", std::to_string(pending_scans_.size()));
+        add("odom_sync_wait_count", std::to_string(odom_sync_wait_count_));
+        add("odom_sync_drop_count", std::to_string(odom_sync_drop_count_));
+        add("prior_begin_stamp", fmt(last_prior_begin_.seconds()));
+        add("prior_end_stamp", fmt(last_prior_end_.seconds()));
+        add("tilt_roll_deg", fmt(last_roll_rad_ * 180.0 / M_PI));
+        add("tilt_pitch_deg", fmt(last_pitch_rad_ * 180.0 / M_PI));
+        add("tilt_dropped_points", std::to_string(last_tilt_dropped_));
         array.status.push_back(status);
         diag_pub_->publish(array);
     }
 
     void PublishOdometry(const Sophus::SE3d &pose, const rclcpp::Time &stamp,
-                         const std::optional<Sophus::SE3d> &T_odom_base) {
+                         const std::optional<Sophus::SE3d> &T_odom_base,
+                         const std::optional<geometry_msgs::msg::Twist> &twist_at_stamp =
+                             std::nullopt) {
         // map -> odom TF, same convention as MCL: T_map_odom = T_map_base * T_odom_base^-1
         if (publish_map_odom_tf_ && T_odom_base.has_value()) {
             geometry_msgs::msg::TransformStamped tf_msg;
@@ -961,10 +1420,12 @@ private:
 
         // Twist: forward the latest wheel odometry (MCL convention), not a
         // pose-delta velocity — see the odom callback comment.
+        const geometry_msgs::msg::Twist &tw =
+            twist_at_stamp.has_value() ? *twist_at_stamp : latest_odom_twist_;
         odom_msg_.pose.pose = utils::SophusToPose(pose);
-        odom_msg_.twist.twist.linear.x = latest_odom_twist_.linear.x;
+        odom_msg_.twist.twist.linear.x = tw.linear.x;
         odom_msg_.twist.twist.linear.y = 0.0;
-        odom_msg_.twist.twist.angular.z = latest_odom_twist_.angular.z;
+        odom_msg_.twist.twist.angular.z = tw.angular.z;
         odom_msg_.header.stamp = stamp;
         pose_pub_->publish(odom_msg_);
     }
@@ -1022,6 +1483,38 @@ private:
     std::string lidar_topic_, odom_topic_, pose_topic_, initial_pose_topic_;
     std::string map_frame_, odom_frame_, base_frame_, map_name_;
     // MCL 호환 자동 초기화 상태
+    bool fast_corner_free_mode_ = false;
+    double corner_yaw_rate_thresh_ = 0.8;
+    double corner_speed_thresh_ = 3.0;
+    double corner_lat_accel_thresh_ = 6.0;
+    int corner_free_max_iterations_ = 200;
+    bool odom_window_at_scan_end_ = true;
+    rclcpp::Time last_odom_window_end_{0, 0, RCL_ROS_TIME};
+    // §9 scan-end synchronisation (2026-08-22)
+    std::string scan_stamp_convention_ = "begin";
+    double odom_end_sync_max_wait_sec_ = 0.08;
+    int odom_end_sync_max_queue_ = 4;
+    // Scans waiting for the odom sample that brackets their end stamp, with the
+    // node-clock time they were queued (for the wait timeout).
+    std::deque<std::pair<rclcpp::Time, sensor_msgs::msg::LaserScan::ConstSharedPtr>>
+        pending_scans_;
+    // Prior anchor: the end stamp of the previously registered scan. The prior
+    // spans end(k-1) -> end(k) so both boundaries are the deskew reference.
+    rclcpp::Time prev_scan_end_{0, 0, RCL_ROS_TIME};
+    bool has_prev_scan_end_ = false;
+    // Wheel twist history, kept in lockstep with odom_history_ so the published
+    // twist can be interpolated to the same stamp as the pose and the TF.
+    std::deque<std::pair<rclcpp::Time, geometry_msgs::msg::Twist>> odom_twist_history_;
+    // §9 diagnostics
+    double last_scan_lag_ms_ = 0.0;      // receive - header, the convention probe
+    double last_sweep_ms_ = 0.0;         // (N-1) * time_increment
+    double last_sync_wait_ms_ = 0.0;     // how long this scan waited in the queue
+    double last_bracket_ms_ = 0.0;       // newest odom stamp - scan_end (>= 0 when synced)
+    unsigned long odom_sync_wait_count_ = 0;
+    unsigned long odom_sync_drop_count_ = 0;
+    rclcpp::Time last_prior_begin_{0, 0, RCL_ROS_TIME};
+    rclcpp::Time last_prior_end_{0, 0, RCL_ROS_TIME};
+    bool scan_convention_logged_ = false;
     bool auto_init_from_waypoints_ = true;
     std::string auto_init_topic_ = "/global_waypoints";
     bool auto_init_done_ = false;
@@ -1102,6 +1595,16 @@ private:
     double gate_meas_std_floor_ = 0.02;
     int gate_force_accept_ = 20;
     int gate_reject_streak_ = 0;
+
+    // Chassis roll/pitch compensation. Pitch remains disabled in the shipped
+    // YAML until a reliable longitudinal-gradient measurement exists.
+    bool tilt_compensation_enable_ = false;
+    utils::TiltParams tilt_cfg_;
+    double last_roll_rad_ = 0.0;
+    double last_pitch_rad_ = 0.0;
+    size_t last_tilt_dropped_ = 0;
+    double last_speed_ = 0.0;
+    bool has_last_speed_ = false;
 
     double position_covariance_ = 0.1;
     double orientation_covariance_ = 0.1;

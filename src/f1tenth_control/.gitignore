@@ -33,6 +33,12 @@ __pycache__/
 
 # User documentation (exclude from git)
 docs/
+# 단 노드 문서는 저장소 규약상 올린다 (CLAUDE.md "Node Documentation").
+# CMakeLists 가 install(DIRECTORY docs)로 설치하므로, 이 파일이 없으면 다른 머신에서
+# docs/ 자체가 없어 **설치 단계에서 빌드가 실패한다** (2026-08-21 실제 발생).
+!docs/
+docs/*
+!docs/*_node.md
 
 
 # IntelliSense용 생성물 (2026_IFAC 빌드에서 경로 재작성, .vscode 태스크로 갱신)

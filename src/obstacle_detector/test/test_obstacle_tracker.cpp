@@ -178,6 +178,11 @@ TEST(ObstacleTrackerIdentity, StableStaticAnchorIgnoresLateViewpointDrift)
     params.confirmation_window = 1;
     params.static_vote_required = 1;
     params.static_min_observations = 1;
+    // This test short-circuits every STATIC gate to isolate anchor behaviour, so the observation
+    // span and translation gates go too -- a spawn-frame track has no translation history at all,
+    // so its proof is NaN. Do not copy this into tests that care about classification timing.
+    params.static_min_observation_sec = 0.0;
+    params.translation_corroboration_enable = false;
     params.envelope_stability_frames = 0;
     params.ttl_static = 1;
     params.ttl_dynamic = 1;
@@ -399,18 +404,31 @@ TEST(ObstacleTrackerGeometry, EnvelopeStabilityStreakTracksSettledMeasurements)
     tracker.update({makeDetection(10.01)}, 0.4);
     EXPECT_EQ(tracker.tracks().front().envelope_stable_streak, 1);
 
-    // A morphing envelope (fan-shaped scatter) resets the streak.
+    // B2-① (2026-08-20): 순수 확장(접근 중 보이는 면이 커짐)은 스트릭을 끊지 않는다.
+    // 구 대칭 리셋은 성장 프레임마다 발행 게이트를 닫아 두 토픽에 2프레임 구멍을 만들었다
+    // (run_192006 id35: 접근 2초 동안 구멍 5회).
     auto morph = makeDetection(10.0);
     morph.d_left_offset = 0.45;
     morph.d_right_offset = -0.55;
     tracker.update({morph}, 0.5);
+    EXPECT_EQ(tracker.tracks().front().envelope_stable_streak, 2);
+
+    // The envelope fast-grew to the morph size; repeating it is still stable.
+    tracker.update({morph}, 0.6);
+    EXPECT_EQ(tracker.tracks().front().envelope_stable_streak, 3);
+
+    // 수축(부채꼴 산란 유령의 서명)은 종전대로 리셋한다.
+    tracker.update({makeDetection(10.0)}, 0.7);
     EXPECT_EQ(tracker.tracks().front().envelope_stable_streak, 0);
 
-    // The envelope fast-grew to the morph size; repeating it is stable again.
-    tracker.update({morph}, 0.6);
+    // 다시 커지는 것은 즉시 재적립된다 (fast-grow 와 같은 방향).
+    tracker.update({morph}, 0.8);
     EXPECT_EQ(tracker.tracks().front().envelope_stable_streak, 1);
-    // A jumping centre resets the streak.
-    tracker.update({makeDetection(10.6)}, 0.7);
+
+    // A jumping centre resets the streak (확장 여부와 무관).
+    auto jumped = morph;
+    jumped.s = 10.6;
+    tracker.update({jumped}, 0.9);
     EXPECT_EQ(tracker.tracks().front().envelope_stable_streak, 0);
 }
 
@@ -509,6 +527,252 @@ TEST(ObstacleTrackerTranslation, ProgressiveRevelationKeepsStaticObstacleOutOfDy
     EXPECT_FALSE(run(true)) << "a revealed static obstacle must keep its static layer";
 }
 
+TEST(ObstacleTrackerTranslation, ProgressiveRevelationProvesNoTranslation)
+{
+    TrackerParams params = testParams();
+    ObstacleTracker tracker;
+    tracker.configure(params, nullptr);
+
+    Detection detection = makeDetection(10.0);
+    tracker.update({detection}, 0.0);
+    ASSERT_EQ(tracker.tracks().size(), 1U);
+
+    // Only the far x edge is revealed. The safety AABB grows, but no pair of samples proves that
+    // the box translated, so no dynamic vote may be cast.
+    for (int i = 1; i <= 20; ++i)
+    {
+        detection.x_max += 0.01;
+        detection.s += 0.005;
+        detection.s_half_extent += 0.005;
+        tracker.update({detection}, 0.01 * i);
+    }
+
+    ASSERT_EQ(tracker.tracks().size(), 1U);
+    const Track &track = tracker.tracks().front();
+    EXPECT_NEAR(track.provable_map_translation_m, 0.0, 1.0e-12);
+    EXPECT_NEAR(track.provable_frenet_translation_m, 0.0, 1.0e-12);
+    EXPECT_FALSE(track.translation_evidence_persistent);
+    EXPECT_NE(track.motion_status, MotionStatus::Dynamic);
+}
+
+// Regression for a48b374: the map KF was fed an accumulated two-edge translation instead of the
+// raw AABB centre. min(|dmin|,|dmax|) is biased towards zero, so under centimetre edge noise the
+// filter read a moving opponent 25-50% too slow and stopped calling it DYNAMIC. Noise is what
+// exposes this, so it must be injected -- the noise-free synthetic tests cannot see it.
+TEST(ObstacleTrackerTranslation, NoisyEdgesDoNotHideAModeratelyMovingOpponent)
+{
+    TrackerParams params = testParams();
+    params.dynamic_min_translation_m = 0.18;
+    params.dynamic_translation_persistence_sec = 0.30;
+    params.translation_window_sec = 0.20;
+    ObstacleTracker tracker;
+    tracker.configure(params, nullptr);
+
+    // Deterministic pseudo-noise on each edge independently, +/- 2 cm.
+    uint32_t seed = 12345U;
+    const auto noise = [&seed]() {
+        seed = seed * 1664525U + 1013904223U;
+        return (static_cast<double>(seed >> 8U) / 16777216.0 - 0.5) * 0.04;
+    };
+
+    constexpr double speed = 1.2;   // m/s -- below the 1.5 m/s the old 0.30 m gate demanded
+    constexpr double dt = 0.025;    // 40 Hz
+    for (int i = 0; i <= 80; ++i)
+    {
+        const double travelled = speed * dt * i;
+        Detection detection = makeDetection(10.0 + travelled);
+        detection.x_min = 10.0 + travelled - 0.2 + noise();
+        detection.x_max = 10.0 + travelled + 0.2 + noise();
+        detection.y_min = -0.2 + noise();
+        detection.y_max = 0.2 + noise();
+        tracker.update({detection}, dt * i);
+    }
+
+    ASSERT_EQ(tracker.tracks().size(), 1U);
+    const Track &track = tracker.tracks().front();
+    EXPECT_TRUE(track.translation_evidence_persistent);
+    EXPECT_EQ(track.motion_status, MotionStatus::Dynamic);
+}
+
+// Regression for the run_0814_010624 id42 failure: a one-off localization jump moves both edges
+// together, so it passes the two-edge proof. It may not pass the persistence requirement, because
+// the proof collapses once the pre-jump samples age out of translation_window_sec.
+TEST(ObstacleTrackerTranslation, SingleLocalizationJumpDoesNotProduceDynamicVotes)
+{
+    TrackerParams params = testParams();
+    params.dynamic_min_translation_m = 0.18;
+    params.dynamic_translation_persistence_sec = 0.30;
+    params.translation_window_sec = 0.20;
+    ObstacleTracker tracker;
+    tracker.configure(params, nullptr);
+
+    constexpr double dt = 0.025;
+    constexpr double jump = 0.35;   // well above dynamic_min_translation_m
+    for (int i = 0; i <= 80; ++i)
+    {
+        const double offset = i >= 20 ? jump : 0.0;
+        Detection detection = makeDetection(10.0 + offset);
+        detection.x_min = 10.0 + offset - 0.2;
+        detection.x_max = 10.0 + offset + 0.2;
+        tracker.update({detection}, dt * i);
+        EXPECT_NE(tracker.tracks().front().motion_status, MotionStatus::Dynamic)
+            << "a single pose jump must never reach DYNAMIC (frame " << i << ")";
+    }
+}
+
+TEST(ObstacleTrackerTranslation, FrenetEnvelopeCorroboratesTurningOpponent)
+{
+    TrackerParams params = testParams();
+    params.dynamic_min_translation_m = 0.18;
+    params.dynamic_translation_persistence_sec = 0.30;
+    params.translation_window_sec = 0.20;
+    params.translation_history_max_samples = 64;
+    ObstacleTracker tracker;
+    tracker.configure(params, nullptr);
+
+    constexpr double speed = 1.8;
+    constexpr double dt = 0.004;
+    constexpr double half_length = 0.28;
+    constexpr double half_width = 0.1435;
+    constexpr double curvature = 1.316266519;
+    constexpr double initial_yaw = 2.0929290258215203;
+
+    double map_proof_at_window_end = std::numeric_limits<double>::quiet_NaN();
+    double frenet_proof_at_window_end = std::numeric_limits<double>::quiet_NaN();
+    // Run past dynamic_translation_persistence_sec so the sustained proof can actually vote.
+    for (int i = 0; i <= 150; ++i)
+    {
+        const double distance = speed * dt * i;
+        const double yaw = initial_yaw + curvature * distance;
+        const double center_x =
+            (std::sin(yaw) - std::sin(initial_yaw)) / curvature;
+        const double center_y =
+            (-std::cos(yaw) + std::cos(initial_yaw)) / curvature;
+        const double half_x =
+            half_length * std::abs(std::cos(yaw)) +
+            half_width * std::abs(std::sin(yaw));
+        const double half_y =
+            half_length * std::abs(std::sin(yaw)) +
+            half_width * std::abs(std::cos(yaw));
+
+        Detection detection = makeDetection(5.0 + distance);
+        detection.s_half_extent = half_length;
+        detection.x_min = center_x - half_x;
+        detection.x_max = center_x + half_x;
+        detection.y_min = center_y - half_y;
+        detection.y_max = center_y + half_y;
+        tracker.update({detection}, dt * i);
+        if (i == 50)
+        {
+            map_proof_at_window_end = tracker.tracks().front().provable_map_translation_m;
+            frenet_proof_at_window_end =
+                tracker.tracks().front().provable_frenet_translation_m;
+        }
+    }
+
+    ASSERT_EQ(tracker.tracks().size(), 1U);
+    const Track &track = tracker.tracks().front();
+    // Yaw rotation changes the map AABB's width/height, which cancels part of the two-edge
+    // translation. The track-aligned Frenet envelope keeps proving the full arc length, so it is
+    // the stronger of the two proofs for a turning object -- that is why it exists.
+    EXPECT_GT(frenet_proof_at_window_end, map_proof_at_window_end);
+    EXPECT_GT(frenet_proof_at_window_end, params.dynamic_min_translation_m);
+    EXPECT_TRUE(track.translation_evidence_persistent);
+    EXPECT_EQ(track.motion_status, MotionStatus::Dynamic);
+}
+
+// The shipped config/obstacle_detector.yaml values, so these two tests exercise what actually
+// runs rather than the deliberately loose testParams().
+TrackerParams shippedParams()
+{
+    TrackerParams p;
+    p.meas_var_s = 0.01;
+    p.meas_var_d = 0.01;
+    p.process_var_vs = 2.0;
+    p.process_var_vd = 8.0;
+    p.assoc_gate = 0.5;
+    p.assoc_use_mahalanobis = true;
+    p.min_hits_confirm = 3;
+    p.confirmation_window = 5;
+    p.static_lost_hold_sec = 5.0;
+    p.envelope_stability_tolerance_m = 0.10;
+    p.envelope_stability_frames = 2;
+    p.dynamic_chi2_threshold = 9.21;
+    p.static_chi2_threshold = 5.99;
+    p.frenet_dynamic_chi2_threshold = 6.63;
+    p.dynamic_vote_window = 5;
+    p.dynamic_vote_required = 3;
+    p.static_vote_window = 15;
+    p.static_vote_required = 10;
+    p.position_history_size = 15;
+    p.static_min_observations = 10;
+    p.static_max_position_rms = 0.10;
+    p.static_min_observation_sec = 0.25;
+    p.dynamic_to_static_min_observations = 20;
+    p.dynamic_to_static_vote_required = 15;
+    p.dynamic_to_static_max_position_rms = 0.08;
+    p.translation_corroboration_enable = true;
+    p.translation_window_sec = 0.20;
+    p.translation_history_max_samples = 64;
+    p.dynamic_min_translation_m = 0.18;
+    p.dynamic_translation_persistence_sec = 0.30;
+    return p;
+}
+
+Detection makeCarDetection(double x)
+{
+    Detection detection;
+    detection.s = x;
+    detection.d = 0.0;
+    detection.s_half_extent = 0.28;
+    detection.d_right_offset = -0.14;
+    detection.d_left_offset = 0.14;
+    detection.size = 0.56;
+    detection.x_min = x - 0.28;
+    detection.x_max = x + 0.28;
+    detection.y_min = -0.14;
+    detection.y_max = 0.14;
+    return detection;
+}
+
+// Regression for the 2026-08-20 two-agent run: every STATIC entry gate counted FRAMES. The gym
+// bridge publishes scans at 250 Hz (`create_timer(0.004)`), so the 15-frame vote window is 60 ms
+// and the 15-sample position RMS spans 3.5 cm at 2 m/s -- while the freshly spawned track still
+// carried the zero velocity it was initialized with. The opponent was confirmed STATIC 44 ms after
+// track birth and published on /confirmed_static_obs, which local_planning then avoided.
+TEST(ObstacleTrackerClassification, MovingOpponentNeverBecomesStaticAtHighScanRate)
+{
+    ObstacleTracker tracker;
+    tracker.configure(shippedParams(), nullptr);
+
+    constexpr double dt = 0.004;   // gym bridge scan timer
+    constexpr double speed = 2.0;
+    for (int i = 0; i <= 300; ++i)
+    {
+        tracker.update({makeCarDetection(10.0 + speed * dt * i)}, dt * i);
+        ASSERT_EQ(tracker.tracks().size(), 1U);
+        EXPECT_NE(tracker.tracks().front().motion_status, MotionStatus::Static)
+            << "a 2 m/s opponent must never be confirmed STATIC (frame " << i << ")";
+    }
+    EXPECT_EQ(tracker.tracks().front().motion_status, MotionStatus::Dynamic);
+}
+
+// The counterpart: the time-based gate must not stop a genuinely stationary obstacle from being
+// confirmed. It stays provisional on /static_obs meanwhile, so the delay is on the safe side.
+TEST(ObstacleTrackerClassification, StationaryObstacleStillReachesStaticAtHighScanRate)
+{
+    ObstacleTracker tracker;
+    tracker.configure(shippedParams(), nullptr);
+
+    constexpr double dt = 0.004;
+    for (int i = 0; i <= 200; ++i)
+    {
+        tracker.update({makeCarDetection(10.0)}, dt * i);
+    }
+    ASSERT_EQ(tracker.tracks().size(), 1U);
+    EXPECT_EQ(tracker.tracks().front().motion_status, MotionStatus::Static);
+}
+
 TEST(ObstacleTrackerIdentity, SpatialFallbackAlsoReconnectsDynamicTrack)
 {
     TrackerParams params = testParams();
@@ -560,6 +824,31 @@ TEST(ObstacleTrackerClassification, SmallVelocityWithTinyCovarianceIsDynamicEvid
     EXPECT_TRUE(result.covariance_valid);
     EXPECT_GT(result.statistic, params.dynamic_chi2_threshold);
     EXPECT_EQ(result.evidence, MotionEvidence::DynamicEvidence);
+}
+
+TEST(ObstacleTrackerClassification, FrenetEvidenceIsDynamicOnly)
+{
+    TrackerParams params = testParams();
+    params.frenet_dynamic_chi2_threshold = 6.63;
+
+    const auto dynamic = evaluateFrenetVelocityEvidence(2.0, 0.10, params);
+    EXPECT_TRUE(dynamic.covariance_valid);
+    EXPECT_GT(dynamic.statistic, params.frenet_dynamic_chi2_threshold);
+    EXPECT_EQ(dynamic.evidence, MotionEvidence::DynamicEvidence);
+
+    // A small Ts is NOT evidence of stationarity: the Frenet filter is driven by the raw AABB
+    // centre, which also drifts while a stationary obstacle is progressively revealed.
+    const auto stationary = evaluateFrenetVelocityEvidence(0.01, 0.10, params);
+    EXPECT_TRUE(stationary.covariance_valid);
+    EXPECT_EQ(stationary.evidence, MotionEvidence::Uncertain);
+}
+
+TEST(ObstacleTrackerClassification, InvalidFrenetCovarianceProducesUncertainEvidence)
+{
+    TrackerParams params = testParams();
+    const auto result = evaluateFrenetVelocityEvidence(2.0, -1.0, params);
+    EXPECT_FALSE(result.covariance_valid);
+    EXPECT_EQ(result.evidence, MotionEvidence::Uncertain);
 }
 
 TEST(ObstacleTrackerClassification, LargeVelocityWithHugeCovarianceIsNotDynamicEvidence)
@@ -889,6 +1178,165 @@ TEST(ObstacleTrackerClassification, EgoMotionTransientWithholdsDynamicVotes)
         << "regression witness: a 1 m/s translating track must reach DYNAMIC";
     EXPECT_FALSE(becomes_dynamic(true))
         << "dynamic votes must be withheld while ego acceleration is transient";
+}
+
+TEST(CrossCovarianceClamp, ClipsToCauchySchwarzBound)
+{
+    // Multi-member merge: diag comes from member A (per-axis max), cross term from member B,
+    // so the raw weighted mean can exceed the bound. sqrt(1.0 * 4.0) = 2.0.
+    EXPECT_NEAR(clampCrossCovariance(5.0, 1.0, 4.0), 0.99 * 2.0, 1e-12);
+    EXPECT_NEAR(clampCrossCovariance(-5.0, 1.0, 4.0), -0.99 * 2.0, 1e-12);
+    // Inside the bound the value passes through untouched (the usual single-member case).
+    EXPECT_NEAR(clampCrossCovariance(0.5, 1.0, 4.0), 0.5, 1e-12);
+}
+
+TEST(CrossCovarianceClamp, DegenerateInputCollapsesToZero)
+{
+    // A zero variance mathematically forces cov = 0 (reachable: the merged diagonal is a
+    // max-accumulator seeded at 0.0 and every member may hold P(i,i) == 0.0).
+    EXPECT_DOUBLE_EQ(clampCrossCovariance(0.3, 0.0, 4.0), 0.0);
+    // NaN must never reach the topic. Only the cross term can carry NaN into the helper
+    // (the diagonal max-accumulator drops NaN), but the guard covers both operands.
+    EXPECT_DOUBLE_EQ(
+        clampCrossCovariance(std::numeric_limits<double>::quiet_NaN(), 1.0, 4.0), 0.0);
+    EXPECT_DOUBLE_EQ(
+        clampCrossCovariance(0.3, std::numeric_limits<double>::quiet_NaN(), 4.0), 0.0);
+    // An infinite variance survives the max-accumulator, so it is a real input here.
+    EXPECT_DOUBLE_EQ(
+        clampCrossCovariance(0.3, std::numeric_limits<double>::infinity(), 4.0), 0.0);
+    // Defensive only: mergeLayer() cannot produce a negative variance (max-accumulator seeded
+    // at 0.0). This locks the contract for any future caller passing a raw P(i,i).
+    EXPECT_DOUBLE_EQ(clampCrossCovariance(0.3, -1.0, 4.0), 0.0);
+}
+
+// ------------------------------------------------------------------------------------------------
+// 후방 사각 회수 (2026-08-22)
+//
+// free-space 반증과 같은 자리에 붙는 두 번째 회수 근거다. 반증은 "상자를 관통한 빔"을 요구해
+// 시야 안에서만 성립하고, 이쪽은 시야 밖만 맡는다 — 둘은 겹치지 않는다.
+// ------------------------------------------------------------------------------------------------
+
+TEST(ObstacleTrackerLifetime, RearBlindRetiresHeldEnvelopeAfterConsecutiveScans)
+{
+    TrackerParams params = testParams();
+    params.ttl_static = 3;
+    params.static_lost_hold_sec = 5.0;
+    params.static_hold_rear_blind_retire_frames = 3;
+    ObstacleTracker tracker;
+    tracker.configure(params, nullptr);
+
+    for (int i = 0; i < 4; ++i)
+    {
+        tracker.update({makeDetection(10.0)}, 0.1 * i);
+    }
+    ASSERT_EQ(tracker.tracks().size(), 1U);
+    ASSERT_EQ(tracker.tracks().front().track_status, TrackStatus::Confirmed);
+
+    const auto blind = [](const Track &) { return true; };
+    const auto visible = [](const Track &) { return false; };
+    double stamp = 0.4;
+    // 두 스캔으로는 부족하다 — TF 한 프레임 흔들림으로 map-fixed 물체를 지우면 안 된다.
+    for (int i = 0; i < 2; ++i)
+    {
+        tracker.update({}, stamp, 0.0, true, false, nullptr, blind);
+        stamp += 0.1;
+        ASSERT_EQ(tracker.tracks().size(), 1U) << "streak 미달인데 회수됐다 (" << i << ")";
+    }
+    // 한 프레임이라도 볼 수 있으면 streak 이 끊긴다.
+    tracker.update({}, stamp, 0.0, true, false, nullptr, visible);
+    stamp += 0.1;
+    ASSERT_EQ(tracker.tracks().size(), 1U);
+    EXPECT_EQ(tracker.tracks().front().rear_blind_streak, 0);
+
+    for (int i = 0; i < 2; ++i)
+    {
+        tracker.update({}, stamp, 0.0, true, false, nullptr, blind);
+        stamp += 0.1;
+        ASSERT_EQ(tracker.tracks().size(), 1U);
+    }
+    tracker.update({}, stamp, 0.0, true, false, nullptr, blind);
+    EXPECT_TRUE(tracker.tracks().empty())
+        << "봉투가 " << params.static_hold_rear_blind_retire_frames
+        << " 스캔 연속 후방 사각이었는데도 static_lost_hold_sec 를 끝까지 채웠다";
+}
+
+TEST(ObstacleTrackerLifetime, RearBlindRetirementIsSkippedWithoutThePredicate)
+{
+    // 술어를 안 넣으면(또는 frames=0) 종전 순수 차폐 hold 와 비트 단위로 같아야 한다.
+    // 이것이 되돌리기 경로(static_hold_rear_blind_retire_enable:=false)의 계약이다.
+    TrackerParams params = testParams();
+    params.ttl_static = 3;
+    params.static_lost_hold_sec = 5.0;
+    params.static_hold_rear_blind_retire_frames = 3;
+    ObstacleTracker tracker;
+    tracker.configure(params, nullptr);
+
+    for (int i = 0; i < 4; ++i)
+    {
+        tracker.update({makeDetection(10.0)}, 0.1 * i);
+    }
+    ASSERT_EQ(tracker.tracks().size(), 1U);
+
+    double stamp = 0.4;
+    for (int i = 0; i < 8; ++i)
+    {
+        tracker.update({}, stamp);   // 술어 없음
+        stamp += 0.1;
+    }
+    EXPECT_EQ(tracker.tracks().size(), 1U)
+        << "술어가 없는데도 회수됐다 — 되돌리기 경로가 종전 거동을 재현하지 못한다";
+
+    // frames=0 도 같은 계약이다.
+    TrackerParams disabled = params;
+    disabled.static_hold_rear_blind_retire_frames = 0;
+    ObstacleTracker off;
+    off.configure(disabled, nullptr);
+    for (int i = 0; i < 4; ++i)
+    {
+        off.update({makeDetection(10.0)}, 0.1 * i);
+    }
+    ASSERT_EQ(off.tracks().size(), 1U);
+    stamp = 0.4;
+    const auto blind = [](const Track &) { return true; };
+    for (int i = 0; i < 8; ++i)
+    {
+        off.update({}, stamp, 0.0, true, false, nullptr, blind);
+        stamp += 0.1;
+    }
+    EXPECT_EQ(off.tracks().size(), 1U) << "frames=0 인데 회수됐다";
+}
+
+TEST(ObstacleTrackerLifetime, MeasurementResetsTheRearBlindStreak)
+{
+    // 유령이 다시 보이면(= 측정이 붙으면) 회수 근거가 사라진다. 후진·스핀 복구 경로다.
+    TrackerParams params = testParams();
+    params.ttl_static = 3;
+    params.static_lost_hold_sec = 5.0;
+    params.static_hold_rear_blind_retire_frames = 3;
+    ObstacleTracker tracker;
+    tracker.configure(params, nullptr);
+
+    for (int i = 0; i < 4; ++i)
+    {
+        tracker.update({makeDetection(10.0)}, 0.1 * i);
+    }
+    ASSERT_EQ(tracker.tracks().size(), 1U);
+
+    const auto blind = [](const Track &) { return true; };
+    double stamp = 0.4;
+    for (int i = 0; i < 2; ++i)
+    {
+        tracker.update({}, stamp, 0.0, true, false, nullptr, blind);
+        stamp += 0.1;
+    }
+    ASSERT_EQ(tracker.tracks().size(), 1U);
+    ASSERT_EQ(tracker.tracks().front().rear_blind_streak, 2);
+
+    tracker.update({makeDetection(10.0)}, stamp, 0.0, true, false, nullptr, blind);
+    stamp += 0.1;
+    ASSERT_EQ(tracker.tracks().size(), 1U);
+    EXPECT_EQ(tracker.tracks().front().rear_blind_streak, 0)
+        << "측정이 붙었는데 후방 사각 streak 이 남았다";
 }
 
 }  // namespace

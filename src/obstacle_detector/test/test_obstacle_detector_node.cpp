@@ -19,6 +19,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <cmath>
+#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
@@ -209,6 +210,124 @@ TEST_F(ObstacleDetectorNodeTest, OppObsIsSuppressedUntilEgoOdometryArrives)
 
     EXPECT_GT(opp_messages_, 0)
         << "/opp_obs stayed suppressed after fresh ego odometry arrived";
+}
+
+// ------------------------------------------------------------------------------------------------
+// 후방 사각 회수 판정 기하 (2026-08-22)
+//
+// 이 판정이 지키는 계약은 하나다: **네 꼭짓점이 전부 FOV 밖일 때만** true.
+// 하나라도 볼 수 있으면 그건 차폐일 수 있고, 차폐는 static hold 가 존재하는 이유 그 자체다.
+// ------------------------------------------------------------------------------------------------
+
+// 실차 라이다(±135°, 1081 빔)를 그대로 쓴다. FOV 를 코드 상수로 두지 않는 것이 설계 요점이라
+// 시험도 스캔 헤더로만 FOV 를 준다.
+// 순수 기하라 노드 인스턴스가 필요 없다 — static 함수를 직접 부른다.
+constexpr auto kInRearBlindCone =
+    &obstacle_detector::ObstacleDetectorNode::envelopeInRearBlindCone;
+
+sensor_msgs::msg::LaserScan makeScan(double angle_min, double angle_max)
+{
+    sensor_msgs::msg::LaserScan scan;
+    scan.angle_min = static_cast<float>(angle_min);
+    scan.angle_max = static_cast<float>(angle_max);
+    scan.angle_increment = static_cast<float>((angle_max - angle_min) / 1080.0);
+    return scan;
+}
+
+// 스캔 원점 기준 (forward, left) 위치에 half 크기의 정사각 봉투를 놓는다. yaw=0 이므로
+// map 좌표가 곧 스캔 좌표다.
+obstacle_detector::Track makeEnvelope(double forward, double left, double half)
+{
+    obstacle_detector::Track track;
+    track.x_min_map = forward - half;
+    track.x_max_map = forward + half;
+    track.y_min_map = left - half;
+    track.y_max_map = left + half;
+    return track;
+}
+
+constexpr double kRealScanMin = -2.356194;   // -135.0 deg
+constexpr double kRealScanMax = 2.356194;    // +135.0 deg
+constexpr double kMargin = 2.0 * M_PI / 180.0;
+
+TEST(RearBlindCone, RetiresTheEnvelopeThatDeadlockedTheRealCar)
+{
+    // run_20260821_230603 t=56.18 의 유령: 라이다 뒤 1.23 m, 측방 0.55 m. 이 봉투가 사라진
+    // 0.22 s 뒤에 안전정지가 풀렸다 — 즉 이 판정이 잡아야 하는 바로 그 형상이다.
+    const auto scan = makeScan(kRealScanMin, kRealScanMax);
+    const auto track = makeEnvelope(-1.23, 0.55, 0.06);
+    EXPECT_TRUE(kInRearBlindCone(track, scan, 0.0, 0.0, 0.0, kMargin));
+}
+
+TEST(RearBlindCone, KeepsAnythingStillInsideTheFieldOfView)
+{
+    const auto scan = makeScan(kRealScanMin, kRealScanMax);
+    // 정면
+    EXPECT_FALSE(kInRearBlindCone(
+        makeEnvelope(3.0, 0.0, 0.15), scan, 0.0, 0.0, 0.0, kMargin));
+    // 옆 (bearing 90°)
+    EXPECT_FALSE(kInRearBlindCone(
+        makeEnvelope(0.0, 2.0, 0.15), scan, 0.0, 0.0, 0.0, kMargin));
+    // 뒤쪽이지만 크게 옆으로 벌어져 있어 135° 안쪽 (bearing ≈ 116°)
+    EXPECT_FALSE(kInRearBlindCone(
+        makeEnvelope(-1.0, 2.0, 0.10), scan, 0.0, 0.0, 0.0, kMargin));
+}
+
+TEST(RearBlindCone, KeepsAnEnvelopeThatOnlyPartiallyLeavesTheFieldOfView)
+{
+    // 사각 경계에 걸친 봉투 — 꼭짓점 일부만 밖이다. 회수하면 안 된다.
+    const auto scan = makeScan(kRealScanMin, kRealScanMax);
+    const auto track = makeEnvelope(-1.0, 1.0, 0.30);   // 중심 bearing 135°
+    EXPECT_FALSE(kInRearBlindCone(track, scan, 0.0, 0.0, 0.0, kMargin));
+}
+
+TEST(RearBlindCone, MarginWidensTheFieldOfViewSoItIsConservative)
+{
+    const auto scan = makeScan(kRealScanMin, kRealScanMax);
+    // 사각 경계 바로 바깥(≈136.5°)에 아주 작은 봉투를 둔다.
+    const double bearing = (136.5) * M_PI / 180.0;
+    const double radius = 1.5;
+    const auto track = makeEnvelope(radius * std::cos(bearing), radius * std::sin(bearing), 0.01);
+    // margin 0 이면 회수 대상
+    EXPECT_TRUE(kInRearBlindCone(track, scan, 0.0, 0.0, 0.0, 0.0));
+    // margin 2° 는 FOV 를 넓히므로 아직 회수하지 않는다
+    EXPECT_FALSE(kInRearBlindCone(track, scan, 0.0, 0.0, 0.0, kMargin));
+}
+
+TEST(RearBlindCone, IsANoOpForA360DegreeScanner)
+{
+    // 사각이 없는 스캐너에서는 이 회수 근거가 성립하지 않는다.
+    const auto scan = makeScan(-M_PI, M_PI);
+    const auto track = makeEnvelope(-2.0, 0.0, 0.10);
+    EXPECT_FALSE(kInRearBlindCone(track, scan, 0.0, 0.0, 0.0, kMargin));
+}
+
+TEST(RearBlindCone, UsesTheScanFramePoseSoEgoYawRotatesTheCone)
+{
+    const auto scan = makeScan(kRealScanMin, kRealScanMax);
+    // map 기준 (-2, 0) 의 봉투. yaw=0 이면 정후방이라 사각.
+    const auto track = makeEnvelope(-2.0, 0.0, 0.10);
+    EXPECT_TRUE(kInRearBlindCone(track, scan, 0.0, 0.0, 0.0, kMargin));
+    // 차가 180° 돌면 같은 봉투가 정면이 된다.
+    EXPECT_FALSE(kInRearBlindCone(track, scan, 0.0, 0.0, M_PI, kMargin));
+    // 원점 평행이동도 그대로 따라간다: 라이다가 (-4,0) 이면 그 봉투는 전방 2 m 다.
+    EXPECT_FALSE(kInRearBlindCone(track, scan, -4.0, 0.0, 0.0, kMargin));
+}
+
+TEST(RearBlindCone, RejectsAnEnvelopeWithoutFiniteGeometry)
+{
+    const auto scan = makeScan(kRealScanMin, kRealScanMax);
+    obstacle_detector::Track track = makeEnvelope(-2.0, 0.0, 0.10);
+    track.x_min_map = std::numeric_limits<double>::quiet_NaN();
+    EXPECT_FALSE(kInRearBlindCone(track, scan, 0.0, 0.0, 0.0, kMargin));
+}
+
+TEST(RearBlindCone, KeepsAnEnvelopeSittingOnTheScanOrigin)
+{
+    // 원점을 덮는 봉투는 bearing 이 수치적으로 무의미하다 — 회수하지 않는다.
+    const auto scan = makeScan(kRealScanMin, kRealScanMax);
+    const auto track = makeEnvelope(0.0, 0.0, 0.20);
+    EXPECT_FALSE(kInRearBlindCone(track, scan, 0.0, 0.0, 0.0, kMargin));
 }
 
 }  // namespace

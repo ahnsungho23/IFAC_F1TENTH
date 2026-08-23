@@ -1,5 +1,17 @@
 # AGENTS.md for local_planning
 
+## 차량 한계표 (velocity_limits.csv)
+
+`avoidance_velocity_limit_accel_mps2` / `_decel_mps2` 는
+`offline_trajectory_generator/config/velocity_limits.csv` 의 `max_accel` / `max_decel` 열과
+**반드시 같아야 합니다** — `test/test_velocity_limits_match_csv.py` 가 검사합니다. 라인
+생성기와 로컬 플래너가 하나의 차량 모델을 쓰게 하는 것이 이 표의 목적이므로, VESC 를 다시
+재면 csv 를 고치고 그 테스트를 돌려 YAML 두 개(운영·시뮬)를 맞추십시오.
+
+`avoidance_velocity_limit_lateral_accel_mps2` 는 **csv 에서 가져오지 않습니다.** 실측 근거
+(2026-08-19 달성 횡가속 p90 6.71 m/s²)로 7.0/6.5 를 유지하며, `avoidanceVelocityLimitValid()`
+가 이 표에 **비증가**를 요구하므로 저속행만 낮추면 노드가 시작 시 throw 합니다.
+
 ## Package purpose
 
 - This package handles static-obstacle avoidance only.
@@ -27,6 +39,18 @@
 - Consume the detector-owned Frenet footprint on the obstacle input without any Cartesian-to-Frenet
   conversion. Treat `s_start/s_end/d_right/d_left` as the authoritative obstacle geometry.
   Cartesian AABB fields are optional metadata and are not consumed as planner geometry.
+- 🔴 `obstacle_reserve_mode` (2026-08-22) gates the whole tracking-error reserve. Operational
+  value is `none`, and so is the C++ default: `trackingErrorReserve()` then returns
+  `localization_reserve_m` alone and neither the LUT nor its fallback constant is read.
+  This is a **gate, not zeroed values** — a table blanked to 35 zeros came back through a merge
+  once already (see the "🔴 2026-08-20 복원" note in `config/local_planning.yaml`), whereas the
+  gate has to be flipped to `"lut"` by hand and that shows up in `--show-args` and the bag.
+  An unrecognised string falls back to `"lut"`, never to `"none"`: a typo must not silently
+  remove obstacle margin. With the gate off, obstacle clearance is
+  `vehicle_half_width_m + safety_margin_m` (0.15 + 0.05) and `safety_margin_m` is the **only**
+  margin knob left; `gapLimitedAvoidanceSpeed` becomes the identity, so a narrow gap is a
+  pass/fail decision instead of a slow-through ladder. Everything below describes the
+  `"lut"` path, kept intact for rollback and exercised by `test_obstacle_reserve_gate`.
 - Obstacle bounds are raw detector geometry. Compute the tracking-error tube by bilinear
   interpolation of the configured speed-by-absolute-curvature LUT, falling back to
   `tracking_error_reserve_m` only when the LUT is intentionally empty. For obstacle target
@@ -215,6 +239,16 @@
   Return from such an array without touching the snapshot, sequence, source stamp, or P3 epoch. Do
   not wait for repeated observations when replanning solely from retained
   stale memory because no new samples can arrive.
+- In production (`lockstep_mode=false`), keep the authoritative obstacle subscription in its own
+  mutually-exclusive callback group. That callback may only store the latest message, its actual
+  receipt time, and an ingress sequence in the thread-safe latest-only buffer. Drain the buffer at
+  the beginning of the planning callback and perform frame/Frenet validation and every planner
+  state mutation there. Freshness must use the ingress receipt time, not the later drain time.
+  The production executor must provide at least three worker threads for the planning, odometry,
+  and authoritative-ingress groups; two threads can still starve ingress when planning and odometry
+  are both active.
+  Keep the CMA lockstep subscription on the planning group and preserve its direct exact-stamp
+  callback path.
 - The reference-change test must compare every waypoint field the planner consumes -- `s_m`, `x_m`,
   `y_m`, `d_left`, `d_right`, `psi_rad`, `kappa_radpm`, `vx_mps` -- not only the centreline
   geometry. A boundary-only recalibration changes none of `s/x/y`, and `obstacle_detector` already
@@ -314,6 +348,134 @@
   cap to global handoff geometry; safe-stop keeps its separate braking profile.
 - Handle closed-track `s` wrap explicitly. Never encode a waypoint index in Frenet odometry fields.
 
+## Invalidation and safe-stop authority (A1/A2, 2026-08-20)
+
+- On a P3 lifecycle invalidation the node must call `invalidateCommitment()` BEFORE the
+  maneuver-hold gate runs. A post-invalidation `committed_result_` has no custodian: the hold
+  gate and backup pipeline only re-validate it against the CURRENT obstacle snapshot, and on
+  detection-hole frames that validation trivially passes, republishing the dead maneuver's
+  accelerating tail (run_192006 contact #4: command jumped 2.0 -> 6.0 m/s into the obstacle).
+  `invalidateCommitment()` preserves `completed_obstacle_ids_`, `maneuver_obstacle_rear_s_`,
+  `completion_deferred_since_`, and the safe-stop latch; `clearCommitment()` wipes those too.
+- While the safe-stop latch is active, `handleSafeStopLatch` is the ONLY publisher, including
+  inside `holdForManeuverObstacleAhead`. Never bypass it back to `committed_result_` on frames
+  where the snapshot happens to be empty; release goes through the existing ladder
+  (valid avoidance / obstacle passed / stopped corridor clear).
+
+## Maneuver-obstacle memory lifetime (2026-08-22)
+
+The hold gate above reads `maneuver_obstacle_rear_s_`. Two rules keep that memory honest, and
+both live in `include/local_planning/maneuver_memory.hpp` because three call sites share them —
+inlining either one is how they last diverged.
+
+- **An empty id list means "no active maneuver", so the memory must be cleared.** The list comes
+  from `P3ManeuverLifecycle`'s record, NOT from this frame's detections: an undetected obstacle
+  still has its id in the record, so a detection dropout never empties the list. The previous
+  code returned early on an empty list and thereby skipped the cleanup loop too, so entries
+  survived forever. Half a lap later the circular `forwardDistance` re-read a long-passed
+  obstacle as "20.6 m ahead", the hold fired, there was no commitment to publish, and the node
+  latched a safe stop with **zero real hazard** (run_20260822_002336: two such stalls, 52.6 s =
+  55% of that run's safe-stop time; the 22.67 s one had an EMPTY obstacle array in 99.8% of its
+  frames and a median measured speed of 0.00 m/s).
+  Clearing is gated on `maneuver_memory_clear_frames` CONSECUTIVE empty frames — a one-callback
+  IDLE blip is real (2026-08-20 run_062020) and wiping the memory on it would undo that
+  regression guard. `0` restores the leaking behaviour exactly.
+- **"Ahead" is bounded by the planning horizon, not by half a lap.** On a 41.34 m track half a
+  lap is 20.67 m, so an obstacle passed 21 m ago reads as 20.63 m ahead — a **4 cm** margin
+  decides whether it counts as in front of us. `maneuver_memory_max_ahead_m` (default 15.0 =
+  `detection_lookahead_m`) clips it: beyond the horizon the hold's justification ("merging back
+  now means hitting it at offset 0") cannot apply, because re-planning runs many times first.
+  Use `maneuverMemoryMaxAhead()` at every site that reads this memory — `maneuverObstacleRearAhead()`
+  and the rear-memory branch of `safeToBlacklistCompletedObstacle()`. The `s_start` branch of the
+  latter reads live/committed geometry, not this memory, and keeps plain half-track.
+- **Clearing the memory does NOT touch obstacle identity.** The map is keyed BY the detector's id;
+  the planner never assigns one. Whether the same cone keeps its id across laps is decided in
+  `obstacle_detector` by `physical_id_reassociation_*` and `physical_id_memory_sec` (30 s), and
+  measured behaviour is that it does (run_20260821_230603: id62 recurs six times at s≈11, id85
+  three times at s≈28). A new id appears only when the object goes unseen for longer than that
+  memory — which a 20–30 s stall can cause, and which predates this fix.
+- **The cleared memory can never reach `safeToBlacklistCompletedObstacle`'s permissive fallback.**
+  That fallback (`return true` when the id is in none of the three sources) would be a real
+  loosening if the memory were wiped underneath it, but the two conditions are mutually exclusive:
+  the memory is cleared only when the lifecycle id list is empty (no active maneuver), while the
+  function's only caller `resetForChainedManeuver()` runs on the chaining path, which requires an
+  active commitment and therefore a non-empty list. If that function ever gains a caller outside
+  chaining, re-derive whether "no memory" may still be read as "safe to blacklist".
+
+⚠️ Measured scope of the fix, so nobody over-credits it. Open-loop A/B replays, detector and
+planner running together, only `maneuver_memory_clear_frames` differing:
+
+| | run_..._002336 | run_..._002920 |
+|---|---|---|
+| holds | 10 -> 9 | **20 -> 11** |
+| hold timeouts (3 s) | 1 -> 0 | **4 -> 0** |
+| "path entry is discontinuous" | 1 -> 1 | **4 -> 0** |
+| safe stops | 9 / 51.8 s -> 9 / 52.0 s | **18 / 72.4 s -> 16 / 67.3 s** |
+
+Every close hold (0.17–4.94 m) survives in both — that is the regression this fix must not cause.
+On 002336 the total does not move because its dominant stall is a DIFFERENT defect, still open:
+the latch survives while `LATCH_REPLAN` reports `obstacles=0 reason=no static obstacle blocks the
+global race line`, and release condition B cannot fire because that replan returns `kNoObstacle`
+rather than `kAvoidance`. Condition A needs forward motion the stopped car cannot produce, so only
+C is left and it waited 22.67 s.
+
+## Raw slowdown hint (B1, 2026-08-20)
+
+- 🔴 `raw_slowdown_skip_committed` (2026-08-22, operational `true`, C++ default `false`) returns
+  this hint to its stated purpose — covering the promotion delay. The overlay is skipped only when
+  the obstacle is **currently** confirmed AND the result being published is a `kAvoidance` path
+  that lists it. Un-promoted raw, the next obstacle outside the maneuver, a track that fell out of
+  confirmed, and every stop-like result still get the cap, so the run_102718 s5.5 protection holds.
+  ⚠️ The predicate reads the outgoing `result`, NOT `committed_result_`/`has_commitment_`:
+  P3 (`TEST_ACTIVE`, current production) publishes its active maneuver through
+  `makeP3ActiveResult(lifecycle)` and never sets the legacy P0 commitment, so keying off that
+  made the skip fire zero times in replay. Why it matters now: with `obstacle_reserve_mode: none`
+  the gap ladder is dead and this cap becomes the ONLY obstacle-driven speed limit.
+  Replay A/B on run_20260822_015820 (detector + planner, open loop):
+  span speed median 2.80 -> **4.32** m/s, p10 1.62 -> 2.80, p90 2.90 -> 4.72;
+  zero-speed commands 29.1% -> 20.6%; safe-stop latches 5 -> 3; entry-discontinuity 4 -> 2.
+- The planner additionally subscribes `raw_slowdown_topic` (default `/static_obs`) and uses it
+  for SPEED ONLY. Avoidance geometry, commitments, guards, and stops keep consuming
+  `obstacles_topic` (`/confirmed_static_obs`) exclusively.
+- When the confirmed view is empty (plan returns `kNoObstacle`) and a raw obstacle within
+  `raw_slowdown_trigger_distance_m` laterally intersects the race line (envelope inflated by
+  `raw_slowdown_lateral_margin_m`), publish a `kPreparation` path: the vetted global-handoff
+  loop geometry with speeds ramped down at `approach_feasibility_decel_mps2` to
+  `raw_slowdown_speed_cap_mps` at the obstacle front, held through the span + 1 m.
+- Rationale (measured, 3 bags): raw appears 4.5-11 m ahead while confirmed promotion is
+  time-based, so pre-braking halves the distance the promotion latency consumes; passes where
+  promotion never completed (14/107 in run_080532) become slow passes instead of blind hits.
+- The hint check must stay BEFORE the `kNoObstacle && STATE_AVOID -> global handoff` branch,
+  or the two publications alternate frame by frame. `raw_slowdown_hold_sec` bridges detector
+  streak-reset flicker; do not remove it.
+- The hint must never stop the car and never trigger for objects that do not intersect the
+  line — it is a hint, not a hazard response. Hazard responses stay confirmed-only.
+- **Committed republishes get the same protection (2026-08-21, run_20260821_015057 t=139
+  contact).** The handoff-cruise and retention branches return BEFORE the P0 hint hook, so a
+  raw obstacle reacquired 5.4 m ahead was approached at 5.2 m/s and only confirmed at 1.2 m.
+  Every `publishResult(committed_result_)` in those branches must go through
+  `publishCommittedWithRawSlowdownOverlay()`: it applies `applyRawSlowdownProfile` (min-only
+  speed cap) to a COPY of the committed path. Never mutate `committed_result_` itself — the
+  overlay must vanish the cycle after the raw target does.
+
+## Handoff speed shaping (R1, 2026-08-21 — default OFF until road-tested)
+
+- `shapeGlobalHandoffSpeed()` runs behind `handoff_speed_shaping_enable` (yaml default false;
+  enable only for its dedicated staged road test). With the flag off the handoff loop keeps the
+  legacy flat `state_handoff_speed_cap_mps` behaviour bit-for-bit
+  (test_handoff_speed_shaping.cpp pins this).
+- When enabled it walks in EGO-FORWARD order (`(tail_begin + j) % total`) — never array order:
+  the ego sits mid-array, so an array-order pass seeds the acceleration ramp on the wrong
+  points (that is why `applyLongitudinalFeasibility` cannot be reused here).
+- Passes, in order: actual-geometry curvature cap (Menger over post-ramp points, magnitude
+  only) → forward accel ramp seeded from MEASURED ego speed (velocity_limits accel column) →
+  backward decel pass stopping at the ego seam → `updateGeometryAndAcceleration` so ψ, SIGNED
+  κ, and ax reflect the shaped geometry/speeds (controller curvature-FF consumes signed κ).
+- `path_cover_max_gap_m` (default 1.0 = 4 waypoint spacings) is the shared "path still covers
+  ego" tolerance for the exhausted-tail guard (R1b) and the latched-stop regeneration. Keep
+  them on one parameter; diverging them re-creates the silent controller-side fallback the
+  guard exists to prevent.
+
 ## Interfaces
 
 - Subscribe: `/global_waypoints` (`f110_msgs/msg/WpntArray`).
@@ -326,6 +488,9 @@
   `position.y=d`.
 - Subscribe: `/state` (`f110_msgs/msg/StateMachine`) for explicit AVOID-to-GLOBAL handoff
   acknowledgement.
+- Subscribe: `raw_slowdown_topic` (default `/static_obs`, `f110_msgs/msg/ObstacleArray`) for the
+  B1 speed hint only; see the "Raw slowdown hint" section. Skipped when it equals
+  `obstacles_topic`.
 - Publish: `/avoid_waypoints` (`f110_msgs/msg/OTWpntArray`) as an ego-to-merge segment with
   map-frame Cartesian `x_m/y_m` populated for every waypoint.
 - Publish debug: `/local_planning/path` (`nav_msgs/msg/Path`) only.
@@ -350,6 +515,8 @@
 ## Package layout and maintenance
 
 - Node declaration: `include/local_planning/local_planner_node.hpp`.
+- Latest-only obstacle ingress buffer:
+  `include/local_planning/detail/obstacle_ingress_buffer.hpp`.
 - Algorithm declaration: `include/local_planning/raceline_spline_planner.hpp`.
 - Uncertainty Guard declaration: `include/local_planning/obstacle_guard.hpp`.
 - C++ sources: `src/local_planner_node.cpp`, `src/obstacle_guard.cpp`,
@@ -415,9 +582,35 @@
   degrades to the capped-speed lane hold (`margin_pass_speed_cap_mps`, `margin_pass=true`
   commitment that skips margin-based validators and is instead re-checked physically every
   cycle); (2) a physically blocking cluster brakes on the collision-free stop prefix; (3) with
-  no stop prefix, brake along `last_valid_guidance_path_` (`buildCommittedPathStop`, then
+  no stop prefix, brake along `last_valid_guidance_result_.path` (`buildCommittedPathStop`, then
   `buildLastPathBrake`); (4) the in-place zero-speed emergency hold is the last resort only
   when no valid guidance path was ever published.
+- **The hold gate has TWO recovery rungs, not one** (F1, 2026-08-22).
+  `holdForManeuverObstacleAhead()` used to try only `committed_result_`, which **P3
+  (`TEST_ACTIVE`, the operational mode) never populates** — active maneuvers publish through
+  `makeP3ActiveResult(lifecycle)` and never call `commitAvoidance()`. The gate was therefore an
+  unconditional safe stop: on real bags `run_20260822_072312`/`_073013`, 18 holds produced 16
+  safe stops, 13 of them with reason "커밋 경로 없음". The second rung revalidates
+  `last_valid_guidance_result_` against the CURRENT ego and republishes it only if it passes.
+  Selection lives in `hold_recovery_gate.hpp` (pure, unit-tested). Do not delete the second rung
+  and do not reorder it ahead of `committed_result_`.
+  ⚠️ Measured limit: the last published guidance path IS (a 25–75 ms older copy of) the suffix
+  the lifecycle just condemned, so a *geometric* invalidation rejects it again for the same
+  reason. It only rescues non-geometric invalidations. Do not oversell it.
+- **Stop paths must reach the controller's L1 lookahead** (F3, 2026-08-22).
+  `walk_forward()` in `f1tenth_control` stops at the end of an OPEN path, so a short stop path
+  makes the L1 target the path's endpoint. Real car: endpoint 0.18 m ahead / 0.48 m lateral →
+  demanded lateral accel 32.2 m/s² against a 6.80 grip budget (`run_20260822_073013` t=93.7,
+  IMU 1.52 g, d swung 1.0 m). 89–94 % of published stop paths were under 10 points.
+  `extendStopGeometry()` appends the ORIGINAL source geometry past the braking prefix with
+  `vx=0`, so the braking profile is untouched and only steering geometry grows.
+  Two rules when touching this:
+  1. Measure the floor in **metres** (`controller_lookahead_floor_m`), never in points —
+     `densifyPath()` already subdivides short stop prefixes to `minimum_path_points` while
+     deliberately NOT extending the geometric span (2026-08-14).
+  2. Apply it at **publish** time (`topUpStopGeometry()`), not only at latch time. One latch is
+     republished 100+ times while the ego eats into the path; latch-time-only extension moved
+     the replay metric by ~2 pp, publish-time top-up moved it from 33.9 % to ~10 %.
 - Never publish a slow section as a flat step from the ego position
   (`approach_feasibility_decel_mps2`, 2026-08-14): the margin pass ramps down from the MEASURED
   ego speed, and the avoidance spline carries a backward braking ramp into the obstacle-span

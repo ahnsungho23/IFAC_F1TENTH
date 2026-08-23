@@ -1,0 +1,20 @@
+# 🔴 2026-08-23 재생성 — map.kissmap 의 **런타임 렌더**입니다.
+#
+# obstacle_detector 의 벽 필터 기준맵입니다(local_planning.launch.py 의
+# default_reference_map). kinematic_localization 이 발행하는 /map 과 **같은 격자**여야
+# 하며, 다르면 distanceToWall() 이 -1 을 돌려주어 벽이 장애물과 한 덩어리로 붙습니다.
+#
+# 종전 파일은 205x425 origin(-1.716,-2.601) 로, 런타임 /map(191x409 origin(-3.55,-2.16))
+# 과 x 로 1.8 m 어긋난 **옛 맵의 렌더**였습니다. 게다가 실차(/home/miru/...)에서는
+# 파일이 없어 로드 자체가 실패했습니다 (run_20260823_060640 의 rosout:
+# "Failed to load map yaml file: .../map_kissmap_render.yaml").
+#
+# 이 파일은 run_20260823_060640 의 /map 을 그대로 받아 적은 것이라 정의상 일치합니다.
+# 픽셀 관례는 종전과 동일합니다: 벽 0, 그 외 205, free_thresh 0.196 → 205 는 '미지'.
+# ⚠️ map.kissmap 을 다시 뜨면 이 파일도 다시 만드십시오.
+image: map_kissmap_render.pgm
+resolution: 0.050000
+origin: [-3.551000, -2.161000, 0.0]
+negate: 0
+occupied_thresh: 0.65
+free_thresh: 0.196

@@ -70,6 +70,21 @@ class ObstacleDetectorNode : public rclcpp::Node
   public:
     explicit ObstacleDetectorNode(const rclcpp::NodeOptions &options = rclcpp::NodeOptions());
 
+    // "이 held 봉투가 통째로 스캐너 FOV 밖(후방 사각)인가". 마지막 실측 map AABB 의 네
+    // 꼭짓점을 스캔 프레임으로 옮겨 bearing 을 재고, **넷 다** [angle_min, angle_max] 밖일
+    // 때만 true 다. 하나라도 보이면 차폐일 수 있으므로 hold 를 그대로 둔다.
+    //
+    // 🔑 FOV 는 상수로 두지 않고 스캔 헤더의 angle_min/angle_max 를 그대로 쓴다 — 라이다를
+    //    바꾸면 판정도 따라간다(이번 실차는 ±135.0°, 1081 빔). 360° 스캐너는 사각이 없으므로
+    //    항상 false 를 낸다.
+    // ⚠️ tx/ty/yaw 는 map 기준 **스캔 프레임 원점**이다(lookupScanToMap 이 map->scan 을
+    //    조회한다). base_link 가 아니므로 라이다 전방 오프셋을 따로 더하지 말 것.
+    // 순수 기하라 노드 상태에 의존하지 않는다 — static 으로 두어 단위 시험이 노드를 띄우지
+    // 않고 직접 호출한다.
+    static bool envelopeInRearBlindCone(const Track &track,
+                                        const sensor_msgs::msg::LaserScan &scan,
+                                        double tx, double ty, double yaw, double margin_rad);
+
   private:
     // ---- a Cartesian scan point (map frame) plus its raw range for the breakpoint threshold ----
     struct ScanPoint
@@ -230,6 +245,8 @@ class ObstacleDetectorNode : public rclcpp::Node
     int freespace_refute_min_beams_{3};
     double freespace_refute_margin_m_{0.15};
     double freespace_refute_box_shrink_m_{0.05};
+    bool rear_blind_retire_enable_{true};
+    double rear_blind_retire_margin_rad_{0.0349};   // 2.0 deg
     bool motion_debug_enable_;
     double motion_debug_period_sec_;
     bool replay_diagnostics_enable_;

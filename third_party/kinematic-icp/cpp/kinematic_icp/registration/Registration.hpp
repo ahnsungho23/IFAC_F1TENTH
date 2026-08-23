@@ -40,11 +40,25 @@ struct KinematicRegistration {
                                    const double lateral_regularization_scale = 1.0,
                                    const double lateral_regularization_floor_tau2 = 1.0);
 
+    // Localization patch (2026_IFAC) §8: `free_mode` drops every prior-side
+    // constraint for this one frame — odometry regularization Omega, the
+    // lateral regularization floor, the iteration cap and the convergence
+    // early-exit. Used by the node in fast corners, where the measured pose
+    // error doubles (7.7 cm / 0.72 deg below 0.3 rad/s -> 16.1 cm / 2.03 deg
+    // above 0.8 rad/s).
+    //
+    // 🔴 Omega is what keeps JTJ invertible. With free_mode the solve is a
+    // bare Gauss-Newton step: in a geometrically degenerate view (long
+    // corridor, few walls) JTJ is singular and dx becomes non-finite. The
+    // caller MUST keep the non-finite pose rollback in place — such frames
+    // are dropped, not silently corrupted.
     Sophus::SE3d ComputeRobotMotion(const std::vector<Eigen::Vector3d> &frame,
                                     const kiss_icp::VoxelHashMap &voxel_map,
                                     const Sophus::SE3d &last_robot_pose,
                                     const Sophus::SE3d &relative_wheel_odometry,
-                                    const double max_correspondence_distance);
+                                    const double max_correspondence_distance,
+                                    const bool free_mode = false,
+                                    const int free_mode_max_iterations = 200);
 
     // Localization patch (2026_IFAC): registration quality diagnostics.
     // Filled by every ComputeRobotMotion call from values it already computes
@@ -57,6 +71,7 @@ struct KinematicRegistration {
         double residual_rms = 0.0;
         double threshold_tau = 0.0;
         double beta = 0.0;      // odometry regularization weight actually used
+        bool free_mode = false;  // §8: this frame ran with all priors dropped
         int iterations = 0;     // perturbation solves performed
         bool converged = false;  // left the loop via dx.norm() < criterion
         double final_dx_norm = 0.0;

@@ -115,7 +115,8 @@ ObstacleDetectorNode::ObstacleDetectorNode(const rclcpp::NodeOptions &options)
         "cluster_merge=%s[dist=%.2f, min_frag=%d], "
         "layer_merge=%s[gap_s=%.2f, gap_d=%.2f], mahalanobis=%s[gate=%.2f], "
         "physical_id_reassoc=%s[gap_s=%.2f, gap_d=%.2f, gap_map=%.2f, memory=%.2fs], "
-        "motion_chi2[static<%.2f dynamic>%.2f], diagnostics=%s[period=%.2fs])",
+        "motion_chi2[map_static<%.2f map_dynamic>%.2f, "
+        "frenet_dynamic>%.2f], diagnostics=%s[period=%.2fs])",
         scan_topic_.c_str(), global_wpnts_topic_.c_str(), use_map_filter_ ? "on" : "off",
         static_obs_topic_.c_str(), confirmed_static_obs_topic_.c_str(), opp_obs_topic_.c_str(),
         cluster_merge_enable_ ? "on" : "off", cluster_merge_distance_,
@@ -129,6 +130,7 @@ ObstacleDetectorNode::ObstacleDetectorNode(const rclcpp::NodeOptions &options)
         tracker_params_.physical_id_reassociation_gap_map,
         tracker_params_.physical_id_memory_sec, tracker_params_.static_chi2_threshold,
         tracker_params_.dynamic_chi2_threshold,
+        tracker_params_.frenet_dynamic_chi2_threshold,
         diagnostics_enable_ ? "on" : "off", diagnostics_period_sec_);
 }
 
@@ -234,6 +236,8 @@ void ObstacleDetectorNode::declareParameters()
         "motion_classification.dynamic_chi2_threshold", 9.21);
     this->declare_parameter<double>(
         "motion_classification.static_chi2_threshold", 5.99);
+    this->declare_parameter<double>(
+        "motion_classification.frenet_dynamic_chi2_threshold", 6.63);
     this->declare_parameter<int>("motion_classification.dynamic_vote_window", 5);
     this->declare_parameter<int>("motion_classification.dynamic_vote_required", 3);
     this->declare_parameter<int>("motion_classification.static_vote_window", 15);
@@ -260,7 +264,11 @@ void ObstacleDetectorNode::declareParameters()
     this->declare_parameter<int>(
         "motion_classification.translation_history_max_samples", 64);
     this->declare_parameter<double>(
-        "motion_classification.dynamic_min_translation_m", 0.10);
+        "motion_classification.dynamic_min_translation_m", 0.18);
+    this->declare_parameter<double>(
+        "motion_classification.dynamic_translation_persistence_sec", 0.30);
+    this->declare_parameter<double>(
+        "motion_classification.static_min_observation_sec", 0.25);
     this->declare_parameter<bool>("motion_classification.debug_enable", false);
     this->declare_parameter<double>("motion_classification.debug_period_sec", 1.0);
     this->declare_parameter<double>("dt_max", 0.5);
@@ -273,6 +281,9 @@ void ObstacleDetectorNode::declareParameters()
     this->declare_parameter<int>("static_hold_freespace_refute_min_beams", 3);
     this->declare_parameter<double>("static_hold_freespace_refute_margin_m", 0.15);
     this->declare_parameter<double>("static_hold_freespace_refute_box_shrink_m", 0.05);
+    this->declare_parameter<bool>("static_hold_rear_blind_retire_enable", true);
+    this->declare_parameter<int>("static_hold_rear_blind_retire_frames", 3);
+    this->declare_parameter<double>("static_hold_rear_blind_retire_margin_deg", 2.0);
 }
 
 void ObstacleDetectorNode::loadParameters()
@@ -406,6 +417,9 @@ void ObstacleDetectorNode::loadParameters()
     tracker_params_.static_chi2_threshold =
         this->get_parameter(
         "motion_classification.static_chi2_threshold").as_double();
+    tracker_params_.frenet_dynamic_chi2_threshold =
+        this->get_parameter(
+        "motion_classification.frenet_dynamic_chi2_threshold").as_double();
     tracker_params_.dynamic_vote_window =
         this->get_parameter("motion_classification.dynamic_vote_window").as_int();
     tracker_params_.dynamic_vote_required =
@@ -450,6 +464,12 @@ void ObstacleDetectorNode::loadParameters()
     tracker_params_.dynamic_min_translation_m =
         this->get_parameter(
         "motion_classification.dynamic_min_translation_m").as_double();
+    tracker_params_.dynamic_translation_persistence_sec =
+        this->get_parameter(
+        "motion_classification.dynamic_translation_persistence_sec").as_double();
+    tracker_params_.static_min_observation_sec =
+        this->get_parameter(
+        "motion_classification.static_min_observation_sec").as_double();
     motion_debug_enable_ =
         this->get_parameter("motion_classification.debug_enable").as_bool();
     motion_debug_period_sec_ =
@@ -482,6 +502,15 @@ void ObstacleDetectorNode::loadParameters()
     freespace_refute_box_shrink_m_ =
         std::max(0.0,
                  this->get_parameter("static_hold_freespace_refute_box_shrink_m").as_double());
+    rear_blind_retire_enable_ =
+        this->get_parameter("static_hold_rear_blind_retire_enable").as_bool();
+    tracker_params_.static_hold_rear_blind_retire_frames =
+        std::max(0, static_cast<int>(
+            this->get_parameter("static_hold_rear_blind_retire_frames").as_int()));
+    rear_blind_retire_margin_rad_ =
+        std::max(0.0,
+                 this->get_parameter("static_hold_rear_blind_retire_margin_deg").as_double()) *
+        M_PI / 180.0;
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -799,6 +828,57 @@ bool ObstacleDetectorNode::scanRefutesHeldEnvelope(
 }
 
 // ------------------------------------------------------------------------------------------------
+// Rear-blind retirement of a held (unmeasured) confirmed-static envelope
+// ------------------------------------------------------------------------------------------------
+bool ObstacleDetectorNode::envelopeInRearBlindCone(
+    const Track &track, const sensor_msgs::msg::LaserScan &scan,
+    double tx, double ty, double yaw, double margin_rad)
+{
+    const double x_min = track.x_min_map;
+    const double x_max = track.x_max_map;
+    const double y_min = track.y_min_map;
+    const double y_max = track.y_max_map;
+    if (!std::isfinite(x_min) || !std::isfinite(x_max) || !std::isfinite(y_min) ||
+        !std::isfinite(y_max) || x_max < x_min || y_max < y_min)
+    {
+        return false;
+    }
+    // 360° 스캐너에는 사각이 없다. 이 경우 회수 근거가 성립하지 않으므로 hold 를 유지한다.
+    const double span = scan.angle_max - scan.angle_min;
+    if (!std::isfinite(span) || span >= 2.0 * M_PI - 1.0e-6)
+    {
+        return false;
+    }
+    // 경계에서 깜빡이지 않도록 FOV 를 margin 만큼 **넓혀서** 판정한다(= 회수에 보수적).
+    const double margin = std::max(0.0, margin_rad);
+    const double lo = scan.angle_min - margin;
+    const double hi = scan.angle_max + margin;
+    const double cyaw = std::cos(yaw);
+    const double syaw = std::sin(yaw);
+    const double corner_x[4] = {x_min, x_min, x_max, x_max};
+    const double corner_y[4] = {y_min, y_max, y_min, y_max};
+    for (int i = 0; i < 4; ++i)
+    {
+        const double dx = corner_x[i] - tx;
+        const double dy = corner_y[i] - ty;
+        // map -> scan frame (clusterScan 의 정변환 pt = t + R(yaw)·l 의 역변환).
+        const double lx = cyaw * dx + syaw * dy;
+        const double ly = -syaw * dx + cyaw * dy;
+        // 원점에 붙은 꼭짓점은 bearing 이 수치적으로 무의미하다 — 보인다고 보고 hold 유지.
+        if (std::hypot(lx, ly) < 1.0e-3)
+        {
+            return false;
+        }
+        const double bearing = std::atan2(ly, lx);
+        if (bearing >= lo && bearing <= hi)
+        {
+            return false;   // 한 꼭짓점이라도 볼 수 있으면 차폐일 수 있다.
+        }
+    }
+    return true;
+}
+
+// ------------------------------------------------------------------------------------------------
 // Adaptive-breakpoint clustering (points already in map frame)
 // ------------------------------------------------------------------------------------------------
 std::vector<std::vector<ObstacleDetectorNode::ScanPoint>>
@@ -1098,6 +1178,8 @@ ObstacleDetectorNode::mergeLayer(const std::vector<const Track *> &members,
         double w_sum = 0.0;
         double vs = 0.0;
         double vd = 0.0;
+        double cov_s_vs = 0.0;
+        double cov_d_vd = 0.0;
         double s_var = 0.0;
         double vs_var = 0.0;
         double d_var = 0.0;
@@ -1120,6 +1202,8 @@ ObstacleDetectorNode::mergeLayer(const std::vector<const Track *> &members,
             w_sum += w;
             vs += w * t->vs();
             vd += w * t->vd();
+            cov_s_vs += w * t->P(0, 1);  // cross terms: same size weighting as the velocity
+            cov_d_vd += w * t->P(2, 3);
             s_var = std::max(s_var, t->P(0, 0));  // conservative: worst member uncertainty
             vs_var = std::max(vs_var, t->P(1, 1));
             d_var = std::max(d_var, t->P(2, 2));
@@ -1158,6 +1242,11 @@ ObstacleDetectorNode::mergeLayer(const std::vector<const Track *> &members,
         m.ob.size = std::hypot(hi - lo, d_left - d_right);
         m.ob.vs = vs / w_sum;
         m.ob.vd = vd / w_sum;
+        // Size-weighted mean of the member cross terms, clipped against the merged (per-axis
+        // max) diagonal. The two come from different sources, so the clip is what keeps the
+        // published 2x2 blocks positive semi-definite.
+        m.ob.s_vs_cov = clampCrossCovariance(cov_s_vs / w_sum, s_var, vs_var);
+        m.ob.d_vd_cov = clampCrossCovariance(cov_d_vd / w_sum, d_var, vd_var);
         m.ob.s_var = s_var;
         m.ob.vs_var = vs_var;
         m.ob.d_var = d_var;
@@ -1330,6 +1419,13 @@ void ObstacleDetectorNode::logMotionDebug()
                << "/" << motionStatusName(track.motion_status)
                << " v_map=(" << track.mapVx() << "," << track.mapVy() << ")"
                << " Tv=" << track.velocity_statistic
+               << " vs=" << track.vs()
+               << " Ts=" << track.frenet_velocity_statistic
+               << " translation(map/frenet/max)="
+               << track.provable_map_translation_m << "/"
+               << track.provable_frenet_translation_m << "/"
+               << track.provable_translation_m
+               << " persistent=" << (track.translation_evidence_persistent ? 1 : 0)
                << " votes(S/D)=" << track.static_vote_count
                << "/" << track.dynamic_vote_count
                << " RMS=" << track.map_position_rms
@@ -1626,8 +1722,19 @@ void ObstacleDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
             return scanRefutesHeldEnvelope(track, *msg, tx, ty, yaw);
         };
     }
+    // 후방 사각 회수도 같은 스캔 기하를 쓰므로 같은 자리에서 주입한다. 반증이 "상자를
+    // 관통한 빔"을 요구해 시야 안에서만 성립하는 반면, 이쪽은 시야 밖만 맡는다 — 둘은
+    // 겹치지 않고 상보적이다.
+    ObstacleTracker::RearBlindPredicate rear_blind_predicate;
+    if (rear_blind_retire_enable_ && tracker_params_.static_hold_rear_blind_retire_frames > 0)
+    {
+        rear_blind_predicate = [this, msg, tx, ty, yaw](const Track &track) {
+            return envelopeInRearBlindCone(track, *msg, tx, ty, yaw,
+                                           rear_blind_retire_margin_rad_);
+        };
+    }
     tracker_.update(detections, stamp, measurement_yaw_rate, yaw_rate_fresh,
-                    ego_motion_transient, free_space_refuter);
+                    ego_motion_transient, free_space_refuter, rear_blind_predicate);
     logMotionDebug();
     stats.scans_processed = 1;
     updateDiagnostics(stats, &tracker_.lastStats(), measurement_yaw_rate, yaw_rate_fresh);

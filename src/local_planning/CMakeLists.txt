@@ -20,27 +20,12 @@ include_directories(
   include
 )
 
-# ROS-free planner core, exported so other packages (map_creator) can reuse the exact
-# left/right avoidance decision logic (P3 analytic corridor generator + hard validator)
-# instead of replicating it.
-add_library(raceline_planner STATIC
-  src/p3_shadow.cpp
-  src/raceline_spline_planner.cpp
-)
-set_target_properties(raceline_planner PROPERTIES POSITION_INDEPENDENT_CODE ON)
-target_include_directories(raceline_planner PUBLIC
-  "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
-  "$<INSTALL_INTERFACE:include>"
-)
-ament_target_dependencies(raceline_planner
-  std_msgs
-  f110_msgs
-)
-
 add_library(local_planner_core STATIC
   src/local_planner_node.cpp
   src/obstacle_guard.cpp
   src/p3_maneuver_lifecycle.cpp
+  src/p3_shadow.cpp
+  src/raceline_spline_planner.cpp
   src/safe_stop_lifecycle.cpp
 )
 ament_target_dependencies(local_planner_core
@@ -50,7 +35,6 @@ ament_target_dependencies(local_planner_core
   geometry_msgs
   f110_msgs
 )
-target_link_libraries(local_planner_core raceline_planner)
 
 add_executable(local_planner_node src/local_planner_main.cpp)
 ament_target_dependencies(local_planner_node rclcpp)
@@ -61,19 +45,11 @@ install(TARGETS
   DESTINATION lib/${PROJECT_NAME}
 )
 
-install(TARGETS raceline_planner
-  EXPORT export_raceline_planner
-  ARCHIVE DESTINATION lib
-  LIBRARY DESTINATION lib
-  RUNTIME DESTINATION bin
-)
-ament_export_targets(export_raceline_planner HAS_LIBRARY_TARGET)
-ament_export_dependencies(std_msgs f110_msgs)
-ament_export_include_directories(include)
-
 install(DIRECTORY include/
   DESTINATION include
 )
+install(PROGRAMS scripts/check_tracking_lut.py
+        DESTINATION lib/${PROJECT_NAME})
 
 install(DIRECTORY launch config docs
   DESTINATION share/${PROJECT_NAME}
@@ -93,6 +69,7 @@ if(BUILD_TESTING)
   # (2026-08-14: 실제로 6개 값이 어긋난 채 탈출 임계를 재고 운영값을 정했다.)
   find_package(ament_cmake_pytest REQUIRED)
   ament_add_pytest_test(params_match_yaml test/test_params_match_yaml.py)
+  ament_add_pytest_test(velocity_limits_match_csv test/test_velocity_limits_match_csv.py)
 
   # Node-level: covers the subscription callbacks themselves (which arrays/references the node
   # accepts as authoritative). The algorithm gtests cannot reach that wiring.
@@ -117,12 +94,50 @@ if(BUILD_TESTING)
     target_link_libraries(test_raceline_spline local_planner_core)
   endif()
 
+  ament_add_gtest(test_handoff_speed_shaping test/test_handoff_speed_shaping.cpp)
+  if(TARGET test_handoff_speed_shaping)
+    ament_target_dependencies(test_handoff_speed_shaping
+      f110_msgs
+    )
+    target_link_libraries(test_handoff_speed_shaping local_planner_core)
+  endif()
+
   ament_add_gtest(test_obstacle_guard test/test_obstacle_guard.cpp)
   if(TARGET test_obstacle_guard)
     ament_target_dependencies(test_obstacle_guard
       f110_msgs
     )
     target_link_libraries(test_obstacle_guard local_planner_core)
+  endif()
+
+  ament_add_gtest(test_obstacle_ingress_buffer test/test_obstacle_ingress_buffer.cpp)
+  if(TARGET test_obstacle_ingress_buffer)
+    ament_target_dependencies(test_obstacle_ingress_buffer
+      rclcpp
+      f110_msgs
+    )
+  endif()
+
+  ament_add_gtest(test_candidate_rank test/test_candidate_rank.cpp)
+  if(TARGET test_candidate_rank)
+    target_link_libraries(test_candidate_rank local_planner_core)
+  endif()
+
+  ament_add_gtest(test_maneuver_memory test/test_maneuver_memory.cpp)
+  if(TARGET test_maneuver_memory)
+    target_link_libraries(test_maneuver_memory local_planner_core)
+  endif()
+
+  ament_add_gtest(test_obstacle_reserve_gate test/test_obstacle_reserve_gate.cpp)
+  if(TARGET test_obstacle_reserve_gate)
+    ament_target_dependencies(test_obstacle_reserve_gate f110_msgs)
+    target_link_libraries(test_obstacle_reserve_gate local_planner_core)
+  endif()
+
+  # 보류 게이트 복구 사다리 (F1, 2026-08-22). 헤더 전용 순수 판정이라 링크가 필요 없다.
+  ament_add_gtest(test_hold_recovery_gate test/test_hold_recovery_gate.cpp)
+  if(TARGET test_hold_recovery_gate)
+    target_include_directories(test_hold_recovery_gate PRIVATE include)
   endif()
 
   ament_add_gtest(test_safe_stop_lifecycle test/test_safe_stop_lifecycle.cpp)

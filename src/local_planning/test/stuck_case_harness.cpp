@@ -108,30 +108,45 @@ RacelineSplineParameters operationalParameters()
 {
   RacelineSplineParameters p;
   p.detection_lookahead_m = 15.0;
-  p.obstacle_longitudinal_padding_m = 0.4149924657737441;
-  p.vehicle_half_width_m = 0.1435;
+  // config/local_planning.yaml 과 일치해야 한다(params_match_yaml).
+  p.obstacle_longitudinal_padding_m = 0.0;
+  p.vehicle_half_width_m = 0.15;
   p.vehicle_length_m = 0.56;
-  p.safety_margin_m = 0.014789254299520768;
-  p.tracking_error_reserve_m = 0.14;
-  p.tracking_error_lut_speed_bins_mps = {0.0, 1.5, 3.0, 4.5, 6.5};
-  p.tracking_error_lut_curvature_bins_radpm = {0.0, 0.2, 0.5, 0.9, 1.316266519079011};
+  p.safety_margin_m = 0.00;   // 2026-08-23: 0.50 m 자유폭 예산 (YAML 과 동기)
+  // 예약 게이트 (2026-08-22). 운영이 "none" 이므로 하니스도 꺼야 같은 질문에 답한다 —
+  // 켜 두면 하니스만 0.39 짜리 예약을 쓰고 운영보다 훨씬 비관적인 진단을 낸다.
+  p.obstacle_reserve_from_lut = false;
+  p.tracking_error_reserve_m = 0.0;
+  // 아래 표는 게이트가 꺼져 있어 읽히지 않지만, 되돌리기(mode: "lut") 때 운영과 같아야
+  // 하므로 그대로 둔다 — 2026-08-20 복원된 08-19 실측표.
+  p.tracking_error_lut_speed_bins_mps = {0.0, 1.0, 1.6, 2.2, 2.9, 4.5, 7.0};
+  p.tracking_error_lut_curvature_bins_radpm = {0.0, 0.1, 0.2, 0.35, 0.46};
   p.tracking_error_lut_values_m = {
-    0.200, 0.200, 0.200, 0.200, 0.200,
-    0.325, 0.395, 0.395, 0.395, 0.395,
-    0.330, 0.395, 0.395, 0.395, 0.395,
-    0.330, 0.395, 0.395, 0.395, 0.395,
-    0.330, 0.395, 0.395, 0.395, 0.395};
+    0.095, 0.095, 0.095, 0.130, 0.130,
+    0.100, 0.165, 0.165, 0.165, 0.165,
+    0.100, 0.165, 0.165, 0.165, 0.165,
+    0.145, 0.165, 0.190, 0.230, 0.230,
+    0.275, 0.275, 0.390, 0.390, 0.390,
+    0.275, 0.275, 0.390, 0.390, 0.390,
+    0.275, 0.275, 0.390, 0.390, 0.390};
   p.avoidance_velocity_limit_speed_bins_mps =
   {0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0};
   p.avoidance_velocity_limit_lateral_accel_mps2 =
   {7.0, 7.0, 7.0, 7.0, 7.0, 7.0, 6.5, 6.5, 6.5, 6.5};
+  // 종방향 한계표 — velocity_limits.csv 의 max_accel / max_decel 열.
+  // test/test_velocity_limits_match_csv.py 가 YAML ↔ csv 일치를 검사한다.
+  p.avoidance_velocity_limit_accel_mps2 =
+  {6.4, 6.3, 5.9, 3.7, 3.7, 3.47, 3.33, 3.0, 3.0, 3.0};
+  p.avoidance_velocity_limit_decel_mps2 =
+  {3.0, 3.0, 3.0, 3.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0};
+  p.longitudinal_launch_speed_floor_mps = 1.0;
   p.avoidance_minimum_speed_mps = 1.0;
   p.margin_pass_speed_cap_mps = 2.0;
   p.approach_feasibility_decel_mps2 = 2.0;
   p.approach_feasibility_decel_max_mps2 = 3.5;
   p.commitment_retention_reserve_fraction = 0.5;
-  p.localization_reserve_m = 0.12;
-  p.wall_safety_margin_m = 0.10;
+  p.localization_reserve_m = 0.0;
+  p.wall_safety_margin_m = 0.04;   // 2026-08-23: 0.50 m 자유폭 예산 (YAML 과 동기)
   p.fallback_track_half_width_m = 1.50;
   p.pre_apex_distances_m = {11.442, 7.628, 3.814};
   p.post_apex_distances_m = {2.0595099500051189, 4.1190199000102378, 6.1785298500153566};
@@ -141,6 +156,8 @@ RacelineSplineParameters operationalParameters()
   p.maximum_target_offset_m = 1.50;
   p.target_d_candidate_count = 5;
   p.maximum_lateral_slope = 0.8;
+  p.entry_discontinuity_min_budget_m = 0.20;
+  p.entry_continuity_baseline_m = 0.50;   // 2026-08-23: 진입 기울기 분모 바닥 (YAML 과 동기)
   p.maximum_curvature_radpm = 1.316266519079011;
   p.maximum_curvature_rate_radpm2 = 20.0;
   // 🔴 2026-08-16: 아래 8개는 종전에 하니스가 설정하지 않아 **구조체 기본값**이 쓰였다.
@@ -174,10 +191,13 @@ RacelineSplineParameters operationalParameters()
 // `p.<name> = <number>;`만 운영 YAML과 대조하므로, 여기 값이 그 검사에 섞이면 안 된다.
 void applySimulationOverlay(RacelineSplineParameters & sim)
 {
+  // 축이 7행(0,1,1.6,2.2,2.9,4.5,7)으로 바뀌어 시뮬 오버레이도 같은 모양으로 확장.
   sim.tracking_error_lut_values_m = {
     0.115, 0.115, 0.115, 0.125, 0.125,
     0.175, 0.245, 0.280, 0.280, 0.280,
     0.175, 0.245, 0.280, 0.280, 0.280,
+    0.175, 0.245, 0.280, 0.280, 0.280,
+    0.185, 0.245, 0.280, 0.280, 0.280,
     0.185, 0.245, 0.280, 0.280, 0.280,
     0.185, 0.245, 0.280, 0.280, 0.280};
   sim.localization_reserve_m = 0.06;

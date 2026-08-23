@@ -18,6 +18,7 @@
 #include <cmath>
 #include <cstddef>
 #include <limits>
+#include <optional>
 #include <vector>
 
 #include "local_planning/raceline_spline_planner.hpp"
@@ -96,6 +97,9 @@ RacelineSplineParameters testParameters()
   parameters.detection_lookahead_m = 12.0;
   parameters.vehicle_half_width_m = 0.12;
   parameters.safety_margin_m = 0.03;
+  // 이 파일의 시험들은 추종오차 예약 기구 자체를 검증하므로 게이트를 명시적으로 켠다
+  // (2026-08-22). 운영 기본값은 off 이며, 그쪽 계약은 test_obstacle_reserve_gate 가 본다.
+  parameters.obstacle_reserve_from_lut = true;
   parameters.tracking_error_reserve_m = 0.0;
   parameters.maximum_curvature_radpm = 5.0;
   parameters.maximum_curvature_rate_radpm2 = 50.0;
@@ -196,6 +200,79 @@ TEST(RacelineSplinePlanner, AcceptsHeadingAlignedFootprintAtSameCenterline)
   EXPECT_TRUE(planner.validatePath(
       EgoFrenetState{0.0, 0.15, 2.0}, aligned, {}, &reason, &failure)) << reason;
   EXPECT_EQ(failure.kind, PathValidationFailureKind::kNone);
+}
+
+// F1 (2026-08-22) 의 안전 경계 — 왜 validatePath 하나로는 재발행을 못 막는가.
+//
+// 보류 게이트는 커밋 경로가 없을 때 **마지막으로 발행된 회피 기하**를 다시 검증해 계속
+// 쓴다 (hold_recovery_gate.hpp). 처음 판은 "validatePath 를 매 콜백 통과해야 하니
+// 소진되면 스스로 떨어진다" 로 충분하다고 봤는데, 이 시험이 그것이 **틀렸음**을 보였다:
+//
+//   validatePath 는 committed 경로 재검증용이라
+//     validateCandidate(ego, path, visible, reason, start_index, **1U**, ...)
+//   로 최소점수를 1 로 덮어쓴다. 그래서 앞에 1 점만 남아도 통과한다.
+//
+// 그 상태로 재발행하면 F1 이 고치려던 실패가 그대로 재현된다 — 컨트롤러의 walk_forward 가
+// 열린 경로의 끝점에 멈추므로, 남은 점이 짧을수록 L1 목표가 코앞에 붙고 요구 횡가속이
+// 튄다 (실차 최대 32.2 m/s², 그립 예산 6.80).
+//
+// 그래서 게이트는 minimum_path_points 를 **자기가 따로** 센다. 이 시험은 두 가지를 같이
+// 고정한다: ① validatePath 단독은 끝점까지 유효하다(그러므로 하한이 필요하다),
+// ② validatePath + 기하 하한은 끝점에 닿기 전에 종료하고 되돌아오지 않는다.
+TEST(RacelineSplinePlanner, GuidanceRepublishNeedsItsOwnLengthFloorToTerminate)
+{
+  const auto reference = makeStraightReference(300, 0.1, 1.5, 1.5);
+  auto parameters = testParameters();
+  parameters.minimum_path_points = 8;   // 운영 YAML 과 같은 값으로 고정한다.
+  RacelineSplinePlanner planner(parameters);
+  ASSERT_TRUE(planner.setReference(reference));
+
+  // 20 점 · s 0.0~1.9 m 짜리 회피 기하. 실차의 재발행 대상과 같은 성격이다.
+  const auto guidance = makeStraightCandidate(reference, 0.15, 0.0, 20U);
+  ASSERT_EQ(guidance.wpnts.size(), 20U);
+  const double last_s = guidance.wpnts.back().s_m;
+
+  ASSERT_TRUE(planner.validatePath(EgoFrenetState{0.0, 0.15, 2.0}, guidance, {}))
+    << "출발점에서부터 무효면 이 시험은 아무것도 보지 못한다";
+
+  // 노드가 재는 것과 같은 방식: ego 앞으로 경로가 뻗은 거리.
+  const double floor_m = 1.0;   // 이 20 점(1.9 m) 경로에서 하한이 실제로 걸리는 값.
+
+  std::optional<double> first_validate_invalid;
+  std::optional<double> first_gate_stop;
+  bool gate_recovered_after_stop = false;
+  for (double s = 0.0; s <= last_s + 0.5; s += 0.05) {
+    PathValidationFailure failure;
+    const bool valid = planner.validatePath(
+      EgoFrenetState{s, 0.15, 2.0}, guidance, {}, nullptr, &failure);
+    if (!valid && !first_validate_invalid.has_value()) {
+      first_validate_invalid = s;
+      EXPECT_EQ(failure.kind, PathValidationFailureKind::kNoForwardPath)
+        << "경로 소진이 아닌 이유로 떨어졌다: " << failure.reason;
+    }
+    const bool gate_publishes = valid &&
+      planner.forwardSpanAheadOfEgo(guidance, EgoFrenetState{s, 0.15, 2.0}) >= floor_m;
+    if (!gate_publishes && !first_gate_stop.has_value()) {
+      first_gate_stop = s;
+    } else if (gate_publishes && first_gate_stop.has_value()) {
+      gate_recovered_after_stop = true;
+    }
+  }
+
+  // ① validatePath 단독은 끝점까지 버틴다 — 이것이 하한이 필요한 이유다.
+  ASSERT_TRUE(first_validate_invalid.has_value());
+  EXPECT_GE(first_validate_invalid.value(), last_s)
+    << "validatePath 가 minimum_path_points 를 보기 시작했다면 게이트의 자체 하한을 "
+       "다시 검토하라 — 이 시험의 전제가 바뀐 것이다";
+
+  // ② 하한을 얹으면 끝점에 닿기 한참 전에 종료한다.
+  ASSERT_TRUE(first_gate_stop.has_value()) << "기하 하한이 끝내 안 걸린다 — 자기종료 실패";
+  EXPECT_LT(first_gate_stop.value(), last_s)
+    << "경로 끝에 닿은 뒤에야 멈춘다 — 그 사이 구간은 코앞의 끝점으로 조향한다";
+  EXPECT_LT(first_gate_stop.value(), first_validate_invalid.value())
+    << "하한이 validatePath 보다 먼저 걸려야 의미가 있다";
+  EXPECT_FALSE(gate_recovered_after_stop)
+    << "멈춘 뒤 다시 발행한다 — 재발행과 안전정지가 프레임 단위로 교대한다";
 }
 
 TEST(RacelineSplinePlanner, DetectsBothLeftAndRightFootprintViolations)
@@ -415,9 +492,11 @@ RacelineSplineParameters fieldParameters()
   RacelineSplineParameters parameters;
   parameters.detection_lookahead_m = 15.0;
   parameters.obstacle_longitudinal_padding_m = 0.4149924657737441;
-  parameters.vehicle_half_width_m = 0.1435;
+  parameters.vehicle_half_width_m = 0.15;
   parameters.vehicle_length_m = 0.56;
   parameters.safety_margin_m = 0.014789254299520768;
+  // 실측표 재생용 파라미터이므로 예약 게이트를 켠다 (2026-08-22, 위 testParameters 주석 참고).
+  parameters.obstacle_reserve_from_lut = true;
   parameters.tracking_error_lut_speed_bins_mps = {0.0, 1.5, 3.0, 4.5, 6.5};
   parameters.tracking_error_lut_curvature_bins_radpm = {0.0, 0.2, 0.5, 0.9, 1.316266519079011};
   parameters.tracking_error_lut_values_m = {                       // 시뮬 실측표
@@ -430,12 +509,19 @@ RacelineSplineParameters fieldParameters()
   {0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0};
   parameters.avoidance_velocity_limit_lateral_accel_mps2 =
   {7.0, 7.0, 7.0, 7.0, 7.0, 7.0, 6.5, 6.5, 6.5, 6.5};
+  // 종방향 한계표 — velocity_limits.csv (2026-08-19). 운영 YAML과 같은 값.
+  parameters.avoidance_velocity_limit_accel_mps2 =
+  {6.4, 6.3, 5.9, 3.7, 3.7, 3.47, 3.33, 3.0, 3.0, 3.0};
+  parameters.avoidance_velocity_limit_decel_mps2 =
+  {3.0, 3.0, 3.0, 3.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0};
+  parameters.longitudinal_launch_speed_floor_mps = 1.0;
   parameters.avoidance_minimum_speed_mps = 1.0;
   parameters.localization_reserve_m = 0.06;
   parameters.wall_safety_margin_m = 0.10;
   parameters.maximum_target_offset_m = 1.50;
   parameters.target_d_candidate_count = 5;
   parameters.maximum_lateral_slope = 0.8;
+  parameters.entry_discontinuity_min_budget_m = 0.20;
   parameters.maximum_curvature_radpm = 1.316266519079011;
   parameters.maximum_curvature_rate_radpm2 = 20.0;
   return parameters;
@@ -501,6 +587,179 @@ TEST(RacelineSplinePlanner, PathDiscontinuousFromEgoIsRejected)
 //
 // 판정은 간격을 **추종 예산**(trackingErrorReserve, localization_reserve_m 포함)과 먼저
 // 비교하고, 예산을 넘으면서 기울기도 한계를 넘을 때만 불연속으로 본다.
+// 🔴 0 마진 구성 회귀 (2026-08-20). 위 테스트는 fieldParameters() 가 localization_reserve_m
+// 0.06 을 쓰기 때문에 예산이 항상 양수였고, 그래서 **마진을 전부 0 으로 둔 운영 구성을 한
+// 번도 밟지 않았다**. 그 구성에서는 예산이 0 이 되어 검사의 AND 첫 조건이 상시 참이 되고,
+// 판정이 기울기 하나로 무너진다 — 진입점이 자차 앞 몇 cm 라 분모가 작아 정상 추종오차도
+// 불연속으로 기각된다.
+//
+// 실해(2026-08-19 run_001453, 자율 327.3 s): P3 기동 무효화 36 건 중 24 건(67%)이 이 검사였고
+// 생성 후 p50 110 ms 만에 무효화됐다. 안전정지가 자율 시간의 24%(28 구간, 최장 11.6 s),
+// 0.8 초에 커밋 5 회 교체, 경로 d 부호 전환 43 회(차가 1 초에 0.29 m 좌우로 끌림)로 이어졌다.
+//
+// entry_discontinuity_min_budget_m 하한이 그 붕괴를 막는다. 이 테스트는 마진을 전부 0 으로
+// 둔 채 위 테스트와 같은 배치를 태운다.
+TEST(RacelineSplinePlanner, ZeroMarginConfigStillHonoursTheTrackingBudgetFloor)
+{
+  auto parameters = fieldParameters();
+  // 운영 프로토타입 구성: 장애물 마진을 전부 제거한다.
+  parameters.localization_reserve_m = 0.0;
+  parameters.tracking_error_reserve_m = 0.0;
+  parameters.tracking_error_lut_speed_bins_mps = {0.0, 7.0};
+  parameters.tracking_error_lut_curvature_bins_radpm = {0.0, 0.46};
+  parameters.tracking_error_lut_values_m = {0.0, 0.0, 0.0, 0.0};
+  ASSERT_DOUBLE_EQ(parameters.trackingErrorReserve(3.0, 0.0), 0.0)
+    << "이 테스트는 마진 예산이 0 일 때만 의미가 있다";
+  ASSERT_GT(parameters.entry_discontinuity_min_budget_m, 0.0);
+
+  RacelineSplinePlanner planner(parameters);
+  const auto reference = makeStraightReference(300, 0.25, 1.20, 1.20);
+  ASSERT_TRUE(planner.setReference(reference));
+
+  const EgoFrenetState ego{5.0, 0.212, 2.96};
+  // 하한 안쪽의 정상 추종오차. 진입점은 자차 0.01 m 앞이라 기울기는 발산한다.
+  const double tracking_error = 0.5 * parameters.entry_discontinuity_min_budget_m;
+  f110_msgs::msg::WpntArray path;
+  path.header = reference.header;
+  for (std::size_t index = 0; index < 20U; ++index) {
+    f110_msgs::msg::Wpnt waypoint;
+    waypoint.id = static_cast<std::int32_t>(index);
+    waypoint.s_m = 5.01 + 0.25 * static_cast<double>(index);
+    waypoint.d_m = ego.d + tracking_error;
+    waypoint.x_m = waypoint.s_m;
+    waypoint.y_m = waypoint.d_m;
+    waypoint.vx_mps = 3.0;
+    path.wpnts.push_back(waypoint);
+  }
+  ASSERT_GT(tracking_error / 0.01, parameters.maximum_lateral_slope)
+    << "기울기가 한계를 넘지 않으면 회귀를 재현하지 못한다";
+  std::string reason;
+  EXPECT_TRUE(planner.validatePath(ego, path, {}, &reason))
+    << "0 마진 구성에서 정상 추종오차가 불연속으로 기각됐다: " << reason;
+
+  // 하한을 넘는 진짜 불연속은 그대로 걸려야 한다 (검사가 무력화되면 안 된다).
+  for (auto & waypoint : path.wpnts) {
+    waypoint.d_m = ego.d + 0.447;      // 코드 주석이 명시한 실해 사례 간격
+    waypoint.y_m = waypoint.d_m;
+  }
+  reason.clear();
+  EXPECT_FALSE(planner.validatePath(ego, path, {}, &reason))
+    << "진짜 진입 불연속이 통과했다 — 하한이 검사를 무력화했다";
+  EXPECT_NE(reason.find("discontinuous"), std::string::npos) << reason;
+}
+
+// 🔴 진입 불연속 검사의 AND 붕괴 (2026-08-23).
+//
+// 검사는 두 조건의 AND 로 설계됐다:
+//     (간격 > 예산 하한 F)  AND  (간격 / 진입거리 > maximum_lateral_slope)
+// 그런데 두 번째 조건은 진입거리 < 간격 / slope 일 때 참이고, 간격이 F 를 갓 넘은
+// 경우 그 문턱은 F / slope = 0.20 / 0.8 = 0.25 m 다. 경로 샘플 간격이 0.251 m 이므로
+// "자차보다 앞선 최근접 점"의 진입거리는 (0, 0.251] 이고 — 즉 **거의 항상** 문턱 아래다.
+// 두 번째 조건이 자동으로 참이 되어 AND 가 무너지고, 검사는 "추종오차 > 0.20 m" 라는
+// 단일 판정으로 퇴화한다.
+//
+// 실측 (롤보정 OFF 백 3개 072312/073013/204833 재생, 자율 구간만): 커밋 기동 무효화
+// 16 건 중 12 건이 이 경로였고, 12 건 전부 간격 0.200~0.266(예산을 갓 넘김) / 진입거리
+// p50 0.189 / 기울기 p50 1.10·최대 25.66 이었다. 무효화되면 후보를 새로 만드는데 그때
+// 장애물이 0.32~1.04 m 앞이라 곡률·슬로프로 전멸한다.
+//
+// entry_continuity_baseline_m 가 분모에 바닥을 깔아 AND 를 되살린다.
+TEST(RacelineSplinePlanner, EntrySlopeIsMeasuredOverABaselineTheCarCanActOn)
+{
+  auto parameters = fieldParameters();
+  parameters.localization_reserve_m = 0.0;
+  parameters.tracking_error_reserve_m = 0.0;
+  parameters.obstacle_reserve_from_lut = false;
+  ASSERT_DOUBLE_EQ(parameters.trackingErrorReserve(3.0, 0.0), 0.0);
+  ASSERT_GT(parameters.entry_continuity_baseline_m, 0.0);
+
+  // 이 테스트가 재현하려는 붕괴가 파라미터상 실재하는지 먼저 못박는다. 하한이나 슬로프
+  // 한계가 바뀌어 붕괴가 사라지면 이 단언이 먼저 깨져 테스트의 전제를 다시 보게 한다.
+  // 실전 라인 간격: 39.20 m / 156 구간 = 0.2513 m.
+  const double kSampleSpacingM = 0.2513;
+  // 간격이 예산을 갓 넘으면 슬로프 조건은 진입거리 < 예산/슬로프 에서 참이 된다. 진입거리는
+  // (0, 간격] 에 균등하므로, 그 문턱이 샘플 간격의 대부분을 덮으면 AND 는 사실상 무너진다.
+  const double kAutoTrueThresholdM =
+    parameters.entry_discontinuity_min_budget_m / parameters.maximum_lateral_slope;
+  ASSERT_GT(kAutoTrueThresholdM, 0.9 * kSampleSpacingM)
+    << "예산/슬로프 문턱이 샘플 간격을 거의 못 덮으면 AND 는 무너지지 않는다 — "
+    << "문턱 " << kAutoTrueThresholdM << " m, 간격 " << kSampleSpacingM << " m";
+
+  RacelineSplinePlanner planner(parameters);
+  const auto reference = makeStraightReference(300, kSampleSpacingM, 1.20, 1.20);
+  ASSERT_TRUE(planner.setReference(reference));
+
+  // 실측 중앙값 그대로: 간격 0.208 m, 진입거리 0.189 m.
+  const double kMeasuredGapM = 0.208;
+  const double kMeasuredEntryForwardM = 0.189;
+  const EgoFrenetState ego{5.0, 0.0, 3.17};
+  f110_msgs::msg::WpntArray path;
+  path.header = reference.header;
+  for (std::size_t index = 0; index < 20U; ++index) {
+    f110_msgs::msg::Wpnt waypoint;
+    waypoint.id = static_cast<std::int32_t>(index);
+    waypoint.s_m = ego.s + kMeasuredEntryForwardM +
+      kSampleSpacingM * static_cast<double>(index);
+    waypoint.d_m = ego.d + kMeasuredGapM;
+    waypoint.x_m = waypoint.s_m;
+    waypoint.y_m = waypoint.d_m;
+    waypoint.vx_mps = 3.17;
+    path.wpnts.push_back(waypoint);
+  }
+  // 종전 판정을 재현: 예산을 넘었고, 최근접 점 기준 기울기도 한계를 넘는다.
+  ASSERT_GT(kMeasuredGapM, parameters.entry_discontinuity_min_budget_m);
+  ASSERT_GT(
+    kMeasuredGapM / kMeasuredEntryForwardM, parameters.maximum_lateral_slope)
+    << "종전 기준으로 기각되지 않으면 회귀를 재현하지 못한다";
+
+  std::string reason;
+  EXPECT_TRUE(planner.validatePath(ego, path, {}, &reason))
+    << "정상 추종오차가 여전히 진입 불연속으로 기각된다: " << reason;
+
+  // 진짜 불연속은 같은 진입거리에서도 그대로 걸려야 한다. 08-17 실해 사례 간격 0.447 m.
+  for (auto & waypoint : path.wpnts) {
+    waypoint.d_m = ego.d + 0.447;
+    waypoint.y_m = waypoint.d_m;
+  }
+  ASSERT_GT(0.447 / parameters.entry_continuity_baseline_m, parameters.maximum_lateral_slope)
+    << "바닥이 너무 크면 실해 사례를 놓친다 — 0.56 m 가 상한이다";
+  reason.clear();
+  EXPECT_FALSE(planner.validatePath(ego, path, {}, &reason))
+    << "진짜 진입 불연속이 통과했다 — 바닥이 검사를 무력화했다";
+  EXPECT_NE(reason.find("discontinuous"), std::string::npos) << reason;
+}
+
+// 바닥을 0 으로 두면 종전 거동으로 돌아간다 (되돌릴 수 있어야 한다).
+TEST(RacelineSplinePlanner, ZeroBaselineRestoresThePreviousEntrySlopeBehaviour)
+{
+  auto parameters = fieldParameters();
+  parameters.localization_reserve_m = 0.0;
+  parameters.tracking_error_reserve_m = 0.0;
+  parameters.obstacle_reserve_from_lut = false;
+  parameters.entry_continuity_baseline_m = 0.0;
+  RacelineSplinePlanner planner(parameters);
+  const auto reference = makeStraightReference(300, 0.25, 1.20, 1.20);
+  ASSERT_TRUE(planner.setReference(reference));
+
+  const EgoFrenetState ego{5.0, 0.0, 3.17};
+  f110_msgs::msg::WpntArray path;
+  path.header = reference.header;
+  for (std::size_t index = 0; index < 20U; ++index) {
+    f110_msgs::msg::Wpnt waypoint;
+    waypoint.id = static_cast<std::int32_t>(index);
+    waypoint.s_m = ego.s + 0.189 + 0.25 * static_cast<double>(index);
+    waypoint.d_m = ego.d + 0.208;
+    waypoint.x_m = waypoint.s_m;
+    waypoint.y_m = waypoint.d_m;
+    waypoint.vx_mps = 3.17;
+    path.wpnts.push_back(waypoint);
+  }
+  std::string reason;
+  EXPECT_FALSE(planner.validatePath(ego, path, {}, &reason))
+    << "바닥 0 인데 종전 기각이 재현되지 않았다";
+  EXPECT_NE(reason.find("discontinuous"), std::string::npos) << reason;
+}
+
 TEST(RacelineSplinePlanner, NormalTrackingErrorOverATinyBaselineIsNotADiscontinuity)
 {
   auto parameters = fieldParameters();
@@ -583,6 +842,91 @@ TEST(RacelineSplinePlanner, EveryDropInThePublishedProfileIsActuallyBrakeable)
   // 수치 오차만 허용한다. 이 값이 크게 튀면 캡 하나가 후방 패스 뒤에 적용되고 있다는 뜻이다.
   EXPECT_LT(worst, limit + 1.0e-6)
     << "s=" << worst_s << "에서 " << worst << " m/s² 제동을 요구한다 (한계 " << limit << ")";
+}
+
+// 전진(가속) 패스 회귀 — 2026-08-19. 이 패스가 생기기 전에는 발행 프로파일의 **가속에 제약이
+// 하나도 없었다**. 후방 패스는 "제동으로 내려갈 수 있나"만 보므로, 캡이 한 점을 누른 뒤 다음
+// 점이 라인 속도로 되튀는 계단을 그대로 통과시켰다(실차 백에서 v 5~9 m/s 구간 요구 가속의
+// 93.5%가 velocity_limits.csv 한계 초과, 정지 출발 구간은 요구 p90 이 30 m/s²).
+TEST(RacelineSplinePlanner, EveryRiseInThePublishedProfileIsActuallyReachable)
+{
+  auto parameters = fieldParameters();
+  RacelineSplinePlanner planner(parameters);
+  auto reference = makeStraightReference(300, 0.1, 1.20, 1.20);
+  for (auto & waypoint : reference.wpnts) {
+    waypoint.vx_mps = 7.0;
+  }
+  ASSERT_TRUE(planner.setReference(reference));
+  // 🔑 자차는 느리고(1.2 m/s) 라인은 7.0 m/s다 — 전진 패스가 없으면 경로 첫 점이 곧바로
+  // 7.0을 싣는다. 이것이 정지 후 출발에서 관측된 계단 그 자체다.
+  const EgoFrenetState ego{0.0, -0.35, 1.2};
+  const auto result = planner.plan(ego, {makeObstacle(2, 4.5, -0.60, 0.20)});
+  ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
+  ASSERT_GE(result.path.wpnts.size(), 3U);
+
+  // 첫 점부터 자차 실측 속도에서 도달 가능해야 한다.
+  const double first_ds = result.path.wpnts.front().s_m - ego.s;
+  if (first_ds > 1.0e-9) {
+    const double reachable = std::sqrt(
+      ego.speed * ego.speed + 2.0 * parameters.accelLimitAt(ego.speed) * first_ds);
+    EXPECT_LE(result.path.wpnts.front().vx_mps, reachable + 1.0e-6)
+      << "경로 첫 점이 자차 속도에서 도달 불가능하다";
+  }
+
+  double worst = 0.0;
+  double worst_s = 0.0;
+  for (std::size_t i = 1; i < result.path.wpnts.size(); ++i) {
+    const auto & earlier = result.path.wpnts[i - 1];
+    const auto & later = result.path.wpnts[i];
+    const double ds = later.s_m - earlier.s_m;
+    if (!(ds > 1.0e-9) || later.vx_mps <= earlier.vx_mps) {
+      continue;                       // 감속 방향은 후방 패스의 대상이다.
+    }
+    const double required =
+      (later.vx_mps * later.vx_mps - earlier.vx_mps * earlier.vx_mps) / (2.0 * ds);
+    const double allowed = parameters.accelLimitAt(earlier.vx_mps);
+    if (required - allowed > worst) {
+      worst = required - allowed;
+      worst_s = earlier.s_m;
+    }
+  }
+  EXPECT_LT(worst, 1.0e-6)
+    << "s=" << worst_s << "에서 표 한계를 " << worst << " m/s² 초과하는 가속을 요구한다";
+}
+
+// 감속 한계가 스칼라가 아니라 속도의존 표에서 오는지 — 2026-08-19. 상수 3.5는 csv가 어느
+// 속도에서도 허용하지 않는 값이라(저속 3.0, v>=4 는 2.0), 표를 붙이고도 스칼라를 쓰면
+// 고속 구간에서 요구 제동이 실차 능력을 계속 넘는다.
+TEST(RacelineSplinePlanner, ProfileDecelUsesTheSpeedDependentTableNotTheScalar)
+{
+  auto parameters = fieldParameters();
+  EXPECT_GT(parameters.profileFeasibilityDecel(), parameters.decelLimitAt(7.0))
+    << "이 테스트는 표가 스칼라보다 빡빡할 때만 의미가 있다";
+  RacelineSplinePlanner planner(parameters);
+  auto reference = makeStraightReference(300, 0.1, 1.20, 1.20);
+  for (auto & waypoint : reference.wpnts) {
+    waypoint.vx_mps = 7.0;
+  }
+  ASSERT_TRUE(planner.setReference(reference));
+  const EgoFrenetState ego{0.0, -0.35, 7.0};
+  const auto result = planner.plan(ego, {makeObstacle(2, 4.5, -0.60, 0.20)});
+  ASSERT_EQ(result.kind, SplinePlanKind::kAvoidance) << result.reason;
+
+  double worst = 0.0;
+  for (std::size_t i = 1; i < result.path.wpnts.size(); ++i) {
+    const auto & earlier = result.path.wpnts[i - 1];
+    const auto & later = result.path.wpnts[i];
+    const double ds = later.s_m - earlier.s_m;
+    if (!(ds > 1.0e-9) || later.vx_mps >= earlier.vx_mps) {
+      continue;
+    }
+    const double required =
+      (earlier.vx_mps * earlier.vx_mps - later.vx_mps * later.vx_mps) / (2.0 * ds);
+    const double allowed =
+      parameters.decelLimitAt(std::max(earlier.vx_mps, later.vx_mps));
+    worst = std::max(worst, required - allowed);
+  }
+  EXPECT_LT(worst, 1.0e-6) << "표 한계를 " << worst << " m/s² 초과하는 제동을 요구한다";
 }
 
 TEST(RacelineSplinePlanner, MeasuredQuietFaceInflationKeepsTheEightyCentimetreGapPassable)
@@ -2150,6 +2494,8 @@ TEST(RacelineSplinePlanner, StandstillCloseBehindObstacleStillPlansEscape)
   parameters.maximum_curvature_radpm = 3.2;
   parameters.maximum_curvature_rate_radpm2 = 60.0;
   // 실차 yaml과 같은 예약 구조: 기어가기 속도에서 LUT 바닥 0.20 + 위치추정 0.06.
+  // 이 재현은 예약이 살아 있던 시절의 실차 사례이므로 게이트를 켠다 (2026-08-22).
+  parameters.obstacle_reserve_from_lut = true;
   parameters.tracking_error_reserve_m = 0.20;
   parameters.localization_reserve_m = 0.06;
   RacelineSplinePlanner planner(parameters);
@@ -2169,6 +2515,136 @@ TEST(RacelineSplinePlanner, StandstillCloseBehindObstacleStillPlansEscape)
     max_d = std::max(max_d, static_cast<double>(waypoint.d_m));
   }
   EXPECT_GT(max_d, 0.10);
+}
+
+// ── F3 (2026-08-22): 잘려 나간 정지 경로의 조향 기하를 되돌린다 ────────────────
+//
+// 안전정지 생성기는 정지 목표를 첫 접촉 지점 이전으로 자른다. 종방향으로는 옳지만 같은
+// 절단이 횡방향 기하까지 잘라, 차가 장애물 바로 옆일 때(= 무효화가 나는 그 상황) 2~8 점
+// 짜리 경로가 남는다. 컨트롤러의 walk_forward 는 열린 경로에서 끝점에 멈추므로 L1 목표가
+// 전방 0.18 m 가 되고 요구 횡가속이 32 m/s² 로 튄다 (실차 073013 t=93.7, IMU 1.52 g).
+//
+// 이 시험들이 고정하는 계약: **기하는 늘고, 제동 프로파일은 안 바뀐다.**
+
+TEST(RacelineSplinePlanner, ExtendStopGeometryLengthensTheSteeringPathToTheFloor)
+{
+  const auto reference = makeStraightReference(300, 0.1, 1.5, 1.5);
+  RacelineSplinePlanner planner(testParameters());
+  ASSERT_TRUE(planner.setReference(reference));
+  const EgoFrenetState ego{0.0, 0.15, 4.6};
+
+  // 원본 회피 기하 (40 점, 0.0~3.9 m) 와 그 접두부만 잘라 낸 정지 경로 (3 점, 0.5 m).
+  const auto source = makeStraightCandidate(reference, 0.15, 0.0, 40U);
+  f110_msgs::msg::WpntArray stop;
+  stop.header = source.header;
+  for (std::size_t i = 1; i <= 3U; ++i) {
+    auto waypoint = source.wpnts[i];
+    waypoint.id = static_cast<int32_t>(stop.wpnts.size());
+    waypoint.vx_mps = static_cast<float>(1.2 - 0.4 * static_cast<double>(stop.wpnts.size()));
+    stop.wpnts.push_back(waypoint);
+  }
+  stop.wpnts.back().vx_mps = 0.0f;
+  const double span_before = planner.forwardSpanAheadOfEgo(stop, ego);
+  ASSERT_NEAR(span_before, 0.3, 1.0e-9);
+  const std::vector<float> profile_before{
+    stop.wpnts[0].vx_mps, stop.wpnts[1].vx_mps, stop.wpnts[2].vx_mps};
+
+  const std::size_t appended = planner.extendStopGeometry(stop, source, ego, 2.5);
+
+  EXPECT_GT(appended, 0U);
+  EXPECT_GE(planner.forwardSpanAheadOfEgo(stop, ego), 2.5)
+    << "하한까지 안 늘었다 — L1 이 여전히 끝점에 물린다";
+
+  // 🔴 제동 프로파일 불변: 원래 있던 점의 속도가 한 톨도 안 바뀌어야 한다.
+  for (std::size_t i = 0; i < profile_before.size(); ++i) {
+    EXPECT_FLOAT_EQ(stop.wpnts[i].vx_mps, profile_before[i])
+      << "덧붙이기가 원래 제동 프로파일을 건드렸다 (index " << i << ")";
+  }
+  // 덧붙인 점은 전부 0 — 정지 지점이 뒤로 밀리면 장애물 안에서 서게 된다.
+  for (std::size_t i = profile_before.size(); i < stop.wpnts.size(); ++i) {
+    EXPECT_FLOAT_EQ(stop.wpnts[i].vx_mps, 0.0f)
+      << "덧붙인 점에 속도가 실렸다 (index " << i << ") — 정지 목표가 밀린다";
+  }
+  // 기하는 원본을 그대로 이어야 한다 (라인이 갈리면 조향이 튄다).
+  for (std::size_t i = 0; i < stop.wpnts.size(); ++i) {
+    EXPECT_FLOAT_EQ(stop.wpnts[i].d_m, source.wpnts[i + 1].d_m);
+    EXPECT_FLOAT_EQ(stop.wpnts[i].s_m, source.wpnts[i + 1].s_m);
+  }
+}
+
+TEST(RacelineSplinePlanner, ExtendStopGeometryLeavesAnAlreadyLongPathAlone)
+{
+  const auto reference = makeStraightReference(300, 0.1, 1.5, 1.5);
+  RacelineSplinePlanner planner(testParameters());
+  ASSERT_TRUE(planner.setReference(reference));
+  const EgoFrenetState ego{0.0, 0.15, 2.0};
+  const auto source = makeStraightCandidate(reference, 0.15, 0.0, 40U);
+  auto stop = source;
+
+  EXPECT_EQ(planner.extendStopGeometry(stop, source, ego, 2.5), 0U);
+  EXPECT_EQ(stop.wpnts.size(), source.wpnts.size());
+}
+
+TEST(RacelineSplinePlanner, ExtendStopGeometryRefusesASourceItDidNotComeFrom)
+{
+  // 🔴 안전 경계. 접두부가 이 원본에서 잘린 게 아니면 이어 붙이는 순간 라인이 갈린다 —
+  //    d 가 다른 두 기하를 접합하면 그 이음매가 곧 조향 계단이다.
+  const auto reference = makeStraightReference(300, 0.1, 1.5, 1.5);
+  RacelineSplinePlanner planner(testParameters());
+  ASSERT_TRUE(planner.setReference(reference));
+  const EgoFrenetState ego{0.0, 0.15, 2.0};
+  const auto source = makeStraightCandidate(reference, 0.15, 0.0, 40U);
+
+  // s 가 원본의 어느 점과도 안 맞는 정지 접두부.
+  f110_msgs::msg::WpntArray alien;
+  alien.header = source.header;
+  for (std::size_t i = 0; i < 3U; ++i) {
+    auto waypoint = source.wpnts[i + 1];
+    waypoint.s_m += 0.037;
+    waypoint.vx_mps = 0.0;
+    alien.wpnts.push_back(waypoint);
+  }
+  const std::size_t before = alien.wpnts.size();
+
+  EXPECT_EQ(planner.extendStopGeometry(alien, source, ego, 2.5), 0U);
+  EXPECT_EQ(alien.wpnts.size(), before) << "다른 기하를 접합했다";
+}
+
+TEST(RacelineSplinePlanner, ExtendStopGeometryIsOffWhenTheFloorIsZero)
+{
+  // 되돌릴 길: controller_lookahead_floor_m 0 이면 종전 거동 그대로.
+  const auto reference = makeStraightReference(300, 0.1, 1.5, 1.5);
+  RacelineSplinePlanner planner(testParameters());
+  ASSERT_TRUE(planner.setReference(reference));
+  const EgoFrenetState ego{0.0, 0.15, 4.6};
+  const auto source = makeStraightCandidate(reference, 0.15, 0.0, 40U);
+  f110_msgs::msg::WpntArray stop;
+  stop.header = source.header;
+  stop.wpnts.assign(source.wpnts.begin() + 1, source.wpnts.begin() + 4);
+
+  EXPECT_EQ(planner.extendStopGeometry(stop, source, ego, 0.0), 0U);
+  EXPECT_EQ(stop.wpnts.size(), 3U);
+}
+
+TEST(RacelineSplinePlanner, ExtendStopGeometryStopsAtTheSourceEndRatherThanWrapping)
+{
+  // 원본이 하한보다 짧으면 도달한 만큼만 늘리고 멈춘다 — 랩을 감아 뒤쪽 기하를 붙이면
+  // 컨트롤러가 지나온 길을 향해 조향한다.
+  const auto reference = makeStraightReference(300, 0.1, 1.5, 1.5);
+  RacelineSplinePlanner planner(testParameters());
+  ASSERT_TRUE(planner.setReference(reference));
+  const EgoFrenetState ego{0.0, 0.15, 4.6};
+  const auto source = makeStraightCandidate(reference, 0.15, 0.0, 10U);   // 0.9 m 뿐
+  f110_msgs::msg::WpntArray stop;
+  stop.header = source.header;
+  stop.wpnts.assign(source.wpnts.begin() + 1, source.wpnts.begin() + 4);
+
+  const std::size_t appended = planner.extendStopGeometry(stop, source, ego, 2.5);
+
+  EXPECT_EQ(appended, source.wpnts.size() - 4U) << "원본을 다 쓰지 않았거나 넘어섰다";
+  EXPECT_LT(planner.forwardSpanAheadOfEgo(stop, ego), 2.5)
+    << "원본보다 멀리 뻗었다 — 어디선가 기하를 지어냈다";
+  EXPECT_EQ(stop.wpnts.back().s_m, source.wpnts.back().s_m);
 }
 
 

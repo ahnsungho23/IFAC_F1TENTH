@@ -195,6 +195,8 @@ RacelineSplineParameters parameters(const Stream & stream)
   value.vehicle_length_m = scalar("vehicle_length_m");
   value.vehicle_half_width_m = scalar("vehicle_half_width_m");
   value.safety_margin_m = scalar("safety_margin_m");
+  // 시나리오는 예약 게이트 도입 이전의 운영 스냅샷이다 (p3_scenario_stream.hpp 주석 참고).
+  value.obstacle_reserve_from_lut = true;
   value.tracking_error_reserve_m = scalar("tracking_error_reserve_m");
   value.tracking_error_lut_speed_bins_mps = vector("tracking_error_lut_speed_bins_mps");
   value.tracking_error_lut_curvature_bins_radpm =

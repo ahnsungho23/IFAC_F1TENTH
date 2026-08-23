@@ -22,6 +22,8 @@
 #include <numeric>
 #include <utility>
 
+#include "local_planning/candidate_rank.hpp"
+
 namespace local_planning
 {
 namespace
@@ -254,6 +256,52 @@ bool RacelineSplineParameters::avoidanceVelocityLimitValid() const
   return valid_speed_axis && valid_lateral_limits;
 }
 
+bool RacelineSplineParameters::longitudinalVelocityLimitValid() const
+{
+  if (avoidance_velocity_limit_accel_mps2.empty() &&
+    avoidance_velocity_limit_decel_mps2.empty())
+  {
+    return true;   // 표 없음 = 종전 스칼라 거동. 옛 파라미터 파일도 그대로 뜬다.
+  }
+  if (avoidance_velocity_limit_speed_bins_mps.size() < 2U) {
+    return false;
+  }
+  const auto column_valid = [this](const std::vector<double> & column) {
+      return column.size() == avoidance_velocity_limit_speed_bins_mps.size() &&
+             std::all_of(
+        column.begin(), column.end(),
+        [](double value) {return std::isfinite(value) && value > 0.0;});
+    };
+  // 두 열은 함께 있어야 한다 — 한쪽만 있으면 어느 패스는 표를, 어느 패스는 스칼라를 쓰게 되어
+  // 플래너가 다시 차량 모델 두 개를 갖는다(2026-08-17 컨트롤러가 겪은 그 실패 형태다).
+  return column_valid(avoidance_velocity_limit_accel_mps2) &&
+         column_valid(avoidance_velocity_limit_decel_mps2);
+}
+
+double RacelineSplineParameters::accelLimitAt(double speed_mps) const
+{
+  if (avoidance_velocity_limit_accel_mps2.empty() || !longitudinalVelocityLimitValid()) {
+    return 0.0;
+  }
+  const auto interpolation =
+    interpolationFor(avoidance_velocity_limit_speed_bins_mps, std::max(0.0, speed_mps));
+  const double lower = avoidance_velocity_limit_accel_mps2[interpolation.lower];
+  const double upper = avoidance_velocity_limit_accel_mps2[interpolation.upper];
+  return lower + interpolation.ratio * (upper - lower);
+}
+
+double RacelineSplineParameters::decelLimitAt(double speed_mps) const
+{
+  if (avoidance_velocity_limit_decel_mps2.empty() || !longitudinalVelocityLimitValid()) {
+    return 0.0;
+  }
+  const auto interpolation =
+    interpolationFor(avoidance_velocity_limit_speed_bins_mps, std::max(0.0, speed_mps));
+  const double lower = avoidance_velocity_limit_decel_mps2[interpolation.lower];
+  const double upper = avoidance_velocity_limit_decel_mps2[interpolation.upper];
+  return lower + interpolation.ratio * (upper - lower);
+}
+
 double RacelineSplineParameters::limitedAvoidanceSpeed(
   double requested_speed_mps, double curvature_radpm) const
 {
@@ -342,6 +390,12 @@ double RacelineSplineParameters::trackingErrorReserve(
   // same localization uncertainty. Constant offset keeps the speed-monotonicity the inversion
   // in gapLimitedAvoidanceSpeed relies on.
   const double localization = std::max(0.0, localization_reserve_m);
+  // 게이트가 꺼져 있으면 표도 폴백 상수도 읽지 않는다 (선언부 주석 참고). 여기가 예약의
+  // 유일한 관문이므로, 이 한 줄이 후보 검증·갭 역산·봉투 확장·entry 예산 네 곳을 동시에
+  // 끈다 — 표를 0 으로 채우는 것과 값은 같지만, 표가 되살아나도 되살아나지 않는다.
+  if (!obstacle_reserve_from_lut) {
+    return localization;
+  }
   if (!hasTrackingErrorLut() || !trackingErrorLutValid()) {
     return tracking_error_reserve_m + localization;
   }
@@ -1007,6 +1061,9 @@ P3ShadowPathEvaluation RacelineSplinePlanner::validateP3ShadowPath(
     result.failure_obstacle_id = failure.obstacle_id;
     result.failure_waypoint_s = failure.waypoint_s;
     result.failure_waypoint_d = failure.waypoint_d;
+    result.failure_footprint_side = failure.footprint_violation_side;
+    result.failure_heading_relative_rad = failure.heading_relative_to_reference;
+    result.failure_corner_protrusion_m = failure.wallward_corner_protrusion;
   }
   return result;
 }
@@ -1192,21 +1249,176 @@ f110_msgs::msg::WpntArray RacelineSplinePlanner::buildGlobalHandoffPath(
       waypoint.y_m = global.y_m + d * std::cos(global.psi_rad);
     }
   }
+
+  if (parameters_.handoff_speed_shaping_enable && total >= 3U) {
+    shapeGlobalHandoffSpeed(path, ego, tail_begin);
+  }
   return path;
 }
 
+// R1 핸드오프 속도 성형 (2026-08-21, run_220742 충돌 A·B / 검토 반영 재작업).
+// 종전에는 flat 캡뿐이라 회피 종료 직후 자차 실측 속도와 무관하게 캡 6.0 이 계단으로
+// 실렸고, 컨트롤러는 3.7 m/s² 로 재가속하다 코너 탈출에서 그립 권한(6.9)을 넘겼다
+// ("그립 권한 포화" 경고, 두 충돌 모두 이 재가속 중).
+//
+// applyLongitudinalFeasibility 를 그대로 못 쓰는 이유: 그 함수는 배열 순서로 걷는데
+// 이 루프는 자차가 배열 중간(tail_begin)에 있어 자차 시드가 자차의 다음 점에 걸리지
+// 않는다. 여기서는 자차-전방 순서(tail_begin → total-1 → 0 → tail_begin-1)로 걷는다.
+void RacelineSplinePlanner::shapeGlobalHandoffSpeed(
+  f110_msgs::msg::WpntArray & path, const EgoFrenetState & ego,
+  std::size_t tail_begin) const
+{
+  const std::size_t total = path.wpnts.size();
+  if (total < 3U) {
+    return;
+  }
+  const auto at = [&](std::size_t j) -> f110_msgs::msg::Wpnt & {
+      return path.wpnts[(tail_begin + j) % total];
+    };
+  // (1) 실제 기하 곡률(복귀 램프 포함)로 횡가속 캡. 라인 자체는 v²κ 가 표 안이라
+  //     이 캡은 주로 램프가 더한 곡률에만 문다. Menger 곡률은 크기만 쓴다(캡 용도).
+  for (std::size_t j = 0; j < total; ++j) {
+    const auto & a = at((j + total - 1U) % total);
+    auto & b = at(j);
+    const auto & c3 = at((j + 1U) % total);
+    const double la = pointDistance(a, b);
+    const double lb = pointDistance(b, c3);
+    const double lc = pointDistance(a, c3);
+    double menger = 0.0;
+    if (la > kEpsilon && lb > kEpsilon && lc > kEpsilon) {
+      const double cross = std::abs(
+        (b.x_m - a.x_m) * (c3.y_m - a.y_m) - (b.y_m - a.y_m) * (c3.x_m - a.x_m));
+      menger = 2.0 * cross / (la * lb * lc);
+    }
+    const double kappa = std::max(std::abs(b.kappa_radpm), menger);
+    b.vx_mps = parameters_.limitedAvoidanceSpeed(std::max(0.0, b.vx_mps), kappa);
+  }
+  // (2) 전진 가속 램프 — 시드는 자차 실측 속도 (velocity_limits.csv 가속 열 재사용).
+  if (parameters_.longitudinalVelocityLimitValid() &&
+    !parameters_.avoidance_velocity_limit_accel_mps2.empty())
+  {
+    double speed = std::max(
+      parameters_.longitudinal_launch_speed_floor_mps, std::max(0.0, ego.speed));
+    double previous_s = ego.s;
+    for (std::size_t j = 0; j < total; ++j) {
+      auto & waypoint = at(j);
+      const double ds = forwardDistance(previous_s, waypoint.s_m);
+      if (ds > kEpsilon && ds < 0.5 * trackLength()) {
+        const double accel = parameters_.accelLimitAt(speed);
+        if (accel > 0.0) {
+          speed = std::sqrt(speed * speed + 2.0 * accel * ds);
+        }
+      }
+      waypoint.vx_mps = std::min(std::max(0.0, waypoint.vx_mps), speed);
+      speed = std::max(0.0, waypoint.vx_mps);
+      previous_s = waypoint.s_m;
+    }
+  }
+  // (3) 후방 감속 패스 — 자차 위치(seam) 앞에서 멈춘다. 캡이 만든 하강 계단을
+  //     제동 가능 프로파일로 편다.
+  for (std::size_t j = total - 1U; j > 0U; --j) {
+    auto & earlier = at(j - 1U);
+    const auto & later = at(j);
+    const double ds = forwardDistance(earlier.s_m, later.s_m);
+    if (!(ds > kEpsilon) || ds >= 0.5 * trackLength()) {
+      continue;
+    }
+    const double later_speed = std::max(0.0, later.vx_mps);
+    const double earlier_speed = std::max(0.0, earlier.vx_mps);
+    double decel = parameters_.profileFeasibilityDecel();
+    const double table_decel =
+      parameters_.decelLimitAt(std::max(earlier_speed, later_speed));
+    if (table_decel > 0.0) {
+      decel = table_decel;
+    }
+    if (decel > 0.0) {
+      earlier.vx_mps = std::min(
+        earlier_speed, std::sqrt(later_speed * later_speed + 2.0 * decel * ds));
+    }
+  }
+  // (4) 성형이 끝난 기하·속도로 ψ·부호 있는 κ·ax 를 재계산한다 — 복귀 램프가 기하를
+  //     바꿨는데 필드가 기준선 값 그대로면 하류(컨트롤러 곡률 FF = 부호 κ 소비)가
+  //     틀린 값을 먹는다. 배열이 전방 순서로 연속인 닫힌 루프라 open-경로용 스텐실의
+  //     오차는 배열 양끝 2점(자차 전방 ~tail 거리)에 국한되고 이웃 복사로 흡수된다.
+  updateGeometryAndAcceleration(path);
+}
+
+f110_msgs::msg::WpntArray RacelineSplinePlanner::buildRawSlowdownPath(
+  const EgoFrenetState & ego, double state_tail_distance_m,
+  double obstacle_front_m, double obstacle_span_m,
+  double cap_mps, double decel_mps2) const
+{
+  // 기하는 검증된 핸드오프 루프(복귀 램프·벽 협착 클램프 포함)를 그대로 쓰고 속도만
+  // 다시 쓴다. 속도 상한을 무한대로 넘겨 루프의 flat 캡을 무효화한다.
+  f110_msgs::msg::WpntArray path = buildGlobalHandoffPath(
+    ego, state_tail_distance_m, std::numeric_limits<double>::infinity());
+  applyRawSlowdownProfile(path, ego, obstacle_front_m, obstacle_span_m, cap_mps, decel_mps2);
+  return path;
+}
+
+// B1 속도 오버레이 (2026-08-21 분리). 어떤 경로에든 "전방 front 지점에서 cap 에 닿는
+// 감속 실현 가능 프로파일 + 스팬 통과 cap 유지"를 min 으로만 씌운다. 속도만 낮추므로
+// 기하·정지 프로파일(0)은 절대 되살리지 않는다. run_20260821_015057 t=139 접촉이 도입
+// 근거다: raw 가 전방 5.4 m 에서 재획득됐는데 핸드오프 커밋 재발행 경로가 힌트 훅에
+// 닿지 않아 5.2 m/s 그대로 진입했다 — 커밋 재발행에도 이 오버레이를 씌우면 닫힌다.
+void RacelineSplinePlanner::applyRawSlowdownProfile(
+  f110_msgs::msg::WpntArray & path, const EgoFrenetState & ego,
+  double obstacle_front_m, double obstacle_span_m,
+  double cap_mps, double decel_mps2) const
+{
+  if (path.wpnts.empty() || !(cap_mps > 0.0) || !(decel_mps2 > 0.0) ||
+    !std::isfinite(obstacle_front_m) || !std::isfinite(obstacle_span_m))
+  {
+    return;
+  }
+  const double front = std::max(0.0, obstacle_front_m);
+  // 스팬 뒤 1 m 까지 cap 을 유지한다: s_end 은 라이다가 앞면만 봐서 과소평가되는 값이라
+  // (run_192006 접촉 #3), 뒤끝 직후 재가속을 한 박자 늦춘다.
+  const double hold_until = front + std::max(0.0, obstacle_span_m) + 1.0;
+  for (auto & waypoint : path.wpnts) {
+    const double forward = forwardDistance(ego.s, waypoint.s_m);
+    if (forward >= 0.5 * trackLength()) {
+      continue;  // 자차 뒤쪽 절반은 건드리지 않는다
+    }
+    double limit = std::numeric_limits<double>::infinity();
+    if (forward <= front) {
+      // 전방 front 지점에서 정확히 cap 에 닿는 감속 실현 가능 프로파일.
+      limit = std::sqrt(cap_mps * cap_mps + 2.0 * decel_mps2 * (front - forward));
+    } else if (forward <= hold_until) {
+      limit = cap_mps;
+    }
+    waypoint.vx_mps = std::min(waypoint.vx_mps, limit);
+  }
+}
+
 f110_msgs::msg::WpntArray RacelineSplinePlanner::buildEmergencyStopPath(
-  const EgoFrenetState & ego) const
+  const EgoFrenetState & ego, double minimum_forward_m) const
 {
   f110_msgs::msg::WpntArray path;
   path.header = reference_.header;
   if (!ready() || !std::isfinite(ego.s) || !std::isfinite(ego.d)) {
     return path;
   }
+  // 점 수 하한(minimum_path_points)과 **거리 하한** 중 큰 쪽을 쓴다 (F3, 2026-08-22).
+  // 이 경로는 원본이 없어 extendStopGeometry 로 늘릴 수 없으므로 여기서 직접 채운다.
+  // 레퍼런스 간격이 0.1 m 면 8 점이 0.7 m 라, 점 수만으로는 컨트롤러의 L1(0.6+0.32·v)
+  // 을 못 덮고 목표가 경로 끝점에 물린다. 전부 vx=0 이므로 길어도 비용이 없다.
+  std::size_t distance_count = 0U;
+  if (minimum_forward_m > 0.0) {
+    const std::size_t first = nextReferenceIndex(ego.s);
+    for (std::size_t k = 0; k < reference_.wpnts.size(); ++k) {
+      ++distance_count;
+      const auto & global = reference_.wpnts[(first + k) % reference_.wpnts.size()];
+      if (forwardDistance(ego.s, global.s_m) >= minimum_forward_m) {
+        break;
+      }
+    }
+  }
   const std::size_t count = std::min(
     reference_.wpnts.size(),
     std::max<std::size_t>(
-      2U, static_cast<std::size_t>(parameters_.minimum_path_points)));
+      std::max<std::size_t>(2U, static_cast<std::size_t>(parameters_.minimum_path_points)),
+      distance_count));
   const std::size_t first_index = nextReferenceIndex(ego.s);
   path.wpnts.reserve(count);
   for (std::size_t k = 0; k < count; ++k) {
@@ -1260,6 +1472,80 @@ double RacelineSplinePlanner::firstCollisionForward(
     }
   }
   return std::numeric_limits<double>::infinity();
+}
+
+double RacelineSplinePlanner::forwardSpanAheadOfEgo(
+  const f110_msgs::msg::WpntArray & path, const EgoFrenetState & ego) const
+{
+  if (!ready() || !std::isfinite(ego.s)) {
+    return 0.0;
+  }
+  double span = 0.0;
+  for (const auto & waypoint : path.wpnts) {
+    const double forward = forwardDistance(ego.s, waypoint.s_m);
+    if (forward > 0.0 && forward <= 0.5 * track_length_) {
+      span = std::max(span, forward);
+    }
+  }
+  return span;
+}
+
+// F3 (2026-08-22). 근거는 헤더 선언부 주석 참고.
+std::size_t RacelineSplinePlanner::extendStopGeometry(
+  f110_msgs::msg::WpntArray & stop_path,
+  const f110_msgs::msg::WpntArray & source_path,
+  const EgoFrenetState & ego,
+  double minimum_forward_m) const
+{
+  if (!(minimum_forward_m > 0.0) || stop_path.wpnts.empty() || source_path.wpnts.empty() ||
+    !ready() || !std::isfinite(ego.s))
+  {
+    return 0U;
+  }
+  if (forwardSpanAheadOfEgo(stop_path, ego) >= minimum_forward_m) {
+    return 0U;
+  }
+  // 정지 접두부의 끝점이 원본의 어디인지 찾는다. 같은 waypoint 를 복사해 만든 것이므로
+  // s 로 맞춘다 — id 는 접두부를 만들 때 0 부터 다시 매겨졌으므로 쓸 수 없다.
+  const double tail_s = stop_path.wpnts.back().s_m;
+  std::size_t resume_index = source_path.wpnts.size();
+  double best_gap = std::numeric_limits<double>::infinity();
+  for (std::size_t i = 0; i < source_path.wpnts.size(); ++i) {
+    const double gap = std::abs(source_path.wpnts[i].s_m - tail_s);
+    if (gap < best_gap) {
+      best_gap = gap;
+      resume_index = i;
+    }
+  }
+  if (resume_index >= source_path.wpnts.size() || best_gap > kEpsilon) {
+    return 0U;   // 접두부가 이 원본에서 나오지 않았다. 이어 붙이면 라인이 갈린다.
+  }
+
+  std::size_t appended = 0U;
+  for (std::size_t i = resume_index + 1U; i < source_path.wpnts.size(); ++i) {
+    if (forwardSpanAheadOfEgo(stop_path, ego) >= minimum_forward_m) {
+      break;
+    }
+    const double forward = forwardDistance(ego.s, source_path.wpnts[i].s_m);
+    if (!(forward > 0.0) || forward > 0.5 * track_length_) {
+      break;   // 랩을 감았다. 뒤로 도는 기하를 붙이지 않는다.
+    }
+    auto waypoint = source_path.wpnts[i];
+    waypoint.id = static_cast<int32_t>(stop_path.wpnts.size());
+    // 🔴 제동 프로파일 불변: 정지 목표 뒤는 전부 0 이다. 이 점들은 조향 기하로만 쓰인다.
+    waypoint.vx_mps = 0.0;
+    waypoint.ax_mps2 = 0.0;
+    stop_path.wpnts.push_back(waypoint);
+    ++appended;
+  }
+  if (appended > 0U) {
+    updateGeometryAndAcceleration(stop_path);
+    // updateGeometryAndAcceleration 이 ax 를 다시 채우므로 꼬리의 0 속도를 다시 못 박는다.
+    for (std::size_t i = stop_path.wpnts.size() - appended; i < stop_path.wpnts.size(); ++i) {
+      stop_path.wpnts[i].vx_mps = 0.0;
+    }
+  }
+  return appended;
 }
 
 f110_msgs::msg::WpntArray RacelineSplinePlanner::buildLastPathBrake(
@@ -1807,7 +2093,7 @@ void RacelineSplinePlanner::applyAvoidanceVelocityLimit(
   }
 
   applyApproachFeasibilityRamp(path, ego, visible);
-  applyLongitudinalFeasibility(path);
+  applyLongitudinalFeasibility(path, ego);
 }
 
 // 종방향 실현가능 후방 패스 (2026-08-16).
@@ -1887,9 +2173,17 @@ void RacelineSplinePlanner::applyApproachFeasibilityRamp(
   // 여유 있는 접근은 base(2.0)가 그대로 남고, 자차가 이미 빠르고 가까운 경우만 필요한
   // 만큼 [base, max]로 가팔라진다. max로도 모자라면 max 램프를 깔고(잔여 계단은 종전보다
   // 작다) 종전대로 안전정지 사다리가 받친다.
-  const double approach_decel_max =
-    std::max(approach_decel, parameters_.approach_feasibility_decel_max_mps2);
   const double ego_speed = std::max(0.0, ego.speed);
+  // 적응 램프의 상한도 차량 표에 종속시킨다 (2026-08-19). 3.5 는 velocity_limits.csv 가
+  // 어느 속도에서도 허용하지 않는 값이다(저속 3.0, v>=4 는 2.0). 표가 없으면 종전대로
+  // 파라미터 값을 그대로 쓴다. base(approach_decel) 아래로는 내리지 않는다 — 그러면
+  // std::clamp 의 lo > hi 가 되어 미정의 동작이고, base 는 comfort 목표라 별개다.
+  const double table_decel = parameters_.decelLimitAt(ego_speed);
+  const double approach_decel_max = std::max(
+    approach_decel,
+    table_decel > 0.0 ?
+    std::min(parameters_.approach_feasibility_decel_max_mps2, table_decel) :
+    parameters_.approach_feasibility_decel_max_mps2);
   for (auto & target : targets) {
     const double excess =
       ego_speed * ego_speed - target.target_speed * target.target_speed;
@@ -1912,12 +2206,53 @@ void RacelineSplinePlanner::applyApproachFeasibilityRamp(
 }
 
 void RacelineSplinePlanner::applyLongitudinalFeasibility(
-  f110_msgs::msg::WpntArray & path) const
+  f110_msgs::msg::WpntArray & path, const EgoFrenetState & ego) const
 {
-  const double decel = parameters_.profileFeasibilityDecel();
-  if (!(decel > 0.0) || path.wpnts.size() < 2U) {
+  if (path.wpnts.size() < 2U) {
     return;
   }
+  const bool has_table = parameters_.longitudinalVelocityLimitValid() &&
+    !parameters_.avoidance_velocity_limit_accel_mps2.empty();
+
+  // ── 1) 전진(가속) 패스 — 2026-08-19 신설 ────────────────────────────────────
+  // 이 패스가 없던 동안 프로파일의 **가속에는 제약이 하나도 없었다**. 아래 후방 패스는
+  // "이 속도까지 제동으로 내려갈 수 있나"만 보므로, 캡이 한 점을 눌렀다가 다음 점이 라인
+  // 속도로 되튀는 계단은 통과시킨다. 실차 백에서 발행 경로의 가속 요구가 velocity_limits.csv
+  // 한계를 넘은 비율이 v 5~9 m/s 에서 93.5% 였다.
+  //
+  // 🔑 시드는 경로 첫 점의 계획 속도가 아니라 **자차의 실측 속도**다. 정지 후 출발 구간에서
+  // 요구 가속 p90 이 30 m/s² 로 튀던 원인이 바로 첫 점에 라인 속도가 그대로 실려 있었던
+  // 것이고, 접근 램프(applyApproachFeasibilityRamp)가 이미 같은 이유로 실측 속도를 쓴다.
+  // 전진 패스는 min 으로만 쓰므로 속도를 올리는 일이 없다 — 안전정지 0 프로파일은 안전하다.
+  if (has_table) {
+    double speed = std::max(parameters_.longitudinal_launch_speed_floor_mps,
+      std::max(0.0, ego.speed));
+    double previous_s = ego.s;
+    for (auto & waypoint : path.wpnts) {
+      const double ds = forwardDistance(previous_s, waypoint.s_m);
+      if (ds > kEpsilon) {
+        const double accel = parameters_.accelLimitAt(speed);
+        if (accel > 0.0) {
+          speed = std::sqrt(speed * speed + 2.0 * accel * ds);
+        }
+      }
+      waypoint.vx_mps = std::min(std::max(0.0, waypoint.vx_mps), speed);
+      // 다음 구간은 실제로 채택된 속도에서 이어간다. 캡이 더 낮게 눌렀다면 그 자리에서
+      // 다시 가속 한계를 밟아 올라가야 하기 때문이다.
+      speed = std::max(0.0, waypoint.vx_mps);
+      previous_s = waypoint.s_m;
+    }
+  }
+
+  // ── 2) 후방(감속) 패스 ──────────────────────────────────────────────────────
+  // 순서가 전진 → 후방이어야 한다. 후방 패스가 낮추는 점은 정의상 감속 구간이므로 가속
+  // 제약이 그 자리에서 느슨해져 재위반이 생기지 않는다. 반대 순서면 전진 패스가 후방 패스의
+  // 제동 프로파일을 다시 깎아 두 제약이 서로를 무효화한다.
+  //
+  // 감속 한계는 이제 속도 의존이다 (2026-08-19). 상수 3.5 는 csv 의 v>=4 값(2.0)을 1.75배
+  // 넘어서, 실차 백에서 감속 요구가 한계를 넘은 비율이 v 5~9 에서 84.2% 였다. 두 점 중
+  // **큰 속도**에서 조회한다 — csv 의 감속 한계는 속도가 오를수록 작아지므로 그쪽이 보수적이다.
+  const double scalar_decel = parameters_.profileFeasibilityDecel();
   for (std::size_t index = path.wpnts.size() - 1U; index > 0U; --index) {
     auto & earlier = path.wpnts[index - 1U];
     const auto & later = path.wpnts[index];
@@ -1926,8 +2261,20 @@ void RacelineSplinePlanner::applyLongitudinalFeasibility(
       continue;
     }
     const double later_speed = std::max(0.0, later.vx_mps);
+    const double earlier_speed = std::max(0.0, earlier.vx_mps);
+    double decel = scalar_decel;
+    if (has_table) {
+      const double table_decel =
+        parameters_.decelLimitAt(std::max(earlier_speed, later_speed));
+      if (table_decel > 0.0) {
+        decel = table_decel;
+      }
+    }
+    if (!(decel > 0.0)) {
+      continue;
+    }
     const double reachable = std::sqrt(later_speed * later_speed + 2.0 * decel * ds);
-    earlier.vx_mps = std::min(std::max(0.0, earlier.vx_mps), reachable);
+    earlier.vx_mps = std::min(earlier_speed, reachable);
   }
 }
 
@@ -1985,7 +2332,8 @@ bool RacelineSplinePlanner::validateCandidate(
   std::size_t minimum_points,
   PathValidationFailure * failure,
   const std::optional<double> & maximum_collision_forward_m,
-  double obstacle_reserve_scale) const
+  double obstacle_reserve_scale,
+  bool skip_entry_continuity) const
 {
   if (failure != nullptr) {
     *failure = PathValidationFailure();
@@ -2056,7 +2404,8 @@ bool RacelineSplinePlanner::validateCandidate(
   //
   // 실해 사례는 그대로 걸린다: 간격 0.447 m > 예산(약 0.14~0.20 m)이고 기울기 2.3 > 0.8.
   // 오탐은 사라진다: 추종오차 간격은 예산 안이므로 분모가 아무리 작아도 통과한다.
-  {
+  // F5 (2026-08-22): 이 검사만 끌 수 있다. 근거·제약은 헤더 선언부 주석 참고.
+  if (!skip_entry_continuity) {
     std::size_t entry_index = path.wpnts.size();
     double entry_forward = std::numeric_limits<double>::infinity();
     for (std::size_t index = start_index; index < path.wpnts.size(); ++index) {
@@ -2069,11 +2418,20 @@ bool RacelineSplinePlanner::validateCandidate(
     if (entry_index < path.wpnts.size() && entry_forward <= 0.5 * track_length_) {
       const auto & entry = path.wpnts[entry_index];
       const double entry_lateral = std::abs(entry.d_m - ego.d);
-      const double tracking_budget_m =
-        parameters_.trackingErrorReserve(ego.speed, entry.kappa_radpm);
+      // 예산에는 마진 정책과 무관한 하한을 건다 (2026-08-20). 예산이 0 이면 아래 AND 의
+      // 첫 조건이 상시 참이 되어 오탐 방지 장치가 사라지고, 검사가 기울기 하나로 무너진다
+      // — 자세한 근거는 entry_discontinuity_min_budget_m 선언부 주석 참고.
+      const double tracking_budget_m = std::max(
+        parameters_.trackingErrorReserve(ego.speed, entry.kappa_radpm),
+        std::max(0.0, parameters_.entry_discontinuity_min_budget_m));
       const bool beyond_tracking_budget = entry_lateral > tracking_budget_m;
+      // 분모에 바닥을 깐다 (2026-08-23). 최근접 점의 forward 는 경로 샘플 간격 안에서
+      // 얼마든지 작아지므로, 그대로 나누면 기울기가 기하가 아니라 발산값이 된다 —
+      // 근거·실측은 entry_continuity_baseline_m 선언부 주석 참고.
+      const double entry_slope_baseline_m = std::max(
+        entry_forward, std::max(0.0, parameters_.entry_continuity_baseline_m));
       const bool excessive_entry_slope =
-        entry_lateral / entry_forward > parameters_.maximum_lateral_slope;
+        entry_lateral / entry_slope_baseline_m > parameters_.maximum_lateral_slope;
       if (beyond_tracking_budget && excessive_entry_slope) {
         return reject(
           PathValidationFailureKind::kGeometry,
@@ -2192,7 +2550,8 @@ bool RacelineSplinePlanner::validatePath(
   std::string * error,
   PathValidationFailure * failure,
   const std::optional<double> & maximum_collision_forward_m,
-  double obstacle_reserve_scale) const
+  double obstacle_reserve_scale,
+  bool skip_entry_continuity) const
 {
   if (failure != nullptr) {
     *failure = PathValidationFailure();
@@ -2249,7 +2608,7 @@ bool RacelineSplinePlanner::validatePath(
   std::string reason;
   if (!validateCandidate(
       ego, path, visible, reason, start_index, 1U, failure,
-      maximum_collision_forward_m, obstacle_reserve_scale))
+      maximum_collision_forward_m, obstacle_reserve_scale, skip_entry_continuity))
   {
     if (error != nullptr) {
       *error = reason;
@@ -2658,46 +3017,21 @@ RacelineSplineResult RacelineSplinePlanner::plan(
       feasible_order.push_back(index);
     }
   }
+  // 순위 정의는 candidate_rank.hpp 한 곳에만 둔다 (2026-08-21 통합). 항목·순서·근거는
+  // 그 헤더의 주석에 있고, P3ShadowEvaluator::betterFeasible 도 같은 함수를 쓴다 —
+  // 종전에는 같은 순위를 양쪽이 따로 구현하면서 동률 epsilon 이 1000 배 달랐다.
+  const auto rank_key = [&](std::size_t index) {
+      const auto & candidate = candidates[index];
+      CandidateRankKey key;
+      key.exit_reaches_next_obstacle = candidate.exit_reaches_next_obstacle;
+      key.velocity_loss = candidate.velocity_loss;
+      key.minimum_normalized_safety_slack = candidate.minimum_normalized_safety_slack;
+      key.global_path_deviation_m = candidate.global_path_deviation_m;
+      key.tiebreak_index = candidate.audit_index;
+      return key;
+    };
   const auto better_candidate = [&](std::size_t first_index, std::size_t second_index) {
-      const auto & first = candidates[first_index];
-      const auto & second = candidates[second_index];
-      // 다음 장애물을 건드리지 않는 exit이 먼저다 (P3ShadowEvaluator::betterFeasible와 동일
-      // 계약 — 두 순위가 갈리면 P3가 고른 것과 다른 경로를 P0가 커밋한다). 전부 닿는
-      // 경우에는 이 항이 무력해져 기존 slack 기준이 그대로 결정한다.
-      if (first.exit_reaches_next_obstacle != second.exit_reaches_next_obstacle) {
-        return second.exit_reaches_next_obstacle;
-      }
-      // 🔴 2026-08-16 (A안): 실현 가능한 후보끼리는 **속도를 slack보다 먼저** 본다.
-      //
-      // slack(벽·장애물·곡률·곡률변화율 여유의 최솟값)은 하드 게이트를 통과한 뒤의 여분
-      // 마진이다. 필요한 여유는 게이트가 보장하므로, 그 위로 더 버는 것보다 빨리 지나가는
-      // 것이 맞다는 판단(2026-08-16 사용자 결정).
-      //
-      // 종전 순서의 실해 — 23:41 백 s=33~37 직선(라인 7.0): 늦게 급하게 꺾는 경로가 벽
-      // 여유에서 이겨, 횡이동 0.74 m를 1.76 m에 욱여넣어 곡률 1.38 rad/m → 속도 캡
-      // 2.26 m/s가 됐다. 그 최솟값이 후방 실현가능 패스로 4 m 역전파돼 구간 평균이
-      // 2.0 m/s까지 내려갔고, 후보 간 slack 차이가 근소해 한 랩 걸러 2.4배씩 갈렸다.
-      //
-      // exit_reaches_next_obstacle은 여전히 최우선이다 — 여유가 아니라 다음 기동의 성립
-      // 여부를 좌우하는 정합성 조건이다. P3ShadowEvaluator::betterFeasible와 같은 순서를
-      // 유지해야 한다(갈리면 P3가 고른 것과 다른 경로를 plan()이 커밋한다).
-      const double speed_loss_delta = first.velocity_loss - second.velocity_loss;
-      if (std::abs(speed_loss_delta) > kEpsilon) {
-        return speed_loss_delta < 0.0;
-      }
-      const double slack_delta =
-        first.minimum_normalized_safety_slack - second.minimum_normalized_safety_slack;
-      if (std::abs(slack_delta) > kEpsilon) {
-        return slack_delta > 0.0;
-      }
-      const double deviation_delta =
-        first.global_path_deviation_m - second.global_path_deviation_m;
-      if (std::abs(deviation_delta) > kEpsilon) {
-        return deviation_delta < 0.0;
-      }
-      // Exact remaining ties use generation order only. This adds no optimization weight and
-      // guarantees deterministic selection for symmetric geometry.
-      return first.audit_index < second.audit_index;
+      return betterCandidateRank(rank_key(first_index), rank_key(second_index));
     };
   std::stable_sort(feasible_order.begin(), feasible_order.end(), better_candidate);
 

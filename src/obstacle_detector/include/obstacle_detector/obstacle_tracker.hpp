@@ -10,6 +10,8 @@
 #ifndef OBSTACLE_DETECTOR__OBSTACLE_TRACKER_HPP_
 #define OBSTACLE_DETECTOR__OBSTACLE_TRACKER_HPP_
 
+#include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <deque>
 #include <functional>
@@ -100,6 +102,11 @@ struct TrackerParams
     // Map-frame statistical motion classification.
     double dynamic_chi2_threshold{9.21};
     double static_chi2_threshold{5.99};
+    // Curvature-invariant longitudinal evidence from the existing Frenet KF. 1-DoF chi-square,
+    // unlike the 2-DoF map-frame thresholds above. Dynamic-only: the Frenet KF is updated with the
+    // raw AABB centre in s, which drifts while a stationary obstacle is progressively revealed, so
+    // a small Ts cannot certify stationarity. There is deliberately no Frenet static threshold.
+    double frenet_dynamic_chi2_threshold{6.63};
     int dynamic_vote_window{5};
     int dynamic_vote_required{3};
     int static_vote_window{15};
@@ -107,6 +114,13 @@ struct TrackerParams
     int position_history_size{15};
     int static_min_observations{10};
     double static_max_position_rms{0.10};
+    // Minimum time a track must hold its current motion status before STATIC may be entered.
+    // Every other STATIC gate counts FRAMES, and at the simulator's 250 Hz scan rate 15 frames is
+    // 60 ms -- during which a freshly spawned track still reports the zero velocity it was
+    // initialized with, and its position RMS spans centimetres no matter how fast the object
+    // moves. Set this above translation_window_sec so the two-edge translation proof below is
+    // fully populated by the time STATIC is decided.
+    double static_min_observation_sec{0.25};
     int dynamic_to_static_min_observations{20};
     int dynamic_to_static_vote_required{15};
     double dynamic_to_static_max_position_rms{0.08};
@@ -122,6 +136,10 @@ struct TrackerParams
     double translation_window_sec{0.20};
     int translation_history_max_samples{64};
     double dynamic_min_translation_m{0.10};
+    // How long the two-edge proof must stay above dynamic_min_translation_m before a dynamic vote
+    // is allowed. Set above translation_window_sec so a single localization jump -- which proves
+    // translation only until its pre-jump samples age out of the window -- cannot qualify.
+    double dynamic_translation_persistence_sec{0.30};
     double dt_max{0.5};           // [s] clamp for prediction step
     // Per-scan AABB extents flap (square box vs real shape). Smooth their magnitude
     // fast-grow/slow-shrink: expand immediately, relax over ~1/alpha matched frames.
@@ -141,6 +159,21 @@ struct TrackerParams
     // restores the pure occlusion assumption). The refutation itself is supplied by the caller
     // (only the node owns the scan geometry) through update()'s free_space_refuter.
     int static_hold_freespace_refute_frames{3};
+    // 후방 사각 회수 (2026-08-22 신설). free-space 반증은 "상자를 관통하는 빔"을 요구하므로
+    // **상자가 시야 안에 있을 때만** 성립한다. 차 뒤로 넘어간 상자에는 쏠 빔이 아예 없어
+    // 반증이 원리적으로 불가능하고, hold 는 static_lost_hold_sec 를 끝까지 채운다.
+    // 그 구간의 hold 는 정보가 0 이다 — 어떤 미래 스캔도 그 트랙에 측정을 붙일 수 없으므로
+    // 증거로 갱신될 길이 없고, 타이머로 죽는 결말만 남는다. 그래서 마지막 실측 map AABB 가
+    // **통째로** 라이다 FOV 밖(후방 사각)으로 들어간 것이 이 횟수만큼 연속되면 즉시 회수한다.
+    // 0 이면 비활성(= 종전 순수 차폐 hold). 판정은 스캔 기하를 가진 node 가 update() 의
+    // rear_blind_predicate 로 넣어 준다.
+    //
+    // 실측 근거 (run_20260821_230603, 자율 128 s / 장애물 7 랩):
+    //   - /static_obs 엔트리 7811 개 중 ego 뒤 4770 개(61.1%), 그중 92.0% 가 후방 사각
+    //   - 뒤쪽 거리 median 5.20 m — 경계가 애매한 값이 아니라 한참 뒤
+    //   - 안전정지 8 회 23.6 s 중 긴 3 건(5.63/5.69/5.66 s)이 전부 이 유령이 사라진
+    //     0.22 s 뒤(= safe_stop_release_cycles 8 / 39 Hz)에 해제됐다
+    int static_hold_rear_blind_retire_frames{3};
 };
 
 struct VelocityEvidenceResult
@@ -154,6 +187,13 @@ struct VelocityEvidenceResult
 VelocityEvidenceResult evaluateVelocityEvidence(
     const Eigen::Vector2d &velocity,
     const Eigen::Matrix2d &velocity_covariance,
+    const TrackerParams &params);
+
+// Returns DynamicEvidence or Uncertain only -- never StaticEvidence. See
+// TrackerParams::frenet_dynamic_chi2_threshold for why.
+VelocityEvidenceResult evaluateFrenetVelocityEvidence(
+    double longitudinal_velocity,
+    double longitudinal_velocity_variance,
     const TrackerParams &params);
 
 const char *trackStatusName(TrackStatus status);
@@ -186,6 +226,11 @@ struct MeasuredAabbSample
     double x_max{0.0};
     double y_min{0.0};
     double y_max{0.0};
+    double s{0.0};
+    double d{0.0};
+    double s_half_extent{0.0};
+    double d_right_offset{0.0};
+    double d_left_offset{0.0};
 };
 
 struct Track
@@ -214,11 +259,21 @@ struct Track
     double map_position_rms{std::numeric_limits<double>::quiet_NaN()};
     double velocity_statistic{std::numeric_limits<double>::quiet_NaN()};
     bool velocity_covariance_valid{false};
-    // Measured map-frame AABBs inside translation_window_sec, and the largest translation any pair
-    // of them proves. A stationary obstacle being revealed holds this near zero while its centroid
-    // travels several centimetres.
+    double frenet_velocity_statistic{std::numeric_limits<double>::quiet_NaN()};
+    bool frenet_velocity_covariance_valid{false};
+    // Measured map AABB + Frenet envelopes inside translation_window_sec, and the largest
+    // two-edge translation any pair proves. A stationary obstacle being revealed holds this near
+    // zero while its raw centroid travels several centimetres.
     std::deque<MeasuredAabbSample> measured_aabb_history;
+    double provable_map_translation_m{std::numeric_limits<double>::quiet_NaN()};
+    double provable_frenet_translation_m{std::numeric_limits<double>::quiet_NaN()};
     double provable_translation_m{std::numeric_limits<double>::quiet_NaN()};
+    // Stamp at which provable_translation_m last rose above dynamic_min_translation_m and stayed
+    // there, and whether it has held for dynamic_translation_persistence_sec since.
+    double translation_corroborated_since{std::numeric_limits<double>::quiet_NaN()};
+    bool translation_evidence_persistent{false};
+    // Stamp of the latest motion-status transition, for static_min_observation_sec.
+    double motion_status_since{std::numeric_limits<double>::quiet_NaN()};
     bool dynamic_evidence_suppressed{false};
     double static_confidence{0.0};
     double time_since_last_measurement{0.0};
@@ -232,6 +287,9 @@ struct Track
     // Consecutive unmeasured scans whose beams proved the held envelope's space empty. Any
     // measurement, and any scan that cannot see the box, resets it.
     int freespace_refute_streak{0};
+    // Consecutive unmeasured scans on which the whole held envelope sat outside the scanner FOV
+    // (the rear blind cone). Any measurement, and any scan that can see part of the box, resets it.
+    int rear_blind_streak{0};
     // A confirmed physical ID may be remembered after this Kalman-track instance retires.
     bool physical_identity_eligible{false};
     // Captured once from a statistically Static, existence-confirmed measurement. It stays fixed
@@ -261,6 +319,26 @@ struct Track
     double mapY() const { return map_x(2); }
     double mapVy() const { return map_x(3); }
 };
+
+// Cauchy-Schwarz clip for one 2x2 block of the tracker covariance, applied where a merged
+// block is assembled from mixed sources. mergeLayer() takes the merged diagonal as the
+// per-axis max over members while the cross term is a size-weighted mean, so |cov| may exceed
+// sqrt(var_a * var_b) and the block stops being positive semi-definite. Even a single member is
+// not safe: kalmanUpdate() re-symmetrizes P and clamps only the diagonal non-negative, leaving
+// the off-diagonal without any magnitude guarantee. Clipping the correlation to |rho| <= 0.99
+// keeps the published block usable for uncertainty propagation.
+// Degenerate or non-finite input returns 0.0, which consumers read as "no cross-correlation":
+// a zero variance mathematically forces cov = 0, and neither a NaN nor an infinite value may
+// ever reach the topic. Note std::max(0.0, NaN) is 0.0, so a NaN variance also lands here.
+inline double clampCrossCovariance(double cov, double var_a, double var_b)
+{
+    const double bound = 0.99 * std::sqrt(std::max(0.0, var_a * var_b));
+    if (!std::isfinite(bound) || !std::isfinite(cov))
+    {
+        return 0.0;
+    }
+    return std::clamp(cov, -bound, bound);
+}
 
 // Per-update tracker diagnostics. Association rejection counters count track-detection candidate
 // pairs, while track/classification counters are a snapshot after retirement for the current scan.
@@ -302,16 +380,23 @@ class ObstacleTracker
     // current scan. Returns true only on positive evidence that the box's space is empty.
     using FreeSpaceRefuter = std::function<bool(const Track &)>;
 
+    // "이 트랙의 마지막 실측 map AABB 가 통째로 스캐너 FOV 밖(후방 사각)인가". free-space
+    // 반증과 짝을 이루는 두 번째 회수 근거이고, 그 반증이 원리적으로 닿지 못하는 영역을 맡는다.
+    // FreeSpaceRefuter 와 마찬가지로 스캔 기하를 아는 node 만 답할 수 있다.
+    using RearBlindPredicate = std::function<bool(const Track &)>;
+
     // Predict all tracks to `stamp`, associate detections, update, spawn/retire, classify.
     // `ego_motion_transient` marks frames where ego acceleration is transient (hard braking or
     // launch): localization jitter then mimics obstacle translation, so dynamic votes are
-    // withheld while it is set. `free_space_refuter` is consulted ONLY for confirmed static
-    // tracks that received no measurement this scan and would otherwise be held alive by
-    // static_lost_hold_sec; leaving it empty keeps the previous pure-occlusion hold.
+    // withheld while it is set. `free_space_refuter` and `rear_blind_predicate` are consulted
+    // ONLY for confirmed static tracks that received no measurement this scan and would otherwise
+    // be held alive by static_lost_hold_sec; leaving both empty keeps the previous pure-occlusion
+    // hold.
     void update(const std::vector<Detection> &detections, double stamp,
                 double ego_yaw_rate = 0.0, bool yaw_rate_fresh = true,
                 bool ego_motion_transient = false,
-                const FreeSpaceRefuter &free_space_refuter = nullptr);
+                const FreeSpaceRefuter &free_space_refuter = nullptr,
+                const RearBlindPredicate &rear_blind_predicate = nullptr);
 
     const std::vector<Track> &tracks() const { return tracks_; }
     const TrackerUpdateStats &lastStats() const { return last_stats_; }
@@ -337,7 +422,7 @@ class ObstacleTracker
     void updateTrackStatus(Track &t, bool measurement_received) const;
     void updateTranslationEvidence(
         Track &t, const Detection &detection, double stamp) const;
-    void classify(Track &t, bool measurement_received) const;
+    void classify(Track &t, bool measurement_received, double stamp) const;
     // Single authority for "this unmeasured track may be held/frozen as a map-fixed object".
     // Both the state-freeze and the TTL/publish-evidence hold must ask the same question; two
     // copies of the predicate would drift apart.

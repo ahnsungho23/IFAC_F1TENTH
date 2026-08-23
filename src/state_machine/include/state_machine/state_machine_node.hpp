@@ -83,7 +83,7 @@ private:
   std::string invalid_local_path_policy_;
   std::string handoff_ot_line_;
 
-  bool allow_avoid_transition_{true};      // 런타임 파라미터 변경 수용(생성자 콜백)
+  bool allow_avoid_transition_{true};
   bool allow_cruise_transition_{true};
   int64_t local_path_confirmation_window_size_{5};
   int64_t local_path_confirmation_min_hits_{3};
@@ -129,7 +129,6 @@ private:
   rclcpp::Subscription<f110_msgs::msg::OTWpntArray>::SharedPtr avoid_sub_;
   rclcpp::Subscription<f110_msgs::msg::ObstacleArray>::SharedPtr opponent_sub_;
   rclcpp::TimerBase::SharedPtr timer_;
-  rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr param_cb_handle_;
 };
 
 }  // namespace state_machine

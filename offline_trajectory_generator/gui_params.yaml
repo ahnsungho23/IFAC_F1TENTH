@@ -1,5 +1,5 @@
-map_yaml: /home/haejun/Downloads/map.yaml
-output_dir: ~/2026_IFAC/offline_trajectory_generator/output/map
+map_yaml: /home/haejun/Downloads/ifac_roboracer_maps/ifac_roboracer.yaml
+output_dir: /home/haejun/2026_IFAC/offline_trajectory_generator/output/map
 velocity_limits_csv: offline_trajectory_generator/config/velocity_limits.csv
 optimizer: mincurv
 width_mode: hybrid
@@ -14,12 +14,12 @@ waypoint_step: 0.25
 optimizer_step: 0.45999999999999996
 raceline_smooth_sigma: 1.0
 safety_width: 0.4
-boundary_margin: 0.4
+boundary_margin: 0.3
 max_width_distance: 2.4
-max_speed: 9.0
+max_speed: 7.0
 min_speed: 3.7
-max_curvature: 0.7000000000000001
-smooth_sigma: 4.1000000000000005
+max_curvature: 0.9
+smooth_sigma: 2.7
 median_kernel: 5
 morph_kernel: 5
 morph_open_iterations: 4

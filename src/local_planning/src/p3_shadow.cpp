@@ -32,6 +32,7 @@
 #include <utility>
 #include <vector>
 
+#include "local_planning/candidate_rank.hpp"
 #include "local_planning/p3_analytic_solver.hpp"
 #include "local_planning/raceline_spline_planner.hpp"
 
@@ -1193,35 +1194,23 @@ private:
     return false;
   }
 
+  // 순위 정의는 candidate_rank.hpp 한 곳에만 둔다 (2026-08-21 통합). 여기서는 트레이스를
+  // 공통 키로 옮기기만 한다 — plan() 의 better_candidate 와 갈릴 여지를 없애기 위해서다.
   static bool betterFeasible(
     const P3ShadowCandidateTrace & first, const P3ShadowCandidateTrace & second)
   {
-    // 다음 장애물을 건드리지 않는 exit이 항상 우선한다. 이 우선순위가 없으면 safety slack
-    // 최대 기준이 가장 긴 exit(스케일 3.699 → 최대 22.9 m)을 고르는데, 그 램프는 8~12 m 뒤
-    // 장애물 위를 오프셋을 유지한 채 지나가 커밋 재검증과 계속 충돌한다 (2026-08-16 백:
-    // s=31.7 기동의 exit이 s=40.6 장애물을 d=-0.265로 관통 → 랩당 hard collision 41회,
-    // 25 ms마다 같은 후보를 재선택하는 무한 재계획).
-    if (first.exit_reaches_next_obstacle != second.exit_reaches_next_obstacle) {
-      return second.exit_reaches_next_obstacle;
-    }
-    // A안 (2026-08-16): 속도가 slack보다 먼저다. 근거는 raceline_spline_planner.cpp의
-    // better_candidate 주석 참조 — 두 순위는 반드시 같아야 한다(갈리면 P3가 고른 것과
-    // 다른 경로를 plan()이 커밋한다).
-    const double velocity_delta = first.velocity_loss - second.velocity_loss;
-    if (std::abs(velocity_delta) > kEpsilon) {
-      return velocity_delta < 0.0;
-    }
-    const double slack_delta = first.minimum_normalized_safety_slack -
-      second.minimum_normalized_safety_slack;
-    if (std::abs(slack_delta) > kEpsilon) {
-      return slack_delta > 0.0;
-    }
-    const double deviation_delta = first.global_path_deviation_m -
-      second.global_path_deviation_m;
-    if (std::abs(deviation_delta) > kEpsilon) {
-      return deviation_delta < 0.0;
-    }
-    return first.generation_index < second.generation_index;
+    return betterCandidateRank(rankKey(first), rankKey(second));
+  }
+
+  static CandidateRankKey rankKey(const P3ShadowCandidateTrace & trace)
+  {
+    CandidateRankKey key;
+    key.exit_reaches_next_obstacle = trace.exit_reaches_next_obstacle;
+    key.velocity_loss = trace.velocity_loss;
+    key.minimum_normalized_safety_slack = trace.minimum_normalized_safety_slack;
+    key.global_path_deviation_m = trace.global_path_deviation_m;
+    key.tiebreak_index = trace.generation_index;
+    return key;
   }
 
   std::vector<double> entryScales(bool extended = true) const

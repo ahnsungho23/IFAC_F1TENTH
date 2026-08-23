@@ -131,6 +131,10 @@ install(FILES config/cruise_controller.yaml
   DESTINATION share/${PROJECT_NAME}/config
 )
 
+install(DIRECTORY docs
+  DESTINATION share/${PROJECT_NAME}
+)
+
 install(PROGRAMS scripts/sector_learner.py
   DESTINATION lib/${PROJECT_NAME}
 )
@@ -140,6 +144,12 @@ if(BUILD_TESTING)
   ament_add_gtest(test_cruise_controller test/test_cruise_controller.cpp)
   if(TARGET test_cruise_controller)
     target_link_libraries(test_cruise_controller cruise_controller_lib)
+  endif()
+  ament_add_gtest(test_longitudinal_safety test/test_longitudinal_safety.cpp)
+  if(TARGET test_longitudinal_safety)
+    target_include_directories(test_longitudinal_safety PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
   endif()
 endif()
 

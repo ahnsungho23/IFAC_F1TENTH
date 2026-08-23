@@ -101,7 +101,10 @@ public:
     Vector3dVectorTuple RegisterFrame(const std::vector<Eigen::Vector3d> &frame,
                                       const std::vector<double> &timestamps,
                                       const Sophus::SE3d &lidar_to_base,
-                                      const Sophus::SE3d &relative_odometry);
+                                      const Sophus::SE3d &relative_odometry,
+                                      // §8: drop all priors for this frame
+                                      const bool free_mode = false,
+                                      const int free_mode_max_iterations = 200);
 
     inline void SetPose(const Sophus::SE3d &pose) {
         last_pose_ = pose;

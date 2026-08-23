@@ -3,6 +3,26 @@
 Package-level rules for the detector-only `obstacle_detector` package. These rules inherit and
 must not weaken the repository-root `AGENTS.md`.
 
+## 🔵 브랜치 목적과 분기 항목 (2026-08-23)
+
+| 브랜치 | 목적 | `/opp_obs` |
+|---|---|---|
+| `prototype` | 클린맵 주행 + **정적 장애물 회피** | 미사용 |
+| `transition_global` | 클린맵 주행 + 정적 회피 + **동적 추적 / CRUISE** | 사용 |
+
+**정적 검출 경로는 두 브랜치가 같아야 한다.** transition_global 의 검출기 개선은 이쪽으로
+그대로 받는다 (2026-08-23: 18 커밋 / 656 줄 / 시험 10 개 흡수).
+
+**동적 전용 완화는 받지 않는다.** prototype 에서는 이득이 0 이고 정적 오분류 위험만 남는다.
+현재 분기 항목:
+
+| 파라미터 | prototype | transition_global | 왜 |
+|---|---|---|---|
+| `dynamic_min_translation_m` | **0.30** | 0.18 | 0.18 은 저속 상대차를 DYNAMIC 으로 잡기 위한 완화. 0.30 은 실차 MCL 지터 상한 0.27 바로 위로, 정적 박스가 지터로 DYNAMIC 표를 받아 `/confirmed_static_obs` 에서 이탈하는 것(run_0814_010624 t=317 id42)을 막는다. 실측(2026-08-23, 백 3개): 정적 박스 two-edge 병진 증명 p99 0.10~0.14, 0.18 초과 0.00~0.35% / 0.30 초과 0.00~0.14%. |
+
+병합 규칙: 위 항목은 YAML 에 🔵 분기점 주석이 붙어 있다. 충돌 시 **주석째로 prototype 쪽을
+남긴다.** 새 동적 전용 완화가 생기면 같은 방식으로 표시하고 이 표에 추가한다.
+
 ## Scope
 
 This package contains one C++ ROS 2 Jazzy runtime node:
@@ -85,13 +105,21 @@ Keep the scan-driven pipeline ordered as follows:
     LiDAR revelation of an occluded stationary obstacle moves its centroid several centimetres this
     way, and reading that as motion drops a real obstacle out of `/static_obs` and blinds the
     planner. Below `dynamic_min_translation_m` inside `translation_window_sec` the vote is
-    `Uncertain`, never `Dynamic`. This gate only makes entering `Dynamic` harder — it must never be
+    `Uncertain`, never `Dynamic`. The proof is the max over the map AABB and the Frenet envelope
+    (same two-edge rule), so a cornering opponent whose map AABB width/height changes with its
+    heading is not cancelled out, and it must hold for `dynamic_translation_persistence_sec`
+    before a dynamic vote is allowed. This gate only makes entering `Dynamic` harder — it must never be
     used to weaken the `Dynamic -> Static` hysteresis, and a genuinely moving object still
     translates far enough within the window to pass it.
 13. A non-dynamic track enters `/static_obs` only while its envelope-stability streak reaches
-    `envelope_stability_frames`: consecutive matched frames whose measured centre and extents stay
-    within `envelope_stability_tolerance_m`. Fan-shaped morphing clusters never settle and stay
-    unpublished; stable real obstacles pass at the same hit as existence confirmation.
+    `envelope_stability_frames`: consecutive matched frames whose measured centre stays within
+    `envelope_stability_tolerance_m` and whose extents do not SHRINK beyond it. The reset is
+    ASYMMETRIC by magnitude (B2-1, 2026-08-20): pure extent growth never resets the streak,
+    because an approached real obstacle grows every few frames and the old symmetric reset
+    punched measured 2-frame publication holes into BOTH output topics exactly while the planner
+    was committing past it (run_192006 id35: 5 holes in 2 s). Shrink and centre jumps — the
+    fan-shaped scatter signature — still reset. Do not restore the symmetric reset; verify any
+    change here with a bag replay A/B that counts ghost publications and short conf gaps.
 14. Merge confirmed tracks only within the same static/dynamic layer.
 15. Preserve each measured cluster's independent Frenet footprint and map-frame Cartesian AABB
     through Detection and Track. Smooth the Frenet extents per matched measurement with
@@ -177,6 +205,38 @@ published Frenet bounds instead of reprojecting the Cartesian metadata.
   points produce no pass-through evidence at all, so the hold they exist for is untouched. Tests:
   `FreeSpaceRefutationRetiresHeldEnvelopeAfterConsecutiveScans` and
   `OcclusionHoldSurvivesWithoutFreeSpaceEvidence`.
+- **Rear-blind retirement covers what free-space refutation structurally cannot** (2026-08-22).
+  The refutation needs a beam THROUGH the box, so it only ever fires while the box is inside the
+  FOV. A box that ego has driven past sits in the rear blind cone where no beam can reach it: the
+  refutation can never fire, and the hold runs the full `static_lost_hold_sec`. That window
+  carries zero information -- no future scan can attach a measurement, so the track cannot be
+  corrected by evidence and can only expire on the timer -- while downstream it is live obstacle
+  input. `ObstacleTracker::update()` therefore also takes a `RearBlindPredicate`, gated exactly
+  like the refuter (hold-eligible and unmeasured only), and retires the track (`ttl = 0`) after
+  `static_hold_rear_blind_retire_frames` consecutive confirmations. Any measurement, and any scan
+  that can see part of the box, resets `rear_blind_streak`.
+  The predicate is `ObstacleDetectorNode::envelopeInRearBlindCone()`: it transforms the last
+  measured map AABB's FOUR corners into the scan frame and returns true only when ALL FOUR
+  bearings fall outside `[scan.angle_min, scan.angle_max]` widened by
+  `static_hold_rear_blind_retire_margin_deg`. Keep every part of that contract:
+  - **All four corners.** One visible corner means the rest may be occluded, which is the exact
+    case `static_lost_hold_sec` exists for.
+  - **FOV from the scan header, never a constant.** The real car is +/-135 deg / 1081 beams, but
+    hard-coding that silently breaks on a different scanner; a 360 deg scan has no blind cone and
+    the predicate must degrade to a no-op.
+  - **`tx/ty/yaw` is the SCAN frame origin in map** (`lookupScanToMap` looks up `map->scan`), not
+    `base_link`. Do not add the lidar forward offset again.
+  - **Widening the FOV by the margin is the conservative direction** -- it retires later, never
+    earlier.
+  It is pure geometry, so the function is `static` and the unit tests call it without a node.
+  Tests: `RearBlindCone.*` (8) plus `RearBlindRetiresHeldEnvelopeAfterConsecutiveScans`,
+  `RearBlindRetirementIsSkippedWithoutThePredicate`, `MeasurementResetsTheRearBlindStreak`.
+  Measured on `run_20260821_230603` (autonomous 128 s, 7 obstacle laps), replayed A/B:
+  ghost residence after ego passes median 4.70 s -> 0.20 s; `/static_obs` entries behind ego
+  61.8% -> 13.9%; forward 0-13 m detection unchanged (0.550 -> 0.543 entries/frame, and the same
+  1003 forward retirements). Feeding that into the planner in the same replay: static safe-stop
+  22.6 s -> 9.5 s, max latch 5.66 s -> 2.05 s, and all three ~5.6 s stalls disappear.
+  Revert path: `static_hold_rear_blind_retire_enable: false` (bit-identical to the previous hold).
 - **The hold requires map-fixed EVIDENCE, not merely "not Dynamic"** (2026-08-15): both hold sites
   ask `holdEligibleWhileUnmeasured()`, the single authority; never re-inline the predicate. A
   `Confirmed` track qualifies when `motion_status == Static`, or -- while still `Unknown` -- only
@@ -197,9 +257,13 @@ published Frenet bounds instead of reprojecting the Cartesian metadata.
   Regression: `TranslatingUnknownTrackIsNotHeldAsMapFixedObject` and
   `HoldFallsBackToPermissiveWhenCorroborationDisabled` in `test/test_obstacle_tracker.cpp`.
   Residual gap (accepted): an opponent occluded before it accumulates
-  `dynamic_min_translation_m` of provable translation still gets the hold. Lowering that
-  threshold is NOT the fix -- it is pinned just above the measured real-car MCL jitter (0.27 m),
-  and the 0.10 m era leaked static boxes into `/opp_obs` (run_0814_010624).
+  `dynamic_min_translation_m` of provable translation still gets the hold. The threshold is
+  0.18 m (= 0.9 m/s over the 0.20 s window), restored 2026-08-22 to the real-car-validated value.
+  Do NOT raise it back to 0.30: that demands 1.5 m/s, so an opponent decelerating into a corner
+  can never become `Dynamic`, `/opp_obs` stays empty, and CRUISE cannot engage at all. The
+  one-shot MCL jump this threshold used to guard against (run_0814_010624) is handled instead by
+  `dynamic_translation_persistence_sec` (0.30 s > `translation_window_sec`), which a jump cannot
+  satisfy because its proof collapses once the pre-jump samples age out of the window.
 - **Held tracks freeze their Kalman filters**: during the hold's prediction-only frames both the
   Frenet and map filters are NOT propagated (first miss frame still predicts). Propagating a CV
   model through a multi-second dropout integrates a noisy velocity estimate — the state drifts

@@ -186,9 +186,14 @@ dynamic 임계값을 넘긴다. 그러면 실제로는 가만히 있는 장애�
 `/static_obs`에서 빠지고, planner는 눈앞의 장애물을 보지 못한다.
 
 - `translation_window_sec(0.20 s)` 안에 보관한 측정 AABB들과 현재 측정을 비교해, 어느 한 쌍이라도
-  증명하는 가장 큰 병진량을 구한다.
-- 그 값이 `dynamic_min_translation_m(0.10 m)` 미만이면 해당 frame의 evidence를
-  `DYNAMIC`이 아니라 `UNCERTAIN`으로 기록한다.
+  증명하는 가장 큰 병진량을 map AABB와 Frenet envelope 양쪽에서 구하고 둘 중 큰 값을 쓴다.
+  Frenet 증명은 코너에서 차량 자세 회전 때문에 map AABB 폭/높이가 변해 병진량이 상쇄되는
+  문제를 막는다.
+- 그 값이 `dynamic_min_translation_m(0.18 m = 0.2 s 창에서 0.9 m/s)` 미만이면 해당 frame의
+  evidence를 `DYNAMIC`이 아니라 `UNCERTAIN`으로 기록한다.
+- 1회성 위치추정 점프는 임계값이 아니라 `dynamic_translation_persistence_sec(0.30 s)`로 거른다.
+  점프는 창 안에 점프 이전 샘플이 남아 있는 `translation_window_sec` 동안만 병진을 증명하고
+  그 뒤 ~0으로 무너지지만, 실제로 움직이는 물체는 계속 증명한다.
 - 이 게이트는 `DYNAMIC` **진입만** 어렵게 한다. `DYNAMIC → STATIC` 히스테리시스는 그대로다.
 - 실제로 움직이는 상대차는 window 안에서 충분히 병진하므로 영향을 받지 않는다. 반대로 아주 느린
   상대차는 잠시 `UNKNOWN`으로 남아 `/static_obs`에 실리는데, 이는 회피 대상으로 남는다는 뜻이므로
@@ -210,9 +215,13 @@ evidence, 작은 위치 RMS, 반복 association에서 증가하고 dynamic evide
 `DYNAMIC`으로 바뀐 동일 scan부터 `/static_obs`에서 빠지고 `/opp_obs` 후보로 이동한다.
 `/confirmed_static_obs`에는 `CONFIRMED+STATIC`이면서 envelope 안정성 게이트를 통과한 객체만 실린다.
 
-envelope 안정성 게이트: 매칭될 때마다 측정 중심과 extent가 track의 예측/보존 값에서
-`envelope_stability_tolerance_m`(기본 0.10 m) 이내로 안정됐는지 검사하고, 연속 횟수가
+envelope 안정성 게이트: 매칭될 때마다 측정 중심이 `envelope_stability_tolerance_m`
+(기본 0.10 m) 안에 있고 extent 가 그 이상 **수축하지 않았는지** 검사하고, 연속 횟수가
 `envelope_stability_frames`(기본 2)에 못 미치는 정적 track은 발행 레이어에서 제외한다.
+리셋은 크기 기준 **비대칭**이다 (B2-①, 2026-08-20): 접근 중 보이는 면이 커지는 순수 확장은
+진짜 장애물의 정상 현상이라 streak 를 끊지 않는다 — 구 대칭 리셋은 성장 프레임마다 두 발행
+토픽에 정확히 2프레임짜리 구멍을 만들었고(run_192006 id35: 접근 2초에 구멍 5회), 플래너는
+그 구멍마다 순간 실명했다. 수축·중심 점프(산란 유령의 서명)는 종전대로 리셋한다.
 정사각형 AABB와 실제 형태의 괴리로 형태가 계속 변하는 부채꼴 산란 클러스터는 이 streak를
 채우지 못해 `/static_obs`에 나타나지 않는다. envelope가 안정적인 실제 장애물은 hits 3시점에
 streak 2를 함께 만족하므로 발행 지연이 추가되지 않는다. prediction-only 프레임에는 streak가
@@ -240,7 +249,14 @@ extent로 박스 모서리 간격을 계산하고, 같은 레이어 안에서 �
 - 그중 confirmed static만 다시 병합해 `/confirmed_static_obs`로 발행한다.
 - 병합 dynamic 객체 중 에고 전방에서 가장 가까운 하나를 `/opp_obs`로 발행한다.
 - 선택된 상대차의 Frenet 횡영역이 ego corridor와 겹치고 현재 또는 등속 예측 후면 간격이
-  `interference_distance_m` 이내이면 `is_interfering=true`로 설정한다. 같은 ID의 간섭 상태는
+  `interference_distance_m` 이내이면 `is_interfering=true`로 설정한다.
+
+  > ⚠️ **2026-08-22 현재 `state_machine`은 이 필드를 소비하지 않는다.** CRUISE 진입 판정의
+  > 소유자는 `state_machine`의 확률 간섭 술어(진입 거리 5.0 m)이며, 이 필드의 기본 진입
+  > 거리 1.0 m는 `cruise_controller`의 목표 간격 5.0 m보다 작아 그대로 쓰면 CRUISE가
+  > 성립하지 않는다. 이 필드는 계속 발행되지만 현재 하류 소비자는 없다.
+
+  같은 ID의 간섭 상태는
   `interference_distance_m * (1 + interference_distance_margin_ratio)`까지 유지한다.
 - `/static_obs/markers`는 최종 `/static_obs`의 Frenet 경계를 파란 테두리로 표시한다.
 - `/opp_obs/markers`는 최종 `/opp_obs`의 Frenet 경계를 빨간 테두리로 표시한다.
@@ -360,6 +376,39 @@ record/replay 원인 분석용 출력일 뿐 planner 입력이 아니다. 일반
    증거가 없으므로 기존 hold가 그대로 유지된다. 스캔 기하는 node만 가지므로 판정은
    `scanRefutesHeldEnvelope()`에 있고, tracker는 `update()`의 `FreeSpaceRefuter` 콜백으로만
    호출한다. `static_hold_freespace_refute_enable: false` 또는 `frames: 0`이면 종전 동작이다.
+
+   **hold의 후방 사각 회수(2026-08-22)**: 위 반증은 "상자를 관통한 빔"을 증거로 쓰므로
+   **상자가 시야 안에 있을 때만** 성립한다. ego가 지나쳐 차 뒤 사각으로 넘어간 상자에는 쏠
+   빔이 아예 없어 반증이 원리적으로 불가능하고, hold가 `static_lost_hold_sec`(5 s)를 끝까지
+   채운다. 그 구간의 hold는 **정보가 0이다** — 어떤 미래 스캔도 그 track에 측정을 붙일 수
+   없으므로 증거로 갱신될 길이 없고 타이머로 죽는 결말만 남는데, 그동안 하류에는 살아 있는
+   장애물 입력으로 나간다. 그래서 hold 대상 track에 한해 다음을 검사한다.
+   - 마지막 실측 map AABB의 **네 꼭짓점**을 스캔 프레임으로 옮겨 bearing을 잰다
+   - **넷 다** `[scan.angle_min, scan.angle_max]`를
+     `static_hold_rear_blind_retire_margin_deg`만큼 넓힌 구간 밖인가
+
+   `static_hold_rear_blind_retire_frames` 스캔 연속으로 성립하면 즉시 회수한다(`ttl = 0`).
+   실측이 들어오거나 한 꼭짓점이라도 보이는 스캔이 끼면 streak은 0으로 돌아간다.
+
+   🔑 **FOV를 코드 상수로 두지 않는다** — `/scan` 헤더의 `angle_min`/`angle_max`를 그대로
+   쓰므로 라이다를 바꾸면 판정도 따라가고, 360° 스캐너는 사각이 없어 자동으로 no-op이 된다.
+   ⚠️ `tx/ty/yaw`는 map 기준 **스캔 프레임 원점**이다(`lookupScanToMap`이 `map->scan`을
+   조회한다). `base_link`가 아니므로 라이다 전방 오프셋을 다시 더하지 말 것.
+   판정은 순수 기하라 `ObstacleDetectorNode::envelopeInRearBlindCone()`가 `static`이고,
+   단위 시험이 노드를 띄우지 않고 직접 호출한다. tracker는 `update()`의
+   `RearBlindPredicate` 콜백으로만 부른다.
+   `static_hold_rear_blind_retire_enable: false` 또는 `frames: 0`이면 종전 동작이다.
+
+   **실측(`run_20260821_230603`, 자율 128 s·장애물 7랩, 같은 백 재생 A/B)**
+
+   | 지표 | OFF | ON |
+   |---|---|---|
+   | 유령 잔존(ego가 지나친 뒤) median / p90 | 4.70 / 5.19 s | **0.20 / 0.39 s** |
+   | `/static_obs` 엔트리 중 ego 뒤 | 61.8% | **13.9%** |
+   | 전방 0~13 m 엔트리/프레임 | 0.550 | 0.543 (회귀 없음) |
+   | 전방 13 m 이내 소멸 트랙 | 1003건 | **1003건(동일)** |
+   | (플래너 연결 시) 정적 안전정지 합계 | 22.6 s | **9.5 s** |
+   | (플래너 연결 시) 최장 래치 | 5.66 s | **2.05 s** |
    **hold 중 Kalman 동결**: 관측이 없는 동안 CV 모델을 계속 예측하면 잡음 섞인 속도 추정이
    수 초 적분되어 상태가 표류하고 공분산이 폭증한다 — 재검출이 기존 track에 연계되지 못해
    좀비 중복 track이 생기고, 발행된 `s_var/d_var`가 하류 uncertainty guard에서 10 cm 조각을
@@ -411,13 +460,14 @@ record/replay 원인 분석용 출력일 뿐 planner 입력이 아니다. 일반
 | 물리 객체 ID 연속성 | `physical_id_reassociation_enable`, `physical_id_reassociation_gap_s/d/map`, `physical_id_memory_sec` | 안정 실측 anchor와 Frenet/map AABB 기반 track 폐기 뒤 ID 재식별 |
 | 수명 | `ttl_dynamic`, `ttl_static`, `static_lost_hold_sec`, `min_hits_confirm`, `confirmation_window`, `extent_shrink_alpha`, `envelope_stability_tolerance_m`, `envelope_stability_frames`, `static_publish_requires_visible` | 3-of-5 존재 확인, track/ID 유지, CONFIRMED STATIC 차폐 hold(초 단위), extent 완화와 연속 실측 기반 정적 레이어 gate |
 | 수명(반증) | `static_hold_freespace_refute_enable`, `static_hold_freespace_refute_frames`, `static_hold_freespace_refute_min_beams`, `static_hold_freespace_refute_margin_m`, `static_hold_freespace_refute_box_shrink_m` | 홀드 중인 envelope를 관통하는 빔이 연속 관측되면 즉시 회수(유령 5초 유지 방지) |
-| 분류 | `motion_classification.dynamic_chi2_threshold`, `static_chi2_threshold`, `dynamic_vote_*`, `static_vote_*` | map 속도의 통계적 evidence와 최근 voting |
-| 위치 지속성 | `motion_classification.position_history_size`, `static_min_observations`, `static_max_position_rms`, `dynamic_to_static_*` | STATIC 진입과 보수적인 DYNAMIC→STATIC 복귀 |
-| 병진 확인 | `motion_classification.translation_corroboration_enable`, `translation_window_sec`, `translation_history_max_samples`, `dynamic_min_translation_m` | 부분 노출로 자라는 AABB를 이동으로 오판하지 않도록 dynamic vote에 실제 병진 증거를 요구 |
+| 수명(후방 사각) | `static_hold_rear_blind_retire_enable`, `static_hold_rear_blind_retire_frames`, `static_hold_rear_blind_retire_margin_deg` | 마지막 실측 AABB의 네 꼭짓점이 전부 스캐너 FOV 밖이면 즉시 회수. 반증이 원리적으로 닿지 못하는 영역(차 뒤)을 맡는다 |
+| 분류 | `motion_classification.dynamic_chi2_threshold`, `static_chi2_threshold`, `frenet_dynamic_chi2_threshold`, `dynamic_vote_*`, `static_vote_*` | map 속도의 통계적 evidence와 최근 voting. B2-② (2026-08-20): STATIC 승격을 6표/12창 + 관측 6 으로 완화 — 10표/15창은 가시율 26% 장애물에서 승격을 1.27 s 지연시켰고(run_192006 id7) 승격 무산 통과가 run_080532 에서 14/107 이었다. DYNAMIC 오분류 방어는 3/5표+실측 병진 증명이 별도로 유지 |
+| 위치 지속성 | `motion_classification.position_history_size`, `static_min_observations`, `static_min_observation_sec`, `static_max_position_rms`, `dynamic_to_static_*` | STATIC 진입과 보수적인 DYNAMIC→STATIC 복귀. `static_min_observation_sec`(0.25 s)는 프레임 수 게이트만으로 250 Hz 스캔에서 갓 생성된 track이 44 ms 만에 STATIC으로 굳던 문제를 막는다 |
+| 병진 확인 | `motion_classification.translation_corroboration_enable`, `translation_window_sec`, `translation_history_max_samples`, `dynamic_min_translation_m`, `dynamic_translation_persistence_sec` | 부분 노출로 자라는 AABB를 이동으로 오판하지 않도록 dynamic vote에 실제 병진 증거(map/Frenet two-edge)를 요구하고, 1회성 점프는 지속성 조건으로 분리 |
 | ego 가속 transient 억제 | `motion_classification.dynamic_vote_ego_accel_suppress_mps2`, `dynamic_vote_suppress_hold_sec`, `ego_accel_smoothing_sec` | 급제동·런치킥의 위치추정 jitter 구간에서 dynamic vote만 보류 (0.0이면 비활성) |
 | 분류 수치 안정성 | `motion_classification.covariance_regularization_epsilon`, `minimum_velocity_covariance`, `static_score_forgetting_factor` | 속도 공분산 regularization과 confidence decay |
 | 레이어 병합 | `layer_merge_enable`, `layer_merge_gap_s/d` | tracking 후 같은 레이어 객체 병합 |
-| 상대차 간섭 | `interference_check_enable`, `interference_distance_m`, `interference_distance_margin_ratio`, `interference_time_horizon_sec`, `interference_min_closing_speed_mps`, `interference_lateral_margin_m`, `interference_ego_half_width_m`, `interference_ego_front_offset_m` | ego corridor 횡겹침과 현재/예측 후면 간격으로 `is_interfering` 판정. 기본 1.0 m 진입, 같은 ID는 1.2 m에서 해제 |
+| 상대차 간섭 (하류 미소비) | `interference_check_enable`, `interference_distance_m`, `interference_distance_margin_ratio`, `interference_time_horizon_sec`, `interference_min_closing_speed_mps`, `interference_lateral_margin_m`, `interference_ego_half_width_m`, `interference_ego_front_offset_m` | ego corridor 횡겹침과 현재/예측 후면 간격으로 `is_interfering` 판정. 기본 1.0 m 진입, 같은 ID는 1.2 m에서 해제 |
 | 진단 | `diagnostics_enable`, `diagnostics_period_sec`, `motion_classification.debug_enable`, `debug_period_sec` | 누적 perception 로그와 track별 motion debug 로그 |
 | Replay 진단 | `replay_diagnostics_enable=false`, `replay_diagnostics_topic` | tuning 전용 scan별 detector 상태 JSON |
 | Lockstep | `lockstep_mode=false`, `lockstep_scan_offset_x_m=0.275` | CMA 전용 동일 timestamp scan/GT odom 결합 |

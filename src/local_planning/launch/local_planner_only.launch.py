@@ -67,6 +67,20 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'p3_diagnostics_topic', default_value='/local_planning/p3_shadow',
             description='Non-commanding P3/M1 ownership and lifecycle diagnostic topic'),
+        # F1/F3 (2026-08-22) 실차 A/B 스위치. YAML 을 고치지 않고 팔을 바꾸려고 인자로 뺐다.
+        # 근거와 실측은 config/local_planning.yaml 의 해당 항목 주석 참고.
+        DeclareLaunchArgument(
+            'hold_republish_last_guidance', default_value='true',
+            description='F1: 보류 게이트가 마지막 유효 회피 기하를 재검증해 계속 쓴다. '
+                        'false 면 종전 거동(커밋 경로만, 없으면 안전정지).'),
+        DeclareLaunchArgument(
+            'hold_min_clear_time_sec', default_value='0.0',
+            description='F5: 이 시간 안에 해소될 보류는 safe-stop 래치로 키우지 않는다 [s]. '
+                        '0 이면 끈다.'),
+        DeclareLaunchArgument(
+            'stop_geometry_extend', default_value='true',
+            description='F3: 접촉점에서 잘린 정지 경로의 조향 기하를 원본으로 되돌린다 '
+                        '(제동 프로파일 불변). false 면 종전 거동(2~8 점 정지 경로).'),
     ]
 
     local_planner_node = Node(
@@ -89,6 +103,12 @@ def generate_launch_description():
                 'p3_mode': ParameterValue(
                     LaunchConfiguration('p3_mode'), value_type=str),
                 'p3_diagnostics_topic': LaunchConfiguration('p3_diagnostics_topic'),
+                'hold_republish_last_guidance': ParameterValue(
+                    LaunchConfiguration('hold_republish_last_guidance'), value_type=bool),
+                'stop_geometry_extend': ParameterValue(
+                    LaunchConfiguration('stop_geometry_extend'), value_type=bool),
+                'hold_min_clear_time_sec': ParameterValue(
+                    LaunchConfiguration('hold_min_clear_time_sec'), value_type=float),
             },
         ]
     )

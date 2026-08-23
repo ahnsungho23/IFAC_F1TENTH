@@ -174,6 +174,10 @@ RacelineSplineParameters parametersOf(const Stream & stream)
   value.vehicle_length_m = scalar("vehicle_length_m");
   value.vehicle_half_width_m = scalar("vehicle_half_width_m");
   value.safety_margin_m = scalar("safety_margin_m");
+  // 시나리오는 예약 게이트 도입(2026-08-22) **이전에** 캡처된 운영 스냅샷이라 LUT 를
+  // 그대로 담고 있다. 그 스냅샷을 재생하는 것이 이 재생 안전망의 목적이므로 게이트를
+  // 켠다 — 여기서 끄면 회귀망이 검사하던 것과 다른 계획을 비교하게 된다.
+  value.obstacle_reserve_from_lut = true;
   value.tracking_error_reserve_m = scalar("tracking_error_reserve_m");
   value.wall_safety_margin_m = scalar("wall_safety_margin_m");
   value.fallback_track_half_width_m = scalar("fallback_track_half_width_m");

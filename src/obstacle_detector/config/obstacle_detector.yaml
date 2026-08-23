@@ -1,3 +1,21 @@
+# ════════════════════════════════════════════════════════════════════════════════════════════════
+# 🔵 브랜치 목적 — 이 파일을 병합할 때 먼저 읽을 것 (2026-08-23)
+# ════════════════════════════════════════════════════════════════════════════════════════════════
+#   prototype         : 클린맵 주행 + **정적 장애물 회피**            (/opp_obs 미사용)
+#   transition_global : 클린맵 주행 + 정적 회피 + **동적 추적/CRUISE**
+#
+# **정적 검출 경로는 두 브랜치가 같아야 한다.** 그래서 transition_global 의 검출기 개선은
+# 이쪽으로 그대로 받는다 — 2026-08-23 에 18 커밋(656 줄, 시험 10 개)을 흡수했다.
+#
+# 다만 **동적 전용 완화는 받지 않는다.** prototype 은 /opp_obs 를 쓰지 않으므로 그 이득이
+# 0 이고, 정적 박스가 DYNAMIC 으로 오분류될 위험만 남기 때문이다. 현재 그런 항목은 하나다:
+#
+#     dynamic_min_translation_m   prototype 0.30   /   transition_global 0.18
+#
+# 해당 줄에 🔵 분기점 주석과 실측 근거를 붙여 두었다. 병합 도구가 충돌을 내면 **주석째로
+# prototype 쪽을 남기고**, transition 값으로 덮지 말 것. 새로 동적 전용 완화가 생기면 같은
+# 방식으로 표시하고 이 목록에 추가한다.
+# ════════════════════════════════════════════════════════════════════════════════════════════════
 # ================================================================================================
 # OBSTACLE DETECTOR CONFIGURATION (Layer 1/2/3 LiDAR obstacle detection)
 # ================================================================================================
@@ -152,7 +170,16 @@ obstacle_detector:
     physical_id_reassociation_gap_d: 0.3       # lateral AABB edge gap [m]
     physical_id_reassociation_gap_map: 0.4     # Euclidean map-frame AABB edge gap [m]
     physical_id_memory_sec: 30.0               # dormant confirmed-object ID memory [s]
-    ttl_dynamic: 40                            # frames to keep a lost dynamic track
+    # 🔴 TTL은 frame 단위라 250 Hz 시뮬에서 아주 짧습니다. 40 frame = 0.16 s였고, 코너에서
+    # 상대차가 그보다 조금만 가려져도 dynamic track이 죽어 /opp_obs가 비었습니다. 그러면
+    # cruise_controller가 clear_confirm_sec(1.0) 뒤 속도 상한을 maximum_speed로 완전히 풀어
+    # 코너 안에서 상대차를 향해 가속합니다. 125 frame = 0.5 s로 차폐를 버팁니다.
+    # 정적 track에는 시간 기반 static_lost_hold_sec가 따로 있으므로 이 값은 static 판정과
+    # 무관합니다 — 분류 임계값이 아니라 "잃은 dynamic track을 얼마나 붙잡나"입니다.
+    # 미관측 dynamic track은 Cartesian AABB를 발행하지 않고(is_visible=false) Frenet s/vs
+    # 예측만 싣습니다. state_machine의 간섭 술어는 진입에 is_visible을 요구하고 래치 유지만
+    # 예측 프레임에 허용하므로(고스트 게이트) 이 TTL이 유령 진입을 만들지 않습니다.
+    ttl_dynamic: 125                           # frames to keep a lost dynamic track (~0.5 s @250 Hz)
     ttl_static: 25                             # keep a lost static track for ~0.1 s at 250 Hz
     # CONFIRMED STATIC track은 맵 고정 물체라서 시야 상실(차폐·FOV 이탈·제동 노즈다이브)이
     # 소멸의 증거가 아닙니다. 스캔 stamp 기준으로 이 시간 동안 트랙과 발행 자격(envelope
@@ -195,6 +222,31 @@ obstacle_detector:
     static_hold_freespace_refute_margin_m: 0.15 # 뒤쪽 면을 이만큼 지나야 관통으로 인정 [m]
     static_hold_freespace_refute_box_shrink_m: 0.05  # 코어 상자 축소량 (각 면) [m]
 
+    # === 후방 사각 회수 (2026-08-22 신설) ===
+    # 위 free-space 반증은 "상자를 관통한 빔"을 증거로 쓰므로 **상자가 시야 안에 있을 때만**
+    # 성립합니다. 차 뒤로 넘어간 상자에는 쏠 빔이 아예 없어 반증이 원리적으로 불가능하고,
+    # hold가 static_lost_hold_sec(5초)를 끝까지 채웁니다. 그 구간의 hold는 정보가 0입니다 —
+    # 어떤 미래 스캔도 그 트랙에 측정을 붙일 수 없으므로 증거로 갱신될 길이 없고, 타이머로
+    # 죽는 결말만 남습니다. 그래서 마지막 실측 map AABB가 **통째로** 스캐너 FOV 밖으로
+    # 넘어간 것이 연속 frames회 확인되면 그 스캔에서 바로 회수합니다.
+    #
+    # 🔑 상수가 없습니다 — FOV는 /scan 헤더의 angle_min/angle_max를 그대로 씁니다(실차 ±135°,
+    #    1081빔). 라이다를 바꾸면 판정도 따라갑니다. 360° 스캐너는 사각이 없으므로 no-op입니다.
+    # 🔑 봉투의 **네 꼭짓점이 전부** 밖일 때만 회수합니다. 하나라도 보이면 차폐일 수 있으므로
+    #    hold를 그대로 둡니다. 즉 전방 차폐 hold(2026-08-12 churn 수정)는 건드리지 않습니다.
+    #
+    # 실측 근거 (run_20260821_230603, 자율 128 s / 장애물 7랩):
+    #   - /static_obs 엔트리 7811개 중 ego 뒤 4770개(61.1%), 그중 92.0%가 후방 사각
+    #   - 뒤쪽 거리 median 5.20 m — 경계가 애매한 값이 아니라 한참 뒤
+    #   - 안전정지 8회 23.6 s(자율의 18%) 중 긴 3건(5.63/5.69/5.66 s)이 전부 이 유령이
+    #     사라진 0.22 s 뒤(= safe_stop_release_cycles 8 ÷ 39 Hz)에 해제됨. 그동안 차는
+    #     ±0.01 m로 완전 정지해 있었으므로 바뀐 입력은 장애물 목록뿐이었다.
+    # 되돌리기: static_hold_rear_blind_retire_enable: false (비트 단위로 종전 거동)
+    static_hold_rear_blind_retire_enable: true
+    static_hold_rear_blind_retire_frames: 3     # 연속 확인 스캔 수 (0이면 비활성)
+    # 경계에서 깜빡이지 않도록 FOV를 이만큼 **넓혀서** 판정합니다(= 회수에 보수적) [deg]
+    static_hold_rear_blind_retire_margin_deg: 2.0
+
     # === MAP-FRAME MOTION CLASSIFICATION ===
     # 기존 Frenet KF/association은 유지하고, 각 track에 분류 전용 map-frame CV KF
     # [x,vx,y,vy]를 병렬로 둡니다. Tv=vᵀ Pv⁻¹v는 inverse 대신 Eigen LDLT solve로 계산합니다.
@@ -203,19 +255,39 @@ obstacle_detector:
     motion_classification:
       dynamic_chi2_threshold: 9.21             # Tv가 이 값보다 크면 dynamic evidence
       static_chi2_threshold: 5.99              # Tv가 이 값보다 작으면 static evidence
+      frenet_dynamic_chi2_threshold: 6.63      # 1-DoF Ts, 99% chi-square (dynamic 전용)
 
       dynamic_vote_window: 5                   # 최근 유효 measurement evidence window
       dynamic_vote_required: 3                 # 5개 중 dynamic 3개면 DYNAMIC
-      static_vote_window: 15
-      static_vote_required: 10                 # 위치 지속성도 동시에 만족해야 STATIC
+      # B2-② STATIC 승격 완화 (2026-08-20). 10/15표+관측 10은 raw→confirmed 지연의
+      # 주범이었다: 가시율 26% 장애물(run_192006 id7)이 1.27 s, 그 사이 5.8 m 를 그대로
+      # 달렸고, 승격이 아예 무산된 채 통과한 패스가 run_080532 에서 14/107 이었다.
+      # 6표/관측 6이면 완전 가시에서 0.24 s, 26% 가시에서 ~0.9 s. 반대쪽 오분류 방어는
+      # 그대로다: DYNAMIC 판정은 3/5표 + 실측 병진 dynamic_min_translation_m 증명이
+      # 따로 있고, STATIC 은 여전히 map RMS<0.10 을 동시에 요구한다.
+      static_vote_window: 12
+      static_vote_required: 6                  # 위치 지속성도 동시에 만족해야 STATIC
 
       position_history_size: 15                # prediction이 아닌 map filtered positions
-      static_min_observations: 10
+      static_min_observations: 6               # B2-②: 표와 같은 6으로 (10이면 표 완화가 무효)
       static_max_position_rms: 0.10            # map 위치 RMS [m]
+
+      # 🔴 위 두 줄을 포함해 STATIC 진입 조건은 전부 "프레임 수"였습니다. gym 브리지 스캔이
+      # 250 Hz(`create_timer(0.004)`)라 15프레임 = 60 ms이고, 그 사이 갓 생성된 track은 아직
+      # 초기값 v=0을 들고 있어 Tv≈0 → static evidence가 쏟아집니다. 위치 RMS도 60 ms 이동분
+      # (2 m/s에서 3.5 cm)이라 0.10 m 제한에 전혀 걸리지 않습니다. 그 결과 상대차가 track 생성
+      # 44 ms 만에 STATIC으로 확정돼 /confirmed_static_obs로 나갔습니다 (2026-08-20 2-agent 실측).
+      #
+      # 그래서 STATIC 진입에 시간 조건을 겁니다. 현재 motion status를 이 시간만큼 유지해야
+      # 하며, translation_window_sec(0.20)보다 커야 아래 two-edge 병진 증거가 창을 다 채운 뒤에
+      # 판정됩니다. 추가로 그 증거가 "병진하지 않았다"(< dynamic_min_translation_m)고 말해야
+      # STATIC이 됩니다 — DYNAMIC 진입에 쓰는 증거를 반대 방향으로 읽는 것입니다.
+      # 정적 장애물은 이 시간 동안 provisional로 /static_obs에 계속 실리므로 안전 측입니다.
+      static_min_observation_sec: 0.25
 
       # 한 번 DYNAMIC이 된 track은 잠깐 멈춰도 곧바로 STATIC으로 돌아가지 않습니다.
       dynamic_to_static_min_observations: 20
-      dynamic_to_static_vote_required: 15
+      dynamic_to_static_vote_required: 12      # 계약: static_vote_window 이하 (전창 만장일치 유지)
       dynamic_to_static_max_position_rms: 0.08
 
       covariance_regularization_epsilon: 1.0e-6
@@ -225,20 +297,54 @@ obstacle_detector:
       # 코너 뒤에 가려진 정적 장애물은 접근하면서 조금씩 드러나고, 그동안 측정 AABB가
       # 자라며 중심이 수 cm 이동합니다. map KF는 이를 속도로 읽어 Tv가 커지고 track이
       # DYNAMIC으로 오분류되면 /static_obs에서 사라져 planner가 장애물을 놓칩니다.
-      # 상자가 "실제로 이동했다"고 증명되는 양은 한 축의 두 edge가 같은 방향으로 함께
-      # 움직인 크기뿐입니다(한쪽만 움직이면 이동이 아니라 성장/축소). 이 증명이
+      # 상자가 "실제로 이동했다"고 증명되는 양은 map AABB와 Frenet envelope 각각에서 한 축의
+      # 두 edge가 같은 방향으로 함께 움직인 크기뿐입니다(한쪽만 움직이면 이동이 아니라
+      # 성장/축소). 둘 중 큰 증명이
       # dynamic_min_translation_m에 못 미치면 chi2가 커도 dynamic vote를 주지 않고
       # Uncertain으로 남깁니다. Track은 UNKNOWN을 유지해 /static_obs에 계속 실립니다.
+      # Frenet 증명은 코너에서 차량 자세 회전 때문에 map AABB 폭/높이가 변해 병진량이
+      # 상쇄되는 문제를 막고, 동일한 two-edge 규칙이라 부분 노출 정적 물체 보호도 유지합니다.
       # 이 게이트는 DYNAMIC 진입만 어렵게 하며, 실제 상대 차량은 window 동안 충분히
       # 병진하므로 그대로 통과합니다.
+      #
+      # 🔴 two-edge 규칙은 여기 vote 게이트에만 씁니다. 이 규칙으로 누적한 값을 map KF의
+      # 측정값으로 쓰는 방식은 2026-08-20 되돌렸습니다 — min(|Δmin|,|Δmax|)는 0쪽으로 편향된
+      # 추정량이라 cm급 edge 잡음에서 실제 속도를 25~50% 낮게 읽었고(저속일수록·스캔이
+      # 빠를수록 악화), 재앵커링이 없는 순수 적분기라 pose 지터에 random walk로 표류했습니다.
       translation_corroboration_enable: true
-      translation_window_sec: 0.20        # 증명 구간 [s]. LiDAR 250 Hz 기준 약 50 scan
+      translation_window_sec: 0.20        # 증명 구간 [s]. 스캔 주기에 따라 샘플 수가 정해짐
       translation_history_max_samples: 64 # window 내 보관 AABB 최대 개수 (메모리 상한)
-      # 0.30 = 실차 MCL 지터 상한(0.27, 2026-08-14 새 트랙 4개 백 실측) 바로 위.
-      # 0.10이던 시절 접근 중 MCL 점프(양 에지 동시 이동)가 게이트를 뚫어 정적 박스가
-      # /opp_obs로 이탈 → 커밋 무효화 → 저속 접촉 (run_0814_010624 t=317, id42 재현).
-      # 실제 상대차는 0.2 s 창에서 0.3 m 이상 병진하므로 (>=1.5 m/s) 검출 지연 영향 없음.
+      # 0.18 m / 0.2 s = 0.9 m/s. 0.30이던 시절(2026-08-20 이전, 08-22 포팅으로 잠시
+      # 되돌아왔던 값)은 1.5 m/s를 요구해 코너 감속 중이거나 저속인 상대차가 원리적으로
+      # DYNAMIC이 될 수 없었고, 그러면 /opp_obs가 비어 CRUISE 자체가 성립하지 않습니다.
+      # MCL 점프(양 에지 동시 이동, run_0814_010624 t=317 id42) 대책은 임계값 상향이 아니라
+      # 아래 지속성 조건으로 분리했습니다 — 점프는 창 안에 점프 이전 샘플이 남아 있는
+      # translation_window_sec 동안만 병진을 증명하고 그 뒤 ~0으로 무너지지만, 실제로 움직이는
+      # 물체는 계속 증명합니다. 그래서 "창보다 오래 유지"가 둘을 가르는 조건입니다.
+      # persistence는 프레임 수가 아니라 시간이므로 스캔 주기에 무관합니다.
+      #
+      # ╔══ 🔵 브랜치 분기점 (prototype 전용) ═══════════════════════════════════╗
+      # ║ 위 문단은 transition_global 의 근거이고 그 값은 0.18 이다. prototype 은  ║
+      # ║ **0.30 을 유지한다.** 병합 시 이 줄을 transition 값으로 덮지 말 것.       ║
+      # ║                                                                        ║
+      # ║ 이유 — 두 브랜치의 존재 목적이 다르다:                                    ║
+      # ║   prototype        : 클린맵 주행 + **정적 회피**                         ║
+      # ║   transition_global: 클린맵 주행 + 정적 회피 + **동적 추적(CRUISE)**       ║
+      # ║ 0.18 은 "저속 상대차를 DYNAMIC 으로 잡기" 위한 완화다. prototype 은        ║
+      # ║ /opp_obs 를 쓰지 않으므로 그 이득이 0 이고, 문턱을 낮추면 정적 박스가       ║
+      # ║ 위치추정 지터로 DYNAMIC 표를 받아 /confirmed_static_obs 에서 이탈할        ║
+      # ║ 위험만 남는다 — 그 실패가 run_0814_010624 t=317 id42 이고, 0.30 은        ║
+      # ║ 실차 MCL 지터 상한 0.27(2026-08-14 백 4개) 바로 위로 잡은 값이다.         ║
+      # ║                                                                        ║
+      # ║ 실측 (2026-08-23, 백 3개 / 정적 박스 two-edge 병진 증명 0.2 s 창):        ║
+      # ║   run_0823_003418 n=1012  p99 0.135  최대 0.169  → 0.18 초과 0.00%      ║
+      # ║   run_0823_003748 n=1916  p99 0.133  최대 0.181  → 0.18 초과 0.05%      ║
+      # ║   run_0822_073013 n=3678  p99 0.101  최대 0.458  → 0.18 초과 0.35%      ║
+      # ║ 0.30 에서는 각각 0.00 / 0.00 / 0.14%. 마진이 실제로 있다.                 ║
+      # ╚════════════════════════════════════════════════════════════════════════╝
       dynamic_min_translation_m: 0.30     # window 내 증명된 병진이 이 값 미만이면 vote 보류
+      # translation_window_sec(0.20)보다 커야 1회성 점프를 걸러냅니다. 0이면 비활성.
+      dynamic_translation_persistence_sec: 0.30
 
       # 급제동·런치킥 순간에는 위치추정 자체가 흔들려 모든 track이 map frame에서 병진한
       # 것처럼 보입니다(2026-08-12 21:11 run: 정지/재출발 시각마다 STATIC track이 DYNAMIC

@@ -56,6 +56,30 @@ install(TARGETS localization_node mapping_node RUNTIME DESTINATION lib/${PROJECT
 install(DIRECTORY config launch maps DESTINATION share/${PROJECT_NAME})
 install(DIRECTORY docs DESTINATION share/${PROJECT_NAME})
 install(PROGRAMS scripts/pgm_to_kissmap.py scripts/compare_trajectory.py scripts/wall_rate.py
+                scripts/param_sweep.py
         DESTINATION lib/${PROJECT_NAME})
+
+if(BUILD_TESTING)
+  find_package(ament_cmake_pytest REQUIRED)
+  ament_add_pytest_test(config_guard test/test_config_guard.py)
+
+  # §9 scan-end synchronisation decision logic (2026-08-22). Header-only and
+  # ROS-free on purpose so the "never clamp / never extrapolate" contract is
+  # checked without a graph.
+  find_package(ament_cmake_gtest REQUIRED)
+  ament_add_gtest(test_scan_odom_sync test/test_scan_odom_sync.cpp)
+  if(TARGET test_scan_odom_sync)
+    target_compile_features(test_scan_odom_sync PRIVATE cxx_std_17)
+    target_include_directories(test_scan_odom_sync PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+  endif()
+
+  ament_add_gtest(test_tilt_compensation test/test_tilt_compensation.cpp)
+  if(TARGET test_tilt_compensation)
+    target_compile_features(test_tilt_compensation PRIVATE cxx_std_17)
+    target_include_directories(test_tilt_compensation PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_link_libraries(test_tilt_compensation kinematic_icp_pipeline)
+    ament_target_dependencies(test_tilt_compensation ${dependencies})
+  endif()
+endif()
 
 ament_package()

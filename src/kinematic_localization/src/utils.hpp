@@ -31,6 +31,7 @@
 #include <tf2_ros/buffer.h>
 
 #include <Eigen/Core>
+#include <Eigen/Geometry>
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -318,6 +319,83 @@ inline nav_msgs::msg::OccupancyGrid RasterizeOccupancyGrid(
         }
     }
     return grid;
+}
+
+// ---------------------------------------------------------------------------
+// Chassis roll/pitch compensation for a planar LiDAR
+// ---------------------------------------------------------------------------
+// A cornering chassis tilts the 2D scan plane with the sensor. Estimate the
+// steady-state attitude from wheel odometry instead of an accelerometer, whose
+// lateral axis cannot separate gravity from centripetal acceleration here:
+//
+//   roll = roll_gradient * a_lat,  a_lat = v * yaw_rate
+//
+// The attitude is expressed in base_link axes, so conjugate it through the
+// LiDAR extrinsic before rotating LiDAR-frame points. The frozen map is planar;
+// after measuring optional out-of-plane rejection in base axes, project the
+// compensated points back to z=0.
+struct TiltParams {
+    double roll_gradient_rad_per_mps2 = 0.0;
+    double pitch_gradient_rad_per_mps2 = 0.0;
+    double max_angle_rad = 0.26;
+    double max_point_height_m = 0.0;
+};
+
+struct TiltResult {
+    double roll_rad = 0.0;
+    double pitch_rad = 0.0;
+    size_t dropped = 0;
+    // Populated only when point-height rejection is enabled, so callers can
+    // keep per-point deskew timestamps aligned with a filtered cloud.
+    std::vector<size_t> kept_indices;
+};
+
+// a_lat [m/s^2]: positive in a left turn. a_lon [m/s^2]: positive accelerating.
+inline std::vector<Eigen::Vector3d> LevelScan(const std::vector<Eigen::Vector3d> &points,
+                                              const Sophus::SE3d &lidar_to_base, double a_lat,
+                                              double a_lon, const TiltParams &cfg,
+                                              TiltResult *out) {
+    TiltResult result;
+    // Positive roll raises the left side; positive pitch lowers the nose.
+    result.roll_rad = std::clamp(cfg.roll_gradient_rad_per_mps2 * a_lat,
+                                 -cfg.max_angle_rad, cfg.max_angle_rad);
+    result.pitch_rad = std::clamp(cfg.pitch_gradient_rad_per_mps2 * (-a_lon),
+                                  -cfg.max_angle_rad, cfg.max_angle_rad);
+    if (out) *out = result;
+    if (std::abs(result.roll_rad) < 1e-4 && std::abs(result.pitch_rad) < 1e-4) {
+        return points;
+    }
+
+    const Eigen::Matrix3d R_base =
+        (Eigen::AngleAxisd(result.pitch_rad, Eigen::Vector3d::UnitY()) *
+         Eigen::AngleAxisd(result.roll_rad, Eigen::Vector3d::UnitX()))
+            .toRotationMatrix();
+    const Eigen::Matrix3d R_lidar_to_base = lidar_to_base.so3().matrix();
+    const Eigen::Matrix3d R_lidar =
+        R_lidar_to_base.transpose() * R_base * R_lidar_to_base;
+
+    std::vector<Eigen::Vector3d> leveled;
+    leveled.reserve(points.size());
+    const bool reject_out_of_plane = cfg.max_point_height_m > 1e-6;
+    for (size_t index = 0; index < points.size(); ++index) {
+        const auto &point = points[index];
+        if (reject_out_of_plane) {
+            const Eigen::Vector3d point_base = R_lidar_to_base * point;
+            if (std::abs((R_base * point_base).z() - point_base.z()) >
+                cfg.max_point_height_m) {
+                ++result.dropped;
+                continue;
+            }
+            result.kept_indices.push_back(index);
+        }
+        Eigen::Vector3d corrected = R_lidar * point;
+        corrected.z() = 0.0;
+        leveled.push_back(corrected);
+    }
+    if (out) *out = result;
+    // A bad rejection threshold must not starve ICP of its entire source cloud.
+    if (leveled.size() < 10) return points;
+    return leveled;
 }
 
 }  // namespace kinematic_localization::utils
