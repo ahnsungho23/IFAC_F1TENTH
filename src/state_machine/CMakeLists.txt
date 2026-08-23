@@ -16,7 +16,10 @@ find_package(nav_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(f110_msgs REQUIRED)
 
-add_executable(state_machine_node src/state_machine_node.cpp)
+add_executable(state_machine_node
+  src/state_machine_node.cpp
+  src/interference_predicate.cpp
+)
 target_include_directories(state_machine_node
   PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -49,9 +52,19 @@ install(DIRECTORY
 
 if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
+  find_package(ament_cmake_gtest REQUIRED)
   # yaml과 코드의 파라미터 불일치는 ROS 2가 조용히 무시하므로 여기서 검사한다.
   # 상세 근거는 test/test_params_match_code.py 문서 문자열 참고.
   ament_add_pytest_test(params_match_code test/test_params_match_code.py)
+
+  # ROS 비의존 순수 함수라 state_machine_node.cpp를 컴파일하지 않고도 검증 가능하다.
+  ament_add_gtest(test_interference_predicate
+    test/test_interference_predicate.cpp
+    src/interference_predicate.cpp
+  )
+  target_include_directories(test_interference_predicate PRIVATE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  )
 endif()
 
 ament_package()

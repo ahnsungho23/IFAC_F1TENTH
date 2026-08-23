@@ -5,6 +5,7 @@
 #include <optional>
 #include <string>
 
+#include "f110_msgs/msg/obstacle.hpp"
 #include "f110_msgs/msg/obstacle_array.hpp"
 #include "f110_msgs/msg/ot_wpnt_array.hpp"
 #include "f110_msgs/msg/state_machine.hpp"
@@ -12,6 +13,8 @@
 #include "nav_msgs/msg/odometry.hpp"
 #include "nav_msgs/msg/path.hpp"
 #include "rclcpp/rclcpp.hpp"
+
+#include "state_machine/interference_predicate.hpp"
 
 namespace state_machine
 {
@@ -31,7 +34,11 @@ private:
   bool has_valid_global() const;
   bool has_fresh_frenet() const;
   bool has_avoid_wpnts() const;
-  bool has_interfering_opponent() const;
+  // Not const: the probabilistic predicate updates a Schmitt-trigger latch as a side effect.
+  bool has_interfering_opponent();
+  // Evaluates interferenceProbability() against the cached selected opponent and applies the
+  // probability Schmitt trigger (p_on/p_off), id latch, and visibility entry gate.
+  bool evaluate_probabilistic_interference();
   // True when the latest non-empty avoid path is the planner's explicit completion handoff
   // (ot_line == handoff_ot_line_). That marker is the planner's statement that NO unfinished
   // blocking cluster remains; it is the sole precondition for the AVOID -> GLOBAL merge checks.
@@ -92,6 +99,16 @@ private:
   double frenet_stale_timeout_sec_{0.5};
   double opponent_stale_timeout_sec_{0.3};
 
+  double interference_distance_m_{5.0};
+  double interference_horizon_sec_{1.0};
+  double interference_p_on_{0.7};
+  double interference_p_off_{0.4};
+  double interference_ego_half_width_m_{0.16};
+  double interference_lateral_margin_m_{0.10};
+  double interference_ego_front_offset_m_{0.25};
+  bool interference_probabilistic_latched_{false};
+  int32_t interference_probabilistic_latched_id_{-1};
+
   double enter_global_sec_{0.5};
   double enter_global_threshold_{0.2};
   double enter_global_tail_distance_m_{6.0};
@@ -105,7 +122,9 @@ private:
   bool has_global_{false};
   bool has_avoid_wpnts_{false};
   bool opponent_seen_{false};
-  bool opponent_interfering_{false};
+  // Full state of the selected forward dynamic opponent, cached for the probabilistic predicate.
+  // Only finite-field, non-static obstacles are stored; unset means "no usable opponent".
+  std::optional<f110_msgs::msg::Obstacle> selected_opponent_;
   rclcpp::Time last_frenet_time_{0, 0, RCL_ROS_TIME};
   rclcpp::Time last_global_receive_time_{0, 0, RCL_ROS_TIME};
   rclcpp::Time last_opponent_time_{0, 0, RCL_ROS_TIME};

@@ -63,6 +63,15 @@ StateMachineNode::StateMachineNode()
   declare_parameter<double>("frenet_stale_timeout_sec", 0.5);
   declare_parameter<double>("opponent_stale_timeout_sec", 0.3);
 
+  // 간섭 판단은 /opp_obs의 위치·속도·공분산을 이용해 이 노드가 직접 수행한다.
+  declare_parameter<double>("interference_distance_m", 5.0);
+  declare_parameter<double>("interference_horizon_sec", 1.0);
+  declare_parameter<double>("interference_p_on", 0.7);
+  declare_parameter<double>("interference_p_off", 0.4);
+  declare_parameter<double>("interference_ego_half_width_m", 0.16);
+  declare_parameter<double>("interference_lateral_margin_m", 0.10);
+  declare_parameter<double>("interference_ego_front_offset_m", 0.25);
+
   declare_parameter<bool>("allow_avoid_transition", true);
   declare_parameter<bool>("allow_cruise_transition", true);
   declare_parameter<int64_t>("local_path_confirmation_window_size", 5);
@@ -97,6 +106,15 @@ StateMachineNode::StateMachineNode()
     get_parameter("global_publisher_warn_timeout_sec").as_double();
   frenet_stale_timeout_sec_ = get_parameter("frenet_stale_timeout_sec").as_double();
   opponent_stale_timeout_sec_ = get_parameter("opponent_stale_timeout_sec").as_double();
+
+  interference_distance_m_ = get_parameter("interference_distance_m").as_double();
+  interference_horizon_sec_ = get_parameter("interference_horizon_sec").as_double();
+  interference_p_on_ = get_parameter("interference_p_on").as_double();
+  interference_p_off_ = get_parameter("interference_p_off").as_double();
+  interference_ego_half_width_m_ = get_parameter("interference_ego_half_width_m").as_double();
+  interference_lateral_margin_m_ = get_parameter("interference_lateral_margin_m").as_double();
+  interference_ego_front_offset_m_ =
+    get_parameter("interference_ego_front_offset_m").as_double();
   enter_global_sec_ = get_parameter("enter_global_sec").as_double();
   enter_global_threshold_ = get_parameter("enter_global_threshold").as_double();
   enter_global_tail_distance_m_ = get_parameter("enter_global_tail_distance_m").as_double();
@@ -122,6 +140,20 @@ StateMachineNode::StateMachineNode()
   }
   if (!std::isfinite(opponent_stale_timeout_sec_) || opponent_stale_timeout_sec_ <= 0.0) {
     throw std::invalid_argument("opponent_stale_timeout_sec must be finite and positive");
+  }
+  if (!std::isfinite(interference_distance_m_) || interference_distance_m_ <= 0.0 ||
+    !std::isfinite(interference_horizon_sec_) || interference_horizon_sec_ < 0.0 ||
+    !std::isfinite(interference_ego_half_width_m_) || interference_ego_half_width_m_ < 0.0 ||
+    !std::isfinite(interference_lateral_margin_m_) || interference_lateral_margin_m_ < 0.0 ||
+    !std::isfinite(interference_ego_front_offset_m_) || interference_ego_front_offset_m_ < 0.0)
+  {
+    throw std::invalid_argument("invalid interference geometry parameter value");
+  }
+  if (!std::isfinite(interference_p_on_) || !std::isfinite(interference_p_off_) ||
+    interference_p_on_ <= 0.0 || interference_p_on_ > 1.0 ||
+    interference_p_off_ < 0.0 || interference_p_off_ >= interference_p_on_)
+  {
+    throw std::invalid_argument("interference_p_on/p_off must satisfy 0 <= p_off < p_on <= 1");
   }
   if (!std::isfinite(enter_global_sec_) || enter_global_sec_ < 0.0 ||
     !std::isfinite(enter_global_threshold_) || enter_global_threshold_ < 0.0 ||
@@ -275,10 +307,78 @@ bool StateMachineNode::has_avoid_wpnts() const
   return has_avoid_wpnts_ && avoid_wpnts_msg_ != nullptr && !avoid_wpnts_msg_->wpnts.empty();
 }
 
-bool StateMachineNode::has_interfering_opponent() const
+bool StateMachineNode::has_interfering_opponent()
 {
-  return allow_cruise_transition_ && opponent_seen_ && opponent_interfering_ &&
-         is_fresh(last_opponent_time_, opponent_stale_timeout_sec_);
+  if (!allow_cruise_transition_ || !opponent_seen_ ||
+    !is_fresh(last_opponent_time_, opponent_stale_timeout_sec_))
+  {
+    interference_probabilistic_latched_ = false;
+    interference_probabilistic_latched_id_ = -1;
+    return false;
+  }
+  return evaluate_probabilistic_interference();
+}
+
+bool StateMachineNode::evaluate_probabilistic_interference()
+{
+  if (!selected_opponent_.has_value() || !has_fresh_frenet() || !has_valid_global()) {
+    interference_probabilistic_latched_ = false;
+    interference_probabilistic_latched_id_ = -1;
+    return false;
+  }
+  const double track_length = track_length_from(*global_wpnts_msg_);
+  if (!(track_length > 0.0)) {
+    interference_probabilistic_latched_ = false;
+    interference_probabilistic_latched_id_ = -1;
+    return false;
+  }
+
+  const auto & opponent = selected_opponent_.value();
+
+  InterferenceEgoState ego;
+  ego.s = frenet_odom_msg_->pose.pose.position.x;
+  ego.d = frenet_odom_msg_->pose.pose.position.y;
+  ego.vs = frenet_odom_msg_->twist.twist.linear.x;
+  ego.track_length = track_length;
+
+  InterferenceOpponentState opponent_state;
+  opponent_state.id = opponent.id;
+  opponent_state.s_center = opponent.s_center;
+  opponent_state.s_start = opponent.s_start;
+  opponent_state.s_end = opponent.s_end;
+  opponent_state.d_center = opponent.d_center;
+  opponent_state.vs = opponent.vs;
+  opponent_state.vd = opponent.vd;
+  opponent_state.s_var = opponent.s_var;
+  opponent_state.d_var = opponent.d_var;
+  opponent_state.vs_var = opponent.vs_var;
+  opponent_state.vd_var = opponent.vd_var;
+  opponent_state.s_vs_cov = opponent.s_vs_cov;
+  opponent_state.d_vd_cov = opponent.d_vd_cov;
+  opponent_state.d_left = opponent.d_left;
+  opponent_state.d_right = opponent.d_right;
+  opponent_state.is_visible = opponent.is_visible;
+
+  InterferenceGeometryConfig config;
+  config.distance_m = interference_distance_m_;
+  config.horizon_sec = interference_horizon_sec_;
+  config.ego_half_width_m = interference_ego_half_width_m_;
+  config.lateral_margin_m = interference_lateral_margin_m_;
+  config.ego_front_offset_m = interference_ego_front_offset_m_;
+
+  const double p_star = interferenceProbability(ego, opponent_state, config);
+
+  const bool same_latched_opponent =
+    interference_probabilistic_latched_ &&
+    interference_probabilistic_latched_id_ == opponent.id;
+  // 고스트 게이트: 진입은 실측 프레임(is_visible)에서만, 래치 유지는 예측 프레임에서도 허용.
+  const bool interfering = same_latched_opponent ?
+    p_star > interference_p_off_ :
+    (opponent.is_visible && p_star >= interference_p_on_);
+
+  interference_probabilistic_latched_ = interfering;
+  interference_probabilistic_latched_id_ = interfering ? opponent.id : -1;
+  return interfering;
 }
 
 bool StateMachineNode::validate_global_waypoints(
@@ -384,9 +484,27 @@ void StateMachineNode::on_opponent(const f110_msgs::msg::ObstacleArray::SharedPt
     return;
   }
   opponent_seen_ = true;
-  opponent_interfering_ = std::any_of(
-    msg->obstacles.begin(), msg->obstacles.end(),
-    [](const auto & obstacle) {return !obstacle.is_static && obstacle.is_interfering;});
+  // /opp_obs publishes at most one nearest-ahead confirmed dynamic object. Cache the first
+  // non-static, fully-finite entry; NaN/Inf must not reach the predicate's sqrt()/erfc() calls.
+  selected_opponent_.reset();
+  for (const auto & obstacle : msg->obstacles) {
+    if (obstacle.is_static) {
+      continue;
+    }
+    const bool finite =
+      std::isfinite(obstacle.s_center) && std::isfinite(obstacle.s_start) &&
+      std::isfinite(obstacle.s_end) && std::isfinite(obstacle.d_center) &&
+      std::isfinite(obstacle.d_left) && std::isfinite(obstacle.d_right) &&
+      std::isfinite(obstacle.vs) && std::isfinite(obstacle.vd) &&
+      std::isfinite(obstacle.s_var) && std::isfinite(obstacle.d_var) &&
+      std::isfinite(obstacle.vs_var) && std::isfinite(obstacle.vd_var) &&
+      std::isfinite(obstacle.s_vs_cov) && std::isfinite(obstacle.d_vd_cov);
+    if (!finite) {
+      continue;
+    }
+    selected_opponent_ = obstacle;
+    break;
+  }
   last_opponent_time_ = now();
 }
 

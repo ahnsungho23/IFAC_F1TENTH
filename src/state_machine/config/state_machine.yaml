@@ -18,13 +18,15 @@ state_machine_node:
 
     # AVOID는 모든 상태에서 최우선입니다. CRUISE는 /opp_obs의 is_interfering=true로 진입합니다.
     allow_avoid_transition: true
-    # 🔴 2026-08-21 사용자 결정: CRUISE 진입을 끕니다.
-    #    f1tenth_control 의 cruise_controller_node 가 STATE_CRUISE 에서만 속도 상한을
-    #    거는데, 그 페일세이프 값(blind_trailing_speed / cruise_stale_speed 기본 1.5 m/s)이
-    #    실측 구동계 데드존(~2.5 m/s) **아래**입니다. run_0821_092111 에 정지(0.00 m/s)
-    #    상태로 0.90 s 동안 STATE_CRUISE 에 머문 기록이 있어, 그 조합이면 재출발이 막힙니다.
-    #    f1tenth_control 런치도 cruise_enable 기본 false 로 이중 차단해 두었습니다.
-    #    되돌리려면 두 곳을 같이 켤 것: 이 값 true + cruise_enable:=true
+    # 🔴 이식 시리즈 커밋 1: 술어만 먼저 들어오고 활성화는 커밋 4에서 원자적으로 켠다
+    #    (dynamic_min_translation_m 0.18 + 이 값 + cruise_enable 셋을 같은 커밋에서).
+    #    아래 🟢 는 transition_global 원문 주석이며, 활성화 이후의 상태를 서술한다.
+    #    (원문의 "한쪽만 켜면 no-op"은 부정확하다 — control_map_node 가 /state 를 구독해
+    #     STATE_CRUISE 에서 avoiding_now() 가 참이 되고 L1 감쇠·섹터 게이팅이 바뀐다.)
+    # 🟢 2026-08-22 복구: CRUISE 진입 ON. f1tenth_control 런치의 cruise_enable 도 true 다 —
+    #    한쪽만 켜면 조용히 no-op 이므로 둘을 같이 본다.
+    #    ⚠️ 페일세이프(blind_trailing_speed / cruise_stale_speed 기본 1.5 m/s)는 실측 구동계
+    #    데드존(~2.5 m/s) 아래다. 실차 투입 전 올릴지 결정할 것 (CRUISE_TUNING_GUIDE.md).
     allow_cruise_transition: false
     local_path_confirmation_window_size: 5
     local_path_confirmation_min_hits: 3
@@ -36,6 +38,27 @@ state_machine_node:
     # 마지막 /opp_obs가 이 시간보다 오래되면 간섭 없음으로 보고 CRUISE에서 GLOBAL로 복귀합니다.
     opponent_stale_timeout_sec: 0.3
     invalid_local_path_policy: "global_fallback"
+
+    # 간섭 판단(CRUISE 진입/유지)은 이 노드가 /opp_obs 의 위치·속도·공분산으로 직접 수행한다.
+    # 🔴 2026-08-22 복구: 8010b2f9 포팅이 이 술어를 지우고 detector 의 is_interfering
+    #    (진입 1.0 m)에 위임했는데, cruise 의 목표 간격은 5.0 m 라 아래 불변식이 깨져
+    #    상대차가 있어도 CRUISE 로 진입하지 못했다.
+    # 실제 불변식은 "cruise의 목표 간격 <= interference_distance_m"이다. 목표 간격이 이 값을
+    # 넘으면 cruise 가 유지하려는 바로 그 간격에서 상태머신이 간섭 없음으로 판정해 CRUISE 를
+    # 빠져나가고, 상한이 풀려 가속했다가 재진입하는 급정지/재가속 리밋사이클이 생긴다.
+    # 고정 거리 모드에서는 cruise 의 trailing_gap **이상**으로 둘 것 (같을 필요는 없다).
+    # 2026-08-21 부터 의도적으로 다르다: 여기 5.0 / cruise trailing_gap 3.0 —
+    # 5 m 에서 CRUISE 진입해 3 m 로 수렴하는 정상 동작이다. equality 로 되돌리지 말 것.
+    # 시간 간격 모드(trailing_mode_distance: false)는 목표가 속도에 따라 커지므로 cruise 쪽
+    # max_desired_gap 을 이 값 이하로 함께 설정해야 한다 —
+    # f1tenth_control/CRUISE_TUNING_GUIDE.md §7-2.
+    interference_distance_m: 5.0
+    interference_horizon_sec: 1.0
+    interference_p_on: 0.7
+    interference_p_off: 0.4
+    interference_ego_half_width_m: 0.16
+    interference_lateral_margin_m: 0.10
+    interference_ego_front_offset_m: 0.25
 
     # AVOID -> GLOBAL 복귀 계약 (2026-08-16 개정).
     # 장애물 제거 판정의 단일 소유자는 플래너입니다. 플래너가 남은 blocking cluster가

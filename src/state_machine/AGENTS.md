@@ -30,9 +30,18 @@ State machine package rules. These instructions apply to `src/state_machine`.
     contain a non-empty local path (default 3-of-5). AVOID has priority from GLOBAL and CRUISE.
     A path whose `ot_line == handoff_ot_line` NEVER counts toward this history and never enters
     AVOID: the handoff loop is the planner saying "avoidance is over", not a new request.
-  - GLOBAL enters CRUISE when a fresh `/opp_obs` contains a dynamic obstacle with
-    `is_interfering=true`.
-  - CRUISE selects GLOBAL geometry and returns to GLOBAL on false, empty, or stale `/opp_obs`.
+  - GLOBAL enters CRUISE on THIS node's probabilistic interference predicate over a fresh
+    `/opp_obs` (position/velocity plus their covariances, CV-propagated over
+    `interference_horizon_sec`), gated by a `p_on`/`p_off` Schmitt trigger and an `is_visible`
+    entry gate. The detector's own `is_interfering` field is NOT consumed: its 1.0 m entry
+    distance is below the cruise controller's 5.0 m target gap, which breaks the
+    "cruise target gap <= interference_distance_m" invariant (restored 2026-08-22).
+  - `interference_distance_m` must be **>=** `f1tenth_control`'s effective `desired_gap`.
+    Since 2026-08-21 the two are deliberately unequal: `interference_distance_m: 5.0` with
+    cruise `trailing_gap: 3.0`, so CRUISE is entered at 5 m and settles to 3 m. Do not
+    rewrite this back to an equality requirement.
+  - CRUISE selects GLOBAL geometry and returns to GLOBAL when the probability falls below
+    `interference_p_off`, or on empty/stale `/opp_obs`.
   - **AVOID -> GLOBAL requires the planner's explicit handoff marker.** The planner is the single
     owner of "no blocking cluster remains" — it publishes `ot_line=raceline_global_handoff` only
     after verifying that itself. Only while that marker is present does `enter_to_global()`

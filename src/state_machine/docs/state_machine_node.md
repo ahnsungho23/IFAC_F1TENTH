@@ -22,10 +22,21 @@ Frenet 입력이 멈추면 마지막 index로 경로를 재발행하지 않습�
 
 ### 2.1 상태 전환
 
-- `GLOBAL`: 확인된 `/avoid_waypoints`가 있으면 `AVOID`, 그렇지 않고 `/opp_obs`의
-  `is_interfering=true`이면 `CRUISE`로 진입합니다.
-- `CRUISE`: 항상 글로벌 경로를 선택합니다. 간섭값이 false이거나 stale이면 `GLOBAL`로
-  복귀하고, 확인된 회피 경로가 들어오면 간섭값과 관계없이 `AVOID`로 전이합니다.
+- `GLOBAL`: 확인된 `/avoid_waypoints`가 있으면 `AVOID`, 그렇지 않고 이 노드의 **확률 간섭
+  술어**가 참이면 `CRUISE`로 진입합니다. 술어는 `/opp_obs`의 위치·속도·공분산을 받아
+  `interference_horizon_sec` 지평을 등속 시간전파하며 최대 간섭확률 `p*`를 구하고,
+  `p* >= interference_p_on`에서 진입 / `p* <= interference_p_off`에서 해제하는 Schmitt
+  트리거로 판정합니다. 진입은 실측 프레임(`is_visible`)에서만 허용하고 래치 유지는
+  예측 프레임에서도 허용합니다(고스트 게이트).
+- `CRUISE`: 항상 글로벌 경로를 선택합니다. 간섭 확률이 해제 임계 아래로 떨어지거나
+  `/opp_obs`가 stale이면 `GLOBAL`로 복귀하고, 확인된 회피 경로가 들어오면 간섭값과
+  관계없이 `AVOID`로 전이합니다.
+
+  > 🔴 **간섭 판정의 소유자는 이 노드다.** 2026-08-22 포팅(`8010b2f9`)이 이 술어를 지우고
+  > `obstacle_detector`가 채우는 `is_interfering`(진입 1.0 m)에 위임했는데,
+  > `cruise_controller`의 목표 간격은 5.0 m라 "cruise 목표 간격 <= interference_distance_m"
+  > 불변식이 깨졌습니다. 그 결과 상대차가 있어도 CRUISE로 진입하지 못했고, 진입하더라도
+  > cruise가 벌리려는 간격에서 즉시 해제되는 리밋사이클이 됩니다. 같은 날 복구했습니다.
 - `AVOID` → `GLOBAL` 복귀의 전제는 **플래너의 핸드오프 표식**입니다 (2026-08-16 계약).
   장애물 제거 판정의 단일 소유자는 플래너이고, 플래너는 남은 blocking cluster가 없음을
   스스로 확인한 뒤에만 `ot_line=raceline_global_handoff`(파라미터 `handoff_ot_line`)를
@@ -85,6 +96,13 @@ GLOBAL 출력은 Frenet odometry의 `child_frame_id`를 최근접 글로벌 segm
 | `local_path_confirmation_window_size` | `5` | 진입 확인 메시지 창 크기 N |
 | `local_path_confirmation_min_hits` | `3` | 필요한 non-empty 수 M |
 | `opponent_stale_timeout_sec` | `0.3` | `/opp_obs`가 이 시간 이상 끊기면 간섭 해제 |
+| `interference_distance_m` | `5.0` | 간섭으로 볼 후면 간격 상한 [m]. 🔴 **`cruise_controller`의 목표 간격(`trailing_gap`) 이상이어야 한다** — 작으면 cruise가 유지하려는 간격에서 간섭 없음으로 판정해 CRUISE 이탈/재진입 리밋사이클이 생긴다. 2026-08-21부터 의도적 불일치: 여기 5.0 / cruise `trailing_gap` 3.0 (5 m 진입 → 3 m 수렴) |
+| `interference_horizon_sec` | `1.0` | 등속 시간전파 지평 [s] |
+| `interference_p_on` | `0.7` | CRUISE 진입 확률 임계 (실측 프레임에서만 평가) |
+| `interference_p_off` | `0.4` | CRUISE 해제 확률 임계 (`0 <= p_off < p_on <= 1`) |
+| `interference_ego_half_width_m` | `0.16` | ego 차체 반폭 [m] |
+| `interference_lateral_margin_m` | `0.10` | 차폭 밖 추가 횡 여유 [m] |
+| `interference_ego_front_offset_m` | `0.25` | ego 기준점에서 전면까지 거리 [m] |
 | `global_publisher_warn_timeout_sec` | `5.0` | 정적 GLOBAL 발행자 침묵 경고 시간 |
 | `frenet_stale_timeout_sec` | `0.5` | 모든 local 출력의 Frenet freshness 제한 |
 | `invalid_local_path_policy` | `global_fallback` | local 전용 경로 무효 시 정책 |
