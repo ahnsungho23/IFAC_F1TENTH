@@ -22,17 +22,9 @@ def declare_common_args(
     """두 런치파일에서 동일하게 쓰는 인자 선언 목록."""
     return [
 
-        # 🔴 2026-08-21: 기본 false. state_machine 이 allow_cruise_transition:false 로
-        #    STATE_CRUISE 진입을 막아 두었으므로 노드를 띄워도 항상 maximum_speed 만
-        #    발행하는 no-op 이다. 그럼에도 끄는 이유는 페일세이프 값 때문이다 —
-        #    blind_trailing_speed / cruise_stale_speed 기본 1.5 m/s 가 실측 구동계
-        #    데드존(~2.5 m/s) **아래**라, CRUISE 로 잘못 들어간 상태에서 입력이 stale 이면
-        #    차가 데드존에 걸터앉아 못 나간다. run_0821_092111 에 정지(0.00 m/s) 상태로
-        #    0.90 s 동안 STATE_CRUISE 에 머문 기록이 실제로 있다.
-        #    켜기 전에 그 두 값을 데드존 위로 올릴지 먼저 결정할 것: cruise_enable:=true
         DeclareLaunchArgument(
-            'cruise_enable', default_value='false',
-            description='/opp_obs 기반 종방향 cruise speed cap 사용 (기본 꺼짐)'
+            'cruise_enable', default_value='true',
+            description='/opp_obs 기반 종방향 cruise speed cap 사용'
         ),
         # ── 크루즈 종방향 제어 튜닝 ──
         # config/cruise_controller.yaml은 단독 실행용 기준값으로 남기고,
@@ -501,7 +493,7 @@ def declare_common_args(
             description='명령 속도 하강 rate limit [m/s^2]. 낮추면 감속 명령이 늦게 도달하므로 높게 유지'
         ),
         DeclareLaunchArgument(
-            'prebrake_decel', default_value='3.5',
+            'prebrake_decel', default_value='2.6',
             description='곡률 사전감속 제동거리 산출용 감속 권한 [m/s^2]. 낮을수록 코너를 일찍 봄'
         ),
         DeclareLaunchArgument(
@@ -534,8 +526,10 @@ def declare_common_args(
             description='정지 판정용 VESC 속도 저역통과 시정수 [s]'
         ),
         DeclareLaunchArgument(
-            'hfi_launch_timeout', default_value='4.0',
-            description='HFI 시도 1회가 exit 조건을 못 채우면 중단하는 시간 [s]. 0이면 timeout 비활성'
+            'hfi_launch_timeout', default_value='6.0',
+            description='HFI 시도 1회가 exit 조건을 못 채우면 중단하는 시간 [s]. 0이면 timeout 비활성. '
+                        '2026-08-23 4.0 -> 6.0: 0822 060605 t=14.20이 3.96s에 +0.5 m/s를 처음 넘겼는데 '
+                        '4.00s hard timeout에 잘렸고, 060751 t=193.78은 4.02s까지 단조 크립(0.495m) 중이었다'
         ),
         DeclareLaunchArgument(
             'hfi_launch_exit_hold', default_value='0.1',
@@ -559,8 +553,11 @@ def declare_common_args(
             description='시도 실패 뒤 VESC 완전정지를 유지해야 자동 재시도하는 시간 [s]'
         ),
         DeclareLaunchArgument(
-            'hfi_launch_no_progress_timeout', default_value='2.0',
-            description='이 시간까지 최소 순전진거리를 못 채우면 4초를 기다리지 않고 재시도 [s]'
+            'hfi_launch_no_progress_timeout', default_value='3.0',
+            description='이 시간까지 최소 순전진거리를 못 채우면 hard timeout을 기다리지 않고 재시도 [s]. '
+                        '0이면 비활성. 2026-08-23 2.0 -> 3.0: 0822 창 53개 재판정에서 성공창 오탐이 '
+                        '1.2s 6/38 -> 2.0s 3/38 -> 3.0s 1/38로 줄고, 실패 검출은 늘지 않는다 '
+                        '(이 규칙을 통과해 살아남은 시도가 나중에 이 규칙으로 잡힌 적은 한 번도 없다)'
         ),
         DeclareLaunchArgument(
             'hfi_launch_no_progress_min_distance', default_value='0.05',
@@ -575,8 +572,43 @@ def declare_common_args(
             description='역회전 속도를 이 시간 연속 관측하면 즉시 재시도 [s]'
         ),
         DeclareLaunchArgument(
-            'hfi_launch_max_attempts', default_value='2',
-            description='한 출발 요청에서 허용할 총 HFI 시도 횟수(기본: 최초 1회+재시도 1회)'
+            'hfi_launch_max_attempts', default_value='3',
+            description='한 출발 요청에서 허용할 총 HFI 시도 횟수. 2026-08-23 2 -> 3'
+        ),
+        # ── HFI 포착 실패 대응 (2026-08-23) — 상세는 longitudinal_safety.hpp 주석 ──
+        DeclareLaunchArgument(
+            'hfi_launch_escalate_enable', default_value='false',
+            description='정체가 이어지면 발행 상한을 0으로 빼는 대신 escalate_cap_max까지 '
+                        '단조 상승시킨다. false = 구 거동(고정 상한). '
+                        '🔴 2026-08-23 기본 false: 이 항의 이득은 **오프라인으로 증명 불가**다 — '
+                        '막힌 출발의 전류를 한 번도 못 봤고(0822 mcap 4판에 /sensors/core 누락) '
+                        'bag 재생은 옛 상한에 대한 차의 반응이라 "상한을 올리면 관통이 빨라진다"를 '
+                        '말해주지 못한다. 코드는 넣어 두되 실차 A/B로만 켤 것: '
+                        'hfi_launch_escalate_enable:=true hfi_launch_escalate_cap_max:=1.2 부터'
+        ),
+        DeclareLaunchArgument(
+            'hfi_launch_escalate_start_delay', default_value='0.6',
+            description='연속 정체가 이만큼 이어지면 상한 상승 개시 [s]'
+        ),
+        DeclareLaunchArgument(
+            'hfi_launch_escalate_rate', default_value='0.5',
+            description='상한 상승률 [m/s per s]. 계단이 아니라 램프여야 VESC 속도 PID에 '
+                        '계단 명령이 안 꽂힌다'
+        ),
+        DeclareLaunchArgument(
+            'hfi_launch_escalate_cap_max', default_value='1.6',
+            description='에스컬레이션 절대 상한 [m/s] — 이것이 안전 천장이다. '
+                        '4420 ERPM/(m/s)에서 7072 ERPM'
+        ),
+        DeclareLaunchArgument(
+            'hfi_launch_escalate_progress_speed', default_value='0.30',
+            description='VESC 전진속도가 이 값 이상이면 정체 타이머를 리셋해 상승을 멈춘다 [m/s]'
+        ),
+        DeclareLaunchArgument(
+            'hfi_launch_latch_release_time', default_value='3.0',
+            description='최종 실패 래치를 VESC 완전정지 이 시간 유지 뒤 자동 해제 [s]. '
+                        '0이면 구 거동(플래너 정지요구/미체결에만 풀림 — 0822 060751에서 '
+                        '자율 중 사람이 manual로 내릴 때까지 30초 교착)'
         ),
         DeclareLaunchArgument(
             'hfi_launch_speed_topic', default_value='/odom',
@@ -625,13 +657,11 @@ def declare_common_args(
         # 요구 곡률 κ_L1 = 2|sinη|/L1 이 예산(마진 없는 MLA × margin)을 넘으면 목표
         # 속도를 v ≤ √(예산/κ_L1) 로 캡한다. target_speed 단계 적용(종방향 램프 통과),
         # 빠른 제한·느린 해제 필터, 하한 없음(안전 계산이 이김), 경로 전환 시 리셋.
-        # 🟢 2026-08-21: 기본 true. 실차 A/B(run_0821_091925 OFF vs 092111 ON)를 통과해
-        #    5274698f 로 켰고, 대회 상시 적용으로 결정했다. 08/21 sync 병합에서 false 로
-        #    되돌아왔던 것을 다시 true 로 복구한다.
-        #    되돌리기: grip_speed_clamp_enable:=false
+        # 🔴 기본 false — 단독 셰이크다운(저속 2랩 → 정상 3랩, 포화 경고 감소·진동 없음
+        #    확인) 후에만 켠다: grip_speed_clamp_enable:=true
         DeclareLaunchArgument(
             'grip_speed_clamp_enable', default_value='true',
-            description='U1: L1 요구 횡가속이 예산을 넘으면 목표 속도를 캡 (대회 상시 적용)'
+            description='U1: L1 요구 횡가속이 예산을 넘으면 목표 속도를 캡 (기본 꺼짐)'
         ),
         DeclareLaunchArgument(
             'grip_speed_clamp_margin', default_value='1.0',
@@ -787,6 +817,16 @@ def build_control_map_node(*, odom_topic, max_speed, max_lateral_accel, base_max
             'hfi_launch_reverse_abort_hold': LaunchConfiguration('hfi_launch_reverse_abort_hold'),
             'hfi_launch_max_attempts': ParameterValue(
                 LaunchConfiguration('hfi_launch_max_attempts'), value_type=int),
+            'hfi_launch_escalate_enable': ParameterValue(
+                LaunchConfiguration('hfi_launch_escalate_enable'), value_type=bool),
+            'hfi_launch_escalate_start_delay':
+                LaunchConfiguration('hfi_launch_escalate_start_delay'),
+            'hfi_launch_escalate_rate': LaunchConfiguration('hfi_launch_escalate_rate'),
+            'hfi_launch_escalate_cap_max': LaunchConfiguration('hfi_launch_escalate_cap_max'),
+            'hfi_launch_escalate_progress_speed':
+                LaunchConfiguration('hfi_launch_escalate_progress_speed'),
+            'hfi_launch_latch_release_time':
+                LaunchConfiguration('hfi_launch_latch_release_time'),
             'hfi_launch_speed_topic': LaunchConfiguration('hfi_launch_speed_topic'),
             'hfi_launch_speed_timeout': LaunchConfiguration('hfi_launch_speed_timeout'),
             'launch_boost_enable': ParameterValue(LaunchConfiguration('launch_boost_enable'), value_type=bool),

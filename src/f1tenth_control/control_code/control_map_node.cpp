@@ -258,7 +258,7 @@ public:
         hfi_launch_standstill_filter_tau_ = std::max(
             0.0, declare_parameter<double>("hfi_launch_standstill_filter_tau", 0.10));
         hfi_launch_timeout_ = std::max(
-            0.0, declare_parameter<double>("hfi_launch_timeout", 4.0));
+            0.0, declare_parameter<double>("hfi_launch_timeout", 6.0));
         hfi_launch_exit_hold_ = std::max(
             0.0, declare_parameter<double>("hfi_launch_exit_hold", 0.1));
         hfi_launch_relatch_time_ = std::max(
@@ -274,7 +274,7 @@ public:
         hfi_launch_retry_cooldown_ = std::max(
             0.0, declare_parameter<double>("hfi_launch_retry_cooldown", 0.5));
         hfi_launch_no_progress_timeout_ = std::max(
-            0.0, declare_parameter<double>("hfi_launch_no_progress_timeout", 2.0));
+            0.0, declare_parameter<double>("hfi_launch_no_progress_timeout", 3.0));
         hfi_launch_no_progress_min_distance_ = std::max(
             0.0, declare_parameter<double>("hfi_launch_no_progress_min_distance", 0.05));
         hfi_launch_reverse_abort_speed_ = std::max(
@@ -282,7 +282,21 @@ public:
         hfi_launch_reverse_abort_hold_ = std::max(
             0.0, declare_parameter<double>("hfi_launch_reverse_abort_hold", 0.15));
         hfi_launch_max_attempts_ = static_cast<unsigned int>(std::max<int64_t>(1,
-            declare_parameter<int>("hfi_launch_max_attempts", 2)));
+            declare_parameter<int>("hfi_launch_max_attempts", 3)));
+        // ── HFI 포착 실패 대응 (2026-08-23) — 상세는 longitudinal_safety.hpp 주석 ──
+        hfi_launch_escalate_enable_ =
+            declare_parameter<bool>("hfi_launch_escalate_enable", false);
+        hfi_launch_escalate_start_delay_ = std::max(
+            0.0, declare_parameter<double>("hfi_launch_escalate_start_delay", 0.6));
+        hfi_launch_escalate_rate_ = std::max(
+            0.0, declare_parameter<double>("hfi_launch_escalate_rate", 0.5));
+        hfi_launch_escalate_cap_max_ = std::max(
+            hfi_launch_speed_cap_,
+            declare_parameter<double>("hfi_launch_escalate_cap_max", 1.6));
+        hfi_launch_escalate_progress_speed_ = std::max(
+            0.0, declare_parameter<double>("hfi_launch_escalate_progress_speed", 0.30));
+        hfi_launch_latch_release_time_ = std::max(
+            0.0, declare_parameter<double>("hfi_launch_latch_release_time", 3.0));
         hfi_launch_speed_topic_ =
             declare_parameter<std::string>("hfi_launch_speed_topic", "/odom");
         hfi_launch_speed_timeout_ = std::max(
@@ -1907,6 +1921,12 @@ private:
             config.reverse_abort_speed = hfi_launch_reverse_abort_speed_;
             config.reverse_abort_hold = hfi_launch_reverse_abort_hold_;
             config.max_attempts = hfi_launch_max_attempts_;
+            config.escalate_enable = hfi_launch_escalate_enable_;
+            config.escalate_start_delay = hfi_launch_escalate_start_delay_;
+            config.escalate_rate = hfi_launch_escalate_rate_;
+            config.escalate_cap_max = hfi_launch_escalate_cap_max_;
+            config.escalate_progress_speed = hfi_launch_escalate_progress_speed_;
+            config.latch_release_time = hfi_launch_latch_release_time_;
 
             // 일반 engage gate는 미수신/timeout 때 fail-open 호환 동작을 유지하지만, HFI
             // 상태기만큼은 모드 확인 전 출발로 오판하면 안 된다(0822 bag t=2.066 가짜 시작).
@@ -1998,6 +2018,13 @@ private:
                     hfi_launch_state_.elapsed, hfi_launch_state_.launch_signed_distance,
                     hfi_launch_state_.failure_count,
                     hfi_launch_relatch_time_);
+            } else if (decision.event == f1tenth_control::HfiLaunchEvent::kLatchAutoReset) {
+                RCLCPP_WARN(this->get_logger(),
+                    "HFI 최종 실패 래치 자동 해제: VESC 완전정지 %.1fs 지속 → 보수 상한 "
+                    "%.2f m/s로 새 사이클 (누적 %lu회). "
+                    "반복되면 데드존이 아니라 기계 구속/HFI 튜닝을 의심할 것",
+                    hfi_launch_latch_release_time_, hfi_launch_speed_cap_,
+                    hfi_launch_state_.latch_auto_reset_count);
             } else if (decision.event == f1tenth_control::HfiLaunchEvent::kFailureReset) {
                 RCLCPP_WARN(this->get_logger(),
                     "HFI 정지출발 실패 래치 해제 — 정지 목표+VESC 완전정지 %.1fs 확인",
@@ -2005,16 +2032,22 @@ private:
             }
 
             if (decision.constrain_to_cap) {
-                publish_speed = std::min(publish_speed, hfi_launch_speed_cap_);
-                final_speed = std::min(final_speed, hfi_launch_speed_cap_);
-                last_target_speed_ = std::min(last_target_speed_, hfi_launch_speed_cap_);
+                // ⚠️ hfi_launch_speed_cap_(설정값)이 아니라 decision.cap(에스컬레이션
+                //    반영값)을 써야 한다. 세 줄 중 하나라도 설정값으로 남으면 발행과
+                //    램프 상태가 갈라져 해제 순간 계단이 생긴다.
+                const double cap_now = std::max(decision.cap, 0.0);
+                publish_speed = std::min(publish_speed, cap_now);
+                final_speed = std::min(final_speed, cap_now);
+                last_target_speed_ = std::min(last_target_speed_, cap_now);
                 RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 500,
                     "HFI 정지출발 보호 중(%u/%u): VESC %.2f / PF %.2f / 발행 %.2f / "
-                    "목표 %.2f m/s (%.2f/%.1fs, 순전진 %.3fm)",
+                    "목표 %.2f m/s (%.2f/%.1fs, 순전진 %.3fm, 상한 %.2f/%.2f, 정체 %.2fs)",
                     hfi_launch_state_.attempt, hfi_launch_max_attempts_,
                     hfi_speed_, current_speed_, publish_speed, target_speed,
                     hfi_launch_state_.elapsed, hfi_launch_timeout_,
-                    hfi_launch_state_.launch_signed_distance);
+                    hfi_launch_state_.launch_signed_distance,
+                    cap_now, hfi_launch_escalate_cap_max_,
+                    hfi_launch_state_.stall_elapsed);
             } else if (decision.force_stop) {
                 publish_speed = 0.0;
                 final_speed = 0.0;
@@ -2362,17 +2395,23 @@ private:
     double hfi_launch_standstill_speed_ = 0.1;
     double hfi_launch_standstill_exit_speed_ = 0.20;
     double hfi_launch_standstill_filter_tau_ = 0.10;
-    double hfi_launch_timeout_ = 4.0;
+    double hfi_launch_timeout_ = 6.0;
     double hfi_launch_exit_hold_ = 0.1;
     double hfi_launch_relatch_time_ = 0.5;
     double hfi_launch_moving_bypass_speed_ = 0.5;
     double hfi_launch_moving_bypass_hold_ = 0.1;
     double hfi_launch_retry_cooldown_ = 0.5;
-    double hfi_launch_no_progress_timeout_ = 2.0;
+    double hfi_launch_no_progress_timeout_ = 3.0;
     double hfi_launch_no_progress_min_distance_ = 0.05;
     double hfi_launch_reverse_abort_speed_ = 0.10;
     double hfi_launch_reverse_abort_hold_ = 0.15;
-    unsigned int hfi_launch_max_attempts_ = 2;
+    unsigned int hfi_launch_max_attempts_ = 3;
+    bool hfi_launch_escalate_enable_ = true;
+    double hfi_launch_escalate_start_delay_ = 0.6;
+    double hfi_launch_escalate_rate_ = 0.5;
+    double hfi_launch_escalate_cap_max_ = 1.6;
+    double hfi_launch_escalate_progress_speed_ = 0.30;
+    double hfi_launch_latch_release_time_ = 3.0;
     std::string hfi_launch_speed_topic_ = "/odom";
     double hfi_launch_speed_timeout_ = 0.2;
     double hfi_speed_ = 0.0;

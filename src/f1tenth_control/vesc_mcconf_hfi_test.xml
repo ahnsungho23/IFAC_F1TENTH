@@ -51,8 +51,8 @@
     <hall_table__6>4</hall_table__6>
     <hall_table__7>-1</hall_table__7>
     <hall_sl_erpm>2000</hall_sl_erpm>
-    <foc_current_kp>0.0027</foc_current_kp>
-    <foc_current_ki>6.48</foc_current_ki>
+    <foc_current_kp>0.0054</foc_current_kp>
+    <foc_current_ki>12.76</foc_current_ki>
     <foc_f_zv>30000</foc_f_zv>
     <foc_dt_us>0.12</foc_dt_us>
     <foc_encoder_inverted>0</foc_encoder_inverted>
@@ -62,10 +62,10 @@
     <foc_pll_kp>2000</foc_pll_kp>
     <foc_pll_ki>30000</foc_pll_ki>
     <foc_motor_l>2.72e-06</foc_motor_l>
-    <foc_motor_ld_lq_diff>2.7e-07</foc_motor_ld_lq_diff>
-    <foc_motor_r>0.0065</foc_motor_r>
-    <foc_motor_flux_linkage>0.000703</foc_motor_flux_linkage>
-    <foc_observer_gain>2.02545e+09</foc_observer_gain>
+    <foc_motor_ld_lq_diff>3.1e-07</foc_motor_ld_lq_diff>
+    <foc_motor_r>0.00638</foc_motor_r>
+    <foc_motor_flux_linkage>0.000719</foc_motor_flux_linkage>
+    <foc_observer_gain>1.93438e+09</foc_observer_gain>
     <foc_observer_gain_slow>0.05</foc_observer_gain_slow>
     <foc_observer_offset>-1</foc_observer_offset>
     <foc_duty_dowmramp_kp>50</foc_duty_dowmramp_kp>
@@ -113,12 +113,12 @@
     <foc_hfi_obs_ovr_sec>0.001</foc_hfi_obs_ovr_sec>
     <foc_hfi_samples>1</foc_hfi_samples>
     <foc_offsets_cal_on_boot>1</foc_offsets_cal_on_boot>
-    <foc_offsets_current__0>2049.54</foc_offsets_current__0>
-    <foc_offsets_current__1>2049.23</foc_offsets_current__1>
-    <foc_offsets_current__2>2049.1</foc_offsets_current__2>
-    <foc_offsets_voltage__0>-0.0004</foc_offsets_voltage__0>
-    <foc_offsets_voltage__1>0.0008</foc_offsets_voltage__1>
-    <foc_offsets_voltage__2>-0.0004</foc_offsets_voltage__2>
+    <foc_offsets_current__0>2051.37</foc_offsets_current__0>
+    <foc_offsets_current__1>2051.38</foc_offsets_current__1>
+    <foc_offsets_current__2>2051.31</foc_offsets_current__2>
+    <foc_offsets_voltage__0>-0.0003</foc_offsets_voltage__0>
+    <foc_offsets_voltage__1>0.0009</foc_offsets_voltage__1>
+    <foc_offsets_voltage__2>-0.0005</foc_offsets_voltage__2>
     <foc_offsets_voltage_undriven__0>0</foc_offsets_voltage_undriven__0>
     <foc_offsets_voltage_undriven__1>0</foc_offsets_voltage_undriven__1>
     <foc_offsets_voltage_undriven__2>0</foc_offsets_voltage_undriven__2>

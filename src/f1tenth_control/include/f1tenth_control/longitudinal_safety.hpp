@@ -28,6 +28,7 @@ enum class HfiLaunchEvent {
     kRetryStarted,
     kTimedOut,
     kFailureReset,
+    kLatchAutoReset,
 };
 
 enum class HfiLaunchFailureReason {
@@ -64,6 +65,30 @@ struct HfiLaunchGuardConfig {
     double no_progress_min_distance = 0.05;
     double reverse_abort_speed = 0.10;
     double reverse_abort_hold = 0.15;
+
+    // ── HFI 포착 실패 대응 (2026-08-23 신설) ──────────────────────────────
+    // 🔑 0822 bag 자율 시도 65개 실측: "끝내 못 뚫는 시도"와 "느리지만 결국 뚫는
+    //    시도"는 **첫 1.5초 신호로 구분되지 않는다** (최장 전진런 p50 0.02 vs
+    //    0.04 s / 듀티 0.03 vs 0.06 / vmax 0.24 vs 0.32 — 범위가 거의 겹친다).
+    //    즉 "이건 못 뚫는다"를 조기 판정할 근거가 데이터에 없다. 그런데 현재
+    //    로직은 그 판정을 전제로 토크를 **0으로 뺀다**. 유일하게 근거 있는 대응은
+    //    반대다 — 안 나가면 상한까지 **더 밀어보고**, 그래도 안 되면 그때 쉬는 것.
+    // ⚠️ 이건 "판단"이 아니라 액추에이터 포화 대응이다(②-i와 같은 계열). 플래너가
+    //    요구한 속도를 넘기지 않으며(cap은 언제나 상한이지 하한이 아니다), 상한
+    //    escalate_cap_max가 안전 천장으로 남는다.
+    bool escalate_enable = false;
+    double escalate_start_delay = 0.6;      // 정체가 이만큼 이어지면 cap 상승 개시 [s]
+    double escalate_rate = 0.5;             // cap 상승률 [m/s per s]
+    double escalate_cap_max = 1.6;          // cap 절대 상한 [m/s] — 안전 천장
+    double escalate_progress_speed = 0.30;  // 이 속도 이상 전진하면 정체 타이머 리셋
+    // 최종 실패 래치를 "정지 유지" 이 시간[s] 뒤 스스로 해제한다. 0이면 구 거동.
+    // 🔴 구 거동은 탈출 조건이 `target_speed <= 0.1 || disengaged`뿐이라, 플래너가
+    //    계속 속도를 요구하면 영원히 안 풀린다. 0822 `run_20260822_060751` 실측:
+    //    최종 래치 2회 모두 `drive_mode == autonomous` 중에 걸렸고 **사람이 manual로
+    //    내릴 때까지** 각각 3.1 s / 30.0 s 정지했다.
+    double latch_release_time = 0.0;
+    // dwell 판정용 누출 적분 시상수 [s]. 굴러가면 v*tau 만큼 쌓여 문턱을 넘는다.
+    double settle_tau = 1.5;
 };
 
 struct HfiLaunchGuardState {
@@ -82,6 +107,16 @@ struct HfiLaunchGuardState {
     double standstill_filtered_speed = 0.0;
     double launch_signed_distance = 0.0;
     double reverse_elapsed = 0.0;
+    // 현재 시도에 적용 중인 상한. escalate_enable=false면 항상 config.speed_cap이다.
+    double cap_now = 0.0;
+    double stall_elapsed = 0.0;
+    double latch_elapsed = 0.0;
+    // 최근 변위의 누출 적분(τ=settle_tau). '제자리 로킹'과 '실제로 굴러감'을 가른다.
+    // 🔴 2026-08-23: dwell 3곳이 전부 standstill(속도 문턱 0.20)에만 걸려 있었는데,
+    //    실측 로킹 진폭이 0.24라 문턱을 넘나들며 dwell을 계속 0으로 리셋해
+    //    재시도/재무장/래치해제가 **영원히 안 되는** 구간이 있었다(fuzz로 확인).
+    double settle_distance = 0.0;
+    double escalate_peak = 0.0;
     HfiLaunchFailureReason last_failure_reason = HfiLaunchFailureReason::kNone;
     unsigned int attempt = 0;
     unsigned long release_count = 0;
@@ -91,11 +126,15 @@ struct HfiLaunchGuardState {
     unsigned long failure_count = 0;
     unsigned long no_progress_abort_count = 0;
     unsigned long reverse_abort_count = 0;
+    unsigned long latch_auto_reset_count = 0;
 };
 
 struct HfiLaunchDecision {
     bool constrain_to_cap = false;
     bool force_stop = false;
+    // constrain_to_cap일 때 실제로 적용할 상한. 호출부는 config.speed_cap이 아니라
+    // **이 값**을 써야 한다(에스컬레이션이 반영된 값).
+    double cap = 0.0;
     HfiLaunchEvent event = HfiLaunchEvent::kNone;
 };
 
@@ -104,6 +143,7 @@ inline HfiLaunchDecision update_hfi_launch_guard(
     bool disengaged, double target_speed, double current_speed, double dt,
     bool launch_allowed = true) {
     HfiLaunchDecision decision;
+    decision.cap = config.speed_cap;
     if (!config.enabled) {
         state.active = false;
         state.retry_waiting = false;
@@ -121,6 +161,9 @@ inline HfiLaunchDecision update_hfi_launch_guard(
         state.reverse_elapsed = 0.0;
         state.last_failure_reason = HfiLaunchFailureReason::kNone;
         state.attempt = 0;
+        state.cap_now = 0.0;
+        state.stall_elapsed = 0.0;
+        state.latch_elapsed = 0.0;
         state.armed = true;
         return decision;
     }
@@ -155,6 +198,18 @@ inline HfiLaunchDecision update_hfi_launch_guard(
         }
     }
     const bool standstill = state.standstill_latched;
+    // 🔑 dwell 판정은 "정지"가 아니라 **"전진하지 않음"**이어야 한다.
+    //    ±0.24 m/s로 제자리 로킹하는 차는 정지가 아니지만 나아가지도 않는다 —
+    //    그 구간에서 재시도 dwell이 리셋되면 상태기가 빠져나오지 못한다.
+    //    누출 적분이라 굴러가면 금방 문턱을 넘고, 로킹이면 0 근처에 머문다.
+    {
+        const double tau = std::max(0.05, config.settle_tau);
+        state.settle_distance += current_speed * safe_dt;
+        state.settle_distance -= state.settle_distance * (safe_dt / tau);
+    }
+    const bool rolling =
+        std::fabs(state.settle_distance) > std::max(1e-3, config.no_progress_min_distance);
+    const bool settled = standstill || !rolling;
     // 열린 safe-stop 경로는 앞쪽 감속 웨이포인트가 양수여도 말단 vx=0이 플래너의
     // 정지 의도다. launch_allowed=false 동안에는 그 중간 양수값으로 HFI를 재기동하지 않는다.
     const bool reset_requested = disengaged || target_speed <= 0.1 || !launch_allowed;
@@ -183,6 +238,10 @@ inline HfiLaunchDecision update_hfi_launch_guard(
         state.reverse_elapsed = 0.0;
         state.last_failure_reason = HfiLaunchFailureReason::kNone;
         state.attempt = 0;
+        // 새 출발 요청이므로 에스컬레이션도 보수적 기본값에서 다시 시작한다.
+        state.cap_now = config.speed_cap;
+        state.stall_elapsed = 0.0;
+        state.latch_elapsed = 0.0;
 
         if (moving_forward) {
             state.moving_bypass_elapsed += safe_dt;
@@ -190,7 +249,7 @@ inline HfiLaunchDecision update_hfi_launch_guard(
             state.moving_bypass_elapsed = 0.0;
         }
 
-        if (standstill) {
+        if (settled) {
             state.relatch_elapsed += safe_dt;
             if (state.relatch_elapsed >= relatch_time) {
                 const bool reset_failure = state.failure_latched;
@@ -227,6 +286,8 @@ inline HfiLaunchDecision update_hfi_launch_guard(
                 state.relatch_pending = false;
                 state.armed = false;
                 state.moving_bypass_elapsed = 0.0;
+                state.cap_now = config.speed_cap;
+                state.stall_elapsed = 0.0;
                 ++state.moving_bypass_count;
                 decision.event = HfiLaunchEvent::kMovingBypass;
             }
@@ -239,12 +300,12 @@ inline HfiLaunchDecision update_hfi_launch_guard(
         // 핵심 교착 수리: raw target이 다시 양수여도 이 분기 자체가 실제 발행을 0으로
         // 강제하고 있으므로, VESC도 정지해 있으면 유효한 "정지 명령+실측 정지" dwell이다.
         // 종전 코드는 양수 target에서 relatch_elapsed를 매번 0으로 만들어 영원히 못 풀렸다.
-        if (standstill) {
+        if (settled) {
             state.relatch_elapsed += safe_dt;
         } else {
             state.relatch_elapsed = 0.0;
         }
-        if (standstill && state.relatch_elapsed >= relatch_time) {
+        if (settled && state.relatch_elapsed >= relatch_time) {
             state.relatch_pending = false;
             state.failure_latched = false;
             state.relatch_elapsed = 0.0;
@@ -257,8 +318,11 @@ inline HfiLaunchDecision update_hfi_launch_guard(
             state.reverse_elapsed = 0.0;
             state.last_failure_reason = HfiLaunchFailureReason::kNone;
             state.attempt = 1;
+            state.stall_elapsed = 0.0;
+            state.cap_now = std::max(state.cap_now, config.speed_cap);
             decision.force_stop = false;
             decision.constrain_to_cap = true;
+            decision.cap = state.cap_now;
             decision.event = HfiLaunchEvent::kStarted;
         }
         return decision;
@@ -269,6 +333,38 @@ inline HfiLaunchDecision update_hfi_launch_guard(
 
     if (state.failure_latched) {
         decision.force_stop = true;
+        // ── 교착 탈출: 정지가 유지되면 스스로 재무장한다 ──────────────────
+        // 조건이 "경과 시간"이 아니라 **"실제 VESC 정지 유지"**인 것이 핵심이다.
+        // 굴러가는 중에는 절대 재무장하지 않는다(launch_relatch_time과 같은 규약).
+        // 재무장은 항상 보수적 기본 cap에서 다시 시작하므로 "실패할수록 세진다"가
+        // 되지 않는다.
+        if (config.latch_release_time > 0.0) {
+            if (settled) {
+                state.latch_elapsed += safe_dt;
+            } else {
+                state.latch_elapsed = 0.0;
+            }
+            if (state.latch_elapsed >= config.latch_release_time) {
+                state.failure_latched = false;
+                state.latch_elapsed = 0.0;
+                state.armed = false;
+                state.active = true;
+                state.elapsed = 0.0;
+                state.exit_hold_elapsed = 0.0;
+                state.retry_cooldown_elapsed = 0.0;
+                state.launch_signed_distance = 0.0;
+                state.reverse_elapsed = 0.0;
+                state.stall_elapsed = 0.0;
+                state.cap_now = config.speed_cap;
+                state.last_failure_reason = HfiLaunchFailureReason::kNone;
+                state.attempt = 1;
+                ++state.latch_auto_reset_count;
+                decision.force_stop = false;
+                decision.constrain_to_cap = true;
+                decision.cap = state.cap_now;
+                decision.event = HfiLaunchEvent::kLatchAutoReset;
+            }
+        }
         return decision;
     }
 
@@ -276,13 +372,13 @@ inline HfiLaunchDecision update_hfi_launch_guard(
     // 유지된 뒤에만 같은 저속 포착 시도를 한 번 더 한다.
     if (state.retry_waiting) {
         decision.force_stop = true;
-        if (standstill) {
+        if (settled) {
             state.retry_cooldown_elapsed += safe_dt;
         } else {
             state.retry_cooldown_elapsed = 0.0;
         }
 
-        if (standstill &&
+        if (settled &&
             state.retry_cooldown_elapsed >= std::max(0.0, config.retry_cooldown)) {
             state.retry_waiting = false;
             state.active = true;
@@ -292,10 +388,16 @@ inline HfiLaunchDecision update_hfi_launch_guard(
             state.launch_signed_distance = 0.0;
             state.reverse_elapsed = 0.0;
             state.last_failure_reason = HfiLaunchFailureReason::kNone;
+            state.stall_elapsed = 0.0;
+            // ⚠️ cap_now는 **리셋하지 않는다**. 같은 상한으로 다시 시도하는 것은
+            //    이미 실패한 토크 수준을 반복하는 것이다(0822 060751에서 재시도가
+            //    3/8 또 실패해 최종 래치로 갔다). 요청 단위로 단조 유지한다.
+            state.cap_now = std::max(state.cap_now, config.speed_cap);
             ++state.attempt;
             ++state.retry_count;
             decision.force_stop = false;
             decision.constrain_to_cap = true;
+            decision.cap = state.cap_now;
             decision.event = HfiLaunchEvent::kRetryStarted;
         }
         return decision;
@@ -309,6 +411,27 @@ inline HfiLaunchDecision update_hfi_launch_guard(
             state.reverse_elapsed += safe_dt;
         } else {
             state.reverse_elapsed = 0.0;
+        }
+
+        // ── cap 에스컬레이션 (요청 단위 단조 비감소) ──────────────────────
+        // 🔑 "정체"의 정의가 **연속 정체 시간**이라 한 번 튀어나간 뒤 다시 멈추는
+        //    로킹에서도 계속 밀어준다. cap을 내리지 않는 것도 의도적이다 — 내리면
+        //    명령이 톱니가 되고, 그 톱니 자체가 VESC 속도 PID에 계단이 된다.
+        if (config.escalate_enable) {
+            if (state.cap_now < config.speed_cap) state.cap_now = config.speed_cap;
+            if (current_speed >= config.escalate_progress_speed) {
+                state.stall_elapsed = 0.0;      // 먹고 있다 — 더 밀지 않는다
+            } else {
+                state.stall_elapsed += safe_dt;
+            }
+            if (state.stall_elapsed >= std::max(0.0, config.escalate_start_delay)) {
+                const double ceiling = std::max(config.escalate_cap_max, config.speed_cap);
+                state.cap_now = std::min(ceiling,
+                    state.cap_now + std::max(0.0, config.escalate_rate) * safe_dt);
+            }
+            state.escalate_peak = std::max(state.escalate_peak, state.cap_now);
+        } else {
+            state.cap_now = config.speed_cap;
         }
 
         // 전진 명령이므로 양의 속도만 성공이다. 역방향 -exit_speed는 절대 성공으로
@@ -365,6 +488,7 @@ inline HfiLaunchDecision update_hfi_launch_guard(
             return decision;
         }
         decision.constrain_to_cap = true;
+        decision.cap = state.cap_now;
         return decision;
     }
 
@@ -378,7 +502,10 @@ inline HfiLaunchDecision update_hfi_launch_guard(
         state.reverse_elapsed = 0.0;
         state.last_failure_reason = HfiLaunchFailureReason::kNone;
         state.attempt = 1;
+        state.stall_elapsed = 0.0;
+        state.cap_now = config.speed_cap;
         decision.constrain_to_cap = true;
+        decision.cap = state.cap_now;
         decision.event = HfiLaunchEvent::kStarted;
     }
     return decision;
