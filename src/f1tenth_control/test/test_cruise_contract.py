@@ -19,17 +19,36 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CRUISE_YAML = REPO_ROOT / 'src/f1tenth_control/config/cruise_controller.yaml'
 STATE_MACHINE_YAML = REPO_ROOT / 'src/state_machine/config/state_machine.yaml'
+DETECTOR_YAML = REPO_ROOT / 'src/obstacle_detector/config/obstacle_detector.yaml'
 CONTROL_COMMON = REPO_ROOT / 'src/f1tenth_control/launch/_control_common.py'
+
+# CRUISE 활성화 3요소가 all-on 일 때 detector 문턱이 가져야 할 값.
+# 0.18 m = 0.2 s 창에서 0.9 m/s. 0.30 은 1.5 m/s 를 요구해 감속하며 코너에 진입하는 상대차가
+# DYNAMIC 이 되지 못하고 /opp_obs 가 비어, 상태머신이 볼 대상이 없어진다.
+CRUISE_DYNAMIC_MIN_TRANSLATION_M = 0.18
 
 
 def _ros_params(path):
-    """`<node>: ros__parameters:` 아래 값을 평평한 dict 로 돌려준다."""
+    """`<node>: ros__parameters:` 아래 값을 평평한 dict 로 돌려준다.
+
+    obstacle_detector 처럼 파라미터를 하위 그룹(motion_classification 등)으로 묶어 둔
+    파일이 있어 하위 dict 까지 재귀로 훑는다. 이름 충돌은 이 저장소 설정들에 없다.
+    """
     with open(path, encoding='utf-8') as handle:
         tree = yaml.safe_load(handle)
+
     params = {}
+
+    def flatten(node):
+        for key, value in node.items():
+            if isinstance(value, dict):
+                flatten(value)
+            else:
+                params[key] = value
+
     for node in tree.values():
         if isinstance(node, dict) and 'ros__parameters' in node:
-            params.update(node['ros__parameters'])
+            flatten(node['ros__parameters'])
     return params
 
 
@@ -65,8 +84,42 @@ def state_machine():
 
 
 @pytest.fixture(scope='module')
+def detector():
+    return _ros_params(DETECTOR_YAML)
+
+
+@pytest.fixture(scope='module')
 def launch():
     return _launch_defaults(CONTROL_COMMON)
+
+
+def test_activation_flags_all_on_or_all_off(state_machine, detector, launch):
+    """CRUISE 활성화 3요소는 all-on 이거나 all-off 여야 한다.
+
+    반쪽 상태는 no-op 이 아니다.
+    - `cruise_enable` 만 켜짐: cruise 노드가 죽거나 뜨지 않으면 control_map_node 가
+      cruise_stale_speed(1.5 m/s) fail-closed 캡을 전 구간에 건다. 그 값은 실측 구동계
+      데드존(~2.5 m/s) 아래라 재출발이 막힌다.
+    - `allow_cruise_transition` 만 켜짐: 상태머신이 STATE_CRUISE 를 내는데 상한을 걸 노드가
+      없다. 게다가 control_map_node 가 /state 를 구독해 STATE_CRUISE 에서 avoiding_now() 가
+      참이 되므로 L1 감쇠·섹터 게이팅이 바뀐다.
+    - `dynamic_min_translation_m` 만 0.18: 0.9~1.5 m/s 대역 상대차가 STATIC 에서 빠져
+      /static_obs(로컬플래너의 회피 대상)에서 사라지는데 CRUISE 는 꺼져 있어 보호 공백이 된다.
+    """
+    allow_cruise = bool(state_machine['allow_cruise_transition'])
+    cruise_enable = _as_bool(launch['cruise_enable'])
+    detector_relaxed = float(detector['dynamic_min_translation_m']) == pytest.approx(
+        CRUISE_DYNAMIC_MIN_TRANSLATION_M)
+
+    flags = {
+        'state_machine allow_cruise_transition': allow_cruise,
+        'f1tenth_control cruise_enable': cruise_enable,
+        f'obstacle_detector dynamic_min_translation_m == {CRUISE_DYNAMIC_MIN_TRANSLATION_M}':
+            detector_relaxed,
+    }
+    assert len(set(flags.values())) == 1, (
+        'CRUISE 활성화 3요소가 어긋났다 (all-on 또는 all-off 여야 한다): ' +
+        ', '.join(f'{name}={value}' for name, value in flags.items()))
 
 
 def _desired_gap(cruise, launch):

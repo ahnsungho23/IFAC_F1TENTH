@@ -13,15 +13,18 @@ must not weaken the repository-root `AGENTS.md`.
 **정적 검출 경로는 두 브랜치가 같아야 한다.** transition_global 의 검출기 개선은 이쪽으로
 그대로 받는다 (2026-08-23: 18 커밋 / 656 줄 / 시험 10 개 흡수).
 
-**동적 전용 완화는 받지 않는다.** prototype 에서는 이득이 0 이고 정적 오분류 위험만 남는다.
-현재 분기 항목:
+🔴 **2026-08-24: 분기 항목이 사라졌다.** 이 브랜치도 CRUISE 파이프라인(상태머신 확률 간섭
+술어)을 이식해 `/opp_obs` 를 쓰게 됐다. "동적 전용 완화는 이득이 0" 이라는 전제가 없어졌으므로
+유일한 분기였던 값도 transition_global 과 같게 맞췄다:
 
-| 파라미터 | prototype | transition_global | 왜 |
-|---|---|---|---|
-| `dynamic_min_translation_m` | **0.30** | 0.18 | 0.18 은 저속 상대차를 DYNAMIC 으로 잡기 위한 완화. 0.30 은 실차 MCL 지터 상한 0.27 바로 위로, 정적 박스가 지터로 DYNAMIC 표를 받아 `/confirmed_static_obs` 에서 이탈하는 것(run_0814_010624 t=317 id42)을 막는다. 실측(2026-08-23, 백 3개): 정적 박스 two-edge 병진 증명 p99 0.10~0.14, 0.18 초과 0.00~0.35% / 0.30 초과 0.00~0.14%. |
+| 파라미터 | 값 | 왜 |
+|---|---|---|
+| `dynamic_min_translation_m` | **0.18** (양쪽 동일) | 0.18 = 0.2 s 창에서 0.9 m/s, 0.30 = 1.5 m/s. 0.30 이면 감속하며 코너에 진입하는 상대차가 DYNAMIC 이 되지 못해 `/opp_obs` 가 비고 CRUISE 가 걸리지 않는다. 반대 위험(정적 박스가 위치추정 지터로 DYNAMIC 표를 받아 `/confirmed_static_obs` 에서 이탈, run_0814_010624 t=317 id42)은 실측으로 마진 확인: 2026-08-23 백 3개에서 정적 박스 two-edge 병진 증명 p99 0.10~0.14, 0.18 초과 0.00~0.35%. 남는 오분류는 `dynamic_translation_persistence_sec`(0.30)이 한 번 더 거른다. |
 
-병합 규칙: 위 항목은 YAML 에 🔵 분기점 주석이 붙어 있다. 충돌 시 **주석째로 prototype 쪽을
-남긴다.** 새 동적 전용 완화가 생기면 같은 방식으로 표시하고 이 표에 추가한다.
+⚠️ 이 값은 **CRUISE 활성화 3요소** 중 하나다. 나머지 둘은 `state_machine` 의
+`allow_cruise_transition` 과 `f1tenth_control` 런치의 `cruise_enable` 이며, 셋은 항상 같이
+켜고 같이 끈다 — `f1tenth_control/test/test_cruise_contract.py` 가 강제한다. 값을 되돌리려면
+세 곳을 함께 되돌릴 것.
 
 ## Scope
 

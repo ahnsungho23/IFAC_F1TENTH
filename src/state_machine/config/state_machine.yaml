@@ -18,16 +18,17 @@ state_machine_node:
 
     # AVOID는 모든 상태에서 최우선입니다. CRUISE는 /opp_obs의 is_interfering=true로 진입합니다.
     allow_avoid_transition: true
-    # 🔴 이식 시리즈 커밋 1: 술어만 먼저 들어오고 활성화는 커밋 4에서 원자적으로 켠다
-    #    (dynamic_min_translation_m 0.18 + 이 값 + cruise_enable 셋을 같은 커밋에서).
-    #    아래 🟢 는 transition_global 원문 주석이며, 활성화 이후의 상태를 서술한다.
-    #    (원문의 "한쪽만 켜면 no-op"은 부정확하다 — control_map_node 가 /state 를 구독해
-    #     STATE_CRUISE 에서 avoiding_now() 가 참이 되고 L1 감쇠·섹터 게이팅이 바뀐다.)
-    # 🟢 2026-08-22 복구: CRUISE 진입 ON. f1tenth_control 런치의 cruise_enable 도 true 다 —
-    #    한쪽만 켜면 조용히 no-op 이므로 둘을 같이 본다.
+    # 🟢 CRUISE 진입 ON. **활성화 3요소를 항상 같이 켜고 같이 끈다**:
+    #    이 값 / obstacle_detector 의 dynamic_min_translation_m 0.18 /
+    #    f1tenth_control 런치의 cruise_enable — f1tenth_control 의
+    #    test/test_cruise_contract.py 가 all-on/all-off 를 강제한다.
+    #    (한쪽만 켜도 no-op 이 아니다: control_map_node 가 /state 를 구독해 STATE_CRUISE 에서
+    #     avoiding_now() 가 참이 되고 L1 감쇠·섹터 게이팅이 바뀐다. cruise_enable 만 켜진
+    #     상태에서 cruise 노드가 죽으면 1.5 m/s fail-closed 캡이 전 구간에 걸린다.)
     #    ⚠️ 페일세이프(blind_trailing_speed / cruise_stale_speed 기본 1.5 m/s)는 실측 구동계
-    #    데드존(~2.5 m/s) 아래다. 실차 투입 전 올릴지 결정할 것 (CRUISE_TUNING_GUIDE.md).
-    allow_cruise_transition: false
+    #    데드존(~2.5 m/s) 아래다. stale 이 지속되면 재출발이 막힐 수 있다(run_0821_092111).
+    #    transition_global 과 같은 값을 그대로 쓰고 있으며, 변경은 별도 제안으로 다룬다.
+    allow_cruise_transition: true
     local_path_confirmation_window_size: 5
     local_path_confirmation_min_hits: 3
 
