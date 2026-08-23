@@ -151,6 +151,11 @@ if(BUILD_TESTING)
       ${CMAKE_CURRENT_SOURCE_DIR}/include
     )
   endif()
+
+  # CRUISE 는 f1tenth_control·state_machine 두 패키지의 설정이 맞물려야 성립한다.
+  # 이 시험은 소스트리의 YAML/런치 기본값을 함께 읽어 그 계약을 검사한다.
+  find_package(ament_cmake_pytest REQUIRED)
+  ament_add_pytest_test(test_cruise_contract test/test_cruise_contract.py)
 endif()
 
 ament_package()
