@@ -59,6 +59,18 @@ Package-specific rules for `src/f1tenth_control`.
 - A stale active opponent or stale CRUISE heartbeat must fail safe to the configured blind speed.
   A cruise node outside STATE_CRUISE must not alter GLOBAL/AVOID driving behavior.
 
+## Host Tools
+
+- `tools/usbc_power.sh` controls the Jetson USB-C port that carries the LiDAR USB-Ethernet
+  adapter and the F710 joystick. It runs on the Jetson, not on the laptop.
+- Two sysfs mechanisms with different effects; keep both, they are not interchangeable.
+  Root-port `usb1-port1/disable` latches the port off but cannot revive a wedged port.
+  fusb301 `fmode` SNK(4)->SRC(1) cannot latch off (the driver snaps back to SRC) but is the
+  only thing that revives a wedged port. `freset` does nothing. Measured 2026-08-24/25.
+- The script must refuse to cut the port while the driving stack is up. Cutting it kills
+  `/scan` and `/joy`. Only `--force` may override.
+- Keep `docs/usbc_power.md` synchronized with the script's commands and measured results.
+
 ## Documentation and Verification
 
 - Keep `docs/cruise_controller_node.md` synchronized with behavior and interfaces, and
