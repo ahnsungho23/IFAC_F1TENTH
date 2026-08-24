@@ -32,8 +32,6 @@
 #include <nav_msgs/msg/odometry.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/laser_scan.hpp>
-#include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
-#include <atomic>
 #include <tf2_ros/static_transform_broadcaster.h>
 
 #include "obstacle_detector/obstacle_detector_node.hpp"
@@ -333,48 +331,3 @@ TEST(RearBlindCone, KeepsAnEnvelopeSittingOnTheScanOrigin)
 }
 
 }  // namespace
-
-// /initialpose 수동 재배치 리셋 (2026-08-24). 깨진 pose 로 승격된 track 이 재배치 후에도
-// hold/메모리로 계속 발행되는 사슬을 검증한다: 재배치 즉시 기존 track 이 전부 소거되고,
-// 유예 창 동안은 같은 물체가 계속 보여도 새 track 이 생기지 않아야 하며(발행은 빈 배열로
-// 계속되어 플래너 메모리를 지운다), 유예가 끝나면 재승격이 다시 가능해야 한다.
-TEST_F(ObstacleDetectorNodeTest, InitialposeClearsTracksAndSuppressesReconfirmation)
-{
-    std::atomic<int> static_msgs{0};
-    std::atomic<int> static_nonempty{0};
-    auto content_sub = helper_->create_subscription<f110_msgs::msg::ObstacleArray>(
-        "/static_obs", 10,
-        [&](const f110_msgs::msg::ObstacleArray::SharedPtr msg) {
-            ++static_msgs;
-            if (!msg->obstacles.empty())
-            {
-                ++static_nonempty;
-            }
-        });
-
-    waypoints_pub_->publish(straightReference());
-    publishOdometry();
-    spin(std::chrono::milliseconds(50));
-    publishScans(12);
-    ASSERT_GT(static_nonempty.load(), 0) << "전제: 물체가 track 으로 발행되고 있어야 한다";
-
-    auto initialpose_pub =
-        helper_->create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>(
-            "/initialpose", 10);
-    geometry_msgs::msg::PoseWithCovarianceStamped reset;
-    reset.header.stamp = helper_->now();
-    reset.header.frame_id = "map";
-    reset.pose.pose.orientation.w = 1.0;
-
-    static_msgs = 0;
-    static_nonempty = 0;
-    initialpose_pub->publish(reset);
-    spin(std::chrono::milliseconds(100));
-
-    // 유예 창(기본 2.0 s) 안에서 같은 물체를 계속 보여준다 — 12스캔 ≈ 0.24 s.
-    publishScans(12);
-    EXPECT_GT(static_msgs.load(), 0) << "유예 중에도 발행은 계속되어야 한다 (빈 배열)";
-    EXPECT_EQ(static_nonempty.load(), 0)
-        << "유예 창 안에서는 어떤 track 도 다시 승격되면 안 된다";
-}
-

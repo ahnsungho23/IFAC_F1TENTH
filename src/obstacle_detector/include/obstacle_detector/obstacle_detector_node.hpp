@@ -46,7 +46,6 @@
 
 #include <nav_msgs/msg/occupancy_grid.hpp>
 #include <nav_msgs/msg/odometry.hpp>
-#include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
 #include <sensor_msgs/msg/laser_scan.hpp>
 #include <std_msgs/msg/string.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
@@ -133,8 +132,6 @@ class ObstacleDetectorNode : public rclcpp::Node
     void globalWpntsCallback(const f110_msgs::msg::WpntArray::SharedPtr msg);
     void mapCallback(const nav_msgs::msg::OccupancyGrid::SharedPtr msg);
     void egoOdomCallback(const nav_msgs::msg::Odometry::SharedPtr msg);
-    void initialposeCallback(
-        const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg);
     void applyEgoOdometry(const nav_msgs::msg::Odometry & msg);
 
     // ---- pipeline helpers ----
@@ -285,12 +282,6 @@ class ObstacleDetectorNode : public rclcpp::Node
     // votes in the tracker are withheld for dynamic_vote_suppress_hold_sec after the spike.
     double dynamic_vote_ego_accel_suppress_mps2_{2.0};
     double dynamic_vote_suppress_hold_sec_{0.5};
-    // /initialpose 수동 재배치 리셋 (2026-08-24). 재배치 순간 track 전체를 소거하고
-    // ICP 재수렴 동안 신규 관측을 유예한다 — 깨진 pose 로 승격된 유령의 생존/재생산 차단.
-    bool initialpose_reset_enable_{true};
-    std::string initialpose_topic_;
-    double initialpose_confirm_suppress_sec_{2.0};
-    double suppress_detections_until_stamp_{-1.0};
     double ego_accel_smoothing_sec_{0.15};
     double ego_last_speed_{std::numeric_limits<double>::quiet_NaN()};
     double ego_last_speed_stamp_{-1.0};
@@ -308,8 +299,6 @@ class ObstacleDetectorNode : public rclcpp::Node
     rclcpp::Subscription<f110_msgs::msg::WpntArray>::SharedPtr global_wpnts_sub_;
     rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr map_sub_;
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr ego_odom_sub_;
-    rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr
-        initialpose_sub_;
 
     rclcpp::Publisher<f110_msgs::msg::ObstacleArray>::SharedPtr static_obs_pub_;  // Layer 2
     rclcpp::Publisher<f110_msgs::msg::ObstacleArray>::SharedPtr

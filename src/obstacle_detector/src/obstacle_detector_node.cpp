@@ -90,14 +90,6 @@ ObstacleDetectorNode::ObstacleDetectorNode(const rclcpp::NodeOptions &options)
     ego_odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
         ego_odom_topic_, rclcpp::QoS(10),
         std::bind(&ObstacleDetectorNode::egoOdomCallback, this, std::placeholders::_1));
-    if (initialpose_reset_enable_)
-    {
-        initialpose_sub_ =
-            this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
-                initialpose_topic_, rclcpp::QoS(10),
-                std::bind(&ObstacleDetectorNode::initialposeCallback, this,
-                          std::placeholders::_1));
-    }
 
     static_obs_pub_ = this->create_publisher<f110_msgs::msg::ObstacleArray>(static_obs_topic_, 10);
     confirmed_static_obs_pub_ =
@@ -292,10 +284,6 @@ void ObstacleDetectorNode::declareParameters()
     this->declare_parameter<bool>("static_hold_rear_blind_retire_enable", true);
     this->declare_parameter<int>("static_hold_rear_blind_retire_frames", 3);
     this->declare_parameter<double>("static_hold_rear_blind_retire_margin_deg", 2.0);
-
-    this->declare_parameter<bool>("initialpose_reset_enable", true);
-    this->declare_parameter<std::string>("initialpose_topic", "/initialpose");
-    this->declare_parameter<double>("initialpose_confirm_suppress_sec", 2.0);
 }
 
 void ObstacleDetectorNode::loadParameters()
@@ -423,10 +411,6 @@ void ObstacleDetectorNode::loadParameters()
     tracker_params_.min_hits_confirm = this->get_parameter("min_hits_confirm").as_int();
     tracker_params_.confirmation_window =
         this->get_parameter("confirmation_window").as_int();
-    initialpose_reset_enable_ = this->get_parameter("initialpose_reset_enable").as_bool();
-    initialpose_topic_ = this->get_parameter("initialpose_topic").as_string();
-    initialpose_confirm_suppress_sec_ =
-        this->get_parameter("initialpose_confirm_suppress_sec").as_double();
     tracker_params_.dynamic_chi2_threshold =
         this->get_parameter(
         "motion_classification.dynamic_chi2_threshold").as_double();
@@ -1413,28 +1397,6 @@ bool ObstacleDetectorNode::isOpponentInterfering(
     return interfering;
 }
 
-void ObstacleDetectorNode::initialposeCallback(
-    const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg)
-{
-    // 수동 재배치 = "지금까지의 pose 는 못 믿는다"는 선언이다. 깨진 pose 로 벽 필터가
-    // 뚫려 승격된 유령 track 이 hold(static_lost_hold_sec)·ID 메모리로 계속 발행되는
-    // 사슬을 그 자리에서 끊고(0824 대회장 13:42 백 실측: raw 동시 7개·confirmed 6개,
-    // 회피 계열 발행 56%), ICP 가 재수렴하는 동안은 관측 자체를 유예한다. 유예 중의
-    // 빈 발행은 플래너의 유지 메모리도 규약상 함께 지운다(명시적 빈 배열 = 소거 허용).
-    // 실물 장애물은 유예가 끝나면 min_hits_confirm(3/5 ≈ 0.1 s) 만에 재승격된다.
-    const std::size_t dropped = tracker_.tracks().size();
-    tracker_.clear();
-    double stamp = stampToSec(msg->header.stamp);
-    if (!(stamp > 0.0))
-    {
-        stamp = this->now().seconds();  // RViz 가 stamp 0 을 주는 경우
-    }
-    suppress_detections_until_stamp_ = stamp + initialpose_confirm_suppress_sec_;
-    RCLCPP_WARN(this->get_logger(),
-                "/initialpose 수신 — track %zu개 소거, %.1f s 동안 신규 관측 유예 (재수렴 창)",
-                dropped, initialpose_confirm_suppress_sec_);
-}
-
 void ObstacleDetectorNode::logMotionDebug()
 {
     if (!motion_debug_enable_)
@@ -1770,15 +1732,6 @@ void ObstacleDetectorNode::scanCallback(const sensor_msgs::msg::LaserScan::Share
             return envelopeInRearBlindCone(track, *msg, tx, ty, yaw,
                                            rear_blind_retire_margin_rad_);
         };
-    }
-    // /initialpose 재배치 유예 창: pose 가 재수렴하기 전의 관측은 유령 생산자다.
-    // 소거는 initialposeCallback 이 이미 했고, 여기서는 새 track 의 씨앗만 막는다.
-    if (initialpose_reset_enable_ && stamp < suppress_detections_until_stamp_)
-    {
-        detections.clear();
-        RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
-                             "재배치 유예 중 — 신규 관측 %.1f s 남음",
-                             suppress_detections_until_stamp_ - stamp);
     }
     tracker_.update(detections, stamp, measurement_yaw_rate, yaw_rate_fresh,
                     ego_motion_transient, free_space_refuter, rear_blind_predicate);
