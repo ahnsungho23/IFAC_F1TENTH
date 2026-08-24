@@ -7,6 +7,15 @@ kinematic_localization:
 
     # Topics / frames (drop-in compatible with particle_filter_cpp MCL)
     lidar_topic: /scan
+    # 스캔 구독 큐(=best-effort 리더 히스토리) 깊이. 2026-08-24 실차 백에서 100이었을 때,
+    # 노드가 한 번 밀리면 히스토리가 100장(2.5 s)으로 꽉 차고 그 뒤 도착한 새 스캔이
+    # 거부됐다. 노드는 깨어나서 밀린 "낡은" 스캔부터 등록했고(회복 스캔 나이 최대 8.5 s,
+    # 스톨당 회복 장수 최대 102 = 100 + pending + 처리중), 낡은 스탬프로 나간 포즈·TF가
+    # 하류 map->laser TF 실패와 130~190°의 map->odom 점프를 만들었다. 영구 손실 4,202장.
+    # 얕게 두면 밀렸을 때 최신 스캔만 남아 그 증폭이 끊긴다. 레거시(one-scan-lag) 경로가
+    # 항상 직전 스캔 1장을 들고 있으므로 2가 기본. 백 재생에서 버스트 입력을 다 받고
+    # 싶으면 그때만 크게 줄 것.
+    scan_queue_depth: 2
     odom_topic: /odom
     pose_topic: /pf/pose/odom
     initial_pose_topic: /initialpose
@@ -109,6 +118,13 @@ kinematic_localization:
     diagnostics_enable: true
     diagnostics_topic: "~/diagnostics"
     min_inlier_ratio_warn: 0.3
+    # 등록이 없는 동안에도 이 주기[s]로 진단을 한 번씩 내보낸다(하트비트, heartbeat=true).
+    # 0 = 끔. 등록이 정상(40 Hz)이면 주기가 차지 않아 발행량이 늘지 않는다.
+    # 2026-08-24 백에서는 진단이 "등록 성공 시에만" 나가서, 등록이 수 초씩 끊겼을 때
+    # 실행기가 멈춘 것인지 스캔 경로만 굶은 것인지 백만 보고 구분할 수 없었다.
+    # 하트비트가 계속 나오면 = 실행기는 살아있고 스캔 경로만 굶은 것.
+    # 하트비트도 끊기면 = 프로세스/실행기 자체가 안 돈 것.
+    diagnostics_heartbeat_period_sec: 0.1
 
     # §4 Pose validity: WARN + diagnostics flag when no non-occupied cell lies
     # within permissible_radius_m of the pose (buried inside a wall blob).

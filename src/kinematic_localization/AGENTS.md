@@ -217,6 +217,22 @@ selected with the `map_name` parameter (an absolute path is used as-is).
   fixed by the source-only `source_voxel_size 0.25` core patch instead
   (docs §8). `max_num_iterations 30`, `max_range 30.0`, `min_range 0.1`,
   `deskew true`, adaptive threshold/regularization on.
+- **`scan_queue_depth` must stay small on the car (default 2).** It was `keep_last(100)`
+  until 2026-08-24, and the two real-car bags of that evening show why: once the node
+  falls behind, the best-effort reader history fills with 100 scans and every newer
+  sample is rejected, so on waking the node registers the *oldest* ones. Recovered scans
+  were up to 8.5 s old, the per-stall recovery count topped out at exactly 102
+  (= 100 + `pending_scan_` + in-flight) in both bags, 4,202 / 2,844 scans were lost
+  outright, and the stale stamps produced map->odom jumps up to 131.9°/193.0° while
+  driving autonomously. A shallow queue keeps only the newest scan and breaks that
+  amplification. Raise it ONLY for bag replay (`-p scan_queue_depth:=100`), never on the car.
+- **Diagnostics must keep flowing when registration stops.** `diagnostics_heartbeat_period_sec`
+  (default 0.1) makes the watchdog timer emit one diagnostic — `heartbeat=true`, message
+  `heartbeat (no scan registered)` — when nothing has been published for that long, ahead of
+  every early return in `OnWatchdog`. `heartbeat` and `scan_age_sec` are on EVERY diagnostic
+  message. Without it a bag cannot tell "the executor stopped" from "only the scan path was
+  starved" (docs §10). Do not move the call below the guards and do not gate it on
+  `initialized_` — its whole value is proving liveness in states where nothing else publishes.
 - `config/mapping.yaml`: mandatory `config_schema_version`, the same KICP and tilt blocks, and
   bag/output paths for `mapping_node`.
 - Launch files must not hard-code tuning values; they only select the YAML and pass

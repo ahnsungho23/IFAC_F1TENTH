@@ -90,6 +90,10 @@ public:
 
         // Topics / frames
         lidar_topic_ = declare_parameter<std::string>("lidar_topic", "/scan");
+        // 스캔 구독 큐 깊이(=best-effort 히스토리). 위 create_subscription 주석 참고.
+        // declare_parameter<int> 는 int64_t 를 돌려준다 — 좁히기 전에 하한을 건다.
+        scan_queue_depth_ =
+            std::max(1, static_cast<int>(declare_parameter<int>("scan_queue_depth", 2)));
         odom_topic_ = declare_parameter<std::string>("odom_topic", "/odom");
         pose_topic_ = declare_parameter<std::string>("pose_topic", "/pf/pose/odom");
         initial_pose_topic_ =
@@ -228,6 +232,10 @@ public:
         diagnostics_topic_ =
             declare_parameter<std::string>("diagnostics_topic", "~/diagnostics");
         min_inlier_ratio_warn_ = declare_parameter<double>("min_inlier_ratio_warn", 0.3);
+        // 등록이 없는 동안에도 이 주기로 진단을 한 번씩 내보낸다(하트비트).
+        // 0 = 끔. 등록이 정상(40 Hz)이면 주기가 차지 않아 아무것도 추가되지 않는다.
+        diagnostics_heartbeat_period_ =
+            declare_parameter<double>("diagnostics_heartbeat_period_sec", 0.1);
 
         // Robustness plan §4: map-based pose validity check (log/diagnostic +
         // gate force-accept blocker only — never rejects poses on its own)
@@ -318,13 +326,14 @@ public:
             "E2 parameter summary | schema=%d gate=%s smoothing_alpha=%.3f "
             "smoothing_alpha_rot=%.3f source_voxel_size=%.3f voxel_size=%.3f "
             "max_range=%.1f lateral_dof=%s pose_check=%s tilt=%s roll_gradient=%.4f "
-            "slam_mode=%s",
+            "slam_mode=%s scan_queue_depth=%d diag_heartbeat=%.2f",
             config_schema_version, gate_enable_ ? "true" : "false", smoothing_alpha_,
             smoothing_alpha_rot_, config.source_voxel_size, config.voxel_size, config.max_range,
             config.lateral_dof_enable ? "true" : "false",
             pose_check_enable_ ? "true" : "false",
             tilt_compensation_enable_ ? "true" : "false",
-            tilt_cfg_.roll_gradient_rad_per_mps2, slam_mode_ ? "true" : "false");
+            tilt_cfg_.roll_gradient_rad_per_mps2, slam_mode_ ? "true" : "false",
+            scan_queue_depth_, diagnostics_heartbeat_period_);
 
         icp_ = std::make_unique<kinematic_icp::pipeline::KinematicICP>(config);
 
@@ -358,11 +367,16 @@ public:
         odom_msg_.twist.covariance[35] = orientation_covariance_;
         SetOutputCovariance(0.0);
 
-        // Large queues: bag playback publishes scans/odom in bursts, and a
-        // shallow best-effort queue drops them (uniform 40 Hz input is fine
-        // either way — the callback takes only ~2 ms).
+        // 스캔 구독 큐는 얕게 (2026-08-24 실차 백). keep_last(100)이던 시절, 노드가
+        // 한 번 밀리면 best-effort 리더 히스토리가 100장으로 꽉 차고 그 뒤 도착한
+        // 새 스캔이 거부됐다. 노드는 깨어나서 밀린 "낡은" 스캔부터 등록했고, 회복된
+        // 스캔의 나이가 최대 8.5 s였다(19:00 백: 스톨당 회복 장수 최대 102 =
+        // 100 + pending + 처리중, 영구 손실 4,202장). 낡은 스탬프로 나간 포즈·TF가
+        // 하류의 map->laser TF 실패와 130~190°의 map->odom 점프를 만들었다.
+        // 얕은 큐는 밀렸을 때 "가장 최근 스캔"만 남겨 그 증폭을 끊는다.
+        // 레거시(one-scan-lag) 경로가 항상 직전 스캔 1장을 들고 있으므로 2가 기본.
         scan_sub_ = create_subscription<sensor_msgs::msg::LaserScan>(
-            lidar_topic_, rclcpp::SensorDataQoS().keep_last(100),
+            lidar_topic_, rclcpp::SensorDataQoS().keep_last(static_cast<size_t>(scan_queue_depth_)),
             [this](const sensor_msgs::msg::LaserScan::ConstSharedPtr &msg) { OnScan(msg); });
         // Wheel odometry topic (same source MCL uses). The odom->base TF in the
         // bag/real system has multi-hundred-ms gaps, so deltas are computed
@@ -1217,10 +1231,25 @@ private:
         return false;
     }
 
+    // 등록이 diagnostics_heartbeat_period_ 이상 없었으면 진단을 한 번 내보낸다.
+    // 등록이 정상이면 주기가 차지 않아 발행량이 늘지 않는다.
+    void MaybePublishHeartbeat() {
+        if (!diag_pub_ || diagnostics_heartbeat_period_ <= 0.0) return;
+        if (last_diag_publish_time_.nanoseconds() != 0 &&
+            (now() - last_diag_publish_time_).seconds() < diagnostics_heartbeat_period_)
+            return;
+        PublishDiagnostics(now(), 0.0, 0.0, 0.0, false, 0.0, true, /*heartbeat=*/true);
+    }
+
     // §2 watchdog tick: when scans stall but wheel odometry still flows,
     // publish the odom-extrapolated pose so downstream never sees a frozen
     // /pf/pose/odom or map->odom TF.
     void OnWatchdog() {
+        // §3-2 하트비트: 아래의 어떤 early return 보다 먼저 낸다. 2026-08-24 실차
+        // 백에서 등록이 수 초씩 끊겼을 때, 진단이 등록 성공 시에만 나가는 탓에
+        // "실행기가 멈춘 것"과 "스캔 경로만 굶은 것"을 백만 보고 구분할 수 없었다.
+        // 이 타이머가 도는 한 진단이 계속 나가므로 다음 백에서 한 줄로 갈린다.
+        MaybePublishHeartbeat();
         if (!initialized_ || !has_last_out_) return;
         if (last_scan_processed_time_.nanoseconds() == 0) return;
         const rclcpp::Time now_time = now();
@@ -1331,9 +1360,16 @@ private:
     }
 
     // §3: registration quality on ~/diagnostics (diagnostic_msgs, rqt-friendly)
+    // heartbeat=true 는 "등록 없이 실행기가 살아있다"는 신호다(§3-2). 등록 프레임과
+    // 구분하려고 heartbeat/scan_age_sec 키를 모든 메시지에 넣는다.
     void PublishDiagnostics(const rclcpp::Time &stamp, double speed, double alpha,
-                            double alpha_rot, bool gate_rejected, double gate_d2, bool pose_ok) {
+                            double alpha_rot, bool gate_rejected, double gate_d2, bool pose_ok,
+                            bool heartbeat = false) {
         if (!diag_pub_) return;
+        last_diag_publish_time_ = now();
+        const double scan_age = last_scan_processed_time_.nanoseconds() > 0
+                                    ? (last_diag_publish_time_ - last_scan_processed_time_).seconds()
+                                    : -1.0;
         const auto &d = icp_->registrationDiagnostics();
         const double inlier_ratio =
             d.num_source_points > 0
@@ -1344,15 +1380,17 @@ private:
         diagnostic_msgs::msg::DiagnosticStatus status;
         status.name = std::string(get_name()) + ": registration";
         status.hardware_id = map_name_;
-        const bool degraded = inlier_ratio < min_inlier_ratio_warn_ || !d.converged ||
-                              gate_rejected || !pose_ok || dead_reckoning_sec_ > 0.0;
+        const bool degraded = heartbeat || inlier_ratio < min_inlier_ratio_warn_ ||
+                              !d.converged || gate_rejected || !pose_ok ||
+                              dead_reckoning_sec_ > 0.0;
         status.level = degraded ? diagnostic_msgs::msg::DiagnosticStatus::WARN
                                 : diagnostic_msgs::msg::DiagnosticStatus::OK;
-        status.message = dead_reckoning_sec_ > 0.0 ? "dead reckoning (scan gap)"
-                         : gate_rejected           ? "gate rejected"
-                         : !pose_ok                ? "pose impermissible"
-                         : degraded                ? "low inlier ratio / not converged"
-                                                   : "ok";
+        status.message = heartbeat                 ? "heartbeat (no scan registered)"
+                         : dead_reckoning_sec_ > 0.0 ? "dead reckoning (scan gap)"
+                         : gate_rejected             ? "gate rejected"
+                         : !pose_ok                  ? "pose impermissible"
+                         : degraded                  ? "low inlier ratio / not converged"
+                                                     : "ok";
         auto add = [&status](const std::string &key, const std::string &value) {
             diagnostic_msgs::msg::KeyValue kv;
             kv.key = key;
@@ -1364,6 +1402,8 @@ private:
             std::snprintf(buf, sizeof(buf), "%.6g", v);
             return std::string(buf);
         };
+        add("heartbeat", heartbeat ? "true" : "false");
+        add("scan_age_sec", fmt(scan_age));
         add("inlier_ratio", fmt(inlier_ratio));
         add("num_correspondences", std::to_string(d.num_correspondences));
         add("num_source_points", std::to_string(d.num_source_points));
@@ -1574,6 +1614,10 @@ private:
     double watchdog_rot_error_rate_ = 0.10;
     rclcpp::TimerBase::SharedPtr watchdog_timer_;
     rclcpp::Time last_scan_processed_time_{0, 0, RCL_ROS_TIME};
+    // 마지막으로 진단을 발행한 시각. 하트비트가 등록 발행과 겹치지 않게 하는 기준.
+    rclcpp::Time last_diag_publish_time_{0, 0, RCL_ROS_TIME};
+    int scan_queue_depth_ = 2;
+    double diagnostics_heartbeat_period_ = 0.1;
     double dead_reckoning_sec_ = 0.0;
 
     // §3 diagnostics
