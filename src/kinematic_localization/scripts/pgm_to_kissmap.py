@@ -11,6 +11,10 @@ sampled at 0.1 m puts only ~10 points in a 1 m voxel, so nothing is dropped —
 a coarser sample leaves ~1.4 m gaps between wall points, which makes ICP snap
 to wrong correspondences at speed).
 
+The area outside the image counts as occupied, not free, so the outermost pixel
+ring of a map that paints everything outside the track black stays interior
+instead of becoming a rectangle of points around the whole map.
+
 .kissmap binary format (defined by kinematic_localization):
   8 bytes  magic "KISSMAP1"
   double   voxel_size  (metadata only: the node voxel size this map is for)
@@ -48,13 +52,15 @@ def load_occupied_cells(map_yaml_path):
     # Wall surface = occupied cells with at least one non-occupied 4-neighbor.
     # (Interior of inflated wall blobs is never seen by the lidar and biases
     # point-to-point ICP toward the blob center.)
-    interior = (
-        np.roll(occupied, 1, axis=0) & np.roll(occupied, -1, axis=0) &
-        np.roll(occupied, 1, axis=1) & np.roll(occupied, -1, axis=1)
-    )
-    # np.roll wraps around; keep border cells as surface (conservative)
-    interior[0, :] = interior[-1, :] = False
-    interior[:, 0] = interior[:, -1] = False
+    #
+    # Pad with "occupied": the area outside the image is not observable free
+    # space, so it must never turn a cell into a surface. These maps paint
+    # everything outside the track black, and padding with "free" (what np.roll
+    # + the border overwrite used to do) made the whole outermost pixel ring a
+    # surface — a closed rectangle of points around the entire map that the
+    # lidar can never see, dragging ICP correspondences outward.
+    pad = np.pad(occupied, 1, constant_values=True)
+    interior = pad[:-2, 1:-1] & pad[2:, 1:-1] & pad[1:-1, :-2] & pad[1:-1, 2:]
     surface = occupied & ~interior
     return surface, resolution, origin
 
