@@ -320,7 +320,7 @@ void LocalPlannerNode::initializeParameters()
   planner_parameters_.vehicle_half_width_m =
     declare_parameter<double>("vehicle_half_width_m", 0.15);
   planner_parameters_.safety_margin_m =
-    declare_parameter<double>("safety_margin_m", 0.05;
+    declare_parameter<double>("safety_margin_m", 0.05);
   // 추종오차 예약 게이트 (2026-08-22). "none" = LUT 도 폴백 상수도 읽지 않는다.
   // ⚠️ 오타는 **관대한 쪽이 아니라 보수적인 쪽**으로 떨어진다: 알 수 없는 값이면 "lut" 로
   //    본다. 반대로 두면 오타 하나가 조용히 장애물 마진을 걷어낸다.
