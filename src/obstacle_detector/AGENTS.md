@@ -356,3 +356,18 @@ published Frenet bounds instead of reprojecting the Cartesian metadata.
 - For deterministic replay audits, verify every source backend scan has exactly one detector event
   before interpreting a decision mismatch; a missing event is a transport/executor observation,
   not an algorithmic detection result.
+
+## /initialpose 수동 재배치 리셋 (2026-08-24)
+
+pose 가 깨진 동안 벽 필터가 뚫려 벽 조각이 confirmed 로 승격되고, RViz 재배치 후에도
+hold(`static_lost_hold_sec`)·ID 메모리로 유령이 계속 발행되던 사슬(대회장 13:42 백 실측:
+raw 동시 7개·confirmed 6개, 회피 계열 발행 56%)을 끊는다.
+
+- `/initialpose` 수신 시 `tracker_.clear()` + `initialpose_confirm_suppress_sec`(2.0 s) 동안
+  scanCallback 이 detections 를 비워 신규 track 의 씨앗을 막는다. 발행은 빈 배열로 계속되어
+  플래너의 유지 메모리도 규약상 함께 지운다(명시적 빈 배열 = 소거 허용).
+- 실물 장애물은 유예가 끝나면 min_hits_confirm(3/5 ≈ 0.1 s) 만에 재승격 — 비용은 유예 시간뿐.
+- 파라미터: `initialpose_reset_enable` / `initialpose_topic` / `initialpose_confirm_suppress_sec`.
+- 노드 테스트 `InitialposeClearsTracksAndSuppressesReconfirmation` 이 전체 사슬을 고정한다.
+- 남은 갭(후속 후보): 정합 비정상(diagnostics) **동안**의 신규 승격 금지 — 사람이 붙이기 전
+  구간은 이 리셋이 못 막는다 (수정 B, 미구현).

@@ -578,3 +578,11 @@ PASS 조건은 동적 상대차가 먼저 `/static_obs`에 provisional로 나타
 5포인트 미만 LiDAR 파편들이 tracking 전에 하나의 detection으로 복원되고, 별도 track으로 남은
 조각난 정적 물체도 layer merge에서 하나의 출력 객체로 병합되며, 모든 출력 Frenet 경계가
 유한하고 `d_right <= d_left`인 것이다. 폐루프 경계를 넘는 객체의 `s_start > s_end`는 정상이다.
+
+## /initialpose 수동 재배치 리셋 (2026-08-24)
+
+RViz 등에서 `/initialpose` 로 pose 를 수동 재배치하면 노드가 즉시 모든 track 을 소거하고,
+`initialpose_confirm_suppress_sec`(기본 2.0 s) 동안 신규 관측을 유예한다. 깨진 pose 로
+승격된 유령 장애물이 재배치 후에도 hold/메모리로 살아남아 플래너가 회피하던 문제의 수리다.
+유예 중 발행되는 빈 배열이 플래너의 유지 메모리도 함께 지운다. 끄기:
+`initialpose_reset_enable: false`.

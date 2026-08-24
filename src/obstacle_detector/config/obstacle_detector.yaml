@@ -192,6 +192,17 @@ obstacle_detector:
     # 3회 이상이어야 CONFIRMED가 되며, RAW/TENTATIVE track은 어떤 장애물 토픽에도 싣지 않습니다.
     min_hits_confirm: 3
     confirmation_window: 5
+
+    # ── /initialpose 수동 재배치 리셋 (2026-08-24 대회장 실측 대응) ──────────────
+    # pose 가 깨진 동안(정합 비정상 31%) 벽 필터가 뚫려 벽 조각이 confirmed 로 승격되고,
+    # RViz 재배치 후에도 hold(5 s)·ID 메모리(30 s)로 유령이 계속 발행되던 사슬을 끊는다
+    # (13:42 백 실측: raw 동시 7개·confirmed 6개, 회피 계열 발행 8,832/15,768 = 56%).
+    # 재배치 순간 track 전체를 소거하고, ICP 재수렴 동안 신규 관측을 통째로 유예한다.
+    # 유예 중의 빈 발행은 플래너 유지 메모리도 규약상 함께 지운다. 실물 상자는 유예가
+    # 끝나면 min_hits_confirm(3/5 ≈ 0.1 s) 만에 재승격되므로 실측 비용은 유예 시간뿐이다.
+    initialpose_reset_enable: true
+    initialpose_topic: "/initialpose"
+    initialpose_confirm_suppress_sec: 2.0
     # 스캔마다 달라지는 AABB extent(정사각형 박스 vs 실제 형태 괴리)를 magnitude 기준으로
     # 완화합니다. 확장은 즉시, 축소는 ~1/alpha 프레임에 걸쳐 서서히. 1.0이면 기존 덮어쓰기.
     extent_shrink_alpha: 0.25
