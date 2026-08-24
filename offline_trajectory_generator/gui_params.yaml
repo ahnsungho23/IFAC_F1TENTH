@@ -1,5 +1,5 @@
-map_yaml: /home/haejun/Downloads/ifac_roboracer_maps/ifac_roboracer.yaml
-output_dir: /home/haejun/2026_IFAC/offline_trajectory_generator/output/map
+map_yaml: src/monte_carlo_localization/maps/map.yaml
+output_dir: /home/tenmeneat/2026_IFAC/offline_trajectory_generator/output/map
 velocity_limits_csv: offline_trajectory_generator/config/velocity_limits.csv
 optimizer: mincurv
 width_mode: hybrid
@@ -18,7 +18,7 @@ boundary_margin: 0.3
 max_width_distance: 2.4
 max_speed: 7.0
 min_speed: 3.7
-max_curvature: 0.9
+max_curvature: 0.7000000000000001
 smooth_sigma: 2.7
 median_kernel: 5
 morph_kernel: 5

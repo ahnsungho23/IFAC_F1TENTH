@@ -546,7 +546,7 @@ def declare_common_args(
                         '약 3978 ERPM으로 HFI 전환 문턱 3000 ERPM에 충분한 여유를 둠'
         ),
         DeclareLaunchArgument(
-            'hfi_launch_exit_speed', default_value='0.5',
+            'hfi_launch_exit_speed', default_value='0.75',
             description='실측 속도가 이 값을 넘으면 HFI 정지출발 상한 해제 [m/s]'
         ),
         DeclareLaunchArgument(

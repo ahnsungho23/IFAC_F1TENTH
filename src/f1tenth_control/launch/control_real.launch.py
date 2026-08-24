@@ -22,20 +22,14 @@ def generate_launch_description():
 
     max_speed_arg = DeclareLaunchArgument(
         'max_speed',
-        default_value='6.5',
+        default_value='8.0',
         description='control_map_node 직선 최대 속도 [m/s]'
     )
 
     max_lateral_accel_arg = DeclareLaunchArgument(
-        'max_lateral_accel', default_value='7.6',
+        'max_lateral_accel', default_value='7.3',
         description='코너 그립 클램프 a_lat [m/s^2]. 조향 생성의 a_cmd 상한도 겸한다(②-p). '
-                    '⚠️ 2026-08-19에 7.0으로 올라가 있던 것을 6.0으로 되돌렸다: 현재 라인은 '
-                    'a_lat을 최대 6.03만 요구해서 그립 캡이 172점 중 0~1점만 구속한다 → '
-                    '6.0 -> 7.0의 랩타임 이득이 정확히 0.000 s다. 반면 조향 a_cmd 클램프는 '
-                    'mla * steering_accel_margin(1.15)이라 6.90 -> 8.05로 올라가는데, '
-                    '마모 타이어 실측 그립 포락선이 p95 6.45 / max 7.40(0819 8랩 무사고)이라 '
-                    '8.05는 타이어가 못 내는 값이다. 6.90이 라인 요구 6.03과 그립 7.40 사이에 '
-                    '정확히 들어가는 유일한 구간이다'
+
     )
 
     max_steering_left_arg = DeclareLaunchArgument(
