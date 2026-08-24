@@ -57,6 +57,30 @@
 `maximum_speed`는 별도 크루즈 인자 대신 기존 `max_speed`를 공유합니다. 토픽 이름과
 `publish_rate_hz`는 튜닝 인자가 아니므로 YAML의 인터페이스 설정을 그대로 사용합니다.
 
+### 4-1. 값의 정본은 YAML입니다 (2026-08-24 수정)
+
+튜닝 값의 단일 정본은 `config/cruise_controller.yaml`입니다. 런치 인자는 기본값이 모두
+**빈 문자열**이고, 명령줄에서 명시적으로 준 것만 YAML 위에 얹힙니다
+(`_control_common.py`의 `CRUISE_PARAM_SPEC` + `cruise_overrides()`).
+
+🔴 **그 전에는 반대였습니다.** 런치 인자 기본값이 실수(`trailing_gap` 5.0 등)여서
+`parameters=[yaml, {인자들}]` 병합에서 **항상** YAML 뒤에 놓였고, YAML의 23개 키가
+통째로 무효였습니다 — 파일에 `trailing_gap: 3.0`을 적어도 실제로는 5.0이 돌았습니다.
+그 5.0은 `state_machine`의 `interference_distance_m`(5.0)과 같아,
+같은 YAML 26~27줄이 금지한 **진입/이탈 리밋사이클 조건**을 그대로 만듭니다.
+
+주행 전 실제 적용값 확인:
+```bash
+ros2 param get /cruise_controller_node trailing_gap    # YAML 값과 같아야 정상
+```
+
+⚠️ 유일한 예외는 `maximum_speed`입니다. real 8.0 / sim 12.0으로 환경이 갈라야 하고
+그 값을 `max_speed` 인자가 쥐고 있어 항상 덮습니다(YAML의 12.0은 노드 단독 실행용 폴백).
+
+⚠️ 크루즈 파라미터를 새로 추가하면 **YAML과 `CRUISE_PARAM_SPEC` 양쪽에** 넣어야 합니다.
+표에 없는 키는 명령줄로 덮을 수 없고, YAML에 없는 키는 노드 `declare_parameter`
+기본값으로 떨어집니다.
+
 세부 튜닝 절차는 `CRUISE_TUNING_GUIDE.md`를 참고합니다.
 
 ## 5. 실행

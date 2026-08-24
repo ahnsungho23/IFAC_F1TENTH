@@ -2,11 +2,43 @@ from typing import Any, Optional
 
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 from launch.conditions import IfCondition
 from launch.substitutions import PathJoinSubstitution
 from launch_ros.substitutions import FindPackageShare
+
+# 🔴 cruise_controller_node 파라미터의 정본은 config/cruise_controller.yaml이다.
+# 런치 인자 기본값은 전부 빈 문자열이고, 명시적으로 준 것만 YAML 위에 얹힌다.
+# 예전에는 인자 기본값이 실수(trailing_gap 5.0 등)라 항상 YAML 뒤에 병합되면서 YAML을
+# 통째로 무효화했다 — 파일에 3.0을 적어도 실제로는 5.0이 돌았고, YAML만 고친 튜닝이
+# 조용히 no-op이 됐다. 아래 (이름, 타입) 표가 그 병합에 참여할 키의 전부이고,
+# 값 자체는 YAML에만 있다. 새 크루즈 파라미터는 YAML과 이 표 양쪽에 넣을 것.
+CRUISE_PARAM_SPEC = (
+    ('trailing_mode_distance', bool),
+    ('trailing_gap', float),
+    ('minimum_gap', float),
+    ('max_desired_gap', float),
+    ('trailing_p_gain', float),
+    ('trailing_i_gain', float),
+    ('trailing_d_gain', float),
+    ('integral_limit', float),
+    ('allow_accel_trailing', bool),
+    ('emergency_stop_distance', float),
+    ('relative_deceleration', float),
+    ('ego_deceleration', float),
+    ('opponent_deceleration', float),
+    ('actuation_latency', float),
+    ('ego_front_offset', float),
+    ('uncertainty_sigma', float),
+    ('gap_uncertainty_horizon_max', float),
+    ('opp_speed_confidence_z', float),
+    ('opponent_timeout', float),
+    ('ego_timeout', float),
+    ('state_timeout', float),
+    ('clear_confirm_sec', float),
+    ('blind_trailing_speed', float),
+)
 
 IMU_LINEAR_SCALE_REAL = 9.80665      # g → m/s². VESC가 g로 발행(2026-07-19 소스 확인)
 IMU_LINEAR_SCALE_SIM  = 1.0          # sim_imu_bridge_node는 0 고정
@@ -27,98 +59,102 @@ def declare_common_args(
             description='/opp_obs 기반 종방향 cruise speed cap 사용'
         ),
         # ── 크루즈 종방향 제어 튜닝 ──
+        # 🟢 정본은 config/cruise_controller.yaml이다. 아래 인자는 전부 기본값이 빈
+        #    문자열이고, 명시적으로 준 것만 YAML 위에 얹힌다(CRUISE_PARAM_SPEC).
+        #    `--show-args`의 기본값이 비어 있는 것은 "YAML을 쓴다"는 뜻이고 결함이 아니다.
+        # 🔴 기본값을 다시 실수로 되돌리지 말 것 — 그 순간 YAML이 통째로 죽는다.
         # config/cruise_controller.yaml은 단독 실행용 기준값으로 남기고,
         # sim/real 공통 launch에서는 아래 인자가 같은 이름의 ROS parameter를 덮어쓴다.
         DeclareLaunchArgument(
-            'trailing_mode_distance', default_value='true',
+            'trailing_mode_distance', default_value='',
             description='true=고정 거리 추종, false=minimum_gap + trailing_gap*v 시간 간격 추종'
         ),
         DeclareLaunchArgument(
-            'trailing_gap', default_value='5.0',
+            'trailing_gap', default_value='',
             description='고정 거리 모드의 목표 간격 [m] 또는 시간 간격 모드의 headway [s]'
         ),
         DeclareLaunchArgument(
-            'minimum_gap', default_value='0.8',
+            'minimum_gap', default_value='',
             description='정지 시에도 유지할 최소 목표 간격 [m]'
         ),
         DeclareLaunchArgument(
-            'max_desired_gap', default_value='0.0',
+            'max_desired_gap', default_value='',
             description='목표 간격 상한 [m], 0=비활성. state_machine interference_distance_m 이하 필수'
         ),
         DeclareLaunchArgument(
-            'trailing_p_gain', default_value='1.0',
+            'trailing_p_gain', default_value='',
             description='크루즈 간격 오차 P 게인'
         ),
         DeclareLaunchArgument(
-            'trailing_i_gain', default_value='0.0',
+            'trailing_i_gain', default_value='',
             description='크루즈 간격 오차 I 게인'
         ),
         DeclareLaunchArgument(
-            'trailing_d_gain', default_value='0.5',
+            'trailing_d_gain', default_value='',
             description='크루즈 상대속도 D 게인'
         ),
         DeclareLaunchArgument(
-            'integral_limit', default_value='2.0',
+            'integral_limit', default_value='',
             description='크루즈 간격 오차 적분 절댓값 상한'
         ),
         DeclareLaunchArgument(
-            'allow_accel_trailing', default_value='true',
+            'allow_accel_trailing', default_value='',
             description='true이면 추종 상한이 현재 ego 속도보다 높아지는 것을 허용'
         ),
         DeclareLaunchArgument(
-            'emergency_stop_distance', default_value='0.45',
+            'emergency_stop_distance', default_value='',
             description='보수적 간격이 이하일 때 속도 상한을 0으로 만드는 거리 [m]'
         ),
         DeclareLaunchArgument(
-            'relative_deceleration', default_value='1.8',
+            'relative_deceleration', default_value='',
             description='분해 제동값이 0일 때 사용하는 보수적 기본 감속도 [m/s^2]'
         ),
         DeclareLaunchArgument(
-            'ego_deceleration', default_value='0.0',
+            'ego_deceleration', default_value='',
             description='실측 ego 감속도 [m/s^2], 0=relative_deceleration으로 폴백'
         ),
         DeclareLaunchArgument(
-            'opponent_deceleration', default_value='0.0',
+            'opponent_deceleration', default_value='',
             description='가정할 상대차 감속도 [m/s^2], 0=relative_deceleration으로 폴백'
         ),
         DeclareLaunchArgument(
-            'actuation_latency', default_value='0.0',
+            'actuation_latency', default_value='',
             description='상대차 감속 관측부터 ego 실제 제동 개시까지의 실측 지연 [s]'
         ),
         DeclareLaunchArgument(
-            'ego_front_offset', default_value='0.25',
+            'ego_front_offset', default_value='',
             description='ego Frenet 기준점에서 앞범퍼까지 거리 [m]'
         ),
         DeclareLaunchArgument(
-            'uncertainty_sigma', default_value='2.0',
+            'uncertainty_sigma', default_value='',
             description='간격 표준편차에 곱해 raw gap에서 빼는 보수 배수'
         ),
         DeclareLaunchArgument(
-            'gap_uncertainty_horizon_max', default_value='1.0',
+            'gap_uncertainty_horizon_max', default_value='',
             description='상대차 위치·속도 공분산 시간 전파 지평 상한 [s]'
         ),
         DeclareLaunchArgument(
-            'opp_speed_confidence_z', default_value='1.0',
+            'opp_speed_confidence_z', default_value='',
             description='상대차 속도 하한 계산에 쓰는 표준편차 배수'
         ),
         DeclareLaunchArgument(
-            'opponent_timeout', default_value='0.15',
+            'opponent_timeout', default_value='',
             description='CRUISE 중 /opp_obs 신선도 timeout [s]'
         ),
         DeclareLaunchArgument(
-            'ego_timeout', default_value='0.20',
+            'ego_timeout', default_value='',
             description='CRUISE 중 ego Frenet odom 신선도 timeout [s]'
         ),
         DeclareLaunchArgument(
-            'state_timeout', default_value='0.30',
+            'state_timeout', default_value='',
             description='CRUISE 중 /state heartbeat 신선도 timeout [s]'
         ),
         DeclareLaunchArgument(
-            'clear_confirm_sec', default_value='1.00',
+            'clear_confirm_sec', default_value='',
             description='/opp_obs 빈 메시지가 지속돼야 타깃을 해제하는 확인 시간 [s]'
         ),
         DeclareLaunchArgument(
-            'blind_trailing_speed', default_value='1.5',
+            'blind_trailing_speed', default_value='',
             description='CRUISE 중 상대차·ego·state 입력이 stale일 때 속도 상한 [m/s]'
         ),
         DeclareLaunchArgument(
@@ -919,67 +955,50 @@ def build_control_map_node(*, odom_topic, max_speed, max_lateral_accel, base_max
         }]
     )
 
-def build_cruise_controller_node(*, max_speed):
-    """전방 상대차 간격을 속도 상한으로 변환하는 종방향 보조 노드."""
+def cruise_overrides(context):
+    """명시적으로 준 크루즈 인자만 골라낸다(빈 문자열 = YAML 값을 쓴다).
+
+    _cruise_node에서 분리해 둔 이유는 런치를 띄우지 않고도 병합 결과를 검증할 수 있게
+    하기 위함이다 — YAML이 조용히 무시되던 회귀를 다시 놓치지 않는다.
+    """
+    overrides = {}
+    for name, kind in CRUISE_PARAM_SPEC:
+        raw = context.perform_substitution(LaunchConfiguration(name)).strip()
+        if not raw:
+            continue
+        if kind is bool:
+            overrides[name] = raw.lower() in ('true', '1', 'yes')
+        else:
+            overrides[name] = float(raw)
+    return overrides
+
+
+def _cruise_node(context, *, max_speed):
+    """YAML을 정본으로 두고, 명시적으로 준 런치 인자만 그 위에 얹는다."""
     config_file = PathJoinSubstitution([
         FindPackageShare('f1tenth_control'), 'config', 'cruise_controller.yaml'
     ])
-    return Node(
+    # maximum_speed만 예외로 항상 덮는다 — real 8.0 / sim 12.0으로 환경이 갈라야 하고
+    # 그 값은 max_speed 인자가 쥐고 있다(YAML의 12.0은 노드 단독 실행용 폴백).
+    overrides = {'maximum_speed': ParameterValue(max_speed, value_type=float)}
+    overrides.update(cruise_overrides(context))
+    return [Node(
         package='f1tenth_control',
         executable='cruise_controller_node',
         name='cruise_controller_node',
         output='screen',
+        parameters=[config_file, overrides],
+    )]
+
+
+def build_cruise_controller_node(*, max_speed):
+    """전방 상대차 간격을 속도 상한으로 변환하는 종방향 보조 노드."""
+    return OpaqueFunction(
+        function=_cruise_node,
+        kwargs={'max_speed': max_speed},
         condition=IfCondition(LaunchConfiguration('cruise_enable')),
-        parameters=[config_file, {
-            'maximum_speed': ParameterValue(max_speed, value_type=float),
-            'trailing_mode_distance': ParameterValue(
-                LaunchConfiguration('trailing_mode_distance'), value_type=bool),
-            'trailing_gap': ParameterValue(
-                LaunchConfiguration('trailing_gap'), value_type=float),
-            'minimum_gap': ParameterValue(
-                LaunchConfiguration('minimum_gap'), value_type=float),
-            'max_desired_gap': ParameterValue(
-                LaunchConfiguration('max_desired_gap'), value_type=float),
-            'trailing_p_gain': ParameterValue(
-                LaunchConfiguration('trailing_p_gain'), value_type=float),
-            'trailing_i_gain': ParameterValue(
-                LaunchConfiguration('trailing_i_gain'), value_type=float),
-            'trailing_d_gain': ParameterValue(
-                LaunchConfiguration('trailing_d_gain'), value_type=float),
-            'integral_limit': ParameterValue(
-                LaunchConfiguration('integral_limit'), value_type=float),
-            'allow_accel_trailing': ParameterValue(
-                LaunchConfiguration('allow_accel_trailing'), value_type=bool),
-            'emergency_stop_distance': ParameterValue(
-                LaunchConfiguration('emergency_stop_distance'), value_type=float),
-            'relative_deceleration': ParameterValue(
-                LaunchConfiguration('relative_deceleration'), value_type=float),
-            'ego_deceleration': ParameterValue(
-                LaunchConfiguration('ego_deceleration'), value_type=float),
-            'opponent_deceleration': ParameterValue(
-                LaunchConfiguration('opponent_deceleration'), value_type=float),
-            'actuation_latency': ParameterValue(
-                LaunchConfiguration('actuation_latency'), value_type=float),
-            'ego_front_offset': ParameterValue(
-                LaunchConfiguration('ego_front_offset'), value_type=float),
-            'uncertainty_sigma': ParameterValue(
-                LaunchConfiguration('uncertainty_sigma'), value_type=float),
-            'gap_uncertainty_horizon_max': ParameterValue(
-                LaunchConfiguration('gap_uncertainty_horizon_max'), value_type=float),
-            'opp_speed_confidence_z': ParameterValue(
-                LaunchConfiguration('opp_speed_confidence_z'), value_type=float),
-            'opponent_timeout': ParameterValue(
-                LaunchConfiguration('opponent_timeout'), value_type=float),
-            'ego_timeout': ParameterValue(
-                LaunchConfiguration('ego_timeout'), value_type=float),
-            'state_timeout': ParameterValue(
-                LaunchConfiguration('state_timeout'), value_type=float),
-            'clear_confirm_sec': ParameterValue(
-                LaunchConfiguration('clear_confirm_sec'), value_type=float),
-            'blind_trailing_speed': ParameterValue(
-                LaunchConfiguration('blind_trailing_speed'), value_type=float),
-        }],
     )
+
 
 def build_sector_learner_node():
     """섹터 scale 발행기 겸 온라인 학습기 (AIMD).

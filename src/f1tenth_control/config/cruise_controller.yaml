@@ -15,21 +15,27 @@ cruise_controller_node:
     # 구 max(s0, T*v) 형태는 v > s0/T에서 s0가 사라지고 헤드웨이가 속도에 따라 줄어들었다.
     # 거리 모드 해석은 그대로라 이 기본값에서는 거동 변화가 없다.
     # 2m 추종으로 좁히는 절차는 CRUISE_TUNING_GUIDE.md §6 참고.
+    #
+    # 🟢 이 파일이 크루즈 튜닝의 정본이다. 런치 인자는 기본값이 빈 문자열이라
+    #    명시적으로 준 것만 여기 값을 덮는다(_control_common.py의 CRUISE_PARAM_SPEC).
+    #    예: ros2 launch f1tenth_control control_real.launch.py trailing_gap:=2.0
     trailing_mode_distance: true
-    trailing_gap: 5.0
+    trailing_gap: 3.0
     minimum_gap: 0.8
     # 목표 간격의 하드 상한 [m]. 0 = 상한 없음.
     # state_machine.yaml의 interference_distance_m(5.0)을 넘으면 cruise가 유지하려는 간격에서
     # 상태머신이 CRUISE를 빠져나가 진입/이탈 리밋사이클이 된다. 반드시 그 값 이하로 둘 것.
     # 시간 간격 모드를 켤 때 s0 + T*max_speed가 그 값을 넘을 수 있으므로 같이 설정한다.
     max_desired_gap: 0.0
-    trailing_p_gain: 1.0
-    trailing_i_gain: 0.0
+    trailing_p_gain: 0.6
+    trailing_i_gain: 0.05
     # D는 상대속도(접근속도)에 직접 작용하므로 코너 진입 오버슈트를 줄이는 손잡이다.
-    trailing_d_gain: 0.5
+    trailing_d_gain: 0.3
     integral_limit: 2.0
     allow_accel_trailing: true
 
+    # ⚠️ 유일한 예외: 런치가 항상 덮는다(real 8.0 / sim 12.0). 환경별로 갈라야 하는
+    #    값이라 max_speed 인자에 묶여 있다 — 여기 값은 노드 단독 실행용 폴백이다.
     maximum_speed: 12.0
     emergency_stop_distance: 0.45
     # braking cap sqrt(v_opp^2 + 2*a*gap)의 a. "내가 실제로 낼 수 있는 감속도"를 뜻한다.

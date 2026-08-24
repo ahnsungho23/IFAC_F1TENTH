@@ -55,10 +55,23 @@ state_machine_node:
     # f1tenth_control/CRUISE_TUNING_GUIDE.md §7-2.
     interference_distance_m: 5.0
     interference_horizon_sec: 1.0
-    interference_p_on: 0.7
-    interference_p_off: 0.4
+    # 🟢 2026-08-24: rosbag2_2026_08_23-06_49_50(250~308 s)을 /map 점유격자로 지도 구조를
+    #    제거한 /scan 클러스터로 독립 라벨링해 스윕한 결과다. 라벨(전방 5 m 이내 + 횡 겹침)
+    #    15.4 s 기준 재현율 76.9% -> 86.0%, 오진입 4.6 -> 7.7 s.
+    #    ⚠️ 상한은 91%다 — 라벨 프레임의 9%는 /opp_obs 가 물체를 아예 발행하지 않은
+    #    구간이라(265.3~267.9 s 등 /scan 에는 계속 보인다) 이 파라미터로는 못 잡는다.
+    #    되돌리기: p_on 0.7 / p_off 0.4 / lateral_margin 0.10.
+    interference_p_on: 0.5
+    interference_p_off: 0.25
     interference_ego_half_width_m: 0.16
-    interference_lateral_margin_m: 0.10
+    # 🔴 0.10 -> 0.30. 이 값은 근사 처방이다 — P_lat 의 밴드가 ego 의 실제 d 가 아니라
+    #    글로벌 라인(d=0) 중심이라(interference_predicate.cpp 의 intervalProbability(-b, +b))
+    #    ego 와 상대차가 둘 다 라인에서 벗어난 채 같은 차선에 있으면 확률이 붕괴한다.
+    #    실측: t=300.80~301.20 에 간격 1.37 -> 0.20 m, |Δd| 0.31~0.40 m 인데 p* 0.17 -> 0.00.
+    #    밴드를 넓혀 그 구간을 덮는 것이라 근본 수정(밴드를 ego.d 중심으로 이동)이 되면
+    #    0.10 으로 되돌릴 것. b_eff = ego_half_width + 이 값 + 상대차 반폭.
+    #    ⚠️ 0.40 이상은 금지 — |Δd| > 0.7 m(진짜 다른 라인) 오진입이 7% -> 19% 로 뛴다.
+    interference_lateral_margin_m: 0.30
     interference_ego_front_offset_m: 0.25
 
     # AVOID -> GLOBAL 복귀 계약 (2026-08-16 개정).
