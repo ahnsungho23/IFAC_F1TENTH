@@ -112,7 +112,7 @@ RacelineSplineParameters operationalParameters()
   p.obstacle_longitudinal_padding_m = 0.0;
   p.vehicle_half_width_m = 0.15;
   p.vehicle_length_m = 0.56;
-  p.safety_margin_m = 0.00;   // 2026-08-23: 0.50 m 자유폭 예산 (YAML 과 동기)
+  p.safety_margin_m = 0.05;   // 2026-08-23: 0.50 m 자유폭 예산 (YAML 과 동기)
   // 예약 게이트 (2026-08-22). 운영이 "none" 이므로 하니스도 꺼야 같은 질문에 답한다 —
   // 켜 두면 하니스만 0.39 짜리 예약을 쓰고 운영보다 훨씬 비관적인 진단을 낸다.
   p.obstacle_reserve_from_lut = false;

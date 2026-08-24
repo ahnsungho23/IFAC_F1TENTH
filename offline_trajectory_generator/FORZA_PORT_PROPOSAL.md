@@ -1,5 +1,8 @@
 # Forza 궤적 생성기 → `adaptive_global` **Python 이식** 제안서
 
+> **이력 문서:** `map_creator`와 런타임 글로벌 경로 전환 기능은 2026-08-24에
+> `main`에서 제거됐다. 아래 reload 관련 내용은 당시 설계 기록이며 현재 동작이 아니다.
+
 작성일: 2026-08-23 (**전면 재작성**)
 원본: `edge_test@95843f7a` → 대상: `adaptive_global@6ba865b3`
 

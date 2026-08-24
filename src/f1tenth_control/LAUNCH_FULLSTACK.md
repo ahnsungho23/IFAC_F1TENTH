@@ -66,7 +66,6 @@ localization은 어느 경우에도 `F1_MAP`을 안 읽으므로 **`map_name:=ma
 ├── local_planning/           ← 회피 경로 생성
 ├── state_machine/            ← /state 판정 + /local_waypoints 선택 발행
 ├── obstacle_detector/        ← 라이다 장애물 검출 (구 opponent_detector)
-├── static_obstacle_map/      ← 정적 장애물 맵
 ├── lap_timer/ , lap_referee/ ← 랩타임 계측 (주행 필수 아님)
 └── cma_gt_localization/      ← 시뮬 GT 브리지 (CMA 튜닝 전용, 실차 미사용)
 ```

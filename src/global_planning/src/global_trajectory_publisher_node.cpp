@@ -1,16 +1,12 @@
 #include <chrono>
-#include <cmath>
 #include <functional>
-#include <limits>
 #include <memory>
 #include <string>
 
 #include "rclcpp/rclcpp.hpp"
 #include "f110_msgs/msg/wpnt_array.hpp"
 #include "std_msgs/msg/float32.hpp"
-#include "std_msgs/msg/int32.hpp"
 #include "std_msgs/msg/string.hpp"
-#include "std_srvs/srv/trigger.hpp"
 #include "visualization_msgs/msg/marker.hpp"
 #include "visualization_msgs/msg/marker_array.hpp"
 
@@ -29,19 +25,11 @@ public:
     declare_parameter("publish_shortest_path", true); ///최단경로 트래젝토리를 퍼블리시할지 결정합니다. 
     declare_parameter("publish_centerline", false); ////////publish_centerline센터라인 웨이포인트를 퍼블리시할지 결정. true면 /centerline_waypoints(및 마커 옵션 시 /centerline_waypoints/markers) 보냄
     declare_parameter("publish_lattice", false); ///lattice 시각화 토픽을 쓸지 결정합니다. true면 /lattice_viz 퍼블리셔를 활성화합니다
-    // Initial source: <output_base_dir>/<map_name>/global_waypoints.json, with map_path
-    // as an optional override. A successful reload switches to reload_map_name without
-    // modifying either source file or the YAML.
+    // Source: <output_base_dir>/<map_name>/global_waypoints.json, with map_path
+    // as an optional override. It is loaded once at startup and never switched at runtime.
     declare_parameter("output_base_dir", "offline_trajectory_generator/output");
     declare_parameter("map_name", "");
     declare_parameter("map_path", "");
-    declare_parameter("reload_map_name", "obstacle_map");
-    // Lap-triggered one-way switch to a pre-generated bundle (e.g. the offline Forza
-    // raceline). Empty lap_switch_map_name disables the feature, which is the default:
-    // an unconfigured node keeps the existing map -> reload_map_name behavior exactly.
-    declare_parameter("lap_switch_map_name", "");
-    declare_parameter("lap_switch_count", 11);
-    declare_parameter("lap_count_topic", "/lap_count");
     declare_parameter("publish_period_sec", 2.0);
 
     publish_markers_ = get_parameter("publish_markers").as_bool();
@@ -85,27 +73,6 @@ public:
         map_dir_ = output_base_dir.empty() ? name : output_base_dir + "/" + name;
       }
     }
-    reload_map_name_ = get_parameter("reload_map_name").as_string();
-    if (!reload_map_name_.empty()) {
-      reload_map_dir_ =
-        output_base_dir.empty() ? reload_map_name_ : output_base_dir + "/" + reload_map_name_;
-    }
-    lap_switch_map_name_ = get_parameter("lap_switch_map_name").as_string();
-    if (!lap_switch_map_name_.empty()) {
-      lap_switch_dir_ = output_base_dir.empty() ?
-        lap_switch_map_name_ : output_base_dir + "/" + lap_switch_map_name_;
-      lap_switch_count_ = static_cast<int>(get_parameter("lap_switch_count").as_int());
-      // Must match lap_counter_node's publisher QoS (KeepLast(1), reliable,
-      // transient_local); a volatile subscription would miss the latched value and
-      // defer the switch until the next lap actually completes.
-      lap_sub_ = create_subscription<std_msgs::msg::Int32>(
-        get_parameter("lap_count_topic").as_string(),
-        rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local(),
-        std::bind(&GlobalRepublisherNode::onLapCount, this, std::placeholders::_1));
-      RCLCPP_INFO(
-        get_logger(), "lap switch armed: at lap %d the source becomes %s",
-        lap_switch_count_, lap_switch_dir_.c_str());
-    }
     if (map_dir_.empty()) {
       RCLCPP_WARN(
         get_logger(),
@@ -120,15 +87,6 @@ public:
       }
     }
 
-    // Atomic in-process swap for the map_creator pipeline: load the separately generated
-    // reload map and republish immediately. The caller (map_creator) waits for generation
-    // completion and the next lap; this node validates data.
-    reload_srv_ = create_service<std_srvs::srv::Trigger>(
-      "/global_planning/reload_waypoints",
-      std::bind(
-        &GlobalRepublisherNode::reloadWaypoints, this,
-        std::placeholders::_1, std::placeholders::_2));
-
     const auto period = get_parameter("publish_period_sec").as_double();
     timer_ = create_wall_timer(
       std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<double>(period)),
@@ -136,10 +94,9 @@ public:
   }
 
 private:
-  // Publish the array as-is, or a single DELETEALL when the source JSON carried no
-  // markers. regenerate_obstacle_map (the in-race map_creator path) writes empty
-  // arrays on purpose; without the DELETEALL, RViz keeps rendering the previous
-  // map's raceline forever because MarkerArray entries are persistent per ns+id.
+  // Publish the array as-is, or a single DELETEALL when the source JSON carries no
+  // markers. MarkerArray entries are persistent per ns+id, so an empty array alone
+  // would leave stale markers from another publisher invocation in RViz.
   void publishMarkers(
     const rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr & pub,
     const visualization_msgs::msg::MarkerArray & markers) const
@@ -153,96 +110,6 @@ private:
     deleter.action = visualization_msgs::msg::Marker::DELETEALL;
     clear.markers.push_back(deleter);
     pub->publish(clear);
-  }
-
-  // Data-level validation before a candidate bundle may replace the live one.
-  // Shared by the reload service and the lap-count switch, so the wording stays
-  // path-neutral.
-  // Mirrors the strictest downstream requirements (state_machine: strictly
-  // increasing finite s_m; local_planning: >=4 waypoints).
-  static bool validBundle(const GlobalWaypointBundle & bundle, std::string & why)
-  {
-    const auto & wpnts = bundle.global_traj_wpnts_iqp.wpnts;
-    if (wpnts.size() < 4U) {
-      why = "raceline has fewer than 4 waypoints";
-      return false;
-    }
-    double prev_s = -std::numeric_limits<double>::infinity();
-    for (const auto & w : wpnts) {
-      if (!std::isfinite(w.s_m) || !std::isfinite(w.x_m) || !std::isfinite(w.y_m) ||
-        !std::isfinite(w.psi_rad) || !std::isfinite(w.kappa_radpm) || !std::isfinite(w.vx_mps))
-      {
-        why = "raceline contains non-finite fields";
-        return false;
-      }
-      if (w.s_m <= prev_s) {
-        why = "raceline s_m is not strictly increasing";
-        return false;
-      }
-      prev_s = w.s_m;
-    }
-    return true;
-  }
-
-  // Read + validate + atomically replace the live bundle. Shared by the reload
-  // service and the lap-count switch so both apply the same acceptance rules;
-  // on any failure the live line is left untouched.
-  bool swapTo(const std::string & dir, const std::string & name, std::string & why)
-  {
-    GlobalWaypointBundle fresh;
-    if (!read_global_waypoints(dir, fresh, why)) {
-      return false;
-    }
-    if (!validBundle(fresh, why)) {
-      return false;
-    }
-    bundle_ = std::move(fresh);
-    map_dir_ = dir;
-    has_bundle_ = true;
-    set_parameter(rclcpp::Parameter("map_name", name));
-    publish_all();  // swap immediately; do not wait for the 2 s republish timer
-    why = "loaded " + std::to_string(bundle_.global_traj_wpnts_iqp.wpnts.size()) +
-      " waypoints from " + map_dir_;
-    return true;
-  }
-
-  void reloadWaypoints(
-    const std::shared_ptr<std_srvs::srv::Trigger::Request> /*request*/,
-    std::shared_ptr<std_srvs::srv::Trigger::Response> response)
-  {
-    if (reload_map_dir_.empty()) {
-      response->success = false;
-      response->message = "no reload map configured";
-      return;
-    }
-    std::string msg;
-    response->success = swapTo(reload_map_dir_, reload_map_name_, msg);
-    response->message = msg;
-    if (response->success) {
-      RCLCPP_INFO(get_logger(), "reloaded: %s", msg.c_str());
-    } else {
-      RCLCPP_WARN(get_logger(), "reload rejected: %s", msg.c_str());
-    }
-  }
-
-  // One-way switch to the pre-generated bundle once the race reaches the configured
-  // lap. `>=` so a dropped message cannot skip the switch, and the one-shot flag stops
-  // the latched /lap_count value from re-reading the files on every redelivery.
-  // A failed attempt leaves the flag clear so the next lap message retries.
-  void onLapCount(const std_msgs::msg::Int32::SharedPtr msg)
-  {
-    if (lap_switched_ || msg->data < lap_switch_count_) {
-      return;
-    }
-    std::string why;
-    if (!swapTo(lap_switch_dir_, lap_switch_map_name_, why)) {
-      RCLCPP_WARN(
-        get_logger(), "lap %d switch to %s rejected: %s",
-        msg->data, lap_switch_dir_.c_str(), why.c_str());
-      return;
-    }
-    lap_switched_ = true;
-    RCLCPP_INFO(get_logger(), "lap %d switch: %s", msg->data, why.c_str());
   }
 
   void publish_all()
@@ -279,14 +146,7 @@ private:
 
   bool has_bundle_{false};
   std::string map_dir_;
-  std::string reload_map_name_;
-  std::string reload_map_dir_;
-  std::string lap_switch_map_name_;
-  std::string lap_switch_dir_;
-  int lap_switch_count_{0};
-  bool lap_switched_{false};
   GlobalWaypointBundle bundle_;
-  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr reload_srv_;
 
   rclcpp::Publisher<f110_msgs::msg::WpntArray>::SharedPtr glb_wpnts_pub_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr glb_markers_pub_;
@@ -297,7 +157,6 @@ private:
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr map_info_pub_;
   rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr est_lap_time_pub_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr lattice_pub_;
-  rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr lap_sub_;
   rclcpp::TimerBase::SharedPtr timer_;
 };
 

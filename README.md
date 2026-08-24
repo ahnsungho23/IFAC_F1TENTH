@@ -161,15 +161,6 @@ ROS 2 Jazzy workspace for the 2026 IFAC F1TENTH stack. ROS packages live under `
 │   │   ├── test/                       # synthetic_opponent
 │   │   ├── AGENTS.md, CMakeLists.txt, package.xml, README(.en).md
 │   │
-│   ├── static_obstacle_map/      # persistent confirmed-static memory + RViz markers
-│   │   ├── config/static_obstacle_map.yaml
-│   │   ├── docs/static_obstacle_map_node.md
-│   │   ├── include/static_obstacle_map/
-│   │   ├── launch/static_obstacle_map.launch.py
-│   │   ├── src/
-│   │   ├── test/
-│   │   ├── AGENTS.md, CMakeLists.txt, package.xml, README.md
-│   │
 │   ├── state_machine/            # driving-mode FSM + final local waypoint selector
 │   │   ├── config/state_machine.yaml
 │   │   ├── include/state_machine/state_machine_node.hpp
@@ -329,12 +320,10 @@ ros2 launch kinematic_localization kinematic_localization.launch.py map_name:=if
 ### 터미널 3 — 글로벌 플래너
 
 `global_waypoints.json`을 읽어 `/global_waypoints`를 발행하고, `/car_state/frenet/odom`을 계산합니다.
-같은 launch에서 `map_creator_node`도 함께 실행되므로 별도 터미널에서 중복 실행하지 않습니다.
-기본 시작 경로는 `output/map`이며(`F1_MAP` 지정 시 해당 초기 경로 사용), 장애물 경로
-생성·검증과 다음 랩 게이트가 모두 끝나면
-원본 파일을 덮어쓰지 않고 런타임 참조만 `output/obstacle_map`으로 전환합니다.
-글로벌/로컬 플래너의 기본 맵 이름은 실차용 `map`이므로, 시뮬에서는 `F1_MAP=ifac_track`으로
-시뮬 트랙을 명시해야 합니다 (`./sim/open_sim.sh` 사용 시 자동 설정).
+기동 시 `output/<map_name>/global_waypoints.json`을 한 번 읽고, 주행 중에는 참조 경로를
+바꾸지 않습니다. 기본 경로는 `output/map`이며 `F1_MAP` 또는 `map_name` launch 인자로
+다른 번들을 선택할 수 있습니다. 시뮬에서는 `F1_MAP=ifac_track`으로 시뮬 트랙 번들을
+명시해야 합니다 (`./sim/open_sim.sh` 사용 시 자동 설정).
 
 ```bash
 cd ~/2026_IFAC

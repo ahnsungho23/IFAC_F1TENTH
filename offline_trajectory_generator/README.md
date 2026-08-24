@@ -32,8 +32,8 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
 ```
 
-빌드 결과는 `offline_trajectory_generator/bin/`에 `generate_global_trajectory`,
-`regenerate_obstacle_map` 두 바이너리로 생성된다. GUI와 map_creator 노드가 이 경로를 사용한다.
+빌드 결과는 `offline_trajectory_generator/bin/generate_global_trajectory`로 생성된다.
+GUI와 CLI가 이 바이너리를 사용한다.
 
 ### GUI
 

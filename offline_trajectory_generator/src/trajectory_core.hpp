@@ -73,9 +73,7 @@ struct Args {
   bool no_flip_y = false;
   bool unknown_as_free = false;
   bool debug_image = false;
-  // Bake RViz MarkerArrays into global_waypoints.json. Only the offline CLI/GUI
-  // path enables this; the map_creator regeneration path leaves them empty so the
-  // in-race regeneration stays a pure trajectory job.
+  // Bake RViz MarkerArrays into global_waypoints.json when requested by the CLI/GUI.
   bool emit_markers = false;
   // Filled by validate_args() from velocity_limits_csv:
   // rows of [speed_mps, max_accel_mps2, max_decel_mps2, max_lateral_accel_mps2]

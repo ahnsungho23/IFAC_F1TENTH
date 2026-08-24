@@ -21,8 +21,8 @@ Rules:
 - Put user-facing operation docs in Korean.
 - Prefer configurable CLI arguments over hard-coded map, speed, width, or smoothing values.
 - When adding or changing generator parameters, update the CLI parser (`src/generate_main.cpp`),
-  the gui_params reader (`src/regenerate_main.cpp`), the GUI defaults/`NUMERIC_SPECS`/
-  `build_cli_args`, the saved parameter YAML, and the Korean README in the same change.
+  the GUI defaults/`NUMERIC_SPECS`/`build_cli_args`, the saved parameter YAML, and the Korean
+  README in the same change.
 
 ## Layout
 
@@ -70,18 +70,8 @@ Rules:
   Sets `Args::emit_markers = true`: this is the ONLY path that bakes RViz MarkerArrays into
   global_waypoints.json. `global_trajectory_publisher_node` publishes them verbatim and builds
   nothing at runtime, so marker geometry/style changes must be made here and the map regenerated.
-- `src/regenerate_main.cpp` — headless map_creator driver (`bin/regenerate_obstacle_map`).
-  Leaves `Args::emit_markers` at `false` on purpose — the in-race regeneration is a pure
-  trajectory job and writes no visualization. Consequence: after the lap-2 reload the
-  republisher node emits `DELETEALL` and RViz shows no raceline/trackbound lines. That is
-  intended; do not "fix" it by enabling emit_markers here without an explicit decision.
-  Loads gui_params.yaml (GUI defaults + overrides, sanitizes a removed optimizer name to
-  mincurv), applies the physical swap gates from
-  `learning_adaptive_globalpath/MAP_CREATOR_PROPOSAL.md` 3.4, writes gate_report.json.
-  Exit codes: 0 gates passed, 1 gate failure / generation error, 2 bad invocation.
-  map_creator invokes it directly (its `python_executable` param is empty by default).
 - `CMakeLists.txt` — standalone (NOT a colcon package; the repo root `src/` build does not
-  pick it up). Binaries land in `bin/` (gitignored) — the GUI and map_creator expect them there.
+  pick it up). The generator binary lands in `bin/` (gitignored) for GUI and CLI use.
 - `third_party/LBFGSpp/` — vendored header-only L-BFGS-B (MIT).
 - `trajectory_gui.py` — tkinter GUI. It runs `bin/generate_global_trajectory` as a subprocess
   into a temp work dir and renders the preview from the output files (`NUMERIC_SPECS` and

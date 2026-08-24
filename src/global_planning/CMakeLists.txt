@@ -12,7 +12,6 @@ find_package(nav_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(f110_msgs REQUIRED)
-find_package(std_srvs REQUIRED)
 find_package(nlohmann_json REQUIRED)
 # Public interface dependencies of the exported frenet_conversion / crccosy libs.
 # Needed in this scope so ament_export_dependencies() can re-export them downstream.
@@ -46,7 +45,6 @@ target_link_libraries(global_trajectory_publisher_node PUBLIC
   ${PROJECT_NAME}_rw
   rclcpp::rclcpp
   ${std_msgs_TARGETS}
-  ${std_srvs_TARGETS}
   ${visualization_msgs_TARGETS}
   ${f110_msgs_TARGETS}
 )

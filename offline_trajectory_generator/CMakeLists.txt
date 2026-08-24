@@ -1,6 +1,6 @@
 # Standalone offline trajectory generator (no ROS dependencies).
 # Build:  cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
-# Binaries are placed in bin/ (the GUI and map_creator expect them there).
+# The generator binary is placed in bin/ for the GUI and direct CLI use.
 # Portable across x86_64 and arm64 (Jetson): no arch-specific flags.
 cmake_minimum_required(VERSION 3.16)
 project(offline_trajectory_generator CXX)
@@ -30,8 +30,5 @@ endif()
 add_executable(generate_global_trajectory src/generate_main.cpp)
 target_link_libraries(generate_global_trajectory PRIVATE trajectory_core)
 
-add_executable(regenerate_obstacle_map src/regenerate_main.cpp)
-target_link_libraries(regenerate_obstacle_map PRIVATE trajectory_core)
-
-set_target_properties(generate_global_trajectory regenerate_obstacle_map PROPERTIES
+set_target_properties(generate_global_trajectory PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
