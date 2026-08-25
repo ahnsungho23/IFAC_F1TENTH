@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- =================================================================================================
+     실차(젯슨) 전용 Fast DDS 기본 DataWriter 프로파일 — 2026-08-25 신설
+
+     문제: KICP(kinematic_localization)는 단일스레드 실행기인데 /pf/pose/odom · ~/diagnostics ·
+     /map · map->odom TF 를 전부 RELIABLE 로 발행한다. 노이즈 많은 WiFi 너머의 RELIABLE
+     구독자(RViz 등)가 히스토리를 못 비우면 write() 가 역압으로 막히고, 그 순간 스캔 콜백 ·
+     워치독 타이머 · 하트비트가 통째로 같이 선다. 2026-08-25 실차 백에서 주행 시간의 18 %,
+     162회, 최대 4.4 s. (docs/kinematic_localization.md §10-7-7)
+
+     이 프로파일은 **QoS 호환성을 하나도 건드리지 않고** 그 블로킹의 상한만 건다:
+
+       ① publishMode = ASYNCHRONOUS
+          전송을 별도 스레드로 넘긴다. 사용자 스레드(=ROS 실행기)에서 네트워크 I/O 가
+          빠진다. Fast DDS 문서도 MTU 를 넘는 큰 샘플(우리 /map 은 94 KB)에는 이쪽을 권한다.
+       ② reliability/max_blocking_time = 5 ms  (기본 100 ms)
+          히스토리가 가득 찼을 때 write() 가 기다리는 최대 시간. 넘으면 그 샘플을 버리고
+          바로 돌아온다. 🔑 **포즈 한 장을 버리는 것이 노드를 4 초 세우는 것보다 낫다.**
+
+     ⚠️ RELIABLE/BEST_EFFORT 종류(kind)는 여기서 안 정한다 — rmw_fastrtps 가 ROS QoS 로
+        덮어쓰는 항목이라 하류 호환성이 그대로 유지된다. 이 파일이 지배하는 것은 rmw 가
+        건드리지 않는 max_blocking_time 과 publishMode 둘뿐이다.
+
+     ⚠️ 되돌리기: ~/.zshrc 의 FASTRTPS_DEFAULT_PROFILES_FILE export 한 줄을 지우면 끝이다.
+        (백업: ~/.zshrc.bak.<날짜>)
+
+     적용: 젯슨 ~/.zshrc
+        export FASTRTPS_DEFAULT_PROFILES_FILE=$HOME/fastdds_car.xml
+     이 파일이 정본이고 젯슨 ~/fastdds_car.xml 이 사본이다. 고치면 양쪽을 같이 고칠 것.
+     ================================================================================================= -->
+<dds xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+    <profiles>
+        <data_writer profile_name="car_writer_default" is_default_profile="true">
+            <qos>
+                <publishMode>
+                    <kind>ASYNCHRONOUS</kind>
+                </publishMode>
+                <reliability>
+                    <max_blocking_time>
+                        <sec>0</sec>
+                        <nanosec>5000000</nanosec>
+                    </max_blocking_time>
+                </reliability>
+            </qos>
+        </data_writer>
+    </profiles>
+</dds>

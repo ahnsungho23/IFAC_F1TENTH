@@ -4,7 +4,7 @@
 #
 #   ./real/open_real.sh
 #
-# Panes 1-6 all SSH into the Jetson ($F1_HOST, default miru@10.1.1.3); pane 6 additionally uses
+# Panes 1-6 all SSH into the Jetson ($F1_HOST, default miru@10.1.1.1); pane 6 additionally uses
 # X-forwarding for RViz and starts `ros2 bag record -a` in PAUSED state.
 # Order inside the window follows LAUNCH_FULLSTACK.md §3 minus T4 (local_planning):
 #   1 bringup · 2 mcl · 3 global_planning · 4 state_machine · 5 control · 6 rviz+bag
@@ -14,7 +14,7 @@
 # running DBus server, which ignores -g/-l).
 #
 # Env overrides (read by real/run_real.sh in each pane):
-#   F1_HOST=miru@10.1.1.3
+#   F1_HOST=miru@10.1.1.1
 #   F1_MAP_NAME=map
 # =================================================================================================
 set -euo pipefail

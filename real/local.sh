@@ -5,16 +5,17 @@
 #
 #   ./real/local.sh
 #
-# Panes (LAUNCH_FULLSTACK.md §3 full order):
-#   1 bringup · 2 mcl · 3 global_planning · 4 local_planning(+obstacle_detector)
-#   5 state_machine · 6 control · 7 rviz+bag (전부 젯슨 ssh, 7번만 -X)
+# Panes (실차 실행 순서, 전부 젯슨 ssh):
+#   1 bringup(시각동기화 → sudo jetson_clocks && f110) · 2 ping 192.168.0.10 · 3 kinematic_localization
+#   4 global_planning · 5 local_planning(+obstacle_detector) · 6 state_machine · 7 control
+#   RViz+bag 은 이 레이아웃에 없다 — 별도 창에서 ./real/run_real.sh rviz
 #
 # Substitutes this directory's absolute path into the layout and launches Terminator with a
 # DEDICATED config (-g) + --no-dbus (a second `terminator` call would otherwise be handed to the
 # running DBus server, which ignores -g/-l).
 #
 # Env overrides (read by real/run_real.sh in each pane):
-#   F1_HOST=miru@10.1.1.3
+#   F1_HOST=miru@10.1.1.1
 #   F1_MAP_NAME=map
 # =================================================================================================
 set -euo pipefail

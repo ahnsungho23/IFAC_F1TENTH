@@ -6,7 +6,7 @@
 #   LEFT  column : 1 bringup (f1tenth_stack) · 2 mcl · 3 global_planning
 #   RIGHT column : 4 state_machine · 5 f1tenth_control (/drive) · 6 RViz + rosbag (Jetson)
 # All panes run real/run_real.sh <role>, which SSHes into the Jetson ($F1_HOST,
-# default miru@10.1.1.3), sources ROS 2 Jazzy + the right workspace, waits briefly for upstream
+# default miru@10.1.1.1), sources ROS 2 Jazzy + the right workspace, waits briefly for upstream
 # nodes, launches, and drops to a REMOTE shell on Ctrl-C. Pane 6 uses ssh -X (RViz X-forward)
 # and also starts `ros2 bag record -a` in PAUSED state (resume via /rosbag2_recorder/resume).
 #
