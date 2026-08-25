@@ -65,16 +65,6 @@ OVERRIDABLE = {
     'scan_stamp_convention': _as_str,
     'tilt_compensation_enable': _as_bool,
     'roll_gradient_rad_per_mps2': _as_float,
-    # 시뮬(gym) 프레임/토픽 오버라이드 (2026-08-26). gym 은 base_link/odom 프레임도
-    # /odom 토픽도 없고 map -> ego_racecar/base_link TF 를 직접 발행한다. 이 다섯 개를
-    # 런치에서 넘길 수 없어서, 시뮬에서는 ProcessScan() 의 base->laser extrinsic lookup 이
-    # 매 스캔 실패하고 곧바로 return 했다 — 포즈 발행은 그 함수 안에 한 군데뿐이라
-    # /pf/pose/odom 이 0 Hz 였고 하류(frenet/local planner/FSM)가 통째로 멈췄다.
-    'lidar_topic': _as_str,
-    'odom_topic': _as_str,
-    'odom_frame': _as_str,
-    'base_frame': _as_str,
-    'publish_map_odom_tf': _as_bool,
 }
 
 
@@ -140,22 +130,6 @@ def generate_launch_description():
             description='Output .kissmap path for slam_mode (relative paths resolve '
                         'against the process cwd). ' + keep),
         DeclareLaunchArgument('use_sim_time', default_value=KEEP_YAML, description=keep),
-        # --- 시뮬(gym) 프레임/토픽 ---------------------------------------------------
-        # gym 에서 띄울 때의 값:
-        #   base_frame:=ego_racecar/base_link  odom_topic:=/ego_racecar/odom
-        #   publish_map_odom_tf:=false   (gym 이 map -> ego_racecar/base_link 를 이미 발행)
-        # 실차에서는 넘기지 말 것 — YAML(base_link, /odom, true)이 그대로 산다.
-        DeclareLaunchArgument('lidar_topic', default_value=KEEP_YAML, description=keep),
-        DeclareLaunchArgument('odom_topic', default_value=KEEP_YAML, description=keep),
-        DeclareLaunchArgument('odom_frame', default_value=KEEP_YAML, description=keep),
-        DeclareLaunchArgument(
-            'base_frame', default_value=KEEP_YAML,
-            description='스캔 프레임과 TF 로 이어져 있어야 한다. gym 은 '
-                        'ego_racecar/base_link. ' + keep),
-        DeclareLaunchArgument(
-            'publish_map_odom_tf', default_value=KEEP_YAML,
-            description='map -> odom TF 발행. gym 처럼 다른 발행자가 이미 base 를 '
-                        '매달고 있으면 false. ' + keep),
         # §8 fast-corner free mode. YAML을 고치지 않고 실차에서 A/B 하려고 인자로 뺐다.
         # 파라미터는 생성자에서 한 번만 읽으므로 `ros2 param set`으로는 못 바꾼다 —
         # 반드시 기동 시점에 넘겨야 한다.
