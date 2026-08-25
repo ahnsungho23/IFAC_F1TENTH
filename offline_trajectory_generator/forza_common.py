@@ -20,7 +20,7 @@ import json
 import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 import cv2
 import numpy as np
@@ -78,6 +78,11 @@ class GenerationResult:
     # (--max-curvature). Non-zero means the raceline is not drivable as-is.
     kappa_violations: int = 0
     max_abs_kappa: float = 0.0
+    # 이 결과를 실제로 만들어 낸 인자. GUI 는 Rebuild 이후에도 화면 값을 자유롭게
+    # 바꿀 수 있으므로, 저장할 때 "지금 화면 값"이 아니라 이것을 써야 metadata 가
+    # 기하와 어긋나지 않는다. (reverse 를 끄고 Rebuild 없이 저장하면 뒤집힌 라인에
+    # reverse: false 가 적히던 버그를 막는다.)
+    gen_args: Any = None
 
 
 def build_arg_parser() -> argparse.ArgumentParser:

@@ -719,7 +719,45 @@ def generate_forza_trajectory(args: argparse.Namespace) -> GenerationResult:
         off_map_wpnts=off_map,
         kappa_violations=violations,
         max_abs_kappa=float(np.max(np.abs(global_traj.kappa_radpm))),
+        gen_args=args,
     )
+
+
+# 기하를 바꾸는 인자들. output_dir/debug_image 는 어디에 무엇을 쓰느냐일 뿐이라 뺀다.
+GEOMETRY_ARG_KEYS = (
+    "map_yaml",
+    "optimizer_config_dir",
+    "occupancy_grid_threshold",
+    "filter_kernel_size",
+    "expected_centerline_length",
+    "safety_width",
+    "max_curvature",
+    "max_speed",
+    "longitudinal_accel_scale",
+    "lateral_accel_scale",
+    "machine_accel_scale",
+    "dynamic_model_exponent",
+    "velocity_filter_window",
+    "reverse",
+)
+
+
+def stale_generation_keys(
+    generated: argparse.Namespace | None,
+    current: argparse.Namespace,
+) -> list[str]:
+    """Rebuild 이후 화면에서 바뀐 '기하에 영향 주는' 인자 이름들.
+
+    비어 있지 않으면 self.result 의 기하와 현재 화면 값이 다르다는 뜻이다. 이걸
+    무시하고 저장하면 metadata 는 새 값을, CSV 는 옛 기하를 담아 조용히 어긋난다.
+    """
+    if generated is None:
+        return []
+    stale = []
+    for key in GEOMETRY_ARG_KEYS:
+        if getattr(generated, key, None) != getattr(current, key, None):
+            stale.append(key)
+    return stale
 
 
 def write_forza_outputs(
@@ -1207,6 +1245,16 @@ class ForzaTrajectoryGui:
         try:
             values = self.current_values()
             args = make_generation_args(values)
+            stale = stale_generation_keys(self.result.gen_args, args)
+            if stale:
+                messagebox.showwarning(
+                    "Rebuild 필요",
+                    "화면 값이 바뀌었는데 아직 Rebuild하지 않았습니다. 지금 저장하면 "
+                    "metadata 는 새 값을, 경로 파일은 옛 기하를 담아 어긋납니다.\n\n"
+                    "바뀐 항목: " + ", ".join(stale) + "\n\n"
+                    "Rebuild를 먼저 누르세요.",
+                )
+                return
             output = args.output_dir or default_output_dir(args.map_yaml) / "forza"
             write_forza_outputs(output, self.result, args)
             if args.debug_image:
