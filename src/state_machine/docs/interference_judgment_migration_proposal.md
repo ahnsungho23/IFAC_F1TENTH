@@ -1,5 +1,5 @@
 # 제안서 — 간섭 판단(is_interfering)의 state_machine 이관 + 확률적 글로벌 라인 접근 판정
-
+ㅇ
 > **이력 문서:** `map_creator`와 `static_obstacle_map`은 2026-08-24에 `main`에서
 > 제거됐다. 아래 두 패키지 관련 내용은 당시 의존성 분석 기록이다.
 
