@@ -529,7 +529,7 @@ def declare_common_args(
             description='명령 속도 하강 rate limit [m/s^2]. 낮추면 감속 명령이 늦게 도달하므로 높게 유지'
         ),
         DeclareLaunchArgument(
-            'prebrake_decel', default_value='2.6',
+            'prebrake_decel', default_value='3.2',
             description='곡률 사전감속 제동거리 산출용 감속 권한 [m/s^2]. 낮을수록 코너를 일찍 봄'
         ),
         DeclareLaunchArgument(
