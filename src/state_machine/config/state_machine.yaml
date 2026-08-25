@@ -44,17 +44,20 @@ state_machine_node:
     # 🔴 2026-08-22 복구: 8010b2f9 포팅이 이 술어를 지우고 detector 의 is_interfering
     #    (진입 1.0 m)에 위임했는데, cruise 의 목표 간격은 5.0 m 라 아래 불변식이 깨져
     #    상대차가 있어도 CRUISE 로 진입하지 못했다.
-    # 실제 불변식은 "cruise의 목표 간격 <= interference_distance_m"이다. 목표 간격이 이 값을
-    # 넘으면 cruise 가 유지하려는 바로 그 간격에서 상태머신이 간섭 없음으로 판정해 CRUISE 를
-    # 빠져나가고, 상한이 풀려 가속했다가 재진입하는 급정지/재가속 리밋사이클이 생긴다.
-    # 고정 거리 모드에서는 cruise 의 trailing_gap **이상**으로 둘 것 (같을 필요는 없다).
-    # 2026-08-21 부터 의도적으로 다르다: 여기 5.0 / cruise trailing_gap 3.0 —
-    # 5 m 에서 CRUISE 진입해 3 m 로 수렴하는 정상 동작이다. equality 로 되돌리지 말 것.
-    # 시간 간격 모드(trailing_mode_distance: false)는 목표가 속도에 따라 커지므로 cruise 쪽
-    # max_desired_gap 을 이 값 이하로 함께 설정해야 한다 —
-    # f1tenth_control/CRUISE_TUNING_GUIDE.md §7-2.
-    interference_distance_m: 5.0
-    interference_horizon_sec: 1.0
+    # 🔴 2026-08-25: p* = p_lat * p_long 곱 결합을 뺐다가, 같은 날 사용자 지시로 OR 결합으로
+    #    복원했다. 지금은 두 독립 조건 중 하나만 맞아도 CRUISE(간섭)로 판정한다:
+    #      (a) 종방향 gap(ego 앞범퍼~상대 중심, wrapForward) <= interference_distance_m, 또는
+    #      (b) interferenceProbability()의 p_lat(횡방향 확률) >= interference_p_on
+    #    둘 다 여전히 전방 반바퀴 게이트(longitudinalGapMeters/interferenceProbability 내부)를
+    #    통과해야 한다. 곱 결합과 달리 OR이라 "가까운데 옆줄"이든 "멀어도 같은 줄"이든 둘 중
+    #    하나만 걸리면 즉시 잡힌다 — interference_lateral_margin_m 가 크면 (b) 경로가 더 쉽게
+    #    열리므로 그 파라미터 자체의 오진입 상한(아래 참고)은 distance_m 값과 무관하게 그대로
+    #    적용된다.
+    # 실제 불변식: "cruise의 목표 간격 <= interference_distance_m". 목표 간격을 이 값 위로 두면
+    # cruise 가 유지하려는 바로 그 간격에서 상태머신이 (a) 경로 기준 간섭 없음으로 판정해 CRUISE
+    # 를 빠져나가고, 상한이 풀려 가속했다가 재진입하는 급정지/재가속 리밋사이클이 생긴다.
+    interference_distance_m: 4.0
+    interference_horizon_sec: 0.5
     # 🟢 2026-08-24: rosbag2_2026_08_23-06_49_50(250~308 s)을 /map 점유격자로 지도 구조를
     #    제거한 /scan 클러스터로 독립 라벨링해 스윕한 결과다. 라벨(전방 5 m 이내 + 횡 겹침)
     #    15.4 s 기준 재현율 76.9% -> 86.0%, 오진입 4.6 -> 7.7 s.
@@ -64,14 +67,18 @@ state_machine_node:
     interference_p_on: 0.5
     interference_p_off: 0.25
     interference_ego_half_width_m: 0.16
-    # 🔴 0.10 -> 0.30. 이 값은 근사 처방이다 — P_lat 의 밴드가 ego 의 실제 d 가 아니라
-    #    글로벌 라인(d=0) 중심이라(interference_predicate.cpp 의 intervalProbability(-b, +b))
-    #    ego 와 상대차가 둘 다 라인에서 벗어난 채 같은 차선에 있으면 확률이 붕괴한다.
+    # 🔴 0.10 -> 0.30 -> 0.36 (2026-08-25, 라이다 기준 차폭 마진 40cm 요청). 이 값은 근사
+    #    처방이다 — P_lat 의 밴드가 ego 의 실제 d 가 아니라 글로벌 라인(d=0) 중심이라
+    #    (interference_predicate.cpp 의 intervalProbability(-b, +b)) ego 와 상대차가 둘 다
+    #    라인에서 벗어난 채 같은 차선에 있으면 확률이 붕괴한다.
     #    실측: t=300.80~301.20 에 간격 1.37 -> 0.20 m, |Δd| 0.31~0.40 m 인데 p* 0.17 -> 0.00.
     #    밴드를 넓혀 그 구간을 덮는 것이라 근본 수정(밴드를 ego.d 중심으로 이동)이 되면
     #    0.10 으로 되돌릴 것. b_eff = ego_half_width + 이 값 + 상대차 반폭.
     #    ⚠️ 0.40 이상은 금지 — |Δd| > 0.7 m(진짜 다른 라인) 오진입이 7% -> 19% 로 뛴다.
-    interference_lateral_margin_m: 0.30
+    #    요청한 40cm는 이 상한과 정확히 겹쳐 0.36으로 절충했다(margin 확보하면서 상한 회피).
+    interference_lateral_margin_m: 0.36
+    # 🟢 2026-08-25부터 다시 살아있는 값 — longitudinalGapMeters()의 ego 앞범퍼 오프셋으로
+    #    OR 결합의 (a) 종방향 경로에 쓰인다.
     interference_ego_front_offset_m: 0.25
 
     # AVOID -> GLOBAL 복귀 계약 (2026-08-16 개정).

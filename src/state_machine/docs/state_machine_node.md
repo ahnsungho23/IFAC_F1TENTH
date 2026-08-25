@@ -22,12 +22,22 @@ Frenet 입력이 멈추면 마지막 index로 경로를 재발행하지 않습�
 
 ### 2.1 상태 전환
 
-- `GLOBAL`: 확인된 `/avoid_waypoints`가 있으면 `AVOID`, 그렇지 않고 이 노드의 **확률 간섭
-  술어**가 참이면 `CRUISE`로 진입합니다. 술어는 `/opp_obs`의 위치·속도·공분산을 받아
-  `interference_horizon_sec` 지평을 등속 시간전파하며 최대 간섭확률 `p*`를 구하고,
-  `p* >= interference_p_on`에서 진입 / `p* <= interference_p_off`에서 해제하는 Schmitt
-  트리거로 판정합니다. 진입은 실측 프레임(`is_visible`)에서만 허용하고 래치 유지는
-  예측 프레임에서도 허용합니다(고스트 게이트).
+- `GLOBAL`: 확인된 `/avoid_waypoints`가 있으면 `AVOID`, 그렇지 않고 이 노드의 **간섭 판정**이
+  참이면 `CRUISE`로 진입합니다. 판정은 독립된 두 조건의 **OR**입니다:
+  (a) 종방향 gap(ego 앞범퍼~상대 중심, 트랙을 따라 wrap) `<= interference_distance_m`, 또는
+  (b) 횡방향 확률 `p_lat >= interference_p_on` — `/opp_obs`의 횡방향(`d`) 위치·속도·공분산을
+  `interference_horizon_sec` 지평으로 등속 시간전파해 상대차가 ego 주행 통로(차폭+마진) 안에
+  있을 최대 확률을 구한 값입니다. 둘 다 전방 반바퀴 게이트(상대차가 ego보다 앞이고 트랙
+  절반 이내)를 통과해야 합니다. `p_lat`에는 `p_on`/`p_off` Schmitt 트리거를 적용해 래치
+  유지 시 `p_lat > interference_p_off`로 완화됩니다. 진입은 실측 프레임(`is_visible`)에서만
+  허용하고 래치 유지는 예측 프레임에서도 허용합니다(고스트 게이트).
+  - 🔴 **2026-08-25: 종방향 조건을 껐다가(곱 결합 제거) 같은 날 OR 결합으로 복원.** 처음엔
+    `p* = p_lat · p_long` 곱에서 `p_long`(종방향 접근 확률)을 통째로 빼 `p* = p_lat`만
+    남겼다. 이후 사용자 지시로 종방향을 **별도 조건**으로 되살려 위 OR 형태가 됐다 —
+    곱 결합과 달리 (a)·(b) 중 하나만 맞아도 즉시 간섭으로 잡힌다. `interference_distance_m`
+    (`4.0`)과 `interference_ego_front_offset_m`은 (a) 경로에 다시 쓰이므로 더 이상 죽은
+    값이 아니다. "cruise 목표 간격 <= interference_distance_m" 불변식(②-바로 아래 참고)도
+    다시 성립한다.
 - `CRUISE`: 항상 글로벌 경로를 선택합니다. 간섭 확률이 해제 임계 아래로 떨어지거나
   `/opp_obs`가 stale이면 `GLOBAL`로 복귀하고, 확인된 회피 경로가 들어오면 간섭값과
   관계없이 `AVOID`로 전이합니다.
@@ -96,13 +106,13 @@ GLOBAL 출력은 Frenet odometry의 `child_frame_id`를 최근접 글로벌 segm
 | `local_path_confirmation_window_size` | `5` | 진입 확인 메시지 창 크기 N |
 | `local_path_confirmation_min_hits` | `3` | 필요한 non-empty 수 M |
 | `opponent_stale_timeout_sec` | `0.3` | `/opp_obs`가 이 시간 이상 끊기면 간섭 해제 |
-| `interference_distance_m` | `5.0` | 간섭으로 볼 후면 간격 상한 [m]. 🔴 **`cruise_controller`의 목표 간격(`trailing_gap`) 이상이어야 한다** — 작으면 cruise가 유지하려는 간격에서 간섭 없음으로 판정해 CRUISE 이탈/재진입 리밋사이클이 생긴다. 2026-08-21부터 의도적 불일치: 여기 5.0 / cruise `trailing_gap` 3.0 (5 m 진입 → 3 m 수렴) |
-| `interference_horizon_sec` | `1.0` | 등속 시간전파 지평 [s] |
-| `interference_p_on` | `0.7` | CRUISE 진입 확률 임계 (실측 프레임에서만 평가) |
-| `interference_p_off` | `0.4` | CRUISE 해제 확률 임계 (`0 <= p_off < p_on <= 1`) |
+| `interference_distance_m` | `4.0` | 🟢 **2026-08-25부터 다시 살아있는 파라미터.** OR 결합의 (a) 경로: 종방향 gap(ego 앞범퍼~상대 중심) 상한 [m]. `cruise_controller`의 목표 간격(`trailing_gap`) 이상이어야 한다 — 작으면 cruise가 유지하려는 간격에서 간섭 없음으로 판정해 CRUISE 이탈/재진입 리밋사이클이 생긴다(현재 `trailing_gap` 3.0 < 4.0으로 충족). |
+| `interference_horizon_sec` | `1.0` | 횡방향(`d`) 등속 시간전파 지평 [s] |
+| `interference_p_on` | `0.5` | OR 결합의 (b) 경로 진입 임계, `p_lat`(횡방향 겹침 확률)에 적용 (실측 프레임에서만 평가) |
+| `interference_p_off` | `0.25` | (b) 경로 해제 임계, `p_lat`에 적용 (`0 <= p_off < p_on <= 1`) |
 | `interference_ego_half_width_m` | `0.16` | ego 차체 반폭 [m] |
-| `interference_lateral_margin_m` | `0.10` | 차폭 밖 추가 횡 여유 [m] |
-| `interference_ego_front_offset_m` | `0.25` | ego 기준점에서 전면까지 거리 [m] |
+| `interference_lateral_margin_m` | `0.36` | 차폭 밖 추가 횡 여유 [m]. ⚠️ 0.40 이상 금지(다른 라인 오진입 실측 급증) — 40cm 요청을 0.36으로 절충(`config/state_machine.yaml` 주석 참고) |
+| `interference_ego_front_offset_m` | `0.25` | 🟢 2026-08-25부터 다시 살아있는 파라미터 — (a) 경로의 ego 앞범퍼 오프셋 |
 | `global_publisher_warn_timeout_sec` | `5.0` | 정적 GLOBAL 발행자 침묵 경고 시간 |
 | `frenet_stale_timeout_sec` | `0.5` | 모든 local 출력의 Frenet freshness 제한 |
 | `invalid_local_path_policy` | `global_fallback` | local 전용 경로 무효 시 정책 |

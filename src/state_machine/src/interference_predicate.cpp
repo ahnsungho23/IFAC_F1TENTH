@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <limits>
 
 namespace state_machine
 {
@@ -67,23 +68,16 @@ double interferenceProbability(
     return 0.0;
   }
 
-  double longitudinal_span = wrapForward(opponent.s_start, opponent.s_end, ego.track_length);
-  if (!std::isfinite(longitudinal_span) || longitudinal_span > 0.5 * ego.track_length) {
-    longitudinal_span = 0.0;
-  }
-  const double half_span = 0.5 * longitudinal_span;
-
   const double obstacle_half_width =
     0.5 * std::abs(opponent.d_left - opponent.d_right);
   const double b_eff = std::max(
     0.0, config.ego_half_width_m + config.lateral_margin_m + obstacle_half_width);
 
-  const double s_var = std::max(0.0, opponent.s_var);
   const double d_var = std::max(0.0, opponent.d_var);
-  const double vs_var = std::max(0.0, opponent.vs_var);
   const double vd_var = std::max(0.0, opponent.vd_var);
-  const double closing_speed = ego.vs - opponent.vs;
 
+  // Longitudinal distance/horizon no longer gate interference: any opponent within the
+  // front-half-lap gate above triggers purely on lateral corridor overlap.
   static constexpr std::array<double, 5> kGridFractions{0.0, 0.25, 0.5, 0.75, 1.0};
   double p_star = 0.0;
   for (const double fraction : kGridFractions) {
@@ -94,14 +88,29 @@ double interferenceProbability(
     const double sigma_d = std::sqrt(propagatedVariance(d_var, opponent.d_vd_cov, vd_var, t));
     const double p_lat = intervalProbability(-b_eff, b_eff, mu_d, sigma_d);
 
-    // Longitudinal: same propagation, using the tracker's cov(s,vs) cross term.
-    const double mu_g = center_ahead - half_span - config.ego_front_offset_m - closing_speed * t;
-    const double sigma_g = std::sqrt(propagatedVariance(s_var, opponent.s_vs_cov, vs_var, t));
-    const double p_long = intervalProbability(0.0, config.distance_m, mu_g, sigma_g);
-
-    p_star = std::max(p_star, p_lat * p_long);
+    p_star = std::max(p_star, p_lat);
   }
   return p_star;
+}
+
+double longitudinalGapMeters(
+  const InterferenceEgoState & ego,
+  const InterferenceOpponentState & opponent,
+  const InterferenceGeometryConfig & config)
+{
+  constexpr double kGated = std::numeric_limits<double>::infinity();
+  if (!(ego.track_length > 0.0) || !std::isfinite(ego.s) || !std::isfinite(opponent.s_center)) {
+    return kGated;
+  }
+
+  // Same front-half-lap gate as interferenceProbability(): an opponent behind ego or beyond half
+  // a lap ahead cannot interfere via either OR'd condition.
+  const double center_ahead = wrapForward(ego.s, opponent.s_center, ego.track_length);
+  if (!(center_ahead > 0.0) || !(center_ahead < 0.5 * ego.track_length)) {
+    return kGated;
+  }
+
+  return std::max(0.0, center_ahead - config.ego_front_offset_m);
 }
 
 }  // namespace state_machine

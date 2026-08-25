@@ -31,17 +31,33 @@ State machine package rules. These instructions apply to `src/state_machine`.
     A path whose `ot_line == handoff_ot_line` NEVER counts toward this history and never enters
     AVOID: the handoff loop is the planner saying "avoidance is over", not a new request.
   - GLOBAL enters CRUISE on THIS node's probabilistic interference predicate over a fresh
-    `/opp_obs` (position/velocity plus their covariances, CV-propagated over
+    `/opp_obs` (lateral position/velocity plus their covariances, CV-propagated over
     `interference_horizon_sec`), gated by a `p_on`/`p_off` Schmitt trigger and an `is_visible`
-    entry gate. The detector's own `is_interfering` field is NOT consumed: its 1.0 m entry
-    distance is below the cruise controller's 5.0 m target gap, which breaks the
-    "cruise target gap <= interference_distance_m" invariant (restored 2026-08-22).
-  - `interference_distance_m` must be **>=** `f1tenth_control`'s effective `desired_gap`.
-    Since 2026-08-21 the two are deliberately unequal: `interference_distance_m: 5.0` with
-    cruise `trailing_gap: 3.0`, so CRUISE is entered at 5 m and settles to 3 m. Do not
-    rewrite this back to an equality requirement.
-  - CRUISE selects GLOBAL geometry and returns to GLOBAL when the probability falls below
-    `interference_p_off`, or on empty/stale `/opp_obs`.
+    entry gate. The detector's own `is_interfering` field is NOT consumed (different topic/
+    threshold than this node's own judgment).
+  - 🔴 **2026-08-25: the entry condition is an OR of two independent paths, not a product.**
+    Earlier the same day `interferenceProbability()` was changed from `p_lat(t) * p_long(t)` to
+    `p_lat(t)` only (longitudinal factor dropped entirely). Later that day, by user request, the
+    longitudinal path was restored as a *separate* OR'd condition rather than re-multiplied in:
+    `evaluate_probabilistic_interference()` now computes both `interferenceProbability()` (lateral
+    corridor-overlap probability, unchanged formula) and `longitudinalGapMeters()` (raw wrapped
+    gap from ego's front bumper to the opponent's center — a hard distance, not a probability),
+    and triggers CRUISE when **either** `longitudinal_gap_m <= interference_distance_m` **or**
+    `p_lat >= interference_p_on`. Both paths still require the shared front-half-lap gate
+    (opponent ahead, within half the track). `interference_distance_m` and
+    `interference_ego_front_offset_m` are therefore live again (`interference_distance_m: 4.0`,
+    i.e. 4 m). Because it's OR rather than AND/product, a wide `interference_lateral_margin_m`
+    (see its own guard-rail comment in `config/state_machine.yaml` — real-data sweep found
+    `>= 0.40` triples a different-lane false-positive rate) independently controls how easily the
+    lateral path alone fires, regardless of `interference_distance_m`.
+  - `interference_distance_m` should stay >= `f1tenth_control`'s effective `desired_gap`
+    (2026-08-21 decision: entering CRUISE at the distance threshold and settling to a smaller
+    `trailing_gap` avoids a stop/re-accelerate limit cycle at the target gap — see
+    `cruise_controller.hpp`'s `desiredGap()` comment). At `interference_distance_m: 4.0` this still
+    needs `trailing_gap` in `f1tenth_control` config to stay comfortably under 4 m.
+  - CRUISE selects GLOBAL geometry and returns to GLOBAL when neither OR'd condition holds — i.e.
+    `longitudinal_gap_m > interference_distance_m` AND `p_lat <= interference_p_off` — or on
+    empty/stale `/opp_obs`.
   - **AVOID -> GLOBAL requires the planner's explicit handoff marker.** The planner is the single
     owner of "no blocking cluster remains" — it publishes `ot_line=raceline_global_handoff` only
     after verifying that itself. Only while that marker is present does `enter_to_global()`

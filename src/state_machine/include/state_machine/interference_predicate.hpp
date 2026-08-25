@@ -49,13 +49,26 @@ struct InterferenceGeometryConfig
 };
 
 // Probability that the opponent occupies the ego's global-line band within a 5-point time grid
-// over [0, horizon_sec], combined with the longitudinal effective-distance condition:
-//   P(t) = P_lat(t) * P_long(t),  p* = max_t P(t)
-// The lateral/longitudinal blocks are uncorrelated by construction (the CV tracker's F/Q/H are
-// block-diagonal in (s,vs)/(d,vd)), so the product decomposition is exact, not an approximation.
+// over [0, horizon_sec]: p* = max_t P_lat(t). Purely lateral -- does not consider the opponent's
+// longitudinal distance/closing speed, only whether it is ahead within half a lap (see the
+// front-half-lap gate below). This is one of two independent conditions the caller ORs together
+// (see state_machine_node's evaluate_probabilistic_interference()); the other is
+// longitudinalGapMeters() below. config.distance_m/ego_front_offset_m are therefore unused here.
 // Returns 0.0 for degenerate input (non-positive track_length/horizon, opponent behind or beyond
 // half a lap, non-finite geometry).
 double interferenceProbability(
+  const InterferenceEgoState & ego,
+  const InterferenceOpponentState & opponent,
+  const InterferenceGeometryConfig & config);
+
+// Longitudinal gap in meters from the ego's front bumper (ego.s + config.ego_front_offset_m) to
+// the opponent's center, wrapped forward along the track. This is the second of the two OR'd
+// interference conditions (2026-08-25 restore): CRUISE also engages when this gap closes to
+// within interference_distance_m, independent of lateral alignment.
+// Returns +infinity when gated out (opponent behind ego or beyond half a lap ahead, or
+// non-finite/non-positive track_length), so a plain `<= distance_m` check on the result never
+// spuriously passes.
+double longitudinalGapMeters(
   const InterferenceEgoState & ego,
   const InterferenceOpponentState & opponent,
   const InterferenceGeometryConfig & config);

@@ -367,14 +367,17 @@ bool StateMachineNode::evaluate_probabilistic_interference()
   config.ego_front_offset_m = interference_ego_front_offset_m_;
 
   const double p_star = interferenceProbability(ego, opponent_state, config);
+  const double longitudinal_gap_m = longitudinalGapMeters(ego, opponent_state, config);
+  const bool close_enough = longitudinal_gap_m <= interference_distance_m_;
 
   const bool same_latched_opponent =
     interference_probabilistic_latched_ &&
     interference_probabilistic_latched_id_ == opponent.id;
   // 고스트 게이트: 진입은 실측 프레임(is_visible)에서만, 래치 유지는 예측 프레임에서도 허용.
+  // 종방향/횡방향 두 조건은 OR: 어느 한쪽만 충족해도 간섭으로 판정한다(2026-08-25 복원).
   const bool interfering = same_latched_opponent ?
-    p_star > interference_p_off_ :
-    (opponent.is_visible && p_star >= interference_p_on_);
+    (close_enough || p_star > interference_p_off_) :
+    (opponent.is_visible && (close_enough || p_star >= interference_p_on_));
 
   interference_probabilistic_latched_ = interfering;
   interference_probabilistic_latched_id_ = interfering ? opponent.id : -1;

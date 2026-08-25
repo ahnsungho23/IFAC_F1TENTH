@@ -23,8 +23,9 @@ cruise_controller_node:
     trailing_gap: 3.0
     minimum_gap: 0.8
     # 목표 간격의 하드 상한 [m]. 0 = 상한 없음.
-    # state_machine.yaml의 interference_distance_m(5.0)을 넘으면 cruise가 유지하려는 간격에서
-    # 상태머신이 CRUISE를 빠져나가 진입/이탈 리밋사이클이 된다. 반드시 그 값 이하로 둘 것.
+    # state_machine.yaml의 interference_distance_m(2026-08-25부터 4.0, 종방향 OR 경로)을 넘으면
+    # cruise가 유지하려는 간격에서 상태머신이 CRUISE를 빠져나가 진입/이탈 리밋사이클이 된다.
+    # 반드시 그 값 이하로 둘 것(현재 trailing_gap 3.0 < 4.0이라 충족).
     # 시간 간격 모드를 켤 때 s0 + T*max_speed가 그 값을 넘을 수 있으므로 같이 설정한다.
     max_desired_gap: 0.0
     trailing_p_gain: 0.6

@@ -93,6 +93,9 @@ struct CruiseControllerOutput
 // max_desired_gap > 0 clamps the result. It must not exceed state_machine's
 // interference_distance_m, or CRUISE is exited at the very gap cruise is holding
 // (enter/exit limit cycle -- see state_machine.yaml).
+// NOTE (2026-08-25): state_machine's interference entry is an OR of a lateral-probability path
+// and this longitudinal-distance path (restored same day -- see state_machine/AGENTS.md), so
+// the invariant above is live again at interference_distance_m: 4.0.
 double desiredGap(
   bool distance_mode, double trailing_gap, double minimum_gap, double ego_speed,
   double max_desired_gap);
