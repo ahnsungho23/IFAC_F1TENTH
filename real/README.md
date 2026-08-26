@@ -142,6 +142,14 @@ ping은 되는데 `/scan`만 멈추면 **라이다 본체/드라이버**다. 202
   래치 샘플이 즉시 옵니다. `rvizlocal`의 "맵이 10초 뒤에 뜬다" 문제가 여기서는 없습니다.
   🔑 브릿지는 **뷰어가 실제로 켠 패널의 토픽만** 그때 구독합니다 — `topic_whitelist: [".*"]`
   여도 WiFi 트래픽은 보고 있는 만큼만 나갑니다.
+  🔑 **광고 토픽을 RViz 기본 설정이 그리던 것만으로 좁혔습니다** — `/tf`·`/tf_static`·`/map`·
+  `/slow_scan`·`/pf/pose/odom`·`/global_waypoints/markers`·`/local_waypoints/path`·
+  `/perception/obstacles/markers`. 기본 `.*`는 젯슨 전 토픽(46채널)을 광고하면서
+  `vesc_msgs` 스키마를 못 찾아 에러를 반복합니다(그 패키지는 `~/f1tenth_ws`에 있는데 이
+  role은 `~/2026_IFAC`만 source합니다). ⚠️ 정규식 **완전 일치**라 접두사만 적으면 안 됩니다.
+  🔑 **`/scan`(40 Hz)은 일부러 뺐습니다.** 대신 role이 `topic_tools throttle`로
+  `/slow_scan`(기본 5 Hz, `F1_SCAN_HZ`로 조절)을 만들어 그것만 광고합니다 — 40 Hz LaserScan을
+  WiFi로 넘기면 송신 버퍼가 밀려 화면이 뒤처집니다. 브릿지를 끄면 throttle도 같이 정리됩니다.
   🔴 **뷰어가 발행할 수 있는 토픽을 `/initialpose` 하나로 좁혔습니다.** 기본
   `capabilities`에는 `clientPublish`·`services`가 다 들어 있어 브라우저에서 누구나 `/drive`를
   발행하거나 서비스를 호출할 수 있습니다. `services`는 빼고, `clientPublish`는 남긴 채

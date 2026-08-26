@@ -23,6 +23,7 @@
 # Env overrides:
 #   F1_HOST=miru@10.1.1.1        # Jetson SSH target
 #   F1_MAP_NAME=map              # map name (mcl/global 의 map_name:= 인자)
+#   F1_SCAN_HZ=5                 # foxglove role 이 만드는 /slow_scan 의 Hz
 #
 # 🔑 원격 명령은 **대화형 zsh**(`zsh -ic`) 안에서 돈다. `f110`·`sc` 가 젯슨 ~/.zshrc 의
 #    alias 라서 비대화형 ssh 로는 안 풀리기 때문이다.
@@ -42,6 +43,7 @@ IFAC="${REALDIR:h}"                     # repo root (real/run_real.sh -> repo ro
 JETSON="${F1_HOST:-miru@10.1.1.1}"
 MAP_NAME="${F1_MAP_NAME:-map}"
 DOMAIN="${ROS_DOMAIN_ID:-70}"
+SCAN_HZ="${F1_SCAN_HZ:-5}"          # foxglove role: /scan -> /slow_scan 솎음 주기(Hz)
 
 # ~/.zshrc 를 읽은 뒤 덮어쓸 환경. 아래 remote() 가 zsh -ic 문자열의 맨 앞에 붙인다.
 RENV="export ROS_DOMAIN_ID=$DOMAIN RMW_IMPLEMENTATION=rmw_fastrtps_cpp;"
@@ -206,11 +208,15 @@ case "$role" in
     #    띄웠을 때 KICP 를 세우던 원격 RELIABLE 리더가 아예 없어진다(§10-7-7). `/tf` 도 포함.
     #    뷰어: https://app.foxglove.dev → Open connection → ws://${JETSON#*@}:8765
     # ⚠️ 젯슨에 패키지가 필요하다: sudo apt install ros-jazzy-foxglove-bridge
-    remote 10 "cd ~/2026_IFAC && sc && ros2 run foxglove_bridge foxglove_bridge --ros-args --params-file ~/2026_IFAC/real/foxglove_bridge.yaml"
+    # 🔑 브릿지와 함께 topic_tools throttle 을 띄워 /scan(40 Hz) -> /slow_scan 을 만든다.
+    #    화이트리스트에는 /slow_scan 만 있고 /scan 은 일부러 빠져 있다 — 40 Hz LaserScan 을
+    #    WiFi 로 넘기면 송신 버퍼가 밀려 화면이 뒤처지기 때문. 속도는 F1_SCAN_HZ 로 조절한다.
+    #    브릿지가 끝나면 throttle 도 같이 정리한다.
+    remote 10 "cd ~/2026_IFAC && sc && { ros2 run topic_tools throttle messages /scan ${SCAN_HZ} /slow_scan >/dev/null 2>&1 & THR=\$!; ros2 run foxglove_bridge foxglove_bridge --ros-args --params-file ~/2026_IFAC/real/foxglove_bridge.yaml; kill \$THR 2>/dev/null; }"
     ;;
   stop|clean|kill)                       # 이 스택의 노드만 원격 종료 (--all: bringup까지)
     print -P "%F{cyan}[stop] clearing the stack on $JETSON…%f"
-    ssh "$JETSON" "pkill -f 'ros2 launch (kinematic_localization|global_planning|state_machine|f1tenth_control|local_planning|obstacle_detector)'; pkill -f 'ros2 bag record|rosbag2_recorder'; pkill -f foxglove_bridge; pkill -f 'localization_node|global_trajectory_publisher_node|frenet_odom_node|state_machine_node|control_map_node|drive_source_selector|local_planner_node|obstacle_detector_node'" 2>/dev/null
+    ssh "$JETSON" "pkill -f 'ros2 launch (kinematic_localization|global_planning|state_machine|f1tenth_control|local_planning|obstacle_detector)'; pkill -f 'ros2 bag record|rosbag2_recorder'; pkill -f foxglove_bridge; pkill -f 'throttle messages /scan'; pkill -f 'localization_node|global_trajectory_publisher_node|frenet_odom_node|state_machine_node|control_map_node|drive_source_selector|local_planner_node|obstacle_detector_node'" 2>/dev/null
     if [[ "${1:-}" == "--all" ]]; then
       ssh "$JETSON" "pkill -f 'ros2 launch f1tenth_stack'" 2>/dev/null
     fi

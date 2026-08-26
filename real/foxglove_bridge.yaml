@@ -29,9 +29,27 @@ foxglove_bridge:
     address: "0.0.0.0"          # 차량망의 본체 PC 가 붙어야 하므로 loopback 이 아니다
     tls: false
 
-    # 🔑 브릿지는 화이트리스트 전체를 구독하지 않는다 — 뷰어가 실제로 켠 패널의 토픽만
-    #    그때 구독한다. 그래서 `.*` 여도 WiFi 트래픽은 보고 있는 것만큼만 나간다.
-    topic_whitelist: [".*"]
+    # 🔑 RViz 기본 설정(main 의 kicp_real.rviz)이 그리던 것만 남긴다.
+    #    기본 `.*` 는 젯슨의 모든 토픽을 광고해서 채널 목록이 46개까지 불어나고,
+    #    vesc_msgs 처럼 이 워크스페이스에 없는 패키지의 스키마를 못 찾아
+    #    "Failed to load schemaDefinition ... package 'vesc_msgs' not found" 를 반복한다
+    #    (vesc_msgs 는 ~/f1tenth_ws 에 있는데 이 role 은 ~/2026_IFAC 만 source 한다).
+    #    목록을 좁히면 그 에러가 같이 사라진다.
+    # ⚠️ 정규식 **완전 일치**다(std::regex_match). 부분 일치가 아니므로 접두사만 적으면 안 된다.
+    #    토픽을 추가하려면 여기에 한 줄 더 적을 것.
+    # ⚠️ /tf · /tf_static 을 빼면 Foxglove 3D 패널이 아무것도 배치하지 못한다(Fixed Frame: map).
+    topic_whitelist:
+      - "/tf"
+      - "/tf_static"
+      - "/map"                              # RViz Map
+      - "/slow_scan"                        # RViz LaserScan 상당 — /scan 을 5 Hz 로 솎은 것
+        #  🔑 원본 /scan 은 **일부러 뺐다**. 40 Hz LaserScan 을 WiFi 로 넘기면
+        #     송신 버퍼가 밀려 화면이 뒤처진다. run_real.sh 의 foxglove role 이
+        #     topic_tools throttle 로 /slow_scan 을 만들어 준다(F1_SCAN_HZ 로 조절).
+      - "/pf/pose/odom"                     # RViz Odometry
+      - "/global_waypoints/markers"         # RViz MarkerArray
+      - "/local_waypoints/path"             # RViz Path
+      - "/perception/obstacles/markers"     # RViz MarkerArray
 
     # WebSocket 이 밀렸을 때 쌓아둘 상한. 넘으면 **기다리지 않고 버린다** —
     # fastdds_car.xml 의 max_blocking_time 과 같은 사상(한 장 버리는 게 세우는 것보다 낫다).
