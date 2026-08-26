@@ -15,7 +15,7 @@ state_machine_node:
     # /state의 FSM 평가/heartbeat 주기입니다. local waypoint는 Frenet odom 이벤트로 발행합니다.
     # GLOBAL/CRUISE의 /local_waypoints는 검증된 /global_waypoints 배열 전체를 창 없이 통과합니다
     # (2026-08-26, docs/global_passthrough_proposal.md). 옛 waypoint_num 창 파라미터는 삭제됨.
-    publish_rate_hz: 10.0
+    publish_rate_hz: 20.0
 
     # AVOID는 모든 상태에서 최우선입니다. CRUISE는 /opp_obs의 is_interfering=true로 진입합니다.
     allow_avoid_transition: true
@@ -30,13 +30,13 @@ state_machine_node:
     #    데드존(~2.5 m/s) 아래다. stale 이 지속되면 재출발이 막힐 수 있다(run_0821_092111).
     #    transition_global 과 같은 값을 그대로 쓰고 있으며, 변경은 별도 제안으로 다룬다.
     allow_cruise_transition: true
-    local_path_confirmation_window_size: 5
-    local_path_confirmation_min_hits: 3
+    local_path_confirmation_window_size: 3
+    local_path_confirmation_min_hits: 2
 
     # GLOBAL은 검증 후 정적 경로로 계속 사용하며, 발행자 침묵은 경고만 냅니다.
     global_publisher_warn_timeout_sec: 5.0
     # 모든 local waypoint 출력에 공통 적용하는 Frenet freshness 게이트입니다.
-    frenet_stale_timeout_sec: 0.5
+    frenet_stale_timeout_sec: 5.0
     # 마지막 /opp_obs가 이 시간보다 오래되면 간섭 없음으로 보고 CRUISE에서 GLOBAL로 복귀합니다.
     opponent_stale_timeout_sec: 0.3
     invalid_local_path_policy: "global_fallback"

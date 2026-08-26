@@ -79,9 +79,9 @@ StateMachineNode::StateMachineNode()
   declare_parameter<std::string>("invalid_local_path_policy", "global_fallback");
   declare_parameter<std::string>("handoff_ot_line", "raceline_global_handoff");
 
-  declare_parameter<double>("publish_rate_hz", 100.0);
+  declare_parameter<double>("publish_rate_hz", 20.0);
   declare_parameter<double>("global_publisher_warn_timeout_sec", 5.0);
-  declare_parameter<double>("frenet_stale_timeout_sec", 0.5);
+  declare_parameter<double>("frenet_stale_timeout_sec", 5.0);
   declare_parameter<double>("opponent_stale_timeout_sec", 0.3);
 
   // 간섭 판단은 /opp_obs의 위치·속도·공분산을 이용해 이 노드가 직접 수행한다.
