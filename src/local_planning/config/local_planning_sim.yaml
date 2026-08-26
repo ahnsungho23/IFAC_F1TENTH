@@ -429,7 +429,7 @@ local_planner_node:
     # 해석하지 않고 마지막 경로/스냅샷을 유지하며, 새 유효 배열(빈 배열 포함)이 기억을 교체합니다.
     obstacle_stale_timeout_sec: 0.75
     # Frenet 위치 자체가 stale이면 최악 상황으로 보고 마지막 위치에서 zero-speed hold를 발행합니다.
-    odometry_stale_timeout_sec: 0.50
+    odometry_stale_timeout_sec: 5.0
 
     # 설계된 spline merge 지점에 도달하고 실제 ego d도 글로벌 라인에 들어왔는지 확인합니다.
     # 이 확인만으로 commitment를 해제하지 않고, /state가 AVOID를 거쳐 GLOBAL로 돌아올 때까지

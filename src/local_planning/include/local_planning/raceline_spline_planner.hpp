@@ -44,7 +44,7 @@ struct RacelineSplineParameters
   // closed-loop tracking error are applied exactly once. Global d_left/d_right are distances to
   // physical track boundaries; the rotated vehicle footprint and independent wall reserve are
   // therefore checked against those boundaries in the hard validator.
-  double safety_margin_m{0.03};
+  double safety_margin_m{0.08};
   // 🔴 추종오차 예약 게이트 (2026-08-22). false 면 trackingErrorReserve() 는 아래 LUT 를
   //    **읽지 않고** localization_reserve_m 만 돌려준다.
   //

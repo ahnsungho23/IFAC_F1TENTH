@@ -485,7 +485,7 @@ void LocalPlannerNode::initializeParameters()
 
   require_obstacles_message_ = declare_parameter<bool>("require_obstacles_message", true);
   obstacle_stale_timeout_sec_ = declare_parameter<double>("obstacle_stale_timeout_sec", 0.75);
-  odometry_stale_timeout_sec_ = declare_parameter<double>("odometry_stale_timeout_sec", 0.50);
+  odometry_stale_timeout_sec_ = declare_parameter<double>("odometry_stale_timeout_sec", 5.0);
   merge_lateral_tolerance_m_ = declare_parameter<double>("merge_lateral_tolerance_m", 0.15);
   merge_confirm_cycles_ = declare_parameter<int>("merge_confirm_cycles", 15);
   safe_stop_release_cycles_ = declare_parameter<int>("safe_stop_release_cycles", 8);
