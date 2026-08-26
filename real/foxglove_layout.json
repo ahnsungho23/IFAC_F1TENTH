@@ -83,7 +83,7 @@
         }
       },
       "publish": {
-        "type": "pose-estimate",
+        "type": "pose_estimate",
         "poseTopic": "/move_base_simple/goal",
         "pointTopic": "/clicked_point",
         "poseEstimateTopic": "/initialpose",
