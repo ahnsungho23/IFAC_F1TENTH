@@ -58,10 +58,12 @@ private:
     uint8_t eval_state,
     bool local_available,
     const f110_msgs::msg::OTWpntArray::SharedPtr & local_wpnts);
-  // Last-resort liveness escape: the avoid publisher has been silent, or has published only
-  // empty paths, for avoid_path_liveness_timeout_sec. Unlike the handoff gate this makes no
-  // claim about obstacles; it only stops a dead planner from pinning the FSM in AVOID forever.
-  bool evaluate_avoid_path_liveness_lost();
+  // The only non-marker AVOID escape: the avoid path currently being published is a full-stop
+  // profile (every waypoint vx_mps == 0 and ax_mps2 == 0), i.e. the planner commands a hold in
+  // place rather than an avoidance. Fires immediately — no timeout, no debounce. Unlike the
+  // handoff gate this makes no claim about obstacles. NOTE: a planner that goes fully silent no
+  // longer releases AVOID (the old avoid_path_liveness_timeout_sec escape was removed 2026-08-26).
+  bool avoid_path_is_full_stop() const;
 
   void on_frenet_odom(const nav_msgs::msg::Odometry::SharedPtr msg);
   void on_global_waypoints(const f110_msgs::msg::WpntArray::SharedPtr msg);
@@ -111,7 +113,6 @@ private:
   double enter_global_threshold_{0.2};
   double enter_global_tail_distance_m_{6.0};
   double enter_global_s_gap_tol_m_{0.5};
-  double avoid_path_liveness_timeout_sec_{2.0};
 
   std::optional<rclcpp::Time> enter_global_ok_since_;
   uint8_t enter_global_eval_state_{f110_msgs::msg::StateMachine::STATE_GLOBAL};
@@ -126,8 +127,6 @@ private:
   rclcpp::Time last_frenet_time_{0, 0, RCL_ROS_TIME};
   rclcpp::Time last_global_receive_time_{0, 0, RCL_ROS_TIME};
   rclcpp::Time last_opponent_time_{0, 0, RCL_ROS_TIME};
-  rclcpp::Time last_avoid_receive_time_{0, 0, RCL_ROS_TIME};
-  rclcpp::Time last_non_empty_avoid_time_{0, 0, RCL_ROS_TIME};
   std::optional<uint8_t> last_published_state_;
 
   nav_msgs::msg::Odometry::SharedPtr frenet_odom_msg_;

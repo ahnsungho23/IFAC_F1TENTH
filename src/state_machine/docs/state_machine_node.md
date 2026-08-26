@@ -56,12 +56,23 @@ Frenet 입력이 멈추면 마지막 index로 경로를 재발행하지 않습�
   `has_front_static_obstacle` / `stopped_path_clear` 계열은 제거했습니다 — ego가 회피
   오프셋에 있으면 라인 위 장애물과 겹치지 않아 오판하고, 플래너와 다른 장애물 토픽을
   봤습니다.
-- 유일한 비표식 탈출은 **liveness**입니다: non-empty 회피 발행이
-  `avoid_path_liveness_timeout_sec` 동안 끊기면(빈 경로만 오는 경우 포함) 장애물 여부와
-  무관하게 `GLOBAL`로 복귀합니다. 플래너가 정지 경로라도 계속 발행하는 한 발동하지
-  않습니다 — 장애물 앞 정지는 올바른 상태입니다.
-- 핸드오프 표식이 붙은 경로는 **AVOID 진입 M-of-N에 세지 않습니다**. 핸드오프는 "회피
-  종료" 선언이지 새 회피 요청이 아니기 때문입니다.
+- 유일한 비표식 탈출은 **정지 프로파일 즉시 이탈**입니다 (2026-08-26, 옛 liveness
+  타임아웃 탈출을 교체). AVOID가 지금 발행 중인 회피 경로의 **모든 점**이
+  `vx_mps == 0` 이고 `ax_mps2 == 0` 이면, 그 순간 바로 `GLOBAL`(간섭 상대차가 있으면
+  `CRUISE`)로 나옵니다. 이는 local_planning의 제자리 홀드(`buildEmergencyStopPath`)와
+  정지점에 도달해 프로파일 전체가 0이 된 safe-stop 경로에 해당합니다. **시간 홀드
+  (타임아웃·디바운스)는 없습니다** — 판정 즉시 전이합니다.
+  - 제동 중인 램프(앞쪽 점 `vx > 0`)는 이탈이 아닙니다. 차는 정상적으로 감속해서 서고,
+    프로파일이 전부 0이 되는 순간 나옵니다. 마지막 점 하나로 판정하면 안 됩니다 —
+    local_planning의 `updateAccelerationOnly`가 **모든** 경로의 마지막 점 `ax_mps2`를
+    항상 0으로 쓰기 때문에 제동 시작 즉시 오검출됩니다.
+  - ⚠️ 이 교체로 **"플래너가 완전히 침묵할 때"의 탈출은 사라졌습니다.** 그때는 마지막
+    non-empty 회피 경로를 들고 AVOID에 머뭅니다(옛 `avoid_path_liveness_timeout_sec`
+    파라미터는 삭제).
+- 핸드오프 표식이 붙은 경로와 **정지 프로파일**은 **AVOID 진입 M-of-N에 세지 않습니다**.
+  핸드오프는 "회피 종료" 선언이고, 정지 프로파일은 "회피 요청"이 아니기 때문입니다.
+  정지 프로파일을 세면 정지 경로가 계속 오는 동안 AVOID 재진입 → 즉시 이탈이 반복되어
+  `/state`와 `/local_waypoints`가 요동합니다.
 - `AVOID`는 모든 상태에서 가장 높은 우선순위를 가집니다.
 
 ### 2.2 경로 유효성 및 선택
@@ -126,7 +137,9 @@ Frenet s 글리치에 경로 전체가 끌려가고 창 길이가 점 밀도에 
 | `enter_global_threshold` | `0.2` | 횡오차 게이트 [m] |
 | `enter_global_tail_distance_m` | `6.0` | 경로 끝에서 거꾸로 잰 tail 창 호 길이 [m]. local_planning의 `state_handoff_tail_distance_m`와 동일해야 함 |
 | `enter_global_s_gap_tol_m` | `0.5` | tail 도달 허용 s 거리 [m] |
-| `avoid_path_liveness_timeout_sec` | `2.0` | non-empty 회피 발행 단절 시 AVOID 해제 (liveness 전용) |
+
+> 🔴 2026-08-26: `avoid_path_liveness_timeout_sec`는 삭제됐습니다. 비표식 AVOID 탈출은
+> 정지 프로파일(전 점 `vx=0`·`ax=0`) 즉시 판정으로 대체됐고, 파라미터가 없습니다(§2.1).
 
 현재 `invalid_local_path_policy`는 `global_fallback`만 지원합니다. 파라미터는 기동 시 한 번
 읽으므로 값을 바꾼 뒤 노드를 재시작해야 합니다.

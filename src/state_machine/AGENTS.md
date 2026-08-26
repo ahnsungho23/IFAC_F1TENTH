@@ -72,12 +72,20 @@ State machine package rules. These instructions apply to `src/state_machine`.
   - Feed the marker's absence through `evaluate_enter_to_global(local_available=false)` rather
     than short-circuiting around it — the duration timer must reset while the marker is away, or
     the next handoff window inherits a stale start time and skips the debounce.
-  - `evaluate_avoid_path_liveness_lost()` is the ONLY non-marker escape: no non-empty avoid
-    publication for `avoid_path_liveness_timeout_sec` releases AVOID regardless of obstacles. It
-    is a liveness statement about the publisher, not a clearance statement. The old tail-reach
-    exhaustion escape is gone — a path withdrawn near its start left the tail unreachable and the
-    escape dead; conversely a planner that keeps publishing (stop paths included) never triggers
-    liveness, which is correct: a car held before an obstacle is the intended outcome.
+  - `avoid_path_is_full_stop()` is the ONLY non-marker escape (2026-08-26, replaced the
+    `avoid_path_liveness_timeout_sec` liveness escape): the avoid path AVOID is currently
+    publishing has EVERY waypoint at `vx_mps == 0` and `ax_mps2 == 0`, i.e. the planner commands a
+    hold in place (`buildEmergencyStopPath`, or a safe-stop whose profile went all-zero once the
+    car reached the stop point). It fires immediately — **do not add a timeout or debounce here**
+    (explicit user directive). Judge the WHOLE array, never the last waypoint alone:
+    local_planning's `updateAccelerationOnly` writes `ax_mps2 = 0` on the last point of EVERY
+    path, so a tail-only test misfires the moment braking starts.
+  - A full-stop profile is also excluded from the AVOID entry M-of-N (`on_avoid_wpnts`) and from
+    `can_enter_avoid()`, exactly like the handoff marker. Without that exclusion a planner that
+    keeps republishing the stop path drives an AVOID re-entry → immediate escape oscillation.
+  - Known consequence of the replacement: a planner that goes FULLY SILENT no longer releases
+    AVOID — the FSM keeps the last non-empty avoid path. That is the accepted trade of removing
+    the time-based escape; do not reintroduce a timer without the user asking.
 - `resolve_requested_state()`: the FSM 1-step. It reads/updates `committed_state_` and returns the state to publish. No dwell, no separate safety fallback — the state changes only when an entry or merge-back condition fires.
 - `enter_to_global()` assumes the **segment publishing convention**: `/avoid_waypoints` is an
   ego→merge segment in global-raceline Frenet coordinates (`s_m`/`d_m`), tail converging to d→0.

@@ -104,8 +104,10 @@ state_machine_node:
     enter_global_tail_distance_m: 6.0
     enter_global_s_gap_tol_m: 0.5
 
-    # 마지막 보루 liveness 탈출: non-empty 회피 발행이 이 시간 동안 끊기면(빈 경로만
-    # 오는 경우 포함) 장애물 여부와 무관하게 GLOBAL로 복귀합니다. 죽은 플래너가 FSM을
-    # 영원히 AVOID에 고정하는 것만 막는 장치이며, 플래너가 정지 경로라도 계속 발행하는
-    # 한 발동하지 않습니다(장애물 앞 정지는 올바른 상태).
-    avoid_path_liveness_timeout_sec: 2.0
+    # 🔴 2026-08-26: 유일한 비표식 AVOID 탈출이 **정지 프로파일 즉시 탈출**로 교체됐습니다.
+    # `/avoid_waypoints`의 모든 점이 vx_mps=0 · ax_mps2=0이면(= local_planning의 제자리 홀드,
+    # 또는 정지점에 도달한 safe-stop) 그 즉시 GLOBAL로 나옵니다. 파라미터가 없습니다 —
+    # 사용자 지시로 시간 홀드(타임아웃·디바운스)를 두지 않으며, 옛
+    # `avoid_path_liveness_timeout_sec: 2.0`은 삭제됐습니다.
+    # ⚠️ 그 결과 "플래너가 완전히 침묵할 때"의 탈출은 없습니다(마지막 non-empty 회피 경로를
+    # 들고 AVOID에 머뭅니다). 정지 프로파일은 AVOID 진입 M-of-N에도 세지 않습니다.

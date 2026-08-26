@@ -39,6 +39,29 @@ double track_length_from(const f110_msgs::msg::WpntArray & global_wpnts)
   return wpnts.back().s_m + std::max(0.0, last_gap);
 }
 
+// 수치 0 비교 허용오차. 운용 임계가 아니라 float 왕복 오차를 흡수하는 값이라 YAML로 빼지 않는다.
+constexpr double kStopProfileEpsilon = 1e-6;
+
+// 정지 프로파일 = 배열 **전 점**이 vx==0 && ax==0. local_planning의 buildEmergencyStopPath
+// (제자리 홀드)와, 정지점에 도달해 프로파일 전체가 0이 된 safe-stop 경로가 여기 해당한다.
+// 제동 중인 램프는 해당하지 않는다: 앞쪽 점의 vx가 0보다 크다. 마지막 점 하나로 판정하면
+// 안 된다 — local_planning의 updateAccelerationOnly가 **모든** 경로의 마지막 점 ax를 항상
+// 0으로 쓰기 때문에, 제동을 시작하자마자 정지로 오검출된다.
+bool is_full_stop_profile(const f110_msgs::msg::OTWpntArray & msg)
+{
+  if (msg.wpnts.empty()) {
+    return false;
+  }
+  for (const auto & waypoint : msg.wpnts) {
+    if (std::abs(static_cast<double>(waypoint.vx_mps)) > kStopProfileEpsilon ||
+      std::abs(static_cast<double>(waypoint.ax_mps2)) > kStopProfileEpsilon)
+    {
+      return false;
+    }
+  }
+  return true;
+}
+
 }  // namespace
 
 StateMachineNode::StateMachineNode()
@@ -79,7 +102,6 @@ StateMachineNode::StateMachineNode()
   declare_parameter<double>("enter_global_threshold", 0.2);
   declare_parameter<double>("enter_global_tail_distance_m", 6.0);
   declare_parameter<double>("enter_global_s_gap_tol_m", 0.5);
-  declare_parameter<double>("avoid_path_liveness_timeout_sec", 2.0);
 
   state_topic_ = get_parameter("state_topic").as_string();
   local_waypoints_topic_ = get_parameter("local_waypoints_topic").as_string();
@@ -116,8 +138,6 @@ StateMachineNode::StateMachineNode()
   enter_global_threshold_ = get_parameter("enter_global_threshold").as_double();
   enter_global_tail_distance_m_ = get_parameter("enter_global_tail_distance_m").as_double();
   enter_global_s_gap_tol_m_ = get_parameter("enter_global_s_gap_tol_m").as_double();
-  avoid_path_liveness_timeout_sec_ =
-    get_parameter("avoid_path_liveness_timeout_sec").as_double();
 
   if (!std::isfinite(publish_rate_hz) || publish_rate_hz <= 0.0) {
     throw std::invalid_argument("publish_rate_hz must be finite and positive");
@@ -154,11 +174,6 @@ StateMachineNode::StateMachineNode()
     !std::isfinite(enter_global_s_gap_tol_m_) || enter_global_s_gap_tol_m_ < 0.0)
   {
     throw std::invalid_argument("invalid global re-entry parameter value");
-  }
-  if (!std::isfinite(avoid_path_liveness_timeout_sec_) ||
-    avoid_path_liveness_timeout_sec_ <= 0.0)
-  {
-    throw std::invalid_argument("avoid_path_liveness_timeout_sec must be finite and positive");
   }
   if (handoff_ot_line_.empty()) {
     throw std::invalid_argument("handoff_ot_line must be non-empty");
@@ -381,6 +396,10 @@ bool StateMachineNode::can_enter_avoid() const
   {
     return false;
   }
+  // 정지 프로파일도 같은 이유로 진입 요청이 아니다 (2026-08-26).
+  if (avoid_wpnts_msg_ != nullptr && is_full_stop_profile(*avoid_wpnts_msg_)) {
+    return false;
+  }
   return local_path_confirmed(avoid_path_history_, avoid_wpnts_msg_);
 }
 
@@ -414,12 +433,15 @@ void StateMachineNode::on_avoid_wpnts(const f110_msgs::msg::OTWpntArray::SharedP
 {
   const bool non_empty = msg != nullptr && !msg->wpnts.empty();
   const bool is_handoff = non_empty && msg->ot_line == handoff_ot_line_;
-  last_avoid_receive_time_ = now();
+  // 정지 프로파일도 "회피가 필요하다"는 발행이 아니다. 이것을 M-of-N에 세면, 정지 경로를
+  // 계속 발행하는 동안 AVOID 재진입 → 즉시 이탈(avoid_path_is_full_stop)이 반복되어
+  // /state와 /local_waypoints가 요동한다 (2026-08-26).
+  const bool is_full_stop = non_empty && is_full_stop_profile(*msg);
   // 핸드오프 루프는 "회피가 필요하다"가 아니라 "회피가 끝났다"는 발행이다. 이것을 AVOID
   // 진입 M-of-N에 세면, GLOBAL 확정 직전의 핸드오프 몇 장이 히스토리에 남아 확정 직후
   // 곧바로 AVOID로 재진입하는 요동을 만든다 (2026-08-16 10:23 백: GLOBAL 확정과 플래너의
   // 빈 경로 전환 간격이 8 ms — 그 마진에 기대는 대신 여기서 구조적으로 제외한다).
-  avoid_path_history_.push_back(non_empty && !is_handoff);
+  avoid_path_history_.push_back(non_empty && !is_handoff && !is_full_stop);
   while (static_cast<int64_t>(avoid_path_history_.size()) >
     local_path_confirmation_window_size_)
   {
@@ -430,7 +452,6 @@ void StateMachineNode::on_avoid_wpnts(const f110_msgs::msg::OTWpntArray::SharedP
   avoid_wpnts_msg_ = msg;
   if (non_empty) {
     last_non_empty_avoid_wpnts_msg_ = msg;
-    last_non_empty_avoid_time_ = last_avoid_receive_time_;
   }
   if (!non_empty) {
     RCLCPP_WARN_THROTTLE(
@@ -571,23 +592,19 @@ bool StateMachineNode::evaluate_enter_to_global(
   return enter_to_global(frenet_odom_msg_, local_wpnts, global_wpnts_msg_);
 }
 
-bool StateMachineNode::evaluate_avoid_path_liveness_lost()
+bool StateMachineNode::avoid_path_is_full_stop() const
 {
   // 표식 없는 non-empty 경로는 플래너가 "아직 회피 중"이라고 주장하는 것이므로 게이트가
-  // 막는 게 맞다. 그러나 non-empty 발행 자체가 avoid_path_liveness_timeout_sec 동안 끊긴
-  // 상태는 플래너가 아무 주장도 하지 않는 것이고, 그때도 게이트를 고집하면 죽은 플래너가
-  // FSM을 영원히 AVOID에 고정한다(섹터 속도 스케일링도 영구 정지). 이 탈출은 장애물에
-  // 대해 아무것도 주장하지 않는다 — 오직 liveness다. 옛 avoid_path_exhausted의 tail 도달
-  // 조건은 뺐다: 유령 회피처럼 경로 초입에서 발행이 끊기는 경우 tail까지 수 미터가 남아
-  // 그 조건이 영영 성립하지 않았다. 정지 경로(끝 vx=0)는 플래너가 계속 발행하는 한 이
-  // 탈출의 대상이 아니다 — 차가 장애물 앞에 서 있는 것이 올바른 결과다.
-  // freshness 검사 자체가 타이머다: 마지막 non-empty 수신에서 timeout이 지나는 순간
-  // 발동한다(별도 누적 타이머를 더하면 실효 대기가 2배가 된다). AVOID 진입은 M-of-N
-  // non-empty 확인을 전제로 하므로 이 시점에 last_non_empty_avoid_time_은 항상 유효하다.
-  if (last_non_empty_avoid_wpnts_msg_ == nullptr) {
-    return true;   // 방어적: 수신 기록 없이 AVOID에 있다면 그 자체가 죽은 배선이다.
-  }
-  return !is_fresh(last_non_empty_avoid_time_, avoid_path_liveness_timeout_sec_);
+  // 막는 게 맞다. 그러나 전 점 vx=0/ax=0 은 회피 주장이 아니라 제자리 정지 명령이다
+  // (local_planning: buildEmergencyStopPath, 그리고 정지점에 도달한 safe-stop). 그 순간
+  // 즉시 AVOID에서 나온다 — 시간 홀드(타임아웃·디바운스)는 두지 않는다
+  // (2026-08-26 사용자 지시, 옛 avoid_path_liveness_timeout_sec 탈출을 대체).
+  // ⚠️ 이 교체로 "플래너가 완전히 침묵할 때"의 탈출은 사라졌다. 그때는 마지막 non-empty
+  //    회피 경로를 들고 AVOID에 머문다.
+  // 판정 대상은 select_waypoints()가 AVOID에서 실제로 발행하는 경로와 같은 우선순위로
+  // 고른다: 최신이 non-empty면 그것, 비었으면 마지막 non-empty.
+  const auto & path = has_avoid_wpnts() ? avoid_wpnts_msg_ : last_non_empty_avoid_wpnts_msg_;
+  return path != nullptr && is_full_stop_profile(*path);
 }
 
 uint8_t StateMachineNode::resolve_requested_state()
@@ -624,20 +641,20 @@ uint8_t StateMachineNode::resolve_requested_state()
           f110_msgs::msg::StateMachine::STATE_AVOID,
           has_avoid_wpnts() && handoff_offered(),
           avoid_wpnts_msg_);
-        const bool liveness_lost = evaluate_avoid_path_liveness_lost();
-        if (!(merged_to_global || liveness_lost)) {
+        const bool stop_profile = avoid_path_is_full_stop();
+        if (!(merged_to_global || stop_profile)) {
           break;
         }
-        committed_state_ = cruise_requested && !liveness_lost ?
+        committed_state_ = cruise_requested ?
           f110_msgs::msg::StateMachine::STATE_CRUISE :
           f110_msgs::msg::StateMachine::STATE_GLOBAL;
         RCLCPP_INFO(
           get_logger(), "STATE_AVOID -> %s (%s).",
           committed_state_ == f110_msgs::msg::StateMachine::STATE_CRUISE ?
           "STATE_CRUISE" : "STATE_GLOBAL",
-          liveness_lost ? "avoid publisher liveness lost" :
+          stop_profile ? "avoid path is a full-stop profile (vx=0/ax=0)" :
           "handoff offered and merged to global line");
-        if (liveness_lost) {
+        if (stop_profile) {
           avoid_path_history_.clear();
           has_avoid_wpnts_ = false;
           avoid_wpnts_msg_.reset();
