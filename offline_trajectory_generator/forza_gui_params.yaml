@@ -6,8 +6,8 @@ filter_kernel_size: 7
 expected_centerline_length: 50.2
 safety_width: 1.0
 max_curvature: 0.6
-max_speed: 7.5
-longitudinal_accel_scale: 3.7
+max_speed: 9.0
+longitudinal_accel_scale: 1.0
 lateral_accel_scale: 1.0
 machine_accel_scale: 1.0
 dynamic_model_exponent: 1.0
