@@ -42,14 +42,14 @@ frenet_odom_node:
 
     # Monotonic s-window tracking
     continuity_enabled: true
-    forward_window: 1.0
+    forward_window: 3.5
     backward_tolerance: 0.5
     initial_seed_window: 0.0
     tracked_max_projection_distance: 1.5
-    reacquire_after_misses: 5
+    reacquire_after_misses: 2
 
-    max_projection_distance: 2.5
-    projection_domain_limit: 2.7
+    max_projection_distance: 2.0
+    projection_domain_limit: 2.6
     projection_domain_epsilon: 0.1
     projection_domain_eps2: 0.0
     projection_domain_method: 1

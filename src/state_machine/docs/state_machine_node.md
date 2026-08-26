@@ -71,13 +71,19 @@ Frenet 입력이 멈추면 마지막 index로 경로를 재발행하지 않습�
 - AVOID: 최신 경로가 non-empty면 그것을, 비었으면 **마지막 non-empty 경로를 유지**합니다.
   빈 메시지에서 글로벌 기하로 조용히 넘어가면 상태 전이 게이트를 기하로 우회해 장애물
   관통 글로벌 라인이 컨트롤러에 전달됩니다(2026-08-13 실차: 홀드 중 /drive 펄스).
-- CRUISE: GLOBAL과 동일한 글로벌 전방 구간을 발행합니다. 경로는 바꾸지 않고
+- CRUISE: GLOBAL과 동일하게 글로벌 경로 전체를 발행합니다. 경로는 바꾸지 않고
   `f1tenth_control/cruise_controller_node`가 종방향 속도 상한만 조절합니다.
 - `global_fallback` 정책은 글로벌 기하를 정당하게 쓰는 상태(GLOBAL/CRUISE)에만
   적용됩니다. AVOID에서 non-empty를 한 번도 못 받은 예외 상황에서만 글로벌로 냅니다.
 
-GLOBAL 출력은 Frenet odometry의 `child_frame_id`를 최근접 글로벌 segment index로 해석해
-그 다음 waypoint부터 `waypoint_num`개를 원형으로 추출합니다.
+GLOBAL/CRUISE 출력은 검증된 `/global_waypoints` 배열 **전체**를 창 없이 그대로 통과시킵니다
+(`header.stamp`만 발행 시각으로 갱신, `frame_id`가 비면 `frame_id` 파라미터로 채움). 점의
+기하·속도 값은 변형하지 않습니다. 제어기(`control_map_node`)는 이 배열을 닫힌 루프로 판정해
+자체 인덱스 추적기로 추종하므로 최근접점 계산은 제어기 몫이며, Frenet odometry는 발행
+트리거와 신선도 게이트(`frenet_stale_timeout_sec`)로만 쓰입니다.
+(2026-08-26 이전에는 `child_frame_id`의 최근접 index부터 `waypoint_num`개 창을 잘라 냈습니다 —
+Frenet s 글리치에 경로 전체가 끌려가고 창 길이가 점 밀도에 묶이는 문제로 제거.
+배경·영향 분석은 [global_passthrough_proposal.md](global_passthrough_proposal.md) 참고.)
 
 ## 3. 토픽과 메시지
 
@@ -100,7 +106,6 @@ GLOBAL 출력은 Frenet odometry의 `child_frame_id`를 최근접 글로벌 segm
 | 파라미터 | YAML 값 | 설명 |
 |---|---:|---|
 | `publish_rate_hz` | `10.0` | FSM 평가와 `/state` heartbeat 주기 |
-| `waypoint_num` | `50` | GLOBAL에서 추출할 전방 waypoint 수 |
 | `allow_avoid_transition` | `true` | 모든 상태에서 AVOID 진입 허용 |
 | `allow_cruise_transition` | `true` | `/opp_obs` 기반 CRUISE 진입 허용 |
 | `local_path_confirmation_window_size` | `5` | 진입 확인 메시지 창 크기 N |
@@ -162,5 +167,8 @@ ros2 topic hz /local_waypoints
 ros2 topic info -v /local_waypoints
 ```
 
-GLOBAL 모드에서 `child_frame_id`가 빈 문자열, 음수, 숫자가 아닌 값 또는 글로벌 경로 범위
-밖의 index이면 local waypoint를 발행하지 않고 경고를 출력합니다.
+`/local_waypoints` 발행 조건은 Frenet odometry 신선(`frenet_stale_timeout_sec`, 0.5 s)과
+글로벌 경로 검증 완료 두 가지뿐입니다. GLOBAL/CRUISE에서는 `child_frame_id` 값과 무관하게
+글로벌 배열 전체가 나가며, `ros2 topic echo --once --full-length /local_waypoints | grep -c '^- id:'`가
+`/global_waypoints`의 점 수(`map` 번들 186)와 같으면 정상입니다. (`--full-length` 없이는
+`ros2 topic echo`가 배열을 128개에서 잘라 보여주므로 점 수 확인에 쓸 수 없습니다.)

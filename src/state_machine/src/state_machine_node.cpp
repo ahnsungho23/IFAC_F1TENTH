@@ -1,7 +1,6 @@
 #include "state_machine/state_machine_node.hpp"
 
 #include <algorithm>
-#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
@@ -58,7 +57,6 @@ StateMachineNode::StateMachineNode()
   declare_parameter<std::string>("handoff_ot_line", "raceline_global_handoff");
 
   declare_parameter<double>("publish_rate_hz", 100.0);
-  declare_parameter<int>("waypoint_num", 50);
   declare_parameter<double>("global_publisher_warn_timeout_sec", 5.0);
   declare_parameter<double>("frenet_stale_timeout_sec", 0.5);
   declare_parameter<double>("opponent_stale_timeout_sec", 0.3);
@@ -100,7 +98,6 @@ StateMachineNode::StateMachineNode()
     1,
     local_path_confirmation_window_size_);
 
-  const int64_t waypoint_num = get_parameter("waypoint_num").as_int();
   const double publish_rate_hz = get_parameter("publish_rate_hz").as_double();
   global_publisher_warn_timeout_sec_ =
     get_parameter("global_publisher_warn_timeout_sec").as_double();
@@ -122,10 +119,6 @@ StateMachineNode::StateMachineNode()
   avoid_path_liveness_timeout_sec_ =
     get_parameter("avoid_path_liveness_timeout_sec").as_double();
 
-  if (waypoint_num <= 0 || waypoint_num > std::numeric_limits<int>::max()) {
-    throw std::invalid_argument("waypoint_num must be in the range [1, INT_MAX]");
-  }
-  waypoint_num_ = static_cast<int>(waypoint_num);
   if (!std::isfinite(publish_rate_hz) || publish_rate_hz <= 0.0) {
     throw std::invalid_argument("publish_rate_hz must be finite and positive");
   }
@@ -217,10 +210,9 @@ StateMachineNode::StateMachineNode()
   RCLCPP_INFO(
     get_logger(),
     "Integrated state_machine_node started: state='%s', local_waypoints='%s', "
-    "waypoint_num=%d, default_state='%s'.",
+    "default_state='%s'.",
     state_topic_.c_str(),
     local_waypoints_topic_.c_str(),
-    waypoint_num_,
     default_state_name_.c_str());
   if (!allow_avoid_transition_ && !allow_cruise_transition_) {
     RCLCPP_WARN(
@@ -241,38 +233,6 @@ std::optional<uint8_t> StateMachineNode::parse_state(const std::string & state_n
     return f110_msgs::msg::StateMachine::STATE_CRUISE;
   }
   return std::nullopt;
-}
-
-std::optional<int> StateMachineNode::parse_waypoint_index(const std::string & value) const
-{
-  if (value.empty()) {
-    return std::nullopt;
-  }
-
-  std::size_t begin = 0U;
-  std::size_t end = value.size();
-  while (begin < end && std::isspace(static_cast<unsigned char>(value[begin]))) {
-    ++begin;
-  }
-  while (end > begin && std::isspace(static_cast<unsigned char>(value[end - 1U]))) {
-    --end;
-  }
-  if (begin == end) {
-    return std::nullopt;
-  }
-
-  const std::string trimmed = value.substr(begin, end - begin);
-  for (const char character : trimmed) {
-    if (!std::isdigit(static_cast<unsigned char>(character))) {
-      return std::nullopt;
-    }
-  }
-
-  try {
-    return std::stoi(trimmed);
-  } catch (const std::exception &) {
-    return std::nullopt;
-  }
 }
 
 bool StateMachineNode::is_fresh(const rclcpp::Time & stamp, double timeout_sec) const
@@ -806,43 +766,16 @@ std::optional<f110_msgs::msg::WpntArray> StateMachineNode::select_waypoints(
 std::optional<f110_msgs::msg::WpntArray> StateMachineNode::build_global_waypoints(
   const rclcpp::Time & stamp)
 {
-  if (!has_valid_global() || frenet_odom_msg_ == nullptr) {
+  if (!has_valid_global()) {
     return std::nullopt;
   }
-
-  const auto index = parse_waypoint_index(frenet_odom_msg_->child_frame_id);
-  if (!index.has_value()) {
-    RCLCPP_WARN_THROTTLE(
-      get_logger(),
-      *get_clock(),
-      2000,
-      "Invalid Frenet child_frame_id: '%s'.",
-      frenet_odom_msg_->child_frame_id.c_str());
-    return std::nullopt;
-  }
-
-  const int total = static_cast<int>(global_wpnts_msg_->wpnts.size());
-  const int closest_index = index.value();
-  if (closest_index < 0 || closest_index >= total) {
-    RCLCPP_WARN_THROTTLE(
-      get_logger(),
-      *get_clock(),
-      2000,
-      "Global waypoint index out of range: %d (0..%d).",
-      closest_index,
-      total - 1);
-    return std::nullopt;
-  }
-
-  const int start = (closest_index + 1) % total;
-  const int count = std::min(waypoint_num_, total);
-  f110_msgs::msg::WpntArray output;
+  // 창 없이 통과. 제어기는 이 배열을 닫힌 루프로 판정해 자체 인덱스 추적기로 추종한다
+  // (2026-08-26 docs/global_passthrough_proposal.md). Frenet 신선도 게이트는 호출자
+  // publish_selected_waypoints()가 유지한다 — /local_waypoints 발행 자체가 하트비트다.
+  f110_msgs::msg::WpntArray output = *global_wpnts_msg_;
   output.header.stamp = stamp;
-  output.header.frame_id = global_wpnts_msg_->header.frame_id.empty() ?
-    frame_id_ : global_wpnts_msg_->header.frame_id;
-  output.wpnts.reserve(static_cast<std::size_t>(count));
-  for (int offset = 0; offset < count; ++offset) {
-    output.wpnts.push_back(global_wpnts_msg_->wpnts[(start + offset) % total]);
+  if (output.header.frame_id.empty()) {
+    output.header.frame_id = frame_id_;
   }
   return output;
 }

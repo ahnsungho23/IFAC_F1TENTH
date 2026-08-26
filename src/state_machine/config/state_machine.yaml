@@ -13,8 +13,9 @@ state_machine_node:
     default_state: "global"
 
     # /state의 FSM 평가/heartbeat 주기입니다. local waypoint는 Frenet odom 이벤트로 발행합니다.
+    # GLOBAL/CRUISE의 /local_waypoints는 검증된 /global_waypoints 배열 전체를 창 없이 통과합니다
+    # (2026-08-26, docs/global_passthrough_proposal.md). 옛 waypoint_num 창 파라미터는 삭제됨.
     publish_rate_hz: 10.0
-    waypoint_num: 50
 
     # AVOID는 모든 상태에서 최우선입니다. CRUISE는 /opp_obs의 is_interfering=true로 진입합니다.
     allow_avoid_transition: true

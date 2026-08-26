@@ -26,7 +26,6 @@ public:
 
 private:
   std::optional<uint8_t> parse_state(const std::string & state_name) const;
-  std::optional<int> parse_waypoint_index(const std::string & value) const;
   bool is_fresh(const rclcpp::Time & stamp, double timeout_sec) const;
   bool local_path_confirmed(
     const std::deque<bool> & history,
@@ -94,7 +93,6 @@ private:
   bool allow_cruise_transition_{true};
   int64_t local_path_confirmation_window_size_{5};
   int64_t local_path_confirmation_min_hits_{3};
-  int waypoint_num_{50};
   double global_publisher_warn_timeout_sec_{5.0};
   double frenet_stale_timeout_sec_{0.5};
   double opponent_stale_timeout_sec_{0.3};

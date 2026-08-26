@@ -87,6 +87,12 @@ State machine package rules. These instructions apply to `src/state_machine`.
   the planner rotates the handoff loop so ego sits exactly at the start of that tail.
 - `/state` is timer-driven at `publish_rate_hz`; `/local_waypoints` and
   `/local_waypoints/path` are emitted only by fresh Frenet odometry callbacks.
+- GLOBAL/CRUISE (and the never-non-empty AVOID fallback) publish the FULL validated global array
+  on `/local_waypoints` — no windowing by Frenet index (the `waypoint_num` window and
+  `parse_waypoint_index()` were removed 2026-08-26, see `docs/global_passthrough_proposal.md`).
+  Only `header.stamp` is refreshed; waypoint values are never transformed. The controller treats
+  the array as a closed loop and tracks its own index. `/local_waypoints/path` is the mirror of
+  whatever array was published. Do not reintroduce a Frenet-anchored window here.
 - Global waypoints are static validated data with no use-blocking TTL. In AVOID an empty avoid
   message does NOT switch the published geometry to the global line ("global_fallback" applies
   only to states that legitimately use global geometry): the selector keeps the last non-empty
@@ -101,8 +107,9 @@ State machine package rules. These instructions apply to `src/state_machine`.
 
 ## Parameters, Launch, Docs
 
-- All topic names, frame names, publish rates, stale/diagnostic timeouts, hold durations, waypoint
-  counts, and default states must be parameters with YAML defaults.
+- All topic names, frame names, publish rates, stale/diagnostic timeouts, hold durations, and
+  default states must be parameters with YAML defaults. `test/test_params_match_code.py` enforces
+  that declared parameters and `config/state_machine.yaml` keys match exactly in both directions.
 - Keep `launch/state_machine.launch.py` loading `config/state_machine.yaml`.
 - Keep Korean operational documentation in `docs/state_machine_node.md` current, including both
   state and selected-waypoint interfaces.
