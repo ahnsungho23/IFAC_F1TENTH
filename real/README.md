@@ -120,6 +120,20 @@ ping은 되는데 `/scan`만 멈추면 **라이다 본체/드라이버**다. 202
     없어졌으므로 **당장 되살리지 않습니다.** 다시 켜려면 젯슨 `~/.zshrc`에
     `export FASTRTPS_DEFAULT_PROFILES_FILE=$HOME/fastdds_car.xml` 한 줄.
   - 정본은 `real/fastdds_car.xml`, 젯슨 사본은 `~/fastdds_car.xml` — **고치면 양쪽을 같이.**
+- 🔴 **젯슨 DDS 탐색이 로컬로 묶여 있습니다 (2026-08-26, `~/.zshrc`)**
+  ```zsh
+  export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
+  ```
+  시각화를 Foxglove(브릿지가 젯슨 안에서 구독)로 옮겨 WiFi 너머 DDS 참가자가 없어졌으므로,
+  탐색 멀티캐스트와 원격 RELIABLE 역압 경로를 아예 차단했습니다. 스택 전체가 젯슨 한 대에서
+  돌고 systemd 서비스가 없어(전부 `zsh -ic` 수동 기동) 이 한 줄이 모든 노드에 균일하게 걸립니다.
+  - ⚠️ **본체 PC에서 `ros2 topic echo`·`ros2 bag record`·`rviz2`가 안 됩니다.** 젯슨에 ssh해서
+    돌리세요. Foxglove는 WebSocket(8765)이라 영향 없습니다.
+  - ⚠️ 이미 떠 있는 노드에는 소급 적용되지 않습니다 — **스택을 재기동해야** 균일해집니다.
+  - ⚠️ `ros2` CLI 데몬이 옛 환경을 물고 있을 수 있습니다. 이상하면 `ros2 daemon stop` 한 번.
+  - ⚠️ Jazzy에서 `ROS_LOCALHOST_ONLY`는 deprecated입니다(`librcl` 경고). 이 변수를 쓰세요.
+  - 되돌리기: 그 export 한 줄 삭제 (백업 `~/.zshrc.bak.20260826`).
+  - 검증(2026-08-26 젯슨): 같은 범위의 두 노드 간 토픽 목록·`topic echo` 왕복 정상.
 - terminator 템플릿의 `title`에 **쉼표(,)를 넣으면 크래시**합니다(리스트로 파싱됨). 쉼표 금지.
 - 🔑 **RViz는 `src/kinematic_localization/rviz/kicp_real.rviz`를 기본으로 싣습니다** — 모든 구독이
   **BEST_EFFORT · Depth 1**입니다. 경기장 WiFi가 시끄러울 때 RELIABLE 구독자는 발행자에게

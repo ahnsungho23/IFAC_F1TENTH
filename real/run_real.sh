@@ -184,6 +184,11 @@ case "$role" in
     SSH_OPTS="-X -t" remote 10 'export LIBGL_ALWAYS_SOFTWARE=1 && cd ~/2026_IFAC && sc && BAG=~/rosbags/$(date +%m%d)/run_$(date +%m%d_%H%M%S) && mkdir -p ${BAG:h} && { ros2 bag record -a -s mcap --start-paused -o $BAG & BAGPID=$!; echo "[rec] $BAG — PAUSED로 시작 (재개: ros2 service call /rosbag2_recorder/resume rosbag2_interfaces/srv/Resume)"; rviz2 -d ~/2026_IFAC/src/kinematic_localization/rviz/kicp_real.rviz; kill -INT $BAGPID 2>/dev/null; wait $BAGPID 2>/dev/null; }'
     ;;
   rvizlocal)                             # 본체 PC — RViz만 로컬에서 (X-forward가 느리면 이쪽)
+    # 🔴 2026-08-26 이후 이 role 은 **토픽을 하나도 못 받는다.** 젯슨 ~/.zshrc 가
+    #    ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST 라 DDS 가 젯슨 밖으로 안 나간다.
+    #    시각화는 `run_real.sh foxglove` + 브라우저(ws://10.1.1.1:8765)를 쓸 것.
+    #    이 role 을 되살리려면 젯슨의 그 export 를 지워야 한다(README 참고).
+    print -P "%F{red}[rvizlocal] 경고: 젯슨 DDS 탐색이 LOCALHOST 로 묶여 있어 토픽이 안 온다 — foxglove role 을 쓸 것%f"
     export ROS_DOMAIN_ID=$DOMAIN RMW_IMPLEMENTATION=rmw_fastrtps_cpp
     source /opt/ros/jazzy/setup.zsh 2>/dev/null
     source "$IFAC/install/setup.zsh" 2>/dev/null
