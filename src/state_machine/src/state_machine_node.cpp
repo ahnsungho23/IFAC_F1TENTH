@@ -411,7 +411,6 @@ void StateMachineNode::on_frenet_odom(const nav_msgs::msg::Odometry::SharedPtr m
   has_frenet_ = true;
   frenet_odom_msg_ = msg;
   last_frenet_time_ = now();
-  publish_selected_waypoints(committed_state_);
 }
 
 void StateMachineNode::on_global_waypoints(const f110_msgs::msg::WpntArray::SharedPtr msg)
@@ -718,6 +717,7 @@ void StateMachineNode::publish_state_cycle()
   message.header.frame_id = frame_id_;
   message.state = state;
   state_pub_->publish(message);
+  publish_selected_waypoints(state);
 
   if (!last_published_state_.has_value() || last_published_state_.value() != state) {
     RCLCPP_INFO(get_logger(), "Published state changed to %u.", state);
