@@ -1,0 +1,115 @@
+{
+  "configById": {
+    "3D!main": {
+      "cameraState": {
+        "distance": 25,
+        "perspective": false,
+        "phi": 0,
+        "thetaOffset": 0,
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "targetOffset": [
+          0,
+          0,
+          0
+        ],
+        "targetOrientation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "fovy": 45,
+        "near": 0.01,
+        "far": 5000
+      },
+      "followMode": "follow-pose",
+      "followTf": "map",
+      "scene": {
+        "transforms": {
+          "showLabel": false,
+          "axisScale": 0.5
+        }
+      },
+      "transforms": {},
+      "topics": {
+        "/map": {
+          "visible": true,
+          "colorMode": "costmap",
+          "frameLocked": true
+        },
+        "/slow_scan": {
+          "visible": true,
+          "colorMode": "flat",
+          "flatColor": "#ff4d4dff",
+          "pointSize": 3
+        },
+        "/pf/pose/odom": {
+          "visible": true,
+          "type": "arrow",
+          "arrowScale": [
+            0.6,
+            0.12,
+            0.12
+          ],
+          "color": "#33ff88ff"
+        },
+        "/global_waypoints/markers": {
+          "visible": true
+        },
+        "/local_waypoints/path": {
+          "visible": true,
+          "lineWidth": 0.08,
+          "gradient": [
+            "#00b7ffff",
+            "#00b7ffff"
+          ]
+        },
+        "/perception/obstacles/markers": {
+          "visible": true
+        },
+        "/debug/l1_lookahead": {
+          "visible": true
+        }
+      },
+      "layers": {
+        "grid": {
+          "layerId": "foxglove.Grid",
+          "visible": true,
+          "frameId": "map",
+          "size": 40,
+          "divisions": 40,
+          "color": "#48484855"
+        }
+      },
+      "publish": {
+        "type": "pose_estimate",
+        "poseTopic": "/move_base_simple/goal",
+        "pointTopic": "/clicked_point",
+        "poseEstimateTopic": "/initialpose",
+        "poseEstimateXDeviation": 0.5,
+        "poseEstimateYDeviation": 0.5,
+        "poseEstimateThetaDeviation": 0.26179939
+      },
+      "imageMode": {}
+    },
+    "RawMessages!odom": {
+      "topicPath": "/pf/pose/odom.pose.pose",
+      "expansion": "all"
+    }
+  },
+  "globalVariables": {},
+  "userNodes": {},
+  "playbackConfig": {
+    "speed": 1
+  },
+  "layout": {
+    "direction": "row",
+    "first": "3D!main",
+    "second": "RawMessages!odom",
+    "splitPercentage": 76
+  }
+}

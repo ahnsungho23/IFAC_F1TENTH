@@ -1,0 +1,84 @@
+# =================================================================================================
+# real/foxglove_bridge.yaml — 실차(젯슨) 시각화 브릿지 파라미터
+#
+#   ~/2026_IFAC/real/run_real.sh foxglove        # 젯슨에서 기동
+#   본체 PC 브라우저 → https://app.foxglove.dev → Open connection → ws://10.1.1.1:8765
+#
+# 왜 RViz 대신 이걸 쓰나 (역압 문제 — 상세 분석은 main 브랜치의
+# docs/kinematic_localization.md §10-7-7. ⚠️ 그 절은 safety 브랜치에는 없다):
+#   RViz 를 본체 PC 에서 띄우면 **시끄러운 WiFi 너머에 RELIABLE DDS 리더가 생긴다**.
+#   그 리더가 히스토리를 못 비우면 젯슨 발행자의 write() 가 역압으로 막히고, KICP 는
+#   단일스레드 실행기라 스캔 콜백·워치독·하트비트가 통째로 같이 선다.
+#   foxglove_bridge 는 **젯슨 안에서** 구독하므로 DDS 가 loopback/SHM 밖으로 안 나간다.
+#   WiFi 에는 WebSocket(TCP) 하나만 흐르고, 그 지연은 브릿지 송신 버퍼가 흡수한다.
+#   🔑 RViz 쪽 대책(구독 QoS 강등)이 못 덮던 `/tf` 도 같이 해결된다 —
+#      tf2_ros::TransformListener 는 QoS(100) RELIABLE 이 코드에 박혀 있어 설정으로 못 낮추는데,
+#      리스너가 젯슨 안으로 들어오면 그 경로가 무해해진다.
+#
+# 🔑 구독 QoS 를 일부러 **안 낮췄다**(best_effort_qos_topic_whitelist 미설정).
+#    브릿지가 로컬이라 역압 위험이 없고, RELIABLE + TRANSIENT_LOCAL 을 그대로 받으므로
+#    `/map` · `/global_waypoints` 의 래치 샘플이 **즉시** 온다 — rvizlocal 의 "맵이 10 초 뒤에
+#    뜬다" 문제가 여기서는 없다.
+#
+# ⚠️ `real/fastdds_car.xml`(발행자 쪽 max_blocking_time 5 ms + ASYNCHRONOUS)은 그대로 둘 것.
+#    이건 "누가 구독하든" 걸리는 상한이라 Foxglove 와 층이 다르고 서로 대체재가 아니다.
+# =================================================================================================
+foxglove_bridge:
+  ros__parameters:
+    port: 8765
+    address: "0.0.0.0"          # 차량망의 본체 PC 가 붙어야 하므로 loopback 이 아니다
+    tls: false
+
+    # 🔑 RViz 기본 설정(main 의 kicp_real.rviz)이 그리던 것만 남긴다.
+    #    기본 `.*` 는 젯슨의 모든 토픽을 광고해서 채널 목록이 46개까지 불어나고,
+    #    vesc_msgs 처럼 이 워크스페이스에 없는 패키지의 스키마를 못 찾아
+    #    "Failed to load schemaDefinition ... package 'vesc_msgs' not found" 를 반복한다
+    #    (vesc_msgs 는 ~/f1tenth_ws 에 있는데 이 role 은 ~/2026_IFAC 만 source 한다).
+    #    목록을 좁히면 그 에러가 같이 사라진다.
+    # ⚠️ 정규식 **완전 일치**다(std::regex_match). 부분 일치가 아니므로 접두사만 적으면 안 된다.
+    #    토픽을 추가하려면 여기에 한 줄 더 적을 것.
+    # ⚠️ /tf · /tf_static 을 빼면 Foxglove 3D 패널이 아무것도 배치하지 못한다(Fixed Frame: map).
+    topic_whitelist:
+      - "/tf"
+      - "/tf_static"
+      - "/map"                              # RViz Map
+      - "/slow_scan"                        # RViz LaserScan 상당 — /scan 을 5 Hz 로 솎은 것
+        #  🔑 원본 /scan 은 **일부러 뺐다**. 40 Hz LaserScan 을 WiFi 로 넘기면
+        #     송신 버퍼가 밀려 화면이 뒤처진다. run_real.sh 의 foxglove role 이
+        #     topic_tools throttle 로 /slow_scan 을 만들어 준다(F1_SCAN_HZ 로 조절).
+      - "/pf/pose/odom"                     # RViz Odometry
+      - "/global_waypoints/markers"         # RViz MarkerArray
+      - "/local_waypoints/path"             # RViz Path
+      - "/perception/obstacles/markers"     # RViz MarkerArray
+      - "/debug/l1_lookahead"                # L1 조향 룩어헤드 (control_map_node, MarkerArray)
+
+    # WebSocket 이 밀렸을 때 쌓아둘 상한. 넘으면 **기다리지 않고 버린다** —
+    # fastdds_car.xml 의 max_blocking_time 과 같은 사상(한 장 버리는 게 세우는 것보다 낫다).
+    # 🔑 기본 10 MB 는 시끄러운 WiFi 에서 **드롭 대신 몇 초 뒤처진 화면**을 만든다.
+    #    2 MB 로 줄여 빨리 버리고 최신 상태를 본다.
+    send_buffer_limit: 2000000   # bytes (기본 10000000)
+
+    min_qos_depth: 1
+    max_qos_depth: 10
+
+    include_hidden: false
+    # ⚠️ num_threads 는 **안 적는다.** 3.4.1 에서 실측한 결과 0 / 2 / 6 어느 값이든
+    #    프로세스 스레드가 29 로 동일했고 `ros2 param get` 으로 조회도 안 된다(미선언).
+    #    즉 이 파라미터로는 브릿지 CPU 를 못 묶는다 — 필요하면 taskset/cgroup 으로 볼 것.
+
+    # 🔴 안전 — 뷰어가 무엇을 *발행*할 수 있는지 제한한다.
+    #    기본 capabilities 에는 clientPublish 와 services 가 다 들어 있어서, 브라우저에서
+    #    누구나 `/drive` 를 발행하거나 서비스를 호출할 수 있다. 실차에서는 위험하다.
+    #    ⚠️ 그렇다고 clientPublish 를 통째로 빼면 안 된다 — rviz2 를 안 쓰기로 한 이상
+    #       **초기 포즈(2D Pose Estimate = /initialpose)를 찍을 수단이 없어진다**.
+    #       (auto_init_from_waypoints 가 켜져 있지만, 자동 초기화가 residual 게이트에
+    #        걸려 버려지면 사람이 /initialpose 를 줘야 회복된다.)
+    #    그래서 clientPublish 는 남기고 **발행 가능한 토픽만** /initialpose 로 좁힌다.
+    capabilities: [clientPublish, parameters, parametersSubscribe, connectionGraph, assets]
+    client_topic_whitelist: ["/initialpose"]
+
+    # ⚠️ 여기 없는 이름을 적어도 **노드는 에러 없이 그냥 무시한다**(rclcpp 는 선언 안 된
+    #    params-file 항목을 조용히 버린다). 오타는 기동 실패로 안 드러나므로,
+    #    파라미터를 추가할 때는 젯슨의 정본 목록과 대조할 것:
+    #      /opt/ros/jazzy/share/foxglove_bridge/launch/foxglove_bridge_launch.xml
+    #    (2026-08-26 foxglove_bridge 3.4.1 기준으로 위 항목들은 실물 대조 완료)
