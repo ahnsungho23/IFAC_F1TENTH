@@ -27,7 +27,7 @@ def generate_launch_description():
     )
 
     max_lateral_accel_arg = DeclareLaunchArgument(
-        'max_lateral_accel', default_value='7.8',
+        'max_lateral_accel', default_value='8.5',
         description='코너 그립 클램프 a_lat [m/s^2]. 조향 생성의 a_cmd 상한도 겸한다(②-p). '
 
     )
@@ -52,7 +52,7 @@ def generate_launch_description():
     )
 
     base_max_accel_arg = DeclareLaunchArgument(
-        'base_max_accel', default_value='4.7',
+        'base_max_accel', default_value='5.5',
         description='종방향 최대 가속도 한계 [m/s^2]. VESC 천장은 s_pid_ramp_erpms_s(21160 ÷ 4336 '
                     '= 4.88) — 3.5는 그 72%라 여유가 있다. 4.88을 넘겨 주면 VESC가 깎고 '
                     '와인드업 위험만 커진다'
