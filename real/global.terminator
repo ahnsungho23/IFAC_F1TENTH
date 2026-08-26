@@ -4,14 +4,17 @@
 #
 # Layout `f1real` = one maximised window, 6 panes (LAUNCH_FULLSTACK.md §3 order minus T4):
 #   LEFT  column : 1 bringup (f1tenth_stack) · 2 mcl · 3 global_planning
-#   RIGHT column : 4 state_machine · 5 f1tenth_control (/drive) · 6 RViz + rosbag (Jetson)
+#   RIGHT column : 4 state_machine · 5 f1tenth_control (/drive) · 6 foxglove_bridge (Jetson)
 # All panes run real/run_real.sh <role>, which SSHes into the Jetson ($F1_HOST,
 # default miru@10.1.1.1), sources ROS 2 Jazzy + the right workspace, waits briefly for upstream
-# nodes, launches, and drops to a REMOTE shell on Ctrl-C. Pane 6 uses ssh -X (RViz X-forward)
-# and also starts `ros2 bag record -a` in PAUSED state (resume via /rosbag2_recorder/resume).
+# nodes, launches, and drops to a REMOTE shell on Ctrl-C. Pane 6 runs foxglove_bridge ON THE
+# JETSON — 시각화 DDS 가 WiFi 를 안 넘게 하려는 것이다. 뷰어는 본체 PC 브라우저에서
+# app.foxglove.dev -> Open connection -> ws://10.1.1.1:8765.
+# ⚠️ rosbag 녹화는 이 레이아웃에 없다 — 젯슨에서 `f1rec` alias 로 따로 돌린다.
 #
 # state_machine without local_planning never leaves GLOBAL, so /local_waypoints is just the
-# global line relayed. Initial pose: RViz 2D Pose Estimate (pane 6) after the car is placed.
+# global line relayed. Initial pose: Foxglove 의 2D Pose Estimate (pane 6) — 브릿지가
+# /initialpose 만 발행 허용하도록 client_topic_whitelist 로 좁혀져 있다.
 # =================================================================================================
 [global_config]
   suppress_multiple_term_dialog = True
@@ -94,11 +97,11 @@
       profile = default
       command = @REALDIR@/run_real.sh control
       title = 5 · f1tenth_control · /drive (마지막)
-    [[[t_rviz]]]
+    [[[t_fox]]]
       type = Terminal
       parent = rcolb
       order = 1
       profile = default
-      command = @REALDIR@/run_real.sh rviz
-      title = 6 · RViz (젯슨 X-forward) + rosbag (PAUSED 시작)
+      command = @REALDIR@/run_real.sh foxglove
+      title = 6 · foxglove_bridge · ws://10.1.1.1:8765 (브라우저로 접속)
 [plugins]

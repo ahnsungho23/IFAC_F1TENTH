@@ -4,7 +4,8 @@
 #   ~/2026_IFAC/real/run_real.sh foxglove        # 젯슨에서 기동
 #   본체 PC 브라우저 → https://app.foxglove.dev → Open connection → ws://10.1.1.1:8765
 #
-# 왜 RViz 대신 이걸 쓰나 (docs/kinematic_localization.md §10-7-7 의 역압 문제):
+# 왜 RViz 대신 이걸 쓰나 (역압 문제 — 상세 분석은 main 브랜치의
+# docs/kinematic_localization.md §10-7-7. ⚠️ 그 절은 safety 브랜치에는 없다):
 #   RViz 를 본체 PC 에서 띄우면 **시끄러운 WiFi 너머에 RELIABLE DDS 리더가 생긴다**.
 #   그 리더가 히스토리를 못 비우면 젯슨 발행자의 write() 가 역압으로 막히고, KICP 는
 #   단일스레드 실행기라 스캔 콜백·워치독·하트비트가 통째로 같이 선다.

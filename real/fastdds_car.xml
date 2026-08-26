@@ -24,7 +24,12 @@
      ⚠️ 되돌리기: ~/.zshrc 의 FASTRTPS_DEFAULT_PROFILES_FILE export 한 줄을 지우면 끝이다.
         (백업: ~/.zshrc.bak.<날짜>)
 
-     적용: 젯슨 ~/.zshrc
+     🔴 2026-08-26 현재 이 프로파일은 **적용되어 있지 않다.**
+        젯슨 ~/.zshrc 의 export 한 줄이 사라졌고(zsh -ic 로 확인, 빈 값), ~/fastdds_car.xml
+        파일만 남아 있다. .zshrc mtime 이 "Jan 1" 이라 RTC 가 1970 으로 리셋된 구간에
+        .zshrc 가 덮어써지면서 날아간 것으로 보인다.
+        시각화를 Foxglove(브릿지가 젯슨 안에서 구독)로 옮기면서 원격 RELIABLE 리더 자체가
+        없어졌으므로 당장 되살리지는 않는다. 다시 켜려면 젯슨 ~/.zshrc 에:
         export FASTRTPS_DEFAULT_PROFILES_FILE=$HOME/fastdds_car.xml
      이 파일이 정본이고 젯슨 ~/fastdds_car.xml 이 사본이다. 고치면 양쪽을 같이 고칠 것.
      ================================================================================================= -->

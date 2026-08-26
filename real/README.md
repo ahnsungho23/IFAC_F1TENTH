@@ -27,7 +27,11 @@ ssh로 붙어 실행합니다. `sim/`의 런처 구조를 실차용으로 옮긴
 | — | `rviz` | O | — | RViz(ssh -X) + `ros2 bag record -a --start-paused` |
 
 🔴 **`local.sh` 레이아웃에는 RViz·rosbag 창이 없다.** 녹화가 필요하면 별도 창에서
-`~/2026_IFAC/real/run_real.sh rviz`(젯슨 X-forward + bag) 또는 `... rvizlocal`(본체 RViz만).
+기본 시각화는 **Foxglove**입니다 — 레이아웃에 페인이 들어 있고, 본체 PC 브라우저에서
+app.foxglove.dev → *Open connection* → `ws://10.1.1.1:8765`로 붙습니다.
+RViz가 필요하면 `~/2026_IFAC/real/run_real.sh rviz`(젯슨 X-forward + bag) 또는 `... rvizlocal`(본체 RViz만).
+⚠️ `rvizlocal`이 싣는 `kicp_real.rviz`는 **safety 브랜치에 없습니다**(main에만 있음) — 기본 `rviz2`로 뜹니다.
+rosbag 녹화는 젯슨에서 `f1rec` alias로 따로 돌립니다.
 
 ⚠️ **2번 창이 진단의 반쪽이다.** 응답이 끊기면 라이다 **이더넷 링크**가 죽은 것이고,
 ping은 되는데 `/scan`만 멈추면 **라이다 본체/드라이버**다. 2026-08-25 백에서 라이다가 충돌
@@ -61,7 +65,7 @@ ping은 되는데 `/scan`만 멈추면 **라이다 본체/드라이버**다. 202
   `/local_waypoints`로 그대로 릴리합니다.
 - 녹화는 **일시정지 상태로 시작**합니다. 재개/정지:
   `ros2 service call /rosbag2_recorder/resume rosbag2_interfaces/srv/Resume` (`.../pause .../Pause`)
-- 초기 위치는 수동: 차 정차 → RViz(`run_real.sh rvizlocal`)에서 **2D Pose Estimate** →
+- 초기 위치는 수동: 차 정차 → Foxglove(또는 RViz)에서 **2D Pose Estimate** →
   스캔·벽 겹침 확인 후 7번 control 기동.
 
 ## 개별 실행 / 기타 역할
@@ -105,18 +109,23 @@ ping은 되는데 `/scan`만 멈추면 **라이다 본체/드라이버**다. 202
   - `F1_TIME_SKEW_MAX`(기본 1.0 s) 이내면 건드리지 않습니다. 강제로 맞추려면 `run_real.sh time`.
   - 설정 후에도 어긋나 있으면 `systemd-timesyncd`가 되돌린 것이니 젯슨에서 한 번만
     `sudo timedatectl set-ntp false`.
-- 🔑 **젯슨은 `fastdds_car.xml`을 Fast DDS 기본 DataWriter 프로파일로 씁니다**
-  (`~/.zshrc`의 `FASTRTPS_DEFAULT_PROFILES_FILE`). `publishMode=ASYNCHRONOUS` +
-  `max_blocking_time=5 ms`로, 시끄러운 WiFi의 RELIABLE 구독자가 발행자를 붙잡아
-  KICP 단일스레드 실행기를 세우는 것을 막습니다. QoS 종류(kind)는 안 건드리므로
-  하류 호환성은 그대로입니다. 정본은 `real/fastdds_car.xml`, 젯슨 사본은
-  `~/fastdds_car.xml` — **고치면 양쪽을 같이 고칠 것.**
-  되돌리기: 젯슨 `~/.zshrc`의 export 한 줄 삭제(백업 `~/.zshrc.bak.<날짜>`).
+- 🔴 **`fastdds_car.xml`은 현재 적용되어 있지 않습니다 (2026-08-26 확인).**
+  이 문서는 한동안 "젯슨이 이 프로파일을 쓴다"고 적어 뒀지만, 젯슨 `~/.zshrc`에
+  `FASTRTPS_DEFAULT_PROFILES_FILE` export가 **없습니다** — `zsh -ic 'echo $FASTRTPS_DEFAULT_PROFILES_FILE'`
+  가 빈 값입니다. `~/fastdds_car.xml` 파일만 남아 있습니다. `.zshrc` mtime이 `Jan 1`이라
+  RTC가 1970으로 리셋된 구간에 `.zshrc`가 덮어써지면서 그 한 줄이 날아간 것으로 보입니다.
+  - ⚠️ **08-25 이후 백을 분석할 때 이걸 전제로 두지 마세요.** 스톨이 남아 있었다면
+    "조치가 안 먹혔다"가 아니라 "조치가 애초에 안 걸려 있었다"일 수 있습니다.
+  - 시각화를 Foxglove로 옮기면서(브릿지가 젯슨 안에서 구독) 원격 RELIABLE 리더 자체가
+    없어졌으므로 **당장 되살리지 않습니다.** 다시 켜려면 젯슨 `~/.zshrc`에
+    `export FASTRTPS_DEFAULT_PROFILES_FILE=$HOME/fastdds_car.xml` 한 줄.
+  - 정본은 `real/fastdds_car.xml`, 젯슨 사본은 `~/fastdds_car.xml` — **고치면 양쪽을 같이.**
 - terminator 템플릿의 `title`에 **쉼표(,)를 넣으면 크래시**합니다(리스트로 파싱됨). 쉼표 금지.
 - 🔑 **RViz는 `src/kinematic_localization/rviz/kicp_real.rviz`를 기본으로 싣습니다** — 모든 구독이
   **BEST_EFFORT · Depth 1**입니다. 경기장 WiFi가 시끄러울 때 RELIABLE 구독자는 발행자에게
   역압을 걸고, KICP는 단일스레드 실행기라 그 역압에 노드가 통째로 섭니다
-  (`docs/kinematic_localization.md` §10-7-7). RELIABLE 발행자 ↔ BEST_EFFORT 구독자는 정상
+  (`docs/kinematic_localization.md` §10-7-7 — ⚠️ 이 절은 **main 브랜치에만** 있습니다).
+  RELIABLE 발행자 ↔ BEST_EFFORT 구독자는 정상
   매칭이라 **데이터는 그대로 옵니다**. 다른 설정을 쓰려면 `F1_RVIZ_CFG=<경로>`.
   ⚠️ `/map` 구독이 Volatile이라 **맵이 뜨는 데 최대 10초** 걸립니다(고장 아님).
   ⚠️ TF는 못 낮춥니다 — `tf2_ros::TransformListener`가 QoS를 코드에 박아둡니다.
