@@ -68,7 +68,7 @@ ping은 되는데 `/scan`만 멈추면 **라이다 본체/드라이버**다. 202
 
 ```bash
 ~/2026_IFAC/real/run_real.sh <role> [name:=value ...]
-# roles: bringup | ping | mcl | global | local | state | control | time | rviz | rvizlocal | stop [--all] | scratch
+# roles: bringup | ping | mcl | global | local | state | control | time | rviz | rvizlocal | foxglove | stop [--all] | scratch
 ~/2026_IFAC/real/run_real.sh time                                     # 젯슨 시계를 이 기기에 강제로 맞춤
 ~/2026_IFAC/real/run_real.sh control max_speed:=2.5 min_speed:=0.5   # 셰이크다운
 ~/2026_IFAC/real/run_real.sh stop                                    # 스택만 원격 종료
@@ -120,6 +120,21 @@ ping은 되는데 `/scan`만 멈추면 **라이다 본체/드라이버**다. 202
   매칭이라 **데이터는 그대로 옵니다**. 다른 설정을 쓰려면 `F1_RVIZ_CFG=<경로>`.
   ⚠️ `/map` 구독이 Volatile이라 **맵이 뜨는 데 최대 10초** 걸립니다(고장 아님).
   ⚠️ TF는 못 낮춥니다 — `tf2_ros::TransformListener`가 QoS를 코드에 박아둡니다.
+- 🟢 **시각화 대안 — `run_real.sh foxglove` (권장, `real/foxglove_bridge.yaml`)**
+  `foxglove_bridge`를 **젯슨에서** 띄우고 본체 PC는 브라우저로 붙습니다
+  (https://app.foxglove.dev → *Open connection* → `ws://10.1.1.1:8765`).
+  🔑 브릿지가 젯슨 안에서 구독하므로 **DDS가 WiFi를 아예 안 넘습니다** — RViz를 본체에서
+  띄웠을 때 KICP를 세우던 원격 RELIABLE 리더가 없어집니다. WiFi에는 WebSocket(TCP) 하나만
+  흐르고 그 지연은 브릿지 송신 버퍼(`send_buffer_limit`, 넘으면 대기 없이 드롭)가 흡수합니다.
+  🔑 **`/tf`도 같이 해결됩니다** — `rvizlocal`의 BEST_EFFORT 대책이 못 덮던 부분입니다
+  (`tf2_ros::TransformListener`가 QoS(100) RELIABLE을 코드에 박아둠). 리스너가 젯슨 안으로
+  들어오면 그 경로가 무해해집니다.
+  🔑 구독 QoS를 **일부러 안 낮췄습니다**(로컬이라 역압 위험 없음) → `/map`·`/global_waypoints`의
+  래치 샘플이 즉시 옵니다. `rvizlocal`의 "맵이 10초 뒤에 뜬다" 문제가 여기서는 없습니다.
+  🔑 브릿지는 **뷰어가 실제로 켠 패널의 토픽만** 그때 구독합니다 — `topic_whitelist: [".*"]`
+  여도 WiFi 트래픽은 보고 있는 만큼만 나갑니다.
+  ⚠️ 젯슨에 패키지 설치 필요: `sudo apt install ros-jazzy-foxglove-bridge`.
+  ⚠️ `fastdds_car.xml`은 **그대로 둡니다** — 발행자 쪽 상한이라 층이 다르고 대체재가 아닙니다.
 - `rviz` role의 RViz는 ssh X-forward라 소프트웨어 렌더링(`LIBGL_ALWAYS_SOFTWARE=1`)이라 느릴 수 있습니다.
   답답하면 `run_real.sh rvizlocal`로 본체에서 띄우세요 (토픽은 도메인 70로 그대로 보임).
 - RViz를 닫으면 그 창의 rosbag 녹화도 같이 종료됩니다.

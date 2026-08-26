@@ -13,6 +13,7 @@
 #   control   7  f1tenth_control                  (마지막에 띄울 것)
 #   rviz         젯슨 ssh -X: RViz + rosbag(PAUSED 시작)   — 기본 레이아웃에는 없다
 #   rvizlocal    본체 PC 에서 RViz 만
+#   foxglove     젯슨에서 foxglove_bridge (ws://<젯슨>:8765) — WiFi 역압이 없는 시각화
 #   time         젯슨 시계를 **이 기기**에 맞춘다 (bringup 이 자동으로 먼저 부른다)
 #   stop [--all] | scratch
 #
@@ -200,9 +201,16 @@ case "$role" in
     print -P "%F{yellow}[rvizlocal] exited — dropping to an interactive shell%f"
     exec zsh -i
     ;;
+  foxglove|fox)                          # 젯슨 — foxglove_bridge (WebSocket). 뷰어는 본체 PC 브라우저
+    # 🔑 브릿지가 **젯슨 안에서** 구독하므로 DDS 가 WiFi 를 안 넘는다 — RViz 를 본체 PC 에서
+    #    띄웠을 때 KICP 를 세우던 원격 RELIABLE 리더가 아예 없어진다(§10-7-7). `/tf` 도 포함.
+    #    뷰어: https://app.foxglove.dev → Open connection → ws://${JETSON#*@}:8765
+    # ⚠️ 젯슨에 패키지가 필요하다: sudo apt install ros-jazzy-foxglove-bridge
+    remote 10 "cd ~/2026_IFAC && sc && ros2 run foxglove_bridge foxglove_bridge --ros-args --params-file ~/2026_IFAC/real/foxglove_bridge.yaml"
+    ;;
   stop|clean|kill)                       # 이 스택의 노드만 원격 종료 (--all: bringup까지)
     print -P "%F{cyan}[stop] clearing the stack on $JETSON…%f"
-    ssh "$JETSON" "pkill -f 'ros2 launch (kinematic_localization|global_planning|state_machine|f1tenth_control|local_planning|obstacle_detector)'; pkill -f 'ros2 bag record|rosbag2_recorder'; pkill -f 'localization_node|global_trajectory_publisher_node|frenet_odom_node|state_machine_node|control_map_node|drive_source_selector|local_planner_node|obstacle_detector_node'" 2>/dev/null
+    ssh "$JETSON" "pkill -f 'ros2 launch (kinematic_localization|global_planning|state_machine|f1tenth_control|local_planning|obstacle_detector)'; pkill -f 'ros2 bag record|rosbag2_recorder'; pkill -f foxglove_bridge; pkill -f 'localization_node|global_trajectory_publisher_node|frenet_odom_node|state_machine_node|control_map_node|drive_source_selector|local_planner_node|obstacle_detector_node'" 2>/dev/null
     if [[ "${1:-}" == "--all" ]]; then
       ssh "$JETSON" "pkill -f 'ros2 launch f1tenth_stack'" 2>/dev/null
     fi

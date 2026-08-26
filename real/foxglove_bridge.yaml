@@ -1,0 +1,48 @@
+# =================================================================================================
+# real/foxglove_bridge.yaml — 실차(젯슨) 시각화 브릿지 파라미터
+#
+#   ~/2026_IFAC/real/run_real.sh foxglove        # 젯슨에서 기동
+#   본체 PC 브라우저 → https://app.foxglove.dev → Open connection → ws://10.1.1.1:8765
+#
+# 왜 RViz 대신 이걸 쓰나 (docs/kinematic_localization.md §10-7-7 의 역압 문제):
+#   RViz 를 본체 PC 에서 띄우면 **시끄러운 WiFi 너머에 RELIABLE DDS 리더가 생긴다**.
+#   그 리더가 히스토리를 못 비우면 젯슨 발행자의 write() 가 역압으로 막히고, KICP 는
+#   단일스레드 실행기라 스캔 콜백·워치독·하트비트가 통째로 같이 선다.
+#   foxglove_bridge 는 **젯슨 안에서** 구독하므로 DDS 가 loopback/SHM 밖으로 안 나간다.
+#   WiFi 에는 WebSocket(TCP) 하나만 흐르고, 그 지연은 브릿지 송신 버퍼가 흡수한다.
+#   🔑 RViz 쪽 대책(구독 QoS 강등)이 못 덮던 `/tf` 도 같이 해결된다 —
+#      tf2_ros::TransformListener 는 QoS(100) RELIABLE 이 코드에 박혀 있어 설정으로 못 낮추는데,
+#      리스너가 젯슨 안으로 들어오면 그 경로가 무해해진다.
+#
+# 🔑 구독 QoS 를 일부러 **안 낮췄다**(best_effort_qos_topic_whitelist 미설정).
+#    브릿지가 로컬이라 역압 위험이 없고, RELIABLE + TRANSIENT_LOCAL 을 그대로 받으므로
+#    `/map` · `/global_waypoints` 의 래치 샘플이 **즉시** 온다 — rvizlocal 의 "맵이 10 초 뒤에
+#    뜬다" 문제가 여기서는 없다.
+#
+# ⚠️ `real/fastdds_car.xml`(발행자 쪽 max_blocking_time 5 ms + ASYNCHRONOUS)은 그대로 둘 것.
+#    이건 "누가 구독하든" 걸리는 상한이라 Foxglove 와 층이 다르고 서로 대체재가 아니다.
+# =================================================================================================
+foxglove_bridge:
+  ros__parameters:
+    port: 8765
+    address: "0.0.0.0"          # 차량망의 본체 PC 가 붙어야 하므로 loopback 이 아니다
+    tls: false
+
+    # 🔑 브릿지는 화이트리스트 전체를 구독하지 않는다 — 뷰어가 실제로 켠 패널의 토픽만
+    #    그때 구독한다. 그래서 `.*` 여도 WiFi 트래픽은 보고 있는 것만큼만 나간다.
+    topic_whitelist: [".*"]
+
+    # WebSocket 이 밀렸을 때 쌓아둘 상한. 넘으면 **기다리지 않고 버린다** —
+    # fastdds_car.xml 의 max_blocking_time 과 같은 사상(한 장 버리는 게 세우는 것보다 낫다).
+    send_buffer_limit: 10000000  # bytes
+
+    min_qos_depth: 1
+    max_qos_depth: 10
+    num_threads: 0               # 0 = 하드웨어 스레드 수
+    include_hidden: false
+
+    # ⚠️ 여기 없는 이름을 적어도 **노드는 에러 없이 그냥 무시한다**(rclcpp 는 선언 안 된
+    #    params-file 항목을 조용히 버린다). 오타는 기동 실패로 안 드러나므로,
+    #    파라미터를 추가할 때는 젯슨의 정본 목록과 대조할 것:
+    #      /opt/ros/jazzy/share/foxglove_bridge/launch/foxglove_bridge_launch.xml
+    #    (2026-08-26 foxglove_bridge 3.4.1 기준으로 위 항목들은 실물 대조 완료)
