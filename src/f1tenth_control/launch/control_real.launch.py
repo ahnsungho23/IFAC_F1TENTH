@@ -22,7 +22,7 @@ def generate_launch_description():
 
     max_speed_arg = DeclareLaunchArgument(
         'max_speed',
-        default_value='8.0',
+        default_value='9.0',
         description='control_map_node 직선 최대 속도 [m/s]'
     )
 
