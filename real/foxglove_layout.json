@@ -70,6 +70,9 @@
         },
         "/perception/obstacles/markers": {
           "visible": true
+        },
+        "/debug/l1_lookahead": {
+          "visible": true
         }
       },
       "layers": {

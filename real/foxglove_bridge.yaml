@@ -50,6 +50,7 @@ foxglove_bridge:
       - "/global_waypoints/markers"         # RViz MarkerArray
       - "/local_waypoints/path"             # RViz Path
       - "/perception/obstacles/markers"     # RViz MarkerArray
+      - "/debug/l1_lookahead"                # L1 조향 룩어헤드 (control_map_node, MarkerArray)
 
     # WebSocket 이 밀렸을 때 쌓아둘 상한. 넘으면 **기다리지 않고 버린다** —
     # fastdds_car.xml 의 max_blocking_time 과 같은 사상(한 장 버리는 게 세우는 것보다 낫다).

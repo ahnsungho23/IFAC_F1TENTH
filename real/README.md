@@ -144,7 +144,7 @@ ping은 되는데 `/scan`만 멈추면 **라이다 본체/드라이버**다. 202
   여도 WiFi 트래픽은 보고 있는 만큼만 나갑니다.
   🔑 **광고 토픽을 RViz 기본 설정이 그리던 것만으로 좁혔습니다** — `/tf`·`/tf_static`·`/map`·
   `/slow_scan`·`/pf/pose/odom`·`/global_waypoints/markers`·`/local_waypoints/path`·
-  `/perception/obstacles/markers`. 기본 `.*`는 젯슨 전 토픽(46채널)을 광고하면서
+  `/perception/obstacles/markers`·`/debug/l1_lookahead`(L1 조향 룩어헤드). 기본 `.*`는 젯슨 전 토픽(46채널)을 광고하면서
   `vesc_msgs` 스키마를 못 찾아 에러를 반복합니다(그 패키지는 `~/f1tenth_ws`에 있는데 이
   role은 `~/2026_IFAC`만 source합니다). ⚠️ 정규식 **완전 일치**라 접두사만 적으면 안 됩니다.
   🔑 **`/scan`(40 Hz)은 일부러 뺐습니다.** 대신 role이 `topic_tools throttle`로
