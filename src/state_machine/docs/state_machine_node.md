@@ -42,6 +42,15 @@ Frenet 입력이 멈추면 마지막 index로 경로를 재발행하지 않습�
   `/opp_obs`가 stale이면 `GLOBAL`로 복귀하고, 확인된 회피 경로가 들어오면 간섭값과
   관계없이 `AVOID`로 전이합니다.
 
+  > 🟢 **2026-08-26: 이탈은 M-of-N 확인 게이트를 거칩니다** (`cruise_exit_window_size` 5 /
+  > `cruise_exit_min_hits` 3). 최근 5회 FSM 평가(10 Hz) 중 "간섭 없음" 표가 3회 이상이어야
+  > GLOBAL로 나옵니다. 검출기의 순간 공백(ID 스위치·재확인 창·NaN 필터링) 한 장으로 이탈하면,
+  > 그 사이 cruise_controller가 maximum_speed 펄스를 날리고 PID가 리셋되어 급재접근 →
+  > emergency stop → 움직이는 앞차 뒤 완전 정지 → 구동계 데드존(~2.5 m/s) 재출발 지연이
+  > 생깁니다. 정상 소실이라면 `opponent_stale_timeout_sec`(0.3 s)과 합쳐 수 틱 안에
+  > 확정됩니다. **진입(GLOBAL→CRUISE)은 즉시입니다** — 감속=안전 방향이고 이미
+  > p_on/p_off Schmitt 트리거가 있습니다. 상태가 바뀌면 표적 창은 새로 시작됩니다.
+
   > 🔴 **간섭 판정의 소유자는 이 노드다.** 2026-08-22 포팅(`8010b2f9`)이 이 술어를 지우고
   > `obstacle_detector`가 채우는 `is_interfering`(진입 1.0 m)에 위임했는데,
   > `cruise_controller`의 목표 간격은 5.0 m라 "cruise 목표 간격 <= interference_distance_m"
@@ -121,6 +130,8 @@ Frenet s 글리치에 경로 전체가 끌려가고 창 길이가 점 밀도에 
 | `allow_cruise_transition` | `true` | `/opp_obs` 기반 CRUISE 진입 허용 |
 | `local_path_confirmation_window_size` | `5` | 진입 확인 메시지 창 크기 N |
 | `local_path_confirmation_min_hits` | `3` | 필요한 non-empty 수 M |
+| `cruise_exit_window_size` | `5` | 🟢 2026-08-26 신설. CRUISE 이탈 확인 창 N (FSM 평가 횟수) |
+| `cruise_exit_min_hits` | `3` | 🟢 2026-08-26 신설. 이탈에 필요한 "간섭 없음" 표 수 M. 진입은 즉시(안전 방향)라 이탈만 게이트한다 |
 | `opponent_stale_timeout_sec` | `0.3` | `/opp_obs`가 이 시간 이상 끊기면 간섭 해제 |
 | `interference_distance_m` | `4.0` | 🟢 **2026-08-25부터 다시 살아있는 파라미터.** OR 결합의 (a) 경로: 종방향 gap(ego 앞범퍼~상대 중심) 상한 [m]. `cruise_controller`의 목표 간격(`trailing_gap`) 이상이어야 한다 — 작으면 cruise가 유지하려는 간격에서 간섭 없음으로 판정해 CRUISE 이탈/재진입 리밋사이클이 생긴다(현재 `trailing_gap` 3.0 < 4.0으로 충족). |
 | `interference_horizon_sec` | `1.0` | 횡방향(`d`) 등속 시간전파 지평 [s] |

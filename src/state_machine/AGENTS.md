@@ -58,6 +58,16 @@ State machine package rules. These instructions apply to `src/state_machine`.
   - CRUISE selects GLOBAL geometry and returns to GLOBAL when neither OR'd condition holds — i.e.
     `longitudinal_gap_m > interference_distance_m` AND `p_lat <= interference_p_off` — or on
     empty/stale `/opp_obs`.
+  - 🟢 **2026-08-26: the CRUISE exit is confirmed M-of-N over recent FSM evaluations** (default
+    3-of-5, `cruise_exit_window_size`/`cruise_exit_min_hits`). A single empty/invalid `/opp_obs`
+    frame (detector ID switch, reconfirmation window, NaN filtering) must not eject CRUISE by
+    itself: the cruise controller publishes a `maximum_speed` pulse while `/state` is GLOBAL and
+    resets its PID on every state edge, so one flapped exit produces a hard lunge → emergency
+    stop → full standstill behind a still-moving opponent → slow deadzone restart. Entry
+    (GLOBAL→CRUISE) stays instant — braking is the safe direction and is already Schmitt-gated
+    (`p_on`/`p_off`). The vote history is cleared on every committed-state change so a new state
+    visit starts a fresh window. Do not replace this with a time-based dwell; it is frame-based
+    like the AVOID entry M-of-N and scales with `publish_rate_hz` automatically.
   - **AVOID -> GLOBAL requires the planner's explicit handoff marker.** The planner is the single
     owner of "no blocking cluster remains" — it publishes `ot_line=raceline_global_handoff` only
     after verifying that itself. Only while that marker is present does `enter_to_global()`

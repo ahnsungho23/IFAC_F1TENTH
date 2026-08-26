@@ -98,6 +98,11 @@ StateMachineNode::StateMachineNode()
   declare_parameter<int64_t>("local_path_confirmation_window_size", 5);
   declare_parameter<int64_t>("local_path_confirmation_min_hits", 3);
 
+  // CRUISE -> GLOBAL 이탈 M-of-N(프레임 단위). 진입은 즉시(감속=안전 방향)이고
+  // 이탈만 확인 게이트를 거친다.
+  declare_parameter<int64_t>("cruise_exit_window_size", 5);
+  declare_parameter<int64_t>("cruise_exit_min_hits", 3);
+
   declare_parameter<double>("enter_global_sec", 0.5);
   declare_parameter<double>("enter_global_threshold", 0.2);
   declare_parameter<double>("enter_global_tail_distance_m", 6.0);
@@ -119,6 +124,12 @@ StateMachineNode::StateMachineNode()
     get_parameter("local_path_confirmation_min_hits").as_int(),
     1,
     local_path_confirmation_window_size_);
+  cruise_exit_window_size_ = std::max<int64_t>(
+    1, get_parameter("cruise_exit_window_size").as_int());
+  cruise_exit_min_hits_ = std::clamp<int64_t>(
+    get_parameter("cruise_exit_min_hits").as_int(),
+    1,
+    cruise_exit_window_size_);
 
   const double publish_rate_hz = get_parameter("publish_rate_hz").as_double();
   global_publisher_warn_timeout_sec_ =
@@ -264,6 +275,12 @@ bool StateMachineNode::local_path_confirmed(
   }
   return std::count(history.begin(), history.end(), true) >=
          local_path_confirmation_min_hits_;
+}
+
+bool StateMachineNode::cruise_clear_confirmed() const
+{
+  return std::count(cruise_clear_history_.begin(), cruise_clear_history_.end(), true) >=
+         cruise_exit_min_hits_;
 }
 
 bool StateMachineNode::has_valid_global() const
@@ -608,8 +625,19 @@ bool StateMachineNode::avoid_path_is_full_stop() const
 
 uint8_t StateMachineNode::resolve_requested_state()
 {
+  const uint8_t previous_state = committed_state_;
   const bool avoid_requested = can_enter_avoid();
   const bool cruise_requested = has_interfering_opponent();
+
+  // CRUISE 이탈 M-of-N: 이번 틱의 "간섭 없음" 판정을 히스토리에 적립한다. 검출기의
+  // 순간 공백(ID 스위치·재확인 창·NaN 필터링) 한 장이 곧바로 이탈로 이어지면,
+  // cruise_controller가 그 사이 maximum_speed 펄스를 날리고 PID가 리셋되어
+  // 급재접근 → emergency stop → 완전 정지 → 데드존 재출발 지연이 생긴다(2026-08-26).
+  // 진입(GLOBAL→CRUISE)은 감속=안전 방향이라 즉시이며 이미 p_on/p_off Schmitt가 있다.
+  cruise_clear_history_.push_back(!cruise_requested);
+  while (static_cast<int64_t>(cruise_clear_history_.size()) > cruise_exit_window_size_) {
+    cruise_clear_history_.pop_front();
+  }
 
   switch (committed_state_) {
     case f110_msgs::msg::StateMachine::STATE_GLOBAL:
@@ -668,16 +696,33 @@ uint8_t StateMachineNode::resolve_requested_state()
         enter_global_ok_since_.reset();
         RCLCPP_INFO(
           get_logger(), "STATE_CRUISE -> STATE_AVOID (avoid path confirmed M-of-N).");
-      } else if (!cruise_requested) {
+      } else if (cruise_clear_confirmed()) {
         committed_state_ = f110_msgs::msg::StateMachine::STATE_GLOBAL;
         RCLCPP_INFO(
-          get_logger(), "STATE_CRUISE -> STATE_GLOBAL (/opp_obs interference=false/stale).");
+          get_logger(),
+          "STATE_CRUISE -> STATE_GLOBAL (clear confirmed %d-of-%d: interference=false/stale).",
+          static_cast<int>(cruise_exit_min_hits_), static_cast<int>(cruise_exit_window_size_));
+      } else if (!cruise_requested) {
+        // 간섭 없음이지만 아직 M-of-N 미확정 — 이탈 보류. 정상 소실이라면
+        // opponent_stale_timeout_sec(0.3 s)과 합쳐 수 틱 안에 확정된다.
+        RCLCPP_WARN_THROTTLE(
+          get_logger(), *get_clock(), 1000,
+          "CRUISE exit held: %d/%d clear votes.",
+          static_cast<int>(std::count(
+            cruise_clear_history_.begin(), cruise_clear_history_.end(), true)),
+          static_cast<int>(cruise_exit_window_size_));
       }
       break;
 
     default:
       committed_state_ = f110_msgs::msg::StateMachine::STATE_GLOBAL;
       break;
+  }
+
+  if (committed_state_ != previous_state) {
+    // 상태가 바뀌면 이탈 표적 창을 새로 시작한다. 오래된 반대 방향 투표가 다음
+    // 상태 방문의 첫 판정에 유입되는 것을 막는다.
+    cruise_clear_history_.clear();
   }
   return committed_state_;
 }

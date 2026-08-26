@@ -39,6 +39,17 @@ state_machine_node:
     frenet_stale_timeout_sec: 5.0
     # 마지막 /opp_obs가 이 시간보다 오래되면 간섭 없음으로 보고 CRUISE에서 GLOBAL로 복귀합니다.
     opponent_stale_timeout_sec: 0.3
+    # 🟢 2026-08-26 신설: CRUISE -> GLOBAL 이탈 M-of-N(프레임 단위). 최근
+    #    cruise_exit_window_size 회 FSM 평가(10 Hz) 중 "간섭 없음" 표가
+    #    cruise_exit_min_hits 회 이상이어야 이탈합니다. 검출기의 순간 공백(ID 스위치·
+    #    재확인 창·NaN 필터링) 한 장이 곧바로 이탈로 이어지면 cruise_controller 가 그 사이
+    #    maximum_speed 펄스를 날리고 PID가 리셋되어 급재접근 -> emergency stop -> 완전 정지
+    #    -> 구동계 데드존(~2.5 m/s) 재출발 지연이 생깁니다. 3-of-5 = 약 0.3~0.5 s 확인 창이고,
+    #    정상 소실이라면 opponent_stale_timeout_sec(0.3 s)과 합쳐 수 틱 안에 확정됩니다.
+    #    ⚠️ 진입(GLOBAL->CRUISE)은 즉시입니다 — 감속=안전 방향이고 이미 p_on/p_off Schmitt
+    #    트리거가 있습니다. 이탈만 맵니다(캡 해제=위험 방향).
+    cruise_exit_window_size: 5
+    cruise_exit_min_hits: 3
     invalid_local_path_policy: "global_fallback"
 
     # 간섭 판단(CRUISE 진입/유지)은 이 노드가 /opp_obs 의 위치·속도·공분산으로 직접 수행한다.

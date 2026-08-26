@@ -30,6 +30,9 @@ private:
   bool local_path_confirmed(
     const std::deque<bool> & history,
     const f110_msgs::msg::OTWpntArray::SharedPtr msg) const;
+  // 최근 cruise_exit_window_size_회 FSM 평가 중 "간섭 없음" 표가
+  // cruise_exit_min_hits_회 이상인지. CRUISE -> GLOBAL 이탈의 M-of-N 게이트.
+  bool cruise_clear_confirmed() const;
   bool has_valid_global() const;
   bool has_fresh_frenet() const;
   bool has_avoid_wpnts() const;
@@ -95,6 +98,8 @@ private:
   bool allow_cruise_transition_{true};
   int64_t local_path_confirmation_window_size_{5};
   int64_t local_path_confirmation_min_hits_{3};
+  int64_t cruise_exit_window_size_{5};
+  int64_t cruise_exit_min_hits_{3};
   double global_publisher_warn_timeout_sec_{5.0};
   double frenet_stale_timeout_sec_{0.5};
   double opponent_stale_timeout_sec_{0.3};
@@ -134,6 +139,8 @@ private:
   f110_msgs::msg::OTWpntArray::SharedPtr avoid_wpnts_msg_;
   f110_msgs::msg::OTWpntArray::SharedPtr last_non_empty_avoid_wpnts_msg_;
   std::deque<bool> avoid_path_history_;
+  // 최근 FSM 평가의 "간섭 없음" 히스토리(true = clear). CRUISE 이탈 M-of-N용.
+  std::deque<bool> cruise_clear_history_;
 
   uint8_t committed_state_{f110_msgs::msg::StateMachine::STATE_GLOBAL};
 
