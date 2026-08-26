@@ -1,13 +1,13 @@
-# IFAC practice-session aggressive profile (2026-08-24),,,
-# IFAC practice - grip column UNCHANGED, longitudinal maxed,,
+# IFAC practice-session aggressive profile (2026-08-24)
+# IFAC practice - grip column UNCHANGED, longitudinal maxed
 # speed_mps,max_accel_mps2,max_decel_mps2,max_lateral_accel_mps2
-0,4.7,3.2,7.8
-1,4.7,3.2,7.8
-2,4.7,3.2,7.8
-3,4.7,3.2,7.8
-4,4.7,3.2,7.8
-5,4.7,3.2,7.8
-6,4.42,3.2,7.7
-7,4.14,3.2,7.5
-8,3.86,3.2,7.3
-9,3.58,3.2,7.1
+0,4.70,3.20,7.80
+1,4.70,3.20,7.80
+2,4.70,3.20,7.80
+3,4.70,3.20,7.80
+4,4.70,3.20,7.80
+5,4.70,3.20,7.80
+6,4.42,3.20,7.70
+7,4.14,3.20,7.50
+8,3.86,3.20,7.30
+9,3.58,3.20,7.10

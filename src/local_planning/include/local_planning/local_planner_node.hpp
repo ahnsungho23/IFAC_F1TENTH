@@ -367,7 +367,7 @@ private:
 
   bool require_obstacles_message_{true};
   double obstacle_stale_timeout_sec_{0.75};
-  double odometry_stale_timeout_sec_{0.50};
+  double odometry_stale_timeout_sec_{5.0};
   double merge_lateral_tolerance_m_{0.15};
   int merge_confirm_cycles_{15};
   int safe_stop_release_cycles_{8};
