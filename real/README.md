@@ -133,6 +133,11 @@ ping은 되는데 `/scan`만 멈추면 **라이다 본체/드라이버**다. 202
   래치 샘플이 즉시 옵니다. `rvizlocal`의 "맵이 10초 뒤에 뜬다" 문제가 여기서는 없습니다.
   🔑 브릿지는 **뷰어가 실제로 켠 패널의 토픽만** 그때 구독합니다 — `topic_whitelist: [".*"]`
   여도 WiFi 트래픽은 보고 있는 만큼만 나갑니다.
+  🔴 **뷰어가 발행할 수 있는 토픽을 `/initialpose` 하나로 좁혔습니다.** 기본
+  `capabilities`에는 `clientPublish`·`services`가 다 들어 있어 브라우저에서 누구나 `/drive`를
+  발행하거나 서비스를 호출할 수 있습니다. `services`는 빼고, `clientPublish`는 남긴 채
+  `client_topic_whitelist: ["/initialpose"]`로 제한했습니다 — rviz2를 안 쓰므로 **2D Pose
+  Estimate 수단은 남겨야** 하기 때문입니다(자동 초기화가 residual 게이트에 걸리면 사람이 줘야 함).
   ⚠️ 젯슨에 패키지 설치 필요: `sudo apt install ros-jazzy-foxglove-bridge`.
   ⚠️ `fastdds_car.xml`은 **그대로 둡니다** — 발행자 쪽 상한이라 층이 다르고 대체재가 아닙니다.
 - `rviz` role의 RViz는 ssh X-forward라 소프트웨어 렌더링(`LIBGL_ALWAYS_SOFTWARE=1`)이라 느릴 수 있습니다.

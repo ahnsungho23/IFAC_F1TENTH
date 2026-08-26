@@ -34,12 +34,28 @@ foxglove_bridge:
 
     # WebSocket 이 밀렸을 때 쌓아둘 상한. 넘으면 **기다리지 않고 버린다** —
     # fastdds_car.xml 의 max_blocking_time 과 같은 사상(한 장 버리는 게 세우는 것보다 낫다).
-    send_buffer_limit: 10000000  # bytes
+    # 🔑 기본 10 MB 는 시끄러운 WiFi 에서 **드롭 대신 몇 초 뒤처진 화면**을 만든다.
+    #    2 MB 로 줄여 빨리 버리고 최신 상태를 본다.
+    send_buffer_limit: 2000000   # bytes (기본 10000000)
 
     min_qos_depth: 1
     max_qos_depth: 10
-    num_threads: 0               # 0 = 하드웨어 스레드 수
+
     include_hidden: false
+    # ⚠️ num_threads 는 **안 적는다.** 3.4.1 에서 실측한 결과 0 / 2 / 6 어느 값이든
+    #    프로세스 스레드가 29 로 동일했고 `ros2 param get` 으로 조회도 안 된다(미선언).
+    #    즉 이 파라미터로는 브릿지 CPU 를 못 묶는다 — 필요하면 taskset/cgroup 으로 볼 것.
+
+    # 🔴 안전 — 뷰어가 무엇을 *발행*할 수 있는지 제한한다.
+    #    기본 capabilities 에는 clientPublish 와 services 가 다 들어 있어서, 브라우저에서
+    #    누구나 `/drive` 를 발행하거나 서비스를 호출할 수 있다. 실차에서는 위험하다.
+    #    ⚠️ 그렇다고 clientPublish 를 통째로 빼면 안 된다 — rviz2 를 안 쓰기로 한 이상
+    #       **초기 포즈(2D Pose Estimate = /initialpose)를 찍을 수단이 없어진다**.
+    #       (auto_init_from_waypoints 가 켜져 있지만, 자동 초기화가 residual 게이트에
+    #        걸려 버려지면 사람이 /initialpose 를 줘야 회복된다.)
+    #    그래서 clientPublish 는 남기고 **발행 가능한 토픽만** /initialpose 로 좁힌다.
+    capabilities: [clientPublish, parameters, parametersSubscribe, connectionGraph, assets]
+    client_topic_whitelist: ["/initialpose"]
 
     # ⚠️ 여기 없는 이름을 적어도 **노드는 에러 없이 그냥 무시한다**(rclcpp 는 선언 안 된
     #    params-file 항목을 조용히 버린다). 오타는 기동 실패로 안 드러나므로,
