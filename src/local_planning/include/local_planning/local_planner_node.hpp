@@ -101,7 +101,7 @@ private:
   void onFrenetOdometry(const nav_msgs::msg::Odometry::SharedPtr message);
   void onState(const f110_msgs::msg::StateMachine::SharedPtr message);
   void onPlanningTimer();
-  void runP0PlanningCycle(const P3CallbackSnapshot * snapshot = nullptr);
+  void runSafetyPlanningCycle(const P3CallbackSnapshot * snapshot = nullptr);
   void tryRunLockstepCycle();
   rclcpp::Time eventNow() const;
 
@@ -110,7 +110,7 @@ private:
   void resetP3SelectionEnvelope();
   P3ShadowResult evaluateP3Snapshot(
     const P3CallbackSnapshot & snapshot,
-    const std::string & p0_context) const;
+    const std::string & planning_context) const;
   // Continuation-first is a computation order, not only an output priority: `evaluate` is pulled
   // ONLY when the recorded maneuver fails to continue. A held frozen suffix therefore costs no
   // candidate generation and no hard validation at all. Do not take a materialized result here.

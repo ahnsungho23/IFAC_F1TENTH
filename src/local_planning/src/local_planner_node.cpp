@@ -3147,7 +3147,7 @@ bool LocalPlannerNode::prepareP3InitialSelectionSnapshot(P3CallbackSnapshot & sn
 
 P3ShadowResult LocalPlannerNode::evaluateP3Snapshot(
   const P3CallbackSnapshot & snapshot,
-  const std::string & p0_context) const
+  const std::string & planning_context) const
 {
   if (!snapshot.ready) {
     P3ShadowResult result;
@@ -3155,14 +3155,14 @@ P3ShadowResult LocalPlannerNode::evaluateP3Snapshot(
     result.snapshot_source_stamp_ns = snapshot.maneuver.source_stamp_ns;
     result.snapshot_epoch = snapshot.maneuver.source_epoch;
     result.global_reference_generation = snapshot.maneuver.global_reference_generation;
-    result.p0_failure_reason = p0_context;
+    result.p0_failure_reason = planning_context;
     result.failure_classification = snapshot.not_ready_reason;
     return result;
   }
   const auto result = planner_.evaluateP3Shadow(
     snapshot.maneuver.ego, snapshot.maneuver.obstacles,
     snapshot.maneuver.source_stamp_ns, snapshot.maneuver.source_epoch,
-    snapshot.maneuver.global_reference_generation, p0_context);
+    snapshot.maneuver.global_reference_generation, planning_context);
   // 평가기는 내부 불변식 위반을 예외 대신 이 분류로 돌려준다(evaluateP3Shadow의 가드 참고).
   // 조용히 지나가면 안 되는 버그이므로 여기서 크게 남긴다.
   if (result.failure_classification.rfind("EVALUATOR_INVARIANT_VIOLATION", 0) == 0) {
@@ -3513,7 +3513,7 @@ void LocalPlannerNode::onPlanningTimer()
   if (p3_mode_ == P3RuntimeMode::kOff) {
     // This is the entire OFF branch. It enters the pre-integration P0 body without capturing,
     // evaluating, logging, publishing, or mutating any P3 state.
-    runP0PlanningCycle();
+    runSafetyPlanningCycle();
     return;
   }
 
@@ -3525,7 +3525,7 @@ void LocalPlannerNode::onPlanningTimer()
   }
   if (p3_mode_ == P3RuntimeMode::kShadow) {
     current_path_owner_ = "P0";
-    runP0PlanningCycle(&snapshot);
+    runSafetyPlanningCycle(&snapshot);
     // SHADOW evaluates the same state/obstacle/reference snapshot without allowing the P0
     // output selected in this callback (including its safe-stop latch) to suppress the
     // observational P3 lifecycle. P0 publication remains unchanged, and the diagnostic still
@@ -3767,12 +3767,12 @@ void LocalPlannerNode::onPlanningTimer()
       lifecycle.reason.empty() ? evaluation.failure_classification.c_str() :
       lifecycle.reason.c_str());
   }
-  runP0PlanningCycle(&snapshot);
+  runSafetyPlanningCycle(&snapshot);
   publishP3CycleDiagnostic(
     active_snapshot, evaluation, lifecycle, "P0_BACKUP_ONLY", true);
 }
 
-void LocalPlannerNode::runP0PlanningCycle(const P3CallbackSnapshot * snapshot)
+void LocalPlannerNode::runSafetyPlanningCycle(const P3CallbackSnapshot * snapshot)
 {
   nav_msgs::msg::Odometry odometry;
   rclcpp::Time odometry_time(0, 0, RCL_ROS_TIME);
