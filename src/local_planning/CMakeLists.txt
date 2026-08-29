@@ -23,6 +23,7 @@ include_directories(
 add_library(local_planner_core STATIC
   src/local_planner_node.cpp
   src/obstacle_guard.cpp
+  src/path_digest.cpp
   src/p3_maneuver_lifecycle.cpp
   src/p3_shadow.cpp
   src/raceline_spline_planner.cpp
@@ -123,6 +124,12 @@ if(BUILD_TESTING)
   ament_add_gtest(test_candidate_rank test/test_candidate_rank.cpp)
   if(TARGET test_candidate_rank)
     target_link_libraries(test_candidate_rank local_planner_core)
+  endif()
+
+  ament_add_gtest(test_path_digest test/test_path_digest.cpp)
+  if(TARGET test_path_digest)
+    ament_target_dependencies(test_path_digest f110_msgs)
+    target_link_libraries(test_path_digest local_planner_core)
   endif()
 
   ament_add_gtest(test_maneuver_memory test/test_maneuver_memory.cpp)

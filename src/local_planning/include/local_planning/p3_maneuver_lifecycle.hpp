@@ -207,7 +207,6 @@ private:
   static bool containsOriginalObstacleIds(
     const std::vector<int> & original_ids,
     const std::vector<f110_msgs::msg::Obstacle> & current_obstacles);
-  static std::string suffixDigest(const f110_msgs::msg::WpntArray & path);
 
   P3ManeuverLifecycleState state_{P3ManeuverLifecycleState::kIdle};
   std::optional<Record> record_;

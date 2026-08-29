@@ -20,7 +20,6 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
-#include <cstring>
 #include <iomanip>
 #include <limits>
 #include <optional>
@@ -34,6 +33,7 @@
 
 #include "local_planning/candidate_rank.hpp"
 #include "local_planning/p3_analytic_solver.hpp"
+#include "local_planning/path_digest.hpp"
 #include "local_planning/raceline_spline_planner.hpp"
 
 namespace local_planning
@@ -491,25 +491,6 @@ private:
   static std::string fnvHex(const std::string & value)
   {
     return hexHash(fnvAppend(1469598103934665603ULL, value.data(), value.size()));
-  }
-
-  static std::string pathDigest(const f110_msgs::msg::WpntArray & path)
-  {
-    std::uint64_t hash = 1469598103934665603ULL;
-    const std::uint64_t count = path.wpnts.size();
-    hash = fnvAppend(hash, &count, sizeof(count));
-    for (const auto & waypoint : path.wpnts) {
-      for (const double value : std::array<double, 8>{
-          waypoint.s_m, waypoint.d_m, waypoint.x_m, waypoint.y_m,
-          waypoint.psi_rad, waypoint.kappa_radpm, waypoint.vx_mps, waypoint.ax_mps2})
-      {
-        std::uint64_t bits = 0U;
-        static_assert(sizeof(bits) == sizeof(value));
-        std::memcpy(&bits, &value, sizeof(value));
-        hash = fnvAppend(hash, &bits, sizeof(bits));
-      }
-    }
-    return hexHash(hash);
   }
 
   // 기동의 5개 지점. 오프셋은 {ego_d, target, middle, target, 0} 순으로 걸린다.

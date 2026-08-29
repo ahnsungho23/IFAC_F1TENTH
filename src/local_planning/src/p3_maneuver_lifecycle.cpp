@@ -16,14 +16,12 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cstring>
-#include <iomanip>
 #include <limits>
 #include <set>
-#include <sstream>
 #include <utility>
 
 #include "local_planning/obstacle_guard.hpp"
+#include "local_planning/path_digest.hpp"
 
 namespace local_planning
 {
@@ -31,23 +29,6 @@ namespace
 {
 
 constexpr double kLifecycleEpsilon = 1.0e-9;
-
-void hashBytes(std::uint64_t & hash, const void * data, std::size_t size)
-{
-  const auto * bytes = static_cast<const unsigned char *>(data);
-  for (std::size_t index = 0U; index < size; ++index) {
-    hash ^= static_cast<std::uint64_t>(bytes[index]);
-    hash *= 1099511628211ULL;
-  }
-}
-
-void hashDouble(std::uint64_t & hash, double value)
-{
-  std::uint64_t bits = 0U;
-  static_assert(sizeof(bits) == sizeof(value), "unexpected double width");
-  std::memcpy(&bits, &value, sizeof(bits));
-  hashBytes(hash, &bits, sizeof(bits));
-}
 
 }  // namespace
 
@@ -133,26 +114,6 @@ P3ManeuverLifecycleDecision P3ManeuverLifecycle::invalidateExternal(
   decision.original_path_digest = record_->original_path_digest;
   decision.obstacle_ids = record_->obstacle_ids;
   return invalidate(reason, decision);
-}
-
-std::string P3ManeuverLifecycle::suffixDigest(const f110_msgs::msg::WpntArray & path)
-{
-  std::uint64_t hash = 1469598103934665603ULL;
-  const std::uint64_t count = static_cast<std::uint64_t>(path.wpnts.size());
-  hashBytes(hash, &count, sizeof(count));
-  for (const auto & waypoint : path.wpnts) {
-    hashDouble(hash, waypoint.s_m);
-    hashDouble(hash, waypoint.d_m);
-    hashDouble(hash, waypoint.x_m);
-    hashDouble(hash, waypoint.y_m);
-    hashDouble(hash, waypoint.psi_rad);
-    hashDouble(hash, waypoint.kappa_radpm);
-    hashDouble(hash, waypoint.vx_mps);
-    hashDouble(hash, waypoint.ax_mps2);
-  }
-  std::ostringstream output;
-  output << std::hex << std::setw(16) << std::setfill('0') << hash;
-  return output.str();
 }
 
 P3ManeuverLifecycleDecision P3ManeuverLifecycle::selectFresh(
@@ -383,7 +344,7 @@ P3ManeuverLifecycleDecision P3ManeuverLifecycle::continueCurrent(
     decision.completion_handoff_available =
       !decision.completion_handoff_path.wpnts.empty();
     if (decision.completion_handoff_available) {
-      decision.completion_handoff_path_digest = suffixDigest(
+      decision.completion_handoff_path_digest = pathDigest(
         decision.completion_handoff_path);
     }
     decision.state = P3ManeuverLifecycleState::kComplete;
@@ -446,7 +407,7 @@ P3ManeuverLifecycleDecision P3ManeuverLifecycle::continueCurrent(
     previous_forward = forward;
   }
   decision.suffix_point_count = suffix.wpnts.size();
-  decision.output_path_digest = suffixDigest(suffix);
+  decision.output_path_digest = pathDigest(suffix);
   decision.suffix_revalidated = true;
 
   // 🔴 이 기동이 책임지는 범위. `generateP3Candidates`가 후보를 고를 때 쓰는 것과 **같은**
