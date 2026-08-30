@@ -1,0 +1,24 @@
+{
+  "before_safe_stop_or_boundary_count": 0,
+  "candidate_lineage_rule": "candidate row count, path-digest multiset, and all four snapshot IDs match EVALUATION_EVENT",
+  "episode_rule": "at least 2 consecutive PLAN_PRIMARY STRICT no-candidate callbacks in one source epoch",
+  "episode_start_before_preexisting_degradation_count": 9,
+  "failure_episode_count": 266,
+  "localization_temporal_rule": "abs nearest pose offset <=25 ms and pose sample gap <=50 ms; LOC_UNKNOWN retained",
+  "oracle_eligible_episode_snapshot_count": 193,
+  "oracle_executed": false,
+  "schema_version": "p3_oracle_pilot_v2_preparation/1",
+  "top10_episode_ids": [
+    "rosbag2_2026_08_24-19_24_17__EP0068",
+    "rosbag2_2026_08_24-19_00_30__EP0103",
+    "rosbag2_2026_08_25-09_59_22__EP0012",
+    "rosbag2_2026_08_25-09_59_22__EP0035",
+    "rosbag2_2026_08_24-19_00_30__EP0077",
+    "rosbag2_2026_08_24-19_00_30__EP0100",
+    "rosbag2_2026_08_24-19_00_30__EP0069",
+    "rosbag2_2026_08_25-09_23_32__EP0001",
+    "rosbag2_2026_08_25-09_59_22__EP0032",
+    "rosbag2_2026_08_24-19_24_17__EP0026"
+  ],
+  "waypoint0_rule": "at least one returned production candidate has waypoint0 footprint margin >= -1e-9 m"
+}

@@ -30,7 +30,40 @@ namespace local_planning
 {
 
 inline constexpr const char * kPlanningResearchSchemaVersion =
-  "local_planning_research/1";
+  "local_planning_research/2";
+
+struct P3ResearchObstacleSnapshotRecord
+{
+  int id{-1};
+  double s_start{std::numeric_limits<double>::quiet_NaN()};
+  double s_end{std::numeric_limits<double>::quiet_NaN()};
+  double s_center{std::numeric_limits<double>::quiet_NaN()};
+  double d_right{std::numeric_limits<double>::quiet_NaN()};
+  double d_left{std::numeric_limits<double>::quiet_NaN()};
+  double d_center{std::numeric_limits<double>::quiet_NaN()};
+  bool is_static{false};
+  bool is_visible{false};
+};
+
+// Immutable lineage for one top-level evaluateP3Shadow() invocation. STRICT and RELAXED are
+// passes of the same invocation and therefore share evaluation_sequence and the snapshot IDs.
+struct P3ResearchEvaluationLineage
+{
+  std::uint64_t evaluation_sequence{0U};
+  std::string evaluation_role{"UNKNOWN"};
+  std::string input_snapshot_id;
+  std::string ego_snapshot_id;
+  std::string obstacle_snapshot_id;
+  std::string reference_snapshot_id;
+  std::int64_t source_stamp_ns{0};
+  std::uint64_t obstacle_sequence{0U};
+  std::uint64_t source_epoch{0U};
+  std::uint64_t reference_generation{0U};
+  double ego_s{std::numeric_limits<double>::quiet_NaN()};
+  double ego_d{std::numeric_limits<double>::quiet_NaN()};
+  double ego_speed_mps{std::numeric_limits<double>::quiet_NaN()};
+  std::vector<P3ResearchObstacleSnapshotRecord> obstacles;
+};
 
 struct P3ResearchCandidateRecord
 {
@@ -66,6 +99,14 @@ struct P3ResearchCandidateRecord
     std::numeric_limits<double>::quiet_NaN(),
     std::numeric_limits<double>::quiet_NaN()};
   std::size_t point_count{0U};
+  double waypoint0_s_m{std::numeric_limits<double>::quiet_NaN()};
+  double waypoint0_d_m{std::numeric_limits<double>::quiet_NaN()};
+  double waypoint0_x_m{std::numeric_limits<double>::quiet_NaN()};
+  double waypoint0_y_m{std::numeric_limits<double>::quiet_NaN()};
+  double waypoint0_yaw_rad{std::numeric_limits<double>::quiet_NaN()};
+  double waypoint0_center_track_margin_m{std::numeric_limits<double>::quiet_NaN()};
+  double waypoint0_footprint_track_margin_m{std::numeric_limits<double>::quiet_NaN()};
+  bool waypoint0_footprint_invalid{false};
 
   bool validator_executed{false};
   std::string validation_authority{"GUARD"};
@@ -110,6 +151,7 @@ struct P3ResearchCandidateRecord
 
 struct P3ResearchEvaluationRecord
 {
+  P3ResearchEvaluationLineage lineage;
   std::string clearance_pass{"STRICT"};
   bool invoked{false};
   bool selected{false};
@@ -150,6 +192,10 @@ struct PlanningResearchCycle
   std::uint64_t obstacle_sequence{0U};
   std::uint64_t source_epoch{0U};
   std::uint64_t reference_generation{0U};
+  std::uint64_t next_evaluation_sequence{1U};
+  // Populated only for the dynamic extent of one evaluator invocation. It is never read by the
+  // planner's generation, validation, ranking, lifecycle, or publication decisions.
+  std::unique_ptr<P3ResearchEvaluationLineage> active_evaluation_lineage;
 
   double ego_x{std::numeric_limits<double>::quiet_NaN()};
   double ego_y{std::numeric_limits<double>::quiet_NaN()};

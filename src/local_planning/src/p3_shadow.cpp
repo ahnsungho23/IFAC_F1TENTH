@@ -20,6 +20,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <iomanip>
 #include <limits>
 #include <optional>
@@ -39,6 +40,171 @@
 
 namespace local_planning
 {
+namespace
+{
+
+constexpr std::uint64_t kFnvOffset = 14695981039346656037ULL;
+constexpr std::uint64_t kFnvPrime = 1099511628211ULL;
+
+void hashBytes(std::uint64_t & hash, const void * data, std::size_t size)
+{
+  const auto * bytes = static_cast<const unsigned char *>(data);
+  for (std::size_t index = 0U; index < size; ++index) {
+    hash ^= static_cast<std::uint64_t>(bytes[index]);
+    hash *= kFnvPrime;
+  }
+}
+
+template<typename Value>
+void hashValue(std::uint64_t & hash, const Value & value)
+{
+  hashBytes(hash, &value, sizeof(Value));
+}
+
+void hashString(std::uint64_t & hash, const std::string & value)
+{
+  const std::uint64_t size = value.size();
+  hashValue(hash, size);
+  hashBytes(hash, value.data(), value.size());
+}
+
+std::string hashId(const char * prefix, std::uint64_t hash)
+{
+  std::ostringstream output;
+  output << prefix << '_' << std::hex << std::setw(16) << std::setfill('0') << hash;
+  return output.str();
+}
+
+std::uint64_t hashEgo(const EgoFrenetState & ego)
+{
+  std::uint64_t hash = kFnvOffset;
+  hashValue(hash, ego.s);
+  hashValue(hash, ego.d);
+  hashValue(hash, ego.speed);
+  return hash;
+}
+
+std::uint64_t hashObstacles(const std::vector<f110_msgs::msg::Obstacle> & obstacles)
+{
+  std::uint64_t hash = kFnvOffset;
+  const std::uint64_t count = obstacles.size();
+  hashValue(hash, count);
+  for (const auto & obstacle : obstacles) {
+    hashValue(hash, obstacle.id);
+    hashValue(hash, obstacle.has_cartesian);
+    hashValue(hash, obstacle.x_center);
+    hashValue(hash, obstacle.y_center);
+    hashValue(hash, obstacle.radius);
+    hashValue(hash, obstacle.x_min);
+    hashValue(hash, obstacle.x_max);
+    hashValue(hash, obstacle.y_min);
+    hashValue(hash, obstacle.y_max);
+    hashValue(hash, obstacle.x_var);
+    hashValue(hash, obstacle.y_var);
+    hashValue(hash, obstacle.s_start);
+    hashValue(hash, obstacle.s_end);
+    hashValue(hash, obstacle.d_right);
+    hashValue(hash, obstacle.d_left);
+    hashValue(hash, obstacle.is_actually_a_gap);
+    hashValue(hash, obstacle.s_center);
+    hashValue(hash, obstacle.d_center);
+    hashValue(hash, obstacle.size);
+    hashValue(hash, obstacle.vs);
+    hashValue(hash, obstacle.vd);
+    hashValue(hash, obstacle.s_var);
+    hashValue(hash, obstacle.d_var);
+    hashValue(hash, obstacle.vs_var);
+    hashValue(hash, obstacle.vd_var);
+    hashValue(hash, obstacle.s_vs_cov);
+    hashValue(hash, obstacle.d_vd_cov);
+    hashValue(hash, obstacle.is_static);
+    hashValue(hash, obstacle.is_visible);
+    hashValue(hash, obstacle.is_interfering);
+  }
+  return hash;
+}
+
+std::uint64_t hashReference(const f110_msgs::msg::WpntArray & reference)
+{
+  std::uint64_t hash = kFnvOffset;
+  hashValue(hash, reference.header.stamp.sec);
+  hashValue(hash, reference.header.stamp.nanosec);
+  hashString(hash, reference.header.frame_id);
+  const std::uint64_t count = reference.wpnts.size();
+  hashValue(hash, count);
+  for (const auto & waypoint : reference.wpnts) {
+    hashValue(hash, waypoint.id);
+    hashValue(hash, waypoint.s_m);
+    hashValue(hash, waypoint.d_m);
+    hashValue(hash, waypoint.x_m);
+    hashValue(hash, waypoint.y_m);
+    hashValue(hash, waypoint.d_right);
+    hashValue(hash, waypoint.d_left);
+    hashValue(hash, waypoint.psi_rad);
+    hashValue(hash, waypoint.kappa_radpm);
+    hashValue(hash, waypoint.vx_mps);
+    hashValue(hash, waypoint.ax_mps2);
+  }
+  return hash;
+}
+
+std::unique_ptr<P3ResearchEvaluationLineage> makeEvaluationLineage(
+  PlanningResearchCycle & cycle,
+  const EgoFrenetState & ego,
+  const std::vector<f110_msgs::msg::Obstacle> & obstacles,
+  const f110_msgs::msg::WpntArray & reference,
+  std::int64_t source_stamp_ns,
+  std::uint64_t source_epoch,
+  std::uint64_t reference_generation,
+  const std::string & role)
+{
+  auto lineage = std::make_unique<P3ResearchEvaluationLineage>();
+  lineage->evaluation_sequence = cycle.next_evaluation_sequence++;
+  lineage->evaluation_role = role.empty() ? "UNKNOWN" : role;
+  lineage->source_stamp_ns = source_stamp_ns != 0 ?
+    source_stamp_ns : cycle.obstacle_source_stamp_ns;
+  lineage->obstacle_sequence = cycle.obstacle_sequence;
+  lineage->source_epoch = source_epoch != 0U ? source_epoch : cycle.source_epoch;
+  lineage->reference_generation = reference_generation != 0U ?
+    reference_generation : cycle.reference_generation;
+  lineage->ego_s = ego.s;
+  lineage->ego_d = ego.d;
+  lineage->ego_speed_mps = ego.speed;
+
+  const std::uint64_t ego_hash = hashEgo(ego);
+  const std::uint64_t obstacle_hash = hashObstacles(obstacles);
+  const std::uint64_t reference_hash = hashReference(reference);
+  lineage->ego_snapshot_id = hashId("ego", ego_hash);
+  lineage->obstacle_snapshot_id = hashId("obs", obstacle_hash);
+  lineage->reference_snapshot_id = hashId("ref", reference_hash);
+  std::uint64_t input_hash = kFnvOffset;
+  hashValue(input_hash, ego_hash);
+  hashValue(input_hash, obstacle_hash);
+  hashValue(input_hash, reference_hash);
+  hashValue(input_hash, lineage->source_stamp_ns);
+  hashValue(input_hash, lineage->obstacle_sequence);
+  hashValue(input_hash, lineage->source_epoch);
+  hashValue(input_hash, lineage->reference_generation);
+  lineage->input_snapshot_id = hashId("input", input_hash);
+
+  lineage->obstacles.reserve(obstacles.size());
+  for (const auto & obstacle : obstacles) {
+    P3ResearchObstacleSnapshotRecord record;
+    record.id = obstacle.id;
+    record.s_start = obstacle.s_start;
+    record.s_end = obstacle.s_end;
+    record.s_center = obstacle.s_center;
+    record.d_right = obstacle.d_right;
+    record.d_left = obstacle.d_left;
+    record.d_center = obstacle.d_center;
+    record.is_static = obstacle.is_static;
+    record.is_visible = obstacle.is_visible;
+    lineage->obstacles.push_back(record);
+  }
+  return lineage;
+}
+
+}  // namespace
 
 // Production-owned runtime port of:
 //   corridor_to_analytic_root_mapping_audit.cpp sha256 c3bdfc282d5c0b38342b763e0473d69e
@@ -1246,6 +1412,10 @@ private:
       confirmed_critical_speed_mps = planner_.finalizeP3ShadowPath(
         path, ego, obstacles, stations);
     }
+    std::optional<RacelineSplinePlanner::FootprintTrackBoundSample> waypoint0_sample;
+    if (research_cycle != nullptr && !path.wpnts.empty()) {
+      waypoint0_sample = planner_.measureFootprintTrackBound(path.wpnts.front(), 0U);
+    }
     reconstruction_us += elapsedUs(reconstruction_start);
 
     P3ShadowPathEvaluation evaluation;
@@ -1276,6 +1446,16 @@ private:
     trace.d_mid = middle;
     trace.knot_stations = stations;
     trace.point_count = path.wpnts.size();
+    if (waypoint0_sample.has_value()) {
+      trace.waypoint0_s_m = waypoint0_sample->waypoint_s_m;
+      trace.waypoint0_d_m = path.wpnts.front().d_m;
+      trace.waypoint0_x_m = waypoint0_sample->waypoint_x_m;
+      trace.waypoint0_y_m = waypoint0_sample->waypoint_y_m;
+      trace.waypoint0_yaw_rad = waypoint0_sample->waypoint_yaw_rad;
+      trace.waypoint0_center_track_margin_m = waypoint0_sample->centerline_clearance_m;
+      trace.waypoint0_footprint_track_margin_m = waypoint0_sample->footprint_clearance_m;
+      trace.waypoint0_footprint_invalid = waypoint0_sample->invalid;
+    }
     trace.validator_executed =
       path.wpnts.size() >= static_cast<std::size_t>(parameters_.minimum_path_points);
     trace.hard_valid = evaluation.hard_valid;
@@ -2363,8 +2543,17 @@ P3ShadowResult RacelineSplinePlanner::evaluateP3Shadow(
   std::int64_t snapshot_source_stamp_ns,
   std::uint64_t snapshot_epoch,
   std::uint64_t global_reference_generation,
-  const std::string & p0_failure_reason) const
+  const std::string & p0_failure_reason,
+  const std::string & research_evaluation_role) const
 {
+  PlanningResearchCycle * research_cycle = activeResearchCycle();
+  if (research_cycle != nullptr) {
+    const std::string & evaluation_role = research_evaluation_role.empty() ?
+      p0_failure_reason : research_evaluation_role;
+    research_cycle->active_evaluation_lineage = makeEvaluationLineage(
+      *research_cycle, ego, obstacles, reference_, snapshot_source_stamp_ns,
+      snapshot_epoch, global_reference_generation, evaluation_role);
+  }
   // 🔴 2026-08-17: 내부 불변식 위반이 **노드를 죽이지 않게** 한다.
   //
   // 이 파일에는 후보 예산·구간 포함관계 같은 불변식을 지키는 throw std::runtime_error가
@@ -2378,9 +2567,13 @@ P3ShadowResult RacelineSplinePlanner::evaluateP3Shadow(
   // 평가 실패로 떨어지면 상위는 후보를 못 찾았을 때와 **같은 경로**(안전정지 사다리)를
   // 탄다. 이것이 이미 검증된 실패 경로다.
   try {
-    return evaluateP3ShadowUnguarded(
+    P3ShadowResult result = evaluateP3ShadowUnguarded(
       ego, obstacles, snapshot_source_stamp_ns, snapshot_epoch,
       global_reference_generation, p0_failure_reason);
+    if (research_cycle != nullptr) {
+      research_cycle->active_evaluation_lineage.reset();
+    }
+    return result;
   } catch (const std::exception & error) {
     P3ShadowResult failed;
     failed.enabled = true;
@@ -2390,8 +2583,9 @@ P3ShadowResult RacelineSplinePlanner::evaluateP3Shadow(
     failed.p0_failure_reason = p0_failure_reason;
     failed.failure_classification =
       std::string("EVALUATOR_INVARIANT_VIOLATION: ") + error.what();
-    if (activeResearchCycle() != nullptr) {
-      captureP3ResearchEvaluation(*activeResearchCycle(), "INVARIANT", failed);
+    if (research_cycle != nullptr) {
+      captureP3ResearchEvaluation(*research_cycle, "INVARIANT", failed);
+      research_cycle->active_evaluation_lineage.reset();
     }
     return failed;
   }

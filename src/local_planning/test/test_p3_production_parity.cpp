@@ -137,7 +137,22 @@ TEST(P3ProductionParity, ResearchTracePreservesDiscardedSidesAndM1ProbeRoots)
       EXPECT_EQ(result.research_constructed_total_actual, result.research_all_candidates.size());
       EXPECT_GE(result.research_constructed_total_actual, result.candidate_count);
       EXPECT_FALSE(cycle.evaluations.empty());
+      for (const auto & evaluation : cycle.evaluations) {
+        EXPECT_EQ(evaluation.lineage.evaluation_sequence, 1U);
+        EXPECT_EQ(evaluation.lineage.evaluation_role, "RESEARCH_PROVENANCE_TEST");
+        EXPECT_FALSE(evaluation.lineage.input_snapshot_id.empty());
+        EXPECT_FALSE(evaluation.lineage.ego_snapshot_id.empty());
+        EXPECT_FALSE(evaluation.lineage.obstacle_snapshot_id.empty());
+        EXPECT_FALSE(evaluation.lineage.reference_snapshot_id.empty());
+        EXPECT_EQ(evaluation.lineage.reference_generation, 1U);
+      }
       for (const auto & trace : result.research_all_candidates) {
+        if (!trace.path.wpnts.empty()) {
+          EXPECT_TRUE(std::isfinite(trace.waypoint0_s_m));
+          EXPECT_TRUE(std::isfinite(trace.waypoint0_d_m));
+          EXPECT_TRUE(std::isfinite(trace.waypoint0_yaw_rad));
+          EXPECT_TRUE(std::isfinite(trace.waypoint0_footprint_track_margin_m));
+        }
         saw_discarded_side = saw_discarded_side || trace.discarded_side;
         if (trace.generator_stage == "M1" && trace.root_type != "ZERO_INTERFACE") {
           EXPECT_TRUE(std::isfinite(trace.s_probe));
@@ -184,6 +199,39 @@ TEST(P3ProductionParity, ResearchTracePreservesDiscardedSidesAndM1ProbeRoots)
   }
   EXPECT_TRUE(saw_discarded_side);
   EXPECT_TRUE(saw_m1_analytic_probe);
+}
+
+TEST(P3ProductionParity, ResearchLineageSeparatesEvaluatorInvocationsWithinOneCallback)
+{
+  const auto stream = readStream(scenarioPath("passing_mixed"));
+  RacelineSplinePlanner planner(parametersOf(stream));
+  ASSERT_TRUE(planner.setReference(stream.reference));
+  ASSERT_FALSE(stream.frames.empty());
+  PlanningResearchCycle cycle;
+  cycle.obstacle_sequence = 17U;
+  cycle.source_epoch = 4U;
+  cycle.reference_generation = 8U;
+  planner.setActiveResearchCycle(&cycle);
+  const auto & frame = stream.frames.front();
+  (void)planner.evaluateP3Shadow(
+    frame.ego, frame.obstacles, 101, 4U, 8U, "PRIMARY");
+  auto shifted_ego = frame.ego;
+  shifted_ego.d += 0.01;
+  (void)planner.evaluateP3Shadow(
+    shifted_ego, frame.obstacles, 101, 4U, 8U, "SAFE_STOP_ESCAPE");
+  planner.setActiveResearchCycle(nullptr);
+
+  std::map<std::uint64_t, std::string> roles;
+  std::map<std::uint64_t, std::string> inputs;
+  for (const auto & evaluation : cycle.evaluations) {
+    roles[evaluation.lineage.evaluation_sequence] = evaluation.lineage.evaluation_role;
+    inputs[evaluation.lineage.evaluation_sequence] = evaluation.lineage.input_snapshot_id;
+    EXPECT_EQ(evaluation.lineage.obstacle_sequence, 17U);
+  }
+  ASSERT_EQ(roles.size(), 2U);
+  EXPECT_EQ(roles[1U], "PRIMARY");
+  EXPECT_EQ(roles[2U], "SAFE_STOP_ESCAPE");
+  EXPECT_NE(inputs[1U], inputs[2U]);
 }
 
 // 아직 실패하는 것이 정상인 장면 — 원인이 다르다.

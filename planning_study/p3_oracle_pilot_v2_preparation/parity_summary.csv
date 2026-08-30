@@ -1,0 +1,7 @@
+check,scope,off_result,on_result,parity,status,evidence
+production_output_parity,"10 frozen scenario streams; 281 result records",sha256:213dde6f525fe4fb1e627024cde34d12d825b4abbb370b6d53c5174cb5d23128,sha256:213dde6f525fe4fb1e627024cde34d12d825b4abbb370b6d53c5174cb5d23128,BYTE_IDENTICAL,PASS,/tmp/p3_v2_final_parity_off.tsv and /tmp/p3_v2_final_parity_on.tsv
+research_instrumentation_unit,2 gtests,not_applicable,2 passed,not_applicable,PASS,test_research_instrumentation
+p3_production_parity_unit,12 gtests,not_applicable,12 passed,not_applicable,PASS,test_p3_production_parity
+package_ctest,"26 tests; node test rerun with overlay and writable ROS_LOG_DIR",not_applicable,"24 passed; 2 pre-existing parameter/control contract mismatches",not_applicable,PARTIAL_PASS,"params safety 0.05 vs 0.08; steering-right 0.41 vs 0.361"
+default_gate,operational YAML,false,false,UNCHANGED,PASS,src/local_planning/config/local_planning.yaml research_instrumentation_enable
+algorithm_parameter_diff,production config,sha256:6009b3211a50dce7159b95553b7dbea1417eb20b50dbc6fb716947973a2e334a,sha256:6009b3211a50dce7159b95553b7dbea1417eb20b50dbc6fb716947973a2e334a,UNCHANGED,PASS,final v2 replay preparation metadata

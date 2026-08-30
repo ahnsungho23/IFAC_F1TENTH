@@ -1,0 +1,5 @@
+bag,run_id,schema_version,clean_shutdown,accepted_cycle_count,written_cycle_count,dropped_log_count,planning_event_count_in_bag_time,plan_primary_strict_evaluation_count,repeated_failure_episode_count,episodes_with_eligible_snapshot
+rosbag2_2026_08_24-19_00_30,replay_v2_rosbag2_2026_08_24_19_00_30,local_planning_research/2,True,34955,34955,0,34853,5385,109,96
+rosbag2_2026_08_24-19_24_17,replay_v2_rosbag2_2026_08_24_19_24_17,local_planning_research/2,True,29852,29852,0,29750,3645,71,57
+rosbag2_2026_08_25-09_23_32,replay_v2_rosbag2_2026_08_25_09_23_32,local_planning_research/2,True,2296,2296,0,2195,5,1,1
+rosbag2_2026_08_25-09_59_22,replay_v2_rosbag2_2026_08_25_09_59_22,local_planning_research/2,True,43036,43036,1,42933,2971,85,39

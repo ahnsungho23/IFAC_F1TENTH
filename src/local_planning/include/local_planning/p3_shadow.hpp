@@ -123,6 +123,17 @@ struct P3ShadowCandidateTrace
     std::numeric_limits<double>::quiet_NaN(),
     std::numeric_limits<double>::quiet_NaN()};
   std::size_t point_count{0U};
+  // Research-only observation of the first generated path sample. This is deliberately separate
+  // from the validator's minimum-over-path margin: waypoint 0 is the next ordered reference
+  // sample, not the physical ego pose, and its heading is recomputed from the generated path.
+  double waypoint0_s_m{std::numeric_limits<double>::quiet_NaN()};
+  double waypoint0_d_m{std::numeric_limits<double>::quiet_NaN()};
+  double waypoint0_x_m{std::numeric_limits<double>::quiet_NaN()};
+  double waypoint0_y_m{std::numeric_limits<double>::quiet_NaN()};
+  double waypoint0_yaw_rad{std::numeric_limits<double>::quiet_NaN()};
+  double waypoint0_center_track_margin_m{std::numeric_limits<double>::quiet_NaN()};
+  double waypoint0_footprint_track_margin_m{std::numeric_limits<double>::quiet_NaN()};
+  bool waypoint0_footprint_invalid{false};
   bool validator_executed{false};
   std::string validation_authority{"GUARD"};
   bool returned_by_policy{false};

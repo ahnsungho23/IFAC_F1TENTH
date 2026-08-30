@@ -41,13 +41,43 @@ ROS parameter overlay를 새 디렉터리에 만듭니다. logger는 run directo
 
 ## 파일과 join key
 
-- `metadata.json`: run 단위 provenance와 schema `local_planning_research/1`
+- `metadata.json`: run 단위 provenance와 schema `local_planning_research/2`
 - `planning_events.jsonl`: callback당 `PLANNING_EVENT` 1행
+- `evaluation_events.jsonl`: top-level evaluator invocation의 STRICT/RELAXED/INVARIANT pass당
+  `EVALUATION_EVENT` 1행
 - `candidate_events.jsonl`: 실제 구성된 후보당 `CANDIDATE_EVENT` 1행
 - `run_summary.json`: clean shutdown 여부와 accepted/written/dropped 최종 누계
 
-join key는 `(run_id, callback_sequence)`입니다. 한 callback에서 strict/relaxed evaluator가
-둘 다 돌 수 있으므로 candidate에는 `clearance_pass`도 포함됩니다.
+callback join key는 `(run_id, callback_sequence)`입니다. evaluator/candidate의 exact join key는
+`(run_id, callback_sequence, evaluation_sequence, clearance_pass)`입니다. 한 top-level
+`evaluateP3Shadow()` 호출에 callback-local `evaluation_sequence` 하나를 부여하므로 STRICT와
+RELAXED는 같은 sequence를 공유하고 `clearance_pass`로 구분됩니다. 다음 top-level 호출은 같은
+callback이어도 새 sequence를 받습니다.
+
+`evaluation_role`은 호출 목적입니다. node의 직접 평가에는 `TEST_ACTIVE_PRIMARY` 또는
+`SHADOW_PRODUCTION_*` 같은 planning context가, production `plan()` 내부 평가에는
+`PLAN_PRIMARY`, safe-stop 정지점 탈출 탐침에는 `SAFE_STOP_ESCAPE`가 기록됩니다. 이 문자열은
+P3의 failure classification이나 선택 입력으로 사용되지 않습니다.
+
+## EVALUATION_EVENT와 exact input lineage
+
+각 evaluator pass는 다음 입력 lineage를 갖습니다.
+
+| 그룹 | 필드 |
+|---|---|
+| invocation | `callback_sequence`, `evaluation_sequence`, `evaluation_role`, `clearance_pass` |
+| snapshot IDs | `input_snapshot_id`, `ego_snapshot_id`, `obstacle_snapshot_id`, `reference_snapshot_id` |
+| source lineage | `source_stamp_ns`, `obstacle_sequence`, `source_epoch`, `reference_generation` |
+| exact evaluator state | `ego.s/d/speed_mps`, obstacle의 `id/s_start/s_end/s_center/d_right/d_left/d_center/is_static/is_visible` |
+| outcome | `invoked`, `selected`, `failure_classification`, constructed/validator/hard-valid/returned count |
+| candidate ownership | `candidate_path_digests`, `generator_stages`, `templates` |
+
+snapshot ID는 instrumentation이 ON일 때만 계산하는 64-bit FNV-1a raw-field digest입니다.
+ego ID는 `(s,d,speed)`의 exact in-memory bytes, obstacle ID는 evaluator가 받은 vector 순서와
+`Obstacle.msg`의 모든 필드, reference ID는 header와 ordered waypoint의 모든 필드를 포함합니다.
+input ID는 이 세 digest와 source stamp/sequence/epoch/reference generation을 합칩니다. 따라서
+ID 일치는 같은 evaluator 입력임을 확인하는 용도이며, bag 밖에서 geometry를 복원하는
+대체물은 아닙니다. obstacle 핵심 geometry는 event에도 직접 남깁니다.
 
 ## PLANNING_EVENT schema
 
@@ -83,9 +113,9 @@ attempt boolean의 합입니다.
 
 | 그룹 | 필드 |
 |---|---|
-| join | `schema_version`, `event_type`, `run_id`, `scenario_id`, `callback_sequence`, `clearance_pass` |
+| join | `schema_version`, `event_type`, `run_id`, `scenario_id`, `callback_sequence`, `evaluation_sequence`, `evaluation_role`, `clearance_pass`, 네 snapshot ID, source lineage |
 | identity | `generator_stage`, `template`, `side`, `generation_order`, `candidate_identity`, `logical_identity`, `path_digest`, `component`, `mapping_source`, `source_cell`, `analytic_branch_regime`, `returned_by_policy`, `discarded_side` |
-| P3 geometry | `d_target`, `s_probe`, `d_probe`, `d_mid`, `root_index`, `root_type`, `probe_location_rule`, `probe_anchor_rule`, `entry_scale`, `exit_scale`, `z0..z4`, `point_count` |
+| P3 geometry | `d_target`, `s_probe`, `d_probe`, `d_mid`, `root_index`, `root_type`, `probe_location_rule`, `probe_anchor_rule`, `entry_scale`, `exit_scale`, `z0..z4`, `point_count`, `waypoint0.*` |
 | validation | `validator_executed`, `validation_authority`, `hard_valid`, `first_failure_enum`, `first_failure_name`, `first_failure_reason`, `failure_waypoint_index`, `failure_obstacle_id`, `all_observed_violation_flags` |
 | margin/peak | `center_track_m`, `footprint_track_m`, `obstacle_m`, `peak_lateral_slope`, `lateral_slope_margin`, `peak_positive_curvature_radpm`, `peak_negative_curvature_radpm`, `signed_curvature_margin_radpm`, `peak_curvature_rate_radpm2`, `curvature_rate_margin_radpm2` |
 | exact 7-key rank tuple | `exit_reaches_next_obstacle`, `braking_feasible`, `braking_deficit_m`, `velocity_loss`, `minimum_normalized_safety_slack`, `global_path_deviation_m`, `generation_index` |
@@ -106,6 +136,13 @@ production verdict는 기존 `validateCandidate()`의 첫 failure와 early-retur
 전체 위반 audit를 켜면 그 verdict를 얻은 뒤 별도 pass가 동일 path/visible obstacle을 읽어
 `all_observed_violation_flags`를 수집합니다. 이 pass는 validator count, hard-valid, rank,
 lifecycle, publication에 연결되지 않으며 runtime 비용 때문에 기본 OFF입니다.
+
+`waypoint0`는 실제 ego pose가 아니라 `nextReferenceIndex(ego.s)`가 고른 첫 ordered reference
+sample에 생성된 P3 `d`를 입힌 첫 경로점입니다. `finalizeP3ShadowPath()`가 후보 geometry로
+heading을 다시 계산한 뒤의 `s/d/x/y/yaw`, center-track margin, 네 모서리 footprint margin을
+기록합니다. 이 추가 footprint 측정은 research cycle이 있을 때만 수행되고 validator/ranker가
+읽지 않습니다. 따라서 waypoint-0 margin이 음수라는 사실만으로 물리적 ego footprint가
+경계 밖이라고 해석하면 안 됩니다.
 
 ## 확인 한계
 

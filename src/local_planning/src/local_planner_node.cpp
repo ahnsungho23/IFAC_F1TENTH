@@ -3733,6 +3733,16 @@ void LocalPlannerNode::onPlanningTimer()
     drainLatestObstacleIngress();
   }
 
+  // Freeze callback-source lineage before any evaluator invocation. The completion hook keeps the
+  // callback summary fields for compatibility, but evaluator records must not inherit values that
+  // arrived later in the same callback.
+  if (active_research_cycle_ != nullptr) {
+    active_research_cycle_->obstacle_source_stamp_ns = latest_obstacle_source_stamp_ns_;
+    active_research_cycle_->obstacle_sequence = obstacles_message_sequence_;
+    active_research_cycle_->source_epoch = p3_source_epoch_;
+    active_research_cycle_->reference_generation = global_reference_generation_;
+  }
+
   if (p3_mode_ == P3RuntimeMode::kOff) {
     // This is the entire OFF branch. It enters the pre-integration P0 body without capturing,
     // evaluating, logging, publishing, or mutating any P3 state.

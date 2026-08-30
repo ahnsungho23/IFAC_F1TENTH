@@ -197,21 +197,6 @@ struct RacelineSplinePlanner::ExpandedObstacle
   double relaxed_target_clearance{0.0};
 };
 
-struct RacelineSplinePlanner::FootprintTrackBoundSample
-{
-  double centerline_clearance_m{std::numeric_limits<double>::infinity()};
-  double footprint_clearance_m{std::numeric_limits<double>::infinity()};
-  bool invalid{false};
-  std::string minimum_side;
-  std::size_t waypoint_index{std::numeric_limits<std::size_t>::max()};
-  double waypoint_s_m{std::numeric_limits<double>::quiet_NaN()};
-  double waypoint_x_m{std::numeric_limits<double>::quiet_NaN()};
-  double waypoint_y_m{std::numeric_limits<double>::quiet_NaN()};
-  double waypoint_yaw_rad{std::numeric_limits<double>::quiet_NaN()};
-  double heading_relative_to_reference_rad{std::numeric_limits<double>::quiet_NaN()};
-  double wallward_corner_protrusion_m{std::numeric_limits<double>::quiet_NaN()};
-};
-
 struct RacelineSplinePlanner::Candidate
 {
   bool valid{false};
@@ -3297,12 +3282,14 @@ std::size_t RacelineSplinePlanner::generateP3Candidates(
   bool allow_side_switch,
   bool stop_on_first_feasible,
   std::vector<Candidate> & candidates,
-  std::string & reason) const
+  std::string & reason,
+  const std::string & evaluation_role) const
 {
   // 이 패키지의 유일한 회피 후보 생성기. 후보 생성은 여기 한 곳에만 두어야 한다 —
   // 안전정지 탈출 검증(anyFeasibleCandidateFrom)이 같은 함수를 쓰므로 "정지점에서 회피
   // 가능"이라는 판정과 실제 재계획이 어긋날 수 없다. 두 번째 사본이 생기면 그 덫이 돌아온다.
-  const P3ShadowResult p3 = evaluateP3Shadow(ego, obstacles, 0, 0U, 0U, "PLAN");
+  const P3ShadowResult p3 = evaluateP3Shadow(
+    ego, obstacles, 0, 0U, 0U, "PLAN", evaluation_role);
   if (!p3.invoked) {
     reason = p3.failure_classification.empty() ? "P3 not invoked" : p3.failure_classification;
     return 0U;
@@ -3404,7 +3391,8 @@ bool RacelineSplinePlanner::anyFeasibleCandidateFrom(
   std::string reason;
   // plan()과 반드시 같은 생성기를 쓴다(위 generateP3Candidates 주석 참고).
   return generateP3Candidates(
-    ego, obstacles, visible, std::nullopt, true, true, candidates, reason) > 0U;
+    ego, obstacles, visible, std::nullopt, true, true, candidates, reason,
+    "SAFE_STOP_ESCAPE") > 0U;
 }
 
 void RacelineSplinePlanner::densifyPath(
@@ -3682,7 +3670,7 @@ RacelineSplineResult RacelineSplinePlanner::plan(
   std::string p3_reason;
   (void)generateP3Candidates(
     ego, obstacles, visible, preferred_left, allow_side_switch, false,
-    candidates, p3_reason);
+    candidates, p3_reason, "PLAN_PRIMARY");
 
   std::vector<std::size_t> feasible_order;
   feasible_order.reserve(candidates.size());

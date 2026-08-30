@@ -79,6 +79,30 @@ std::string jsonStrings(const std::vector<std::string> & values)
   return output.str();
 }
 
+std::string obstacleSnapshotsJson(
+  const std::vector<P3ResearchObstacleSnapshotRecord> & obstacles)
+{
+  std::ostringstream output;
+  output << '[';
+  for (std::size_t index = 0U; index < obstacles.size(); ++index) {
+    if (index > 0U) {
+      output << ',';
+    }
+    const auto & obstacle = obstacles[index];
+    output << "{\"id\":" << obstacle.id
+           << ",\"s_start\":" << jsonNumber(obstacle.s_start)
+           << ",\"s_end\":" << jsonNumber(obstacle.s_end)
+           << ",\"s_center\":" << jsonNumber(obstacle.s_center)
+           << ",\"d_right\":" << jsonNumber(obstacle.d_right)
+           << ",\"d_left\":" << jsonNumber(obstacle.d_left)
+           << ",\"d_center\":" << jsonNumber(obstacle.d_center)
+           << ",\"is_static\":" << (obstacle.is_static ? "true" : "false")
+           << ",\"is_visible\":" << (obstacle.is_visible ? "true" : "false") << '}';
+  }
+  output << ']';
+  return output.str();
+}
+
 const char * validationFailureName(int value)
 {
   switch (value) {
@@ -190,6 +214,21 @@ std::string candidateJson(
          << ",\"run_id\":\"" << jsonEscape(cycle.run_id) << "\""
          << ",\"scenario_id\":\"" << jsonEscape(cycle.scenario_id) << "\""
          << ",\"callback_sequence\":" << cycle.callback_sequence
+         << ",\"evaluation_sequence\":" << evaluation.lineage.evaluation_sequence
+         << ",\"evaluation_role\":\""
+         << jsonEscape(evaluation.lineage.evaluation_role) << "\""
+         << ",\"input_snapshot_id\":\""
+         << jsonEscape(evaluation.lineage.input_snapshot_id) << "\""
+         << ",\"ego_snapshot_id\":\""
+         << jsonEscape(evaluation.lineage.ego_snapshot_id) << "\""
+         << ",\"obstacle_snapshot_id\":\""
+         << jsonEscape(evaluation.lineage.obstacle_snapshot_id) << "\""
+         << ",\"reference_snapshot_id\":\""
+         << jsonEscape(evaluation.lineage.reference_snapshot_id) << "\""
+         << ",\"source_stamp_ns\":" << evaluation.lineage.source_stamp_ns
+         << ",\"obstacle_sequence\":" << evaluation.lineage.obstacle_sequence
+         << ",\"source_epoch\":" << evaluation.lineage.source_epoch
+         << ",\"reference_generation\":" << evaluation.lineage.reference_generation
          << ",\"clearance_pass\":\"" << jsonEscape(candidate.clearance_pass) << "\""
          << ",\"generator_stage\":\"" << jsonEscape(candidate.generator_stage) << "\""
          << ",\"template\":\"" << jsonEscape(candidate.candidate_template) << "\""
@@ -225,6 +264,17 @@ std::string candidateJson(
          << ",\"z3\":" << jsonNumber(candidate.knots[3])
          << ",\"z4\":" << jsonNumber(candidate.knots[4])
          << ",\"point_count\":" << candidate.point_count
+         << ",\"waypoint0\":{\"s_m\":" << jsonNumber(candidate.waypoint0_s_m)
+         << ",\"d_m\":" << jsonNumber(candidate.waypoint0_d_m)
+         << ",\"x_m\":" << jsonNumber(candidate.waypoint0_x_m)
+         << ",\"y_m\":" << jsonNumber(candidate.waypoint0_y_m)
+         << ",\"yaw_rad\":" << jsonNumber(candidate.waypoint0_yaw_rad)
+         << ",\"center_track_margin_m\":"
+         << jsonNumber(candidate.waypoint0_center_track_margin_m)
+         << ",\"footprint_track_margin_m\":"
+         << jsonNumber(candidate.waypoint0_footprint_track_margin_m)
+         << ",\"footprint_invalid\":"
+         << (candidate.waypoint0_footprint_invalid ? "true" : "false") << '}'
          << ",\"validator_executed\":"
          << (candidate.validator_executed ? "true" : "false")
          << ",\"validation_authority\":\""
@@ -285,6 +335,67 @@ std::string candidateJson(
   return output.str();
 }
 
+std::string evaluationJson(
+  const PlanningResearchCycle & cycle,
+  const P3ResearchEvaluationRecord & evaluation)
+{
+  std::vector<std::string> candidate_digests;
+  std::vector<std::string> stages;
+  std::vector<std::string> templates;
+  candidate_digests.reserve(evaluation.candidates.size());
+  for (const auto & candidate : evaluation.candidates) {
+    candidate_digests.push_back(candidate.path_digest);
+    if (std::find(stages.begin(), stages.end(), candidate.generator_stage) == stages.end()) {
+      stages.push_back(candidate.generator_stage);
+    }
+    if (std::find(
+        templates.begin(), templates.end(), candidate.candidate_template) == templates.end())
+    {
+      templates.push_back(candidate.candidate_template);
+    }
+  }
+
+  const auto & lineage = evaluation.lineage;
+  std::ostringstream output;
+  output << std::setprecision(17)
+         << "{\"schema_version\":\"" << kPlanningResearchSchemaVersion << "\""
+         << ",\"event_type\":\"EVALUATION_EVENT\""
+         << ",\"run_id\":\"" << jsonEscape(cycle.run_id) << "\""
+         << ",\"scenario_id\":\"" << jsonEscape(cycle.scenario_id) << "\""
+         << ",\"callback_sequence\":" << cycle.callback_sequence
+         << ",\"evaluation_sequence\":" << lineage.evaluation_sequence
+         << ",\"evaluation_role\":\"" << jsonEscape(lineage.evaluation_role) << "\""
+         << ",\"clearance_pass\":\"" << jsonEscape(evaluation.clearance_pass) << "\""
+         << ",\"input_snapshot_id\":\"" << jsonEscape(lineage.input_snapshot_id) << "\""
+         << ",\"ego_snapshot_id\":\"" << jsonEscape(lineage.ego_snapshot_id) << "\""
+         << ",\"obstacle_snapshot_id\":\""
+         << jsonEscape(lineage.obstacle_snapshot_id) << "\""
+         << ",\"reference_snapshot_id\":\""
+         << jsonEscape(lineage.reference_snapshot_id) << "\""
+         << ",\"source_stamp_ns\":" << lineage.source_stamp_ns
+         << ",\"obstacle_sequence\":" << lineage.obstacle_sequence
+         << ",\"source_epoch\":" << lineage.source_epoch
+         << ",\"reference_generation\":" << lineage.reference_generation
+         << ",\"ego\":{\"s\":" << jsonNumber(lineage.ego_s)
+         << ",\"d\":" << jsonNumber(lineage.ego_d)
+         << ",\"speed_mps\":" << jsonNumber(lineage.ego_speed_mps) << '}'
+         << ",\"obstacles\":" << obstacleSnapshotsJson(lineage.obstacles)
+         << ",\"invoked\":" << (evaluation.invoked ? "true" : "false")
+         << ",\"selected\":" << (evaluation.selected ? "true" : "false")
+         << ",\"failure_classification\":\""
+         << jsonEscape(evaluation.failure_classification) << "\""
+         << ",\"constructed_total_actual\":" << evaluation.constructed_total_actual
+         << ",\"validate_candidate_executed_total_actual\":"
+         << evaluation.validate_candidate_executed_total_actual
+         << ",\"hard_valid_total_actual\":" << evaluation.hard_valid_total_actual
+         << ",\"returned_candidate_count\":" << evaluation.returned_candidate_count
+         << ",\"candidate_path_digests\":" << jsonStrings(candidate_digests)
+         << ",\"generator_stages\":" << jsonStrings(stages)
+         << ",\"templates\":" << jsonStrings(templates)
+         << ",\"runtime_total_us\":" << jsonNumber(evaluation.runtime_total_us) << '}';
+  return output.str();
+}
+
 }  // namespace
 
 class PlanningResearchLogger::Impl
@@ -311,9 +422,10 @@ public:
     }
     run_directory_ = run_path.string();
     planning_output_.open(run_path / "planning_events.jsonl", std::ios::out);
+    evaluation_output_.open(run_path / "evaluation_events.jsonl", std::ios::out);
     candidate_output_.open(run_path / "candidate_events.jsonl", std::ios::out);
     std::ofstream metadata(run_path / "metadata.json", std::ios::out);
-    if (!planning_output_ || !candidate_output_ || !metadata) {
+    if (!planning_output_ || !evaluation_output_ || !candidate_output_ || !metadata) {
       throw std::runtime_error("failed to open research output files");
     }
     metadata << "{\n"
@@ -375,6 +487,7 @@ public:
       }
       planning_output_ << planningJson(cycle, config_, dropped_count_.load()) << '\n';
       for (const auto & evaluation : cycle.evaluations) {
+        evaluation_output_ << evaluationJson(cycle, evaluation) << '\n';
         for (const auto & candidate : evaluation.candidates) {
           candidate_output_ << candidateJson(cycle, evaluation, candidate) << '\n';
         }
@@ -382,6 +495,7 @@ public:
       ++written_count_;
     }
     planning_output_.flush();
+    evaluation_output_.flush();
     candidate_output_.flush();
     std::ofstream summary(
       std::filesystem::path(run_directory_) / "run_summary.json", std::ios::out);
@@ -397,6 +511,7 @@ public:
   PlanningResearchConfig config_;
   std::string run_directory_;
   std::ofstream planning_output_;
+  std::ofstream evaluation_output_;
   std::ofstream candidate_output_;
   std::deque<PlanningResearchCycle> queue_;
   std::mutex mutex_;
@@ -436,6 +551,9 @@ void captureP3ResearchEvaluation(
   const P3ShadowResult & result)
 {
   P3ResearchEvaluationRecord evaluation;
+  if (cycle.active_evaluation_lineage != nullptr) {
+    evaluation.lineage = *cycle.active_evaluation_lineage;
+  }
   evaluation.clearance_pass = clearance_pass;
   evaluation.invoked = result.invoked;
   evaluation.selected = result.would_recover;
@@ -492,6 +610,14 @@ void captureP3ResearchEvaluation(
     record.exit_scale = trace.exit_scale;
     record.knots = trace.knot_stations;
     record.point_count = trace.point_count;
+    record.waypoint0_s_m = trace.waypoint0_s_m;
+    record.waypoint0_d_m = trace.waypoint0_d_m;
+    record.waypoint0_x_m = trace.waypoint0_x_m;
+    record.waypoint0_y_m = trace.waypoint0_y_m;
+    record.waypoint0_yaw_rad = trace.waypoint0_yaw_rad;
+    record.waypoint0_center_track_margin_m = trace.waypoint0_center_track_margin_m;
+    record.waypoint0_footprint_track_margin_m = trace.waypoint0_footprint_track_margin_m;
+    record.waypoint0_footprint_invalid = trace.waypoint0_footprint_invalid;
     record.validator_executed = trace.validator_executed;
     record.validation_authority = trace.validation_authority;
     record.hard_valid = trace.hard_valid;

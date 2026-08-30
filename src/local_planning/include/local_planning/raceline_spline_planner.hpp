@@ -642,7 +642,8 @@ public:
     std::int64_t snapshot_source_stamp_ns,
     std::uint64_t snapshot_epoch,
     std::uint64_t global_reference_generation,
-    const std::string & p0_failure_reason) const;
+    const std::string & p0_failure_reason,
+    const std::string & research_evaluation_role = "") const;
 
   // 위 함수가 try로 감싸는 실제 구현. 예외를 그대로 던지므로 직접 부르지 말 것.
   P3ShadowResult evaluateP3ShadowUnguarded(
@@ -739,7 +740,20 @@ private:
     const EgoFrenetState & ego, const f110_msgs::msg::WpntArray & path,
     const std::vector<ExpandedObstacle> & visible, int * obstacle_id = nullptr) const;
   struct Candidate;
-  struct FootprintTrackBoundSample;
+  struct FootprintTrackBoundSample
+  {
+    double centerline_clearance_m{std::numeric_limits<double>::infinity()};
+    double footprint_clearance_m{std::numeric_limits<double>::infinity()};
+    bool invalid{false};
+    std::string minimum_side;
+    std::size_t waypoint_index{std::numeric_limits<std::size_t>::max()};
+    double waypoint_s_m{std::numeric_limits<double>::quiet_NaN()};
+    double waypoint_x_m{std::numeric_limits<double>::quiet_NaN()};
+    double waypoint_y_m{std::numeric_limits<double>::quiet_NaN()};
+    double waypoint_yaw_rad{std::numeric_limits<double>::quiet_NaN()};
+    double heading_relative_to_reference_rad{std::numeric_limits<double>::quiet_NaN()};
+    double wallward_corner_protrusion_m{std::numeric_limits<double>::quiet_NaN()};
+  };
 
   double wrapS(double s) const;
   std::size_t nextReferenceIndex(double s) const;
@@ -803,7 +817,8 @@ private:
     bool allow_side_switch,
     bool stop_on_first_feasible,
     std::vector<Candidate> & candidates,
-    std::string & reason) const;
+    std::string & reason,
+    const std::string & evaluation_role) const;
   // 주어진 자차 상태에서 회피 경로가 하나라도 생성되는가. 경로는 만들지 않고 가능성만 본다.
   bool anyFeasibleCandidateFrom(
     const EgoFrenetState & ego,
