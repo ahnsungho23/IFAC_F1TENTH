@@ -1,0 +1,5 @@
+bag_id,ready_event_count,selected_path_identity_change_count,selected_side_change_count,safe_stop_entry_count,safe_stop_exit_count,global_handoff_entry_count,invalidation_event_count,invalidation_reasons
+rosbag2_2026_08_24-19_00_30,27759,12160,62,164,164,512,174,"{""CURRENT_EXACT_HARD_INVALID:path entry is discontinuous from the current ego d"": 2, ""CURRENT_RAW_OBSTACLE_COLLISION:d-offset intersects an inflated static-obstacle box"": 1, ""FRENET_ODOMETRY_STALE"": 35, ""STALE_SOURCE"": 134, ""WRAP_OR_BACKWARD_PROGRESS"": 2}"
+rosbag2_2026_08_24-19_24_17,29825,14939,85,91,91,621,355,"{""BACKWARD_PROGRESS_INDEX"": 1, ""CURRENT_RAW_OBSTACLE_COLLISION:d-offset intersects an inflated static-obstacle box"": 3, ""FRENET_ODOMETRY_STALE"": 103, ""OBSTACLE_MANEUVER_IDENTITY_MISMATCH"": 2, ""STALE_SOURCE"": 244, ""WRAP_OR_BACKWARD_PROGRESS"": 2}"
+rosbag2_2026_08_25-09_23_32,2030,4,0,1,1,3,0,{}
+rosbag2_2026_08_25-09_59_22,43180,14747,64,101,100,1120,398,"{""CURRENT_EXACT_HARD_INVALID:path entry is discontinuous from the current ego d"": 1, ""FRENET_ODOMETRY_STALE"": 149, ""STALE_SOURCE"": 238, ""WRAP_OR_BACKWARD_PROGRESS"": 10}"

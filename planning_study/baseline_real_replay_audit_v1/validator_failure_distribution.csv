@@ -1,0 +1,67 @@
+bag_id,generator_stage,first_failure_name,first_failure_reason,count,share_of_bag_invalid_candidates
+rosbag2_2026_08_24-19_00_30,M0_V1,GEOMETRY,path entry is discontinuous from the current ego d,6,7.608805924723546e-05
+rosbag2_2026_08_24-19_00_30,M0_V1,GEOMETRY,quintic d-offset exceeds maximum_lateral_slope,3300,0.041848432585979506
+rosbag2_2026_08_24-19_00_30,M0_V1,GEOMETRY,shifted race line exceeds left control steering curvature,2477,0.031411687125900374
+rosbag2_2026_08_24-19_00_30,M0_V1,GEOMETRY,shifted race line exceeds right control steering curvature,2160,0.02739170132900477
+rosbag2_2026_08_24-19_00_30,M0_V1,OBSTACLE_COLLISION,d-offset intersects an inflated static-obstacle box,1316,0.01668864766156031
+rosbag2_2026_08_24-19_00_30,M0_V1,TRACK_BOUNDARY,d-offset leaves the global waypoint track bounds,1020,0.01293497007203003
+rosbag2_2026_08_24-19_00_30,M0_V1,TRACK_BOUNDARY,footprint_track_bound,23116,0.2931419295931825
+rosbag2_2026_08_24-19_00_30,M0_V2,GEOMETRY,quintic d-offset exceeds maximum_lateral_slope,1076,0.013645125291670893
+rosbag2_2026_08_24-19_00_30,M0_V2,GEOMETRY,shifted race line exceeds left control steering curvature,616,0.0078117074160495075
+rosbag2_2026_08_24-19_00_30,M0_V2,GEOMETRY,shifted race line exceeds right control steering curvature,1831,0.02321953941361469
+rosbag2_2026_08_24-19_00_30,M0_V2,OBSTACLE_COLLISION,d-offset intersects an inflated static-obstacle box,1053,0.013353454397889824
+rosbag2_2026_08_24-19_00_30,M0_V2,TRACK_BOUNDARY,d-offset leaves the global waypoint track bounds,2244,0.028456934158466066
+rosbag2_2026_08_24-19_00_30,M0_V2,TRACK_BOUNDARY,footprint_track_bound,6236,0.0790808562442934
+rosbag2_2026_08_24-19_00_30,M1,GEOMETRY,path entry is discontinuous from the current ego d,29,0.00036775895302830475
+rosbag2_2026_08_24-19_00_30,M1,GEOMETRY,quintic d-offset exceeds maximum_lateral_slope,2215,0.02808917520543776
+rosbag2_2026_08_24-19_00_30,M1,GEOMETRY,shifted race line exceeds left control steering curvature,4204,0.05331236684589632
+rosbag2_2026_08_24-19_00_30,M1,GEOMETRY,shifted race line exceeds right control steering curvature,2798,0.03548239829562747
+rosbag2_2026_08_24-19_00_30,M1,OBSTACLE_COLLISION,d-offset intersects an inflated static-obstacle box,1428,0.01810895810084204
+rosbag2_2026_08_24-19_00_30,M1,TRACK_BOUNDARY,d-offset leaves the global waypoint track bounds,1654,0.020974941665821242
+rosbag2_2026_08_24-19_00_30,M1,TRACK_BOUNDARY,footprint_track_bound,20077,0.25460332758445775
+rosbag2_2026_08_24-19_24_17,M0_V1,GEOMETRY,path entry is discontinuous from the current ego d,126,0.002484815019326339
+rosbag2_2026_08_24-19_24_17,M0_V1,GEOMETRY,quintic d-offset exceeds maximum_lateral_slope,2570,0.050682338092608664
+rosbag2_2026_08_24-19_24_17,M0_V1,GEOMETRY,shifted race line exceeds left control steering curvature,4259,0.08399069180405459
+rosbag2_2026_08_24-19_24_17,M0_V1,GEOMETRY,shifted race line exceeds right control steering curvature,2497,0.049242723041729115
+rosbag2_2026_08_24-19_24_17,M0_V1,OBSTACLE_COLLISION,d-offset intersects an inflated static-obstacle box,332,0.006547290368383687
+rosbag2_2026_08_24-19_24_17,M0_V1,TRACK_BOUNDARY,d-offset leaves the global waypoint track bounds,1972,0.03888932712786937
+rosbag2_2026_08_24-19_24_17,M0_V1,TRACK_BOUNDARY,footprint_track_bound,8361,0.16488522521101207
+rosbag2_2026_08_24-19_24_17,M0_V2,GEOMETRY,quintic d-offset exceeds maximum_lateral_slope,1041,0.020529305040624755
+rosbag2_2026_08_24-19_24_17,M0_V2,GEOMETRY,shifted race line exceeds left control steering curvature,2139,0.04218269306618285
+rosbag2_2026_08_24-19_24_17,M0_V2,GEOMETRY,shifted race line exceeds right control steering curvature,794,0.015658278772580265
+rosbag2_2026_08_24-19_24_17,M0_V2,OBSTACLE_COLLISION,d-offset intersects an inflated static-obstacle box,607,0.011970497751834031
+rosbag2_2026_08_24-19_24_17,M0_V2,TRACK_BOUNDARY,d-offset leaves the global waypoint track bounds,2625,0.05176697956929873
+rosbag2_2026_08_24-19_24_17,M0_V2,TRACK_BOUNDARY,footprint_track_bound,3217,0.0634416660093082
+rosbag2_2026_08_24-19_24_17,M1,GEOMETRY,path entry is discontinuous from the current ego d,39,0.0007691094107438669
+rosbag2_2026_08_24-19_24_17,M1,GEOMETRY,quintic d-offset exceeds maximum_lateral_slope,902,0.017788120217717127
+rosbag2_2026_08_24-19_24_17,M1,GEOMETRY,shifted race line exceeds left control steering curvature,4101,0.08087481265283585
+rosbag2_2026_08_24-19_24_17,M1,GEOMETRY,shifted race line exceeds right control steering curvature,1671,0.03295338013725645
+rosbag2_2026_08_24-19_24_17,M1,OBSTACLE_COLLISION,d-offset intersects an inflated static-obstacle box,653,0.01287765244142936
+rosbag2_2026_08_24-19_24_17,M1,TRACK_BOUNDARY,d-offset leaves the global waypoint track bounds,2396,0.047250926875443716
+rosbag2_2026_08_24-19_24_17,M1,TRACK_BOUNDARY,footprint_track_bound,10406,0.20521416738976098
+rosbag2_2026_08_25-09_23_32,M0_V1,GEOMETRY,quintic d-offset exceeds maximum_lateral_slope,8,0.04
+rosbag2_2026_08_25-09_23_32,M0_V1,GEOMETRY,shifted race line exceeds left control steering curvature,72,0.36
+rosbag2_2026_08_25-09_23_32,M0_V1,GEOMETRY,shifted race line exceeds right control steering curvature,48,0.24
+rosbag2_2026_08_25-09_23_32,M0_V1,TRACK_BOUNDARY,footprint_track_bound,16,0.08
+rosbag2_2026_08_25-09_23_32,M1,GEOMETRY,quintic d-offset exceeds maximum_lateral_slope,8,0.04
+rosbag2_2026_08_25-09_23_32,M1,GEOMETRY,shifted race line exceeds left control steering curvature,48,0.24
+rosbag2_2026_08_25-09_59_22,M0_V1,GEOMETRY,path entry is discontinuous from the current ego d,30,0.0004318908180012093
+rosbag2_2026_08_25-09_59_22,M0_V1,GEOMETRY,quintic d-offset exceeds maximum_lateral_slope,911,0.013115084506636723
+rosbag2_2026_08_25-09_59_22,M0_V1,GEOMETRY,shifted race line exceeds left control steering curvature,2607,0.03753131208430509
+rosbag2_2026_08_25-09_59_22,M0_V1,GEOMETRY,shifted race line exceeds right control steering curvature,1273,0.018326567043851313
+rosbag2_2026_08_25-09_59_22,M0_V1,OBSTACLE_COLLISION,d-offset intersects an inflated static-obstacle box,1124,0.016181509314445307
+rosbag2_2026_08_25-09_59_22,M0_V1,TRACK_BOUNDARY,d-offset leaves the global waypoint track bounds,4619,0.06649678961158619
+rosbag2_2026_08_25-09_59_22,M0_V1,TRACK_BOUNDARY,footprint_track_bound,12090,0.17405199965448734
+rosbag2_2026_08_25-09_59_22,M0_V2,GEOMETRY,quintic d-offset exceeds maximum_lateral_slope,390,0.005614580634015721
+rosbag2_2026_08_25-09_59_22,M0_V2,GEOMETRY,shifted race line exceeds left control steering curvature,378,0.005441824306815237
+rosbag2_2026_08_25-09_59_22,M0_V2,GEOMETRY,shifted race line exceeds right control steering curvature,737,0.010610117762229709
+rosbag2_2026_08_25-09_59_22,M0_V2,OBSTACLE_COLLISION,d-offset intersects an inflated static-obstacle box,678,0.00976073248682733
+rosbag2_2026_08_25-09_59_22,M0_V2,TRACK_BOUNDARY,d-offset leaves the global waypoint track bounds,9892,0.14240879905559875
+rosbag2_2026_08_25-09_59_22,M0_V2,TRACK_BOUNDARY,footprint_track_bound,12078,0.17387924332728685
+rosbag2_2026_08_25-09_59_22,M1,GEOMETRY,path entry is discontinuous from the current ego d,8,0.00011517088480032248
+rosbag2_2026_08_25-09_59_22,M1,GEOMETRY,quintic d-offset exceeds maximum_lateral_slope,490,0.007054216694019752
+rosbag2_2026_08_25-09_59_22,M1,GEOMETRY,shifted race line exceeds left control steering curvature,2120,0.030520284472085456
+rosbag2_2026_08_25-09_59_22,M1,GEOMETRY,shifted race line exceeds right control steering curvature,826,0.011891393855633295
+rosbag2_2026_08_25-09_59_22,M1,OBSTACLE_COLLISION,d-offset intersects an inflated static-obstacle box,484,0.00696783853041951
+rosbag2_2026_08_25-09_59_22,M1,TRACK_BOUNDARY,d-offset leaves the global waypoint track bounds,6378,0.0918199879070571
+rosbag2_2026_08_25-09_59_22,M1,TRACK_BOUNDARY,footprint_track_bound,12349,0.1777806570498978
