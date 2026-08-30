@@ -19,6 +19,7 @@
 #include <deque>
 #include <functional>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <set>
@@ -39,6 +40,7 @@
 #include "local_planning/detail/obstacle_ingress_buffer.hpp"
 #include "local_planning/p3_maneuver_lifecycle.hpp"
 #include "local_planning/raceline_spline_planner.hpp"
+#include "local_planning/research_instrumentation.hpp"
 #include "local_planning/safe_stop_lifecycle.hpp"
 
 namespace local_planning
@@ -91,6 +93,11 @@ public:
 private:
   void initializeParameters();
   void initializeInterfaces();
+  void initializeResearchInstrumentation();
+  std::string effectiveParametersJson() const;
+  void captureResearchLifecycle(
+    const P3ShadowResult & evaluation,
+    const P3ManeuverLifecycleDecision & lifecycle);
   void onGlobalWaypoints(const f110_msgs::msg::WpntArray::SharedPtr message);
   void onObstacleIngress(const f110_msgs::msg::ObstacleArray::SharedPtr message);
   void onObstacles(const f110_msgs::msg::ObstacleArray::SharedPtr message);
@@ -515,6 +522,21 @@ private:
   bool lockstep_mode_{false};
   bool timing_t0_published_{false};
   bool timing_t1_published_{false};
+
+  bool research_instrumentation_enable_{false};
+  bool research_all_violation_audit_enable_{false};
+  std::string research_output_root_{"/tmp/local_planning_research"};
+  std::string research_run_id_;
+  std::string research_scenario_id_;
+  std::string research_git_commit_;
+  std::string research_git_dirty_status_;
+  std::string research_source_sha256_;
+  std::string research_config_sha256_;
+  std::string research_parameter_snapshot_id_;
+  int research_queue_capacity_{128};
+  std::unique_ptr<PlanningResearchLogger> research_logger_;
+  PlanningResearchCycle * active_research_cycle_{nullptr};
+  std::uint64_t research_callback_sequence_{0U};
 
   P3RuntimeMode p3_mode_{P3RuntimeMode::kOff};
   std::string p3_diagnostics_topic_{"/local_planning/p3_shadow"};

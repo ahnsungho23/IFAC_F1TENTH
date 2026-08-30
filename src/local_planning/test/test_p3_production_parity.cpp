@@ -30,6 +30,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
@@ -42,6 +43,7 @@
 #include "local_planning/p3_shadow.hpp"
 #include "p3_scenario_stream.hpp"
 #include "local_planning/raceline_spline_planner.hpp"
+#include "local_planning/research_instrumentation.hpp"
 
 namespace local_planning
 {
@@ -113,6 +115,75 @@ TEST(P3ProductionParity, CoupledOppositeSideObstaclesRecover)
       << "failing_cluster11 frame " << index
       << ": 다음 클러스터가 지평 안에 들어와 회피가 다시 막혔다";
   }
+}
+
+TEST(P3ProductionParity, ResearchTracePreservesDiscardedSidesAndM1ProbeRoots)
+{
+  bool saw_discarded_side = false;
+  bool saw_m1_analytic_probe = false;
+  for (const char * scenario : {"failing_cluster11", "failing_cluster1", "layoutB_failing",
+      "layoutB_passing", "layoutC_failing", "layoutC_passing", "passing_mixed",
+      "pinch_failure", "pinch_success", "straight_margin_crawl"})
+  {
+    const auto stream = readStream(scenarioPath(scenario));
+    RacelineSplinePlanner planner(parametersOf(stream));
+    ASSERT_TRUE(planner.setReference(stream.reference));
+    for (const auto & frame : stream.frames) {
+      PlanningResearchCycle cycle;
+      planner.setActiveResearchCycle(&cycle);
+      const auto result = planner.evaluateP3Shadow(
+        frame.ego, frame.obstacles, 0, 0U, 1U, "RESEARCH_PROVENANCE_TEST");
+      planner.setActiveResearchCycle(nullptr);
+      EXPECT_EQ(result.research_constructed_total_actual, result.research_all_candidates.size());
+      EXPECT_GE(result.research_constructed_total_actual, result.candidate_count);
+      EXPECT_FALSE(cycle.evaluations.empty());
+      for (const auto & trace : result.research_all_candidates) {
+        saw_discarded_side = saw_discarded_side || trace.discarded_side;
+        if (trace.generator_stage == "M1" && trace.root_type != "ZERO_INTERFACE") {
+          EXPECT_TRUE(std::isfinite(trace.s_probe));
+          EXPECT_TRUE(std::isfinite(trace.d_probe));
+          EXPECT_GE(trace.root_index, 0);
+          EXPECT_NE(trace.probe_location_rule, "NONE");
+          EXPECT_NE(trace.probe_anchor_rule, "NONE");
+          saw_m1_analytic_probe = true;
+        }
+      }
+    }
+  }
+  {
+    auto stream = readStream(scenarioPath("straight_margin_crawl"));
+    for (auto & waypoint : stream.reference.wpnts) {
+      waypoint.d_left = 2.0;
+      waypoint.d_right = 2.0;
+    }
+    RacelineSplinePlanner planner(parametersOf(stream));
+    ASSERT_TRUE(planner.setReference(stream.reference));
+    const auto ego = stream.frames.front().ego;
+    f110_msgs::msg::Obstacle obstacle;
+    obstacle.id = 501;
+    obstacle.s_center = ego.s + 5.0;
+    obstacle.s_start = obstacle.s_center - 0.3;
+    obstacle.s_end = obstacle.s_center + 0.3;
+    obstacle.d_right = -0.1;
+    obstacle.d_left = 0.1;
+    obstacle.d_center = 0.0;
+    obstacle.size = 0.2;
+    obstacle.is_static = true;
+    obstacle.is_visible = true;
+    PlanningResearchCycle cycle;
+    planner.setActiveResearchCycle(&cycle);
+    const auto result = planner.evaluateP3Shadow(
+      ego, {obstacle}, 0, 0U, 1U, "RESEARCH_DISCARDED_SIDE_TEST");
+    planner.setActiveResearchCycle(nullptr);
+    EXPECT_GT(result.research_m0_v1_constructed_right, 0U);
+    EXPECT_GT(result.research_m0_v1_constructed_left, 0U);
+    EXPECT_GT(result.research_discarded_side_candidate_count, 0U);
+    saw_discarded_side = std::any_of(
+      result.research_all_candidates.begin(), result.research_all_candidates.end(),
+      [](const auto & trace) {return trace.discarded_side && !trace.returned_by_policy;});
+  }
+  EXPECT_TRUE(saw_discarded_side);
+  EXPECT_TRUE(saw_m1_analytic_probe);
 }
 
 // 아직 실패하는 것이 정상인 장면 — 원인이 다르다.

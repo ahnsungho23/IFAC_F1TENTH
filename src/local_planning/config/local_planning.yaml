@@ -836,6 +836,20 @@ local_planner_node:
     # already-made stabilization/commitment decisions.
     replay_diagnostics_enable: false
     replay_diagnostics_topic: "/cma_replay/planner_events"
+    # 논문/감사 전용 JSONL 계측. 기본 OFF이며, ON일 때도 계획 콜백은 bounded queue에
+    # try-lock으로만 제출하고 디스크 I/O/fsync를 기다리지 않습니다. provenance 값은
+    # tools/planning_research/prepare_instrumented_run.py로 생성해 명시적으로 넣습니다.
+    research_instrumentation_enable: false
+    research_all_violation_audit_enable: false
+    research_output_root: "/tmp/local_planning_research"
+    research_run_id: ""
+    research_scenario_id: ""
+    research_git_commit: ""
+    research_git_dirty_status: ""
+    research_source_sha256: ""
+    research_config_sha256: ""
+    research_parameter_snapshot_id: ""
+    research_queue_capacity: 128
     # CMA 전용 exact-stamp obstacle/Frenet/state event mode.
     lockstep_mode: false
 

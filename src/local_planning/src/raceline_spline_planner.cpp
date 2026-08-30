@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <limits>
@@ -23,6 +24,7 @@
 #include <utility>
 
 #include "local_planning/candidate_rank.hpp"
+#include "local_planning/research_instrumentation.hpp"
 
 namespace local_planning
 {
@@ -31,6 +33,13 @@ namespace
 
 constexpr double kEpsilon = 1.0e-6;
 constexpr double kPi = 3.14159265358979323846;
+
+using ResearchClock = std::chrono::steady_clock;
+
+double elapsedResearchUs(const ResearchClock::time_point & start)
+{
+  return std::chrono::duration<double, std::micro>(ResearchClock::now() - start).count();
+}
 
 double clamp(double value, double lower, double upper)
 {
@@ -630,6 +639,16 @@ bool RacelineSplinePlanner::ready() const
   return reference_.wpnts.size() >= 4U && track_length_ > 0.0;
 }
 
+void RacelineSplinePlanner::setActiveResearchCycle(PlanningResearchCycle * cycle) const
+{
+  active_research_cycle_ = cycle;
+}
+
+PlanningResearchCycle * RacelineSplinePlanner::activeResearchCycle() const
+{
+  return active_research_cycle_;
+}
+
 double RacelineSplinePlanner::trackLength() const
 {
   return track_length_;
@@ -1153,10 +1172,26 @@ double RacelineSplinePlanner::finalizeP3ShadowPath(
   const auto visible = expandVisibleObstacles(ego, obstacles);
   // 속도 상한은 최종 x/y에서 계산한 geometry를 입력으로 사용한다. 속도 성형 뒤에는 ax만
   // 갱신해 해석 geometry를 legacy 3점 원으로 다시 덮어쓰지 않는다.
+  const auto geometry_start = active_research_cycle_ == nullptr ?
+    ResearchClock::time_point() : ResearchClock::now();
   updateGeometry(path);
+  if (active_research_cycle_ != nullptr) {
+    active_research_cycle_->runtime_geometry_recompute_us += elapsedResearchUs(geometry_start);
+  }
+  const auto velocity_start = active_research_cycle_ == nullptr ?
+    ResearchClock::time_point() : ResearchClock::now();
   const double confirmed_critical_speed_mps = applyAvoidanceVelocityLimit(
     path, ego, visible, maneuver_stations);
+  if (active_research_cycle_ != nullptr) {
+    active_research_cycle_->runtime_velocity_shaping_us += elapsedResearchUs(velocity_start);
+  }
+  const auto acceleration_start = active_research_cycle_ == nullptr ?
+    ResearchClock::time_point() : ResearchClock::now();
   updateAccelerationOnly(path);
+  if (active_research_cycle_ != nullptr) {
+    active_research_cycle_->runtime_geometry_recompute_us +=
+      elapsedResearchUs(acceleration_start);
+  }
   return confirmed_critical_speed_mps;
 }
 
@@ -1171,12 +1206,26 @@ P3ShadowPathEvaluation RacelineSplinePlanner::validateP3ShadowPath(
   Candidate candidate;
   candidate.path = path;
   const auto visible = expandVisibleObstacles(ego, obstacles);
+  const auto measurement_start = active_research_cycle_ == nullptr ?
+    ResearchClock::time_point() : ResearchClock::now();
   measureCandidate(ego, visible, candidate);
+  if (active_research_cycle_ != nullptr) {
+    result.runtime_candidate_measurement_us = elapsedResearchUs(measurement_start);
+    active_research_cycle_->runtime_candidate_measurement_us +=
+      result.runtime_candidate_measurement_us;
+  }
   PathValidationFailure failure;
+  const auto validation_start = active_research_cycle_ == nullptr ?
+    ResearchClock::time_point() : ResearchClock::now();
   result.hard_valid = validateCandidate(
     ego, candidate.path, visible, candidate.reason, 0U, 0U, &failure, collision_horizon,
     obstacle_reserve_scale);
+  if (active_research_cycle_ != nullptr) {
+    result.runtime_hard_validation_us = elapsedResearchUs(validation_start);
+    active_research_cycle_->runtime_hard_validation_us += result.runtime_hard_validation_us;
+  }
   result.minimum_normalized_safety_slack = candidate.minimum_normalized_safety_slack;
+  result.minimum_center_track_margin_m = candidate.centerline_wall_clearance_m;
   result.minimum_track_margin_m = candidate.rectangular_footprint_wall_clearance_m;
   result.minimum_obstacle_margin_m = candidate.obstacle_clearance_m;
   result.peak_curvature_radpm = candidate.peak_curvature_radpm;
@@ -1185,7 +1234,27 @@ P3ShadowPathEvaluation RacelineSplinePlanner::validateP3ShadowPath(
   result.velocity_loss = candidate.velocity_loss;
   result.global_path_deviation_m = candidate.global_path_deviation_m;
   result.ego_braking_distance_deficit_m = candidate.ego_braking_distance_deficit_m;
+  if (active_research_cycle_ != nullptr) {
+    double peak_positive = 0.0;
+    double peak_negative = 0.0;
+    for (const auto & waypoint : candidate.path.wpnts) {
+      peak_positive = std::max(peak_positive, waypoint.kappa_radpm);
+      peak_negative = std::min(peak_negative, waypoint.kappa_radpm);
+    }
+    result.peak_positive_curvature_radpm = peak_positive;
+    result.peak_negative_curvature_radpm = peak_negative;
+  }
   result.rejection_reason = result.hard_valid ? std::string() : candidate.reason;
+  if (active_research_cycle_ != nullptr &&
+    active_research_cycle_->all_violation_audit_enabled)
+  {
+    result.all_observed_violation_flags = auditCandidateViolations(
+      ego, candidate.path, visible, 0U, 0U, collision_horizon, obstacle_reserve_scale);
+  }
+  result.first_failure_kind = static_cast<int>(failure.kind);
+  result.failure_waypoint_index =
+    failure.waypoint_index == std::numeric_limits<std::size_t>::max() ?
+    -1 : static_cast<std::int64_t>(failure.waypoint_index);
   if (!result.hard_valid) {
     result.failure_obstacle_id = failure.obstacle_id;
     result.failure_waypoint_s = failure.waypoint_s;
@@ -2814,6 +2883,9 @@ bool RacelineSplinePlanner::validateCandidate(
   double obstacle_reserve_scale,
   bool skip_entry_continuity) const
 {
+  if (active_research_cycle_ != nullptr) {
+    ++active_research_cycle_->validate_candidate_executed_total_actual;
+  }
   if (failure != nullptr) {
     *failure = PathValidationFailure();
   }
@@ -3023,7 +3095,123 @@ bool RacelineSplinePlanner::validateCandidate(
     previous_s = forward_s;
     previous_curvature = waypoint.kappa_radpm;
   }
+  if (active_research_cycle_ != nullptr) {
+    ++active_research_cycle_->hard_valid_total_actual;
+  }
   return true;
+}
+
+std::vector<std::string> RacelineSplinePlanner::auditCandidateViolations(
+  const EgoFrenetState & ego,
+  const f110_msgs::msg::WpntArray & path,
+  const std::vector<ExpandedObstacle> & visible,
+  std::size_t start_index,
+  std::size_t minimum_points,
+  const std::optional<double> & maximum_collision_forward_m,
+  double obstacle_reserve_scale) const
+{
+  std::vector<std::string> violations;
+  const auto observe = [&violations](const std::string & flag) {
+      if (std::find(violations.begin(), violations.end(), flag) == violations.end()) {
+        violations.push_back(flag);
+      }
+    };
+
+  std::size_t entry_index = path.wpnts.size();
+  double entry_forward = std::numeric_limits<double>::infinity();
+  for (std::size_t index = start_index; index < path.wpnts.size(); ++index) {
+    const double forward = forwardDistance(ego.s, path.wpnts[index].s_m);
+    if (forward > kEpsilon && forward < entry_forward) {
+      entry_forward = forward;
+      entry_index = index;
+    }
+  }
+  if (entry_index < path.wpnts.size() && entry_forward <= 0.5 * track_length_) {
+    const auto & entry = path.wpnts[entry_index];
+    const double entry_lateral = std::abs(entry.d_m - ego.d);
+    const double tracking_budget_m = std::max(
+      parameters_.trackingErrorReserve(ego.speed, entry.kappa_radpm),
+      std::max(0.0, parameters_.entry_discontinuity_min_budget_m));
+    const double entry_slope_baseline_m = std::max(
+      entry_forward, std::max(0.0, parameters_.entry_continuity_baseline_m));
+    if (entry_lateral > tracking_budget_m &&
+      entry_lateral / entry_slope_baseline_m > parameters_.maximum_lateral_slope)
+    {
+      observe("ENTRY_DISCONTINUITY");
+    }
+  }
+
+  if (start_index >= path.wpnts.size()) {
+    observe("NO_FORWARD_PATH");
+    return violations;
+  }
+  if (minimum_points == 0U) {
+    minimum_points = static_cast<std::size_t>(parameters_.minimum_path_points);
+  }
+  if (path.wpnts.size() - start_index < minimum_points) {
+    observe("MINIMUM_PATH_POINTS");
+  }
+
+  double previous_d = path.wpnts[start_index].d_m;
+  double previous_s = 0.0;
+  double previous_curvature = path.wpnts[start_index].kappa_radpm;
+  for (std::size_t index = start_index; index < path.wpnts.size(); ++index) {
+    const auto & waypoint = path.wpnts[index];
+    const double forward_s = forwardDistance(ego.s, waypoint.s_m);
+    const auto & reference = reference_.wpnts[nearestReferenceIndex(waypoint.s_m)];
+    const double center_boundary_clearance = parameters_.trackBoundaryReserve(
+      waypoint.vx_mps, waypoint.kappa_radpm);
+    const double left_width = reference.d_left > 0.05 ?
+      reference.d_left : parameters_.fallback_track_half_width_m;
+    const double right_width = reference.d_right > 0.05 ?
+      reference.d_right : parameters_.fallback_track_half_width_m;
+    if (waypoint.d_m > left_width - center_boundary_clearance + 1.0e-6 ||
+      waypoint.d_m < -right_width + center_boundary_clearance - 1.0e-6)
+    {
+      observe("CENTER_TRACK_BOUND");
+    }
+    if (measureFootprintTrackBound(waypoint, index).invalid) {
+      observe("FOOTPRINT_TRACK_BOUND");
+    }
+    for (const auto & obstacle : visible) {
+      const double clearance = parameters_.obstacleSafetyClearance(
+        waypoint.vx_mps, waypoint.kappa_radpm, obstacle_reserve_scale);
+      if ((!maximum_collision_forward_m.has_value() ||
+        forward_s <= maximum_collision_forward_m.value() + kEpsilon) &&
+        forward_s >= obstacle.start && forward_s <= obstacle.end &&
+        waypoint.d_m > obstacle.raw_d_right - clearance + 1.0e-6 &&
+        waypoint.d_m < obstacle.raw_d_left + clearance - 1.0e-6)
+      {
+        observe("OBSTACLE_COLLISION");
+      }
+    }
+    if (index > start_index) {
+      const double ds = forward_s - previous_s;
+      if (!(ds > kEpsilon)) {
+        observe("NON_INCREASING_RACELINE_ORDER");
+      } else {
+        if (std::abs(waypoint.d_m - previous_d) / ds >
+          parameters_.maximum_lateral_slope)
+        {
+          observe("LATERAL_SLOPE");
+        }
+        if (std::abs(waypoint.kappa_radpm - previous_curvature) / ds >
+          parameters_.maximum_curvature_rate_radpm2)
+        {
+          observe("CURVATURE_RATE");
+        }
+      }
+    }
+    if (std::abs(waypoint.kappa_radpm) >
+      parameters_.maximumCurvatureFor(waypoint.kappa_radpm))
+    {
+      observe(waypoint.kappa_radpm >= 0.0 ? "LEFT_CURVATURE" : "RIGHT_CURVATURE");
+    }
+    previous_d = waypoint.d_m;
+    previous_s = forward_s;
+    previous_curvature = waypoint.kappa_radpm;
+  }
+  return violations;
 }
 
 bool RacelineSplinePlanner::validatePath(
@@ -3283,6 +3471,9 @@ RacelineSplineResult RacelineSplinePlanner::buildSafeStop(
   if (parameters_.safe_stop_escape_check_enable) {
     const double requested_stop_at = stop_at;
     const auto escapable_at = [&](double forward) {
+        if (active_research_cycle_ != nullptr) {
+          ++active_research_cycle_->safe_stop_escape_evaluator_count;
+        }
         EgoFrenetState at_stop;
         at_stop.s = wrapS(ego.s + forward);
         at_stop.d = ego.d;

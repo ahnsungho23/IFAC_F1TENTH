@@ -1583,3 +1583,9 @@ snapshot이라는 보장은 바로 위의 `FRESH_RESULT_SNAPSHOT_LINEAGE_MISMATC
 기하에 대해 아무것도 보증하지 않는다. 회귀 테스트
 `CertifiedCandidateStillRejectedWhenRawGeometryCollides`가 인증서가 재사용된 상태에서도 raw
 충돌이 후보를 기각하는지 확인한다.
+## Research instrumentation (기본 OFF)
+
+논문용 candidate/lifecycle 계측은 `research_instrumentation_enable=false`로 기본 비활성입니다.
+ON run의 provenance 준비, JSONL schema, callback-global validator 계수, M1 probe/root 보존,
+bounded non-blocking writer 계약은 [research_instrumentation.md](research_instrumentation.md)를
+참조하십시오. 이 출력은 planner 선택 입력이나 ROS controller contract가 아닙니다.

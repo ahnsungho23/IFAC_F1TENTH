@@ -15,6 +15,7 @@
 #ifndef LOCAL_PLANNING__P3_SHADOW_HPP_
 #define LOCAL_PLANNING__P3_SHADOW_HPP_
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -62,15 +63,23 @@ struct P3ShadowPathEvaluation
 {
   bool hard_valid{false};
   double minimum_normalized_safety_slack{-std::numeric_limits<double>::infinity()};
+  double minimum_center_track_margin_m{std::numeric_limits<double>::quiet_NaN()};
   double minimum_track_margin_m{std::numeric_limits<double>::quiet_NaN()};
   double minimum_obstacle_margin_m{std::numeric_limits<double>::quiet_NaN()};
   double peak_curvature_radpm{std::numeric_limits<double>::quiet_NaN()};
+  double peak_positive_curvature_radpm{std::numeric_limits<double>::quiet_NaN()};
+  double peak_negative_curvature_radpm{std::numeric_limits<double>::quiet_NaN()};
   double minimum_curvature_margin_radpm{std::numeric_limits<double>::quiet_NaN()};
   double peak_curvature_rate_radpm2{std::numeric_limits<double>::quiet_NaN()};
   double velocity_loss{std::numeric_limits<double>::quiet_NaN()};
   double global_path_deviation_m{std::numeric_limits<double>::quiet_NaN()};
   double ego_braking_distance_deficit_m{0.0};
+  double runtime_candidate_measurement_us{0.0};
+  double runtime_hard_validation_us{0.0};
   std::string rejection_reason;
+  std::vector<std::string> all_observed_violation_flags;
+  int first_failure_kind{0};
+  std::int64_t failure_waypoint_index{-1};
   // 어떤 장애물과, 경로의 어느 지점에서 걸렸는가 (2026-08-16 진단).
   // 사유 문자열만으로는 "탈출 램프가 다음 장애물을 스쳤다"와 "라인으로 복귀하는 합류가
   // 라인 위 장애물을 관통했다"를 구분할 수 없고, 둘은 수리가 완전히 다르다.
@@ -96,10 +105,30 @@ struct P3ShadowCandidateTrace
 {
   std::size_t generation_index{0U};
   bool go_left{false};
+  std::string generator_stage{"UNKNOWN"};
   double entry_scale{std::numeric_limits<double>::quiet_NaN()};
   double exit_scale{std::numeric_limits<double>::quiet_NaN()};
   double d_target{std::numeric_limits<double>::quiet_NaN()};
   double d_mid{std::numeric_limits<double>::quiet_NaN()};
+  double s_probe{std::numeric_limits<double>::quiet_NaN()};
+  double d_probe{std::numeric_limits<double>::quiet_NaN()};
+  std::string probe_location_rule{"NONE"};
+  std::string probe_anchor_rule{"NONE"};
+  std::int64_t root_index{-1};
+  std::string root_type{"NONE"};
+  std::array<double, 5> knot_stations{
+    std::numeric_limits<double>::quiet_NaN(),
+    std::numeric_limits<double>::quiet_NaN(),
+    std::numeric_limits<double>::quiet_NaN(),
+    std::numeric_limits<double>::quiet_NaN(),
+    std::numeric_limits<double>::quiet_NaN()};
+  std::size_t point_count{0U};
+  bool validator_executed{false};
+  std::string validation_authority{"GUARD"};
+  bool returned_by_policy{false};
+  bool discarded_side{false};
+  int final_rank{-1};
+  bool selected{false};
   bool hard_valid{false};
   std::string mapping_source;
   std::string candidate_template;
@@ -116,6 +145,8 @@ struct P3ShadowCandidateTrace
   double minimum_curvature_margin_radpm{std::numeric_limits<double>::quiet_NaN()};
   double peak_curvature_rate_radpm2{std::numeric_limits<double>::quiet_NaN()};
   double peak_lateral_slope{std::numeric_limits<double>::quiet_NaN()};
+  double lateral_slope_margin{std::numeric_limits<double>::quiet_NaN()};
+  double curvature_rate_margin_radpm2{std::numeric_limits<double>::quiet_NaN()};
   double velocity_loss{std::numeric_limits<double>::quiet_NaN()};
   double global_path_deviation_m{std::numeric_limits<double>::quiet_NaN()};
   double ego_braking_distance_deficit_m{0.0};
@@ -134,6 +165,14 @@ struct P3ShadowCandidateTrace
   // collision horizon deliberately stops before it, and on tightly spaced obstacles carrying the
   // offset over is the intended behaviour — but it is the last resort, never the preference.
   bool exit_reaches_next_obstacle{false};
+  std::vector<std::string> all_observed_violation_flags;
+  double runtime_probe_anchor_us{std::numeric_limits<double>::quiet_NaN()};
+  double runtime_root_solve_us{std::numeric_limits<double>::quiet_NaN()};
+  double runtime_spline_reconstruction_us{0.0};
+  double runtime_geometry_recompute_us{0.0};
+  double runtime_velocity_shaping_us{0.0};
+  double runtime_candidate_measurement_us{0.0};
+  double runtime_hard_validation_us{0.0};
   // The exact-validator verdict this candidate was already measured with, kept verbatim so the
   // maneuver lifecycle can reuse it instead of re-running an identical validation. Valid only
   // together with the owning result's snapshot lineage (stamp/epoch/reference generation).
@@ -219,8 +258,27 @@ struct P3ShadowResult
   double runtime_root_solver_us{0.0};
   double runtime_reconstruction_us{0.0};
   double runtime_hard_validation_us{0.0};
+  // Default-empty research-only fields. They are populated only while the node's explicit
+  // research instrumentation gate is active and never participate in selection or publication.
+  std::size_t research_m0_v1_constructed_right{0U};
+  std::size_t research_m0_v1_constructed_left{0U};
+  std::size_t research_discarded_side_candidate_count{0U};
+  std::size_t research_m0_v2_constructed{0U};
+  std::size_t research_constructed_total_actual{0U};
+  std::size_t research_validate_candidate_executed_total_actual{0U};
+  std::size_t research_hard_valid_total_actual{0U};
+  double research_runtime_probe_anchor_us{0.0};
+  double research_runtime_corridor_actual_us{0.0};
+  double research_runtime_root_solver_actual_us{0.0};
+  double research_runtime_reconstruction_actual_us{0.0};
+  double research_runtime_geometry_recompute_us{0.0};
+  double research_runtime_velocity_shaping_us{0.0};
+  double research_runtime_candidate_measurement_us{0.0};
+  double research_runtime_hard_validation_actual_us{0.0};
+  double research_runtime_ranking_us{0.0};
   std::string failure_classification{"NOT_INVOKED"};
   std::vector<P3ShadowCandidateTrace> candidates;
+  std::vector<P3ShadowCandidateTrace> research_all_candidates;
   // 진단 전용 (2026-08-16). 후보가 전멸했을 때 원인을 셋 중 하나로 좁히는 데 필요한
   // 최소 정보다:
   //   (a) 도메인이 실현 가능한 오프셋을 아예 포함하지 않았다  → 도메인 계산 문제

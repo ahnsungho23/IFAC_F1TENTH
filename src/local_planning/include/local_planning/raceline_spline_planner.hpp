@@ -32,6 +32,7 @@ namespace local_planning
 {
 
 class P3ShadowEvaluator;
+struct PlanningResearchCycle;
 
 struct RacelineSplineParameters
 {
@@ -512,6 +513,10 @@ public:
   void setParameters(const RacelineSplineParameters & parameters);
   bool setReference(const f110_msgs::msg::WpntArray & reference, std::string * error = nullptr);
   bool ready() const;
+  // The pointer is non-owning and valid only for one planning callback. A null pointer is the
+  // production/default path and causes no research trace collection.
+  void setActiveResearchCycle(PlanningResearchCycle * cycle) const;
+  PlanningResearchCycle * activeResearchCycle() const;
   double trackLength() const;
   double forwardDistance(double from_s, double to_s) const;
   std::vector<int> blockingClusterIds(
@@ -851,6 +856,14 @@ private:
     const std::optional<double> & maximum_collision_forward_m = std::nullopt,
     double obstacle_reserve_scale = 1.0,
     bool skip_entry_continuity = false) const;
+  std::vector<std::string> auditCandidateViolations(
+    const EgoFrenetState & ego,
+    const f110_msgs::msg::WpntArray & path,
+    const std::vector<ExpandedObstacle> & visible,
+    std::size_t start_index,
+    std::size_t minimum_points,
+    const std::optional<double> & maximum_collision_forward_m,
+    double obstacle_reserve_scale) const;
 
 
   P3ShadowPlanningContext buildP3ShadowPlanningContext(
@@ -872,6 +885,7 @@ private:
   RacelineSplineParameters parameters_;
   f110_msgs::msg::WpntArray reference_;
   double track_length_{0.0};
+  mutable PlanningResearchCycle * active_research_cycle_{nullptr};
 };
 
 }  // namespace local_planning

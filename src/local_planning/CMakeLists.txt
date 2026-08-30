@@ -27,6 +27,7 @@ add_library(local_planner_core STATIC
   src/p3_maneuver_lifecycle.cpp
   src/p3_shadow.cpp
   src/raceline_spline_planner.cpp
+  src/research_instrumentation.cpp
   src/safe_stop_lifecycle.cpp
 )
 ament_target_dependencies(local_planner_core
@@ -130,6 +131,11 @@ if(BUILD_TESTING)
   if(TARGET test_path_digest)
     ament_target_dependencies(test_path_digest f110_msgs)
     target_link_libraries(test_path_digest local_planner_core)
+  endif()
+
+  ament_add_gtest(test_research_instrumentation test/test_research_instrumentation.cpp)
+  if(TARGET test_research_instrumentation)
+    target_link_libraries(test_research_instrumentation local_planner_core)
   endif()
 
   ament_add_gtest(test_maneuver_memory test/test_maneuver_memory.cpp)

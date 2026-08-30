@@ -35,6 +35,7 @@
 #include "local_planning/p3_analytic_solver.hpp"
 #include "local_planning/path_digest.hpp"
 #include "local_planning/raceline_spline_planner.hpp"
+#include "local_planning/research_instrumentation.hpp"
 
 namespace local_planning
 {
@@ -89,6 +90,23 @@ public:
     result.global_reference_generation = global_reference_generation;
     result.p0_failure_reason = p0_failure_reason;
     const auto total_start = Clock::now();
+    PlanningResearchCycle * research_cycle = planner_.activeResearchCycle();
+    const double research_corridor_before = research_cycle == nullptr ? 0.0 :
+      research_cycle->runtime_corridor_us;
+    const double research_probe_before = research_cycle == nullptr ? 0.0 :
+      research_cycle->runtime_probe_anchor_us;
+    const double research_root_before = research_cycle == nullptr ? 0.0 :
+      research_cycle->runtime_root_solve_us;
+    const double research_spline_before = research_cycle == nullptr ? 0.0 :
+      research_cycle->runtime_spline_reconstruction_us;
+    const double research_geometry_before = research_cycle == nullptr ? 0.0 :
+      research_cycle->runtime_geometry_recompute_us;
+    const double research_velocity_before = research_cycle == nullptr ? 0.0 :
+      research_cycle->runtime_velocity_shaping_us;
+    const double research_measurement_before = research_cycle == nullptr ? 0.0 :
+      research_cycle->runtime_candidate_measurement_us;
+    const double research_validation_before = research_cycle == nullptr ? 0.0 :
+      research_cycle->runtime_hard_validation_us;
 
     if (!planner_.ready()) {
       result.failure_classification = "REFERENCE_NOT_READY";
@@ -120,6 +138,7 @@ public:
 
     bool m0_nonpositive_abort = false;
     std::vector<SideResult> sides;
+    std::vector<P3ShadowCandidateTrace> research_pre_abort_candidates;
     sides.reserve(2U);
     try {
       for (const bool go_left : {false, true}) {
@@ -134,6 +153,21 @@ public:
       // The frozen mapping review catches the whole M0 policy at this boundary. Preserve that
       // behavior so h0<=0 becomes a fail-closed no-M0 offer instead of escaping the callback.
       m0_nonpositive_abort = true;
+      if (research_cycle != nullptr) {
+        for (const auto & side : sides) {
+          if (side.go_left) {
+            result.research_m0_v1_constructed_left += side.candidates.size();
+          } else {
+            result.research_m0_v1_constructed_right += side.candidates.size();
+          }
+          result.research_discarded_side_candidate_count += side.candidates.size();
+          for (auto trace : side.candidates) {
+            trace.returned_by_policy = false;
+            trace.discarded_side = true;
+            research_pre_abort_candidates.push_back(std::move(trace));
+          }
+        }
+      }
       sides.clear();
       SideResult aborted;
       aborted.domain_valid = true;
@@ -161,6 +195,27 @@ public:
       result.failure_classification = "NO_VALID_SIDE_DOMAIN";
       result.runtime_total_us = elapsedUs(total_start);
       return result;
+    }
+
+    std::vector<P3ShadowCandidateTrace> research_side_candidates =
+      std::move(research_pre_abort_candidates);
+    if (research_cycle != nullptr) {
+      for (const auto & side : sides) {
+        if (side.go_left) {
+          result.research_m0_v1_constructed_left += side.candidates.size();
+        } else {
+          result.research_m0_v1_constructed_right += side.candidates.size();
+        }
+        const bool discarded = &side != baseline;
+        if (discarded) {
+          result.research_discarded_side_candidate_count += side.candidates.size();
+        }
+        for (auto trace : side.candidates) {
+          trace.returned_by_policy = !discarded;
+          trace.discarded_side = discarded;
+          research_side_candidates.push_back(std::move(trace));
+        }
+      }
     }
 
     const auto append_side_metrics = [&](const SideResult & side) {
@@ -304,6 +359,78 @@ public:
       result.failure_classification = baseline->failure;
     }
     result.runtime_total_us = elapsedUs(total_start);
+    if (research_cycle != nullptr) {
+      const auto ranking_start = Clock::now();
+      std::vector<std::size_t> feasible_order;
+      for (std::size_t index = 0U; index < result.candidates.size(); ++index) {
+        if (result.candidates[index].hard_valid) {
+          feasible_order.push_back(index);
+        }
+      }
+      std::stable_sort(
+        feasible_order.begin(), feasible_order.end(),
+        [&result](std::size_t first, std::size_t second) {
+          return betterFeasible(result.candidates[first], result.candidates[second]);
+        });
+      for (std::size_t rank = 0U; rank < feasible_order.size(); ++rank) {
+        result.candidates[feasible_order[rank]].final_rank = static_cast<int>(rank + 1U);
+      }
+      for (auto & trace : result.candidates) {
+        trace.returned_by_policy = true;
+        trace.selected = result.would_recover &&
+          trace.candidate_identity == result.selected_candidate_identity;
+      }
+
+      result.research_all_candidates = std::move(research_side_candidates);
+      for (const auto & trace : result.candidates) {
+        if (trace.generator_stage != "M0_V1") {
+          result.research_all_candidates.push_back(trace);
+        }
+      }
+      for (auto & trace : result.research_all_candidates) {
+        const auto returned = std::find_if(
+          result.candidates.begin(), result.candidates.end(), [&trace](const auto & candidate) {
+            return candidate.candidate_identity == trace.candidate_identity;
+          });
+        if (returned != result.candidates.end()) {
+          trace.returned_by_policy = true;
+          trace.discarded_side = false;
+          trace.final_rank = returned->final_rank;
+          trace.selected = returned->selected;
+        } else if (m0_nonpositive_abort) {
+          trace.returned_by_policy = false;
+        }
+      }
+      result.research_m0_v2_constructed = static_cast<std::size_t>(std::count_if(
+          result.research_all_candidates.begin(), result.research_all_candidates.end(),
+          [](const auto & trace) {return trace.generator_stage == "M0_V2";}));
+      result.research_constructed_total_actual = result.research_all_candidates.size();
+      result.research_validate_candidate_executed_total_actual =
+        static_cast<std::size_t>(std::count_if(
+          result.research_all_candidates.begin(), result.research_all_candidates.end(),
+          [](const auto & trace) {return trace.validator_executed;}));
+      result.research_hard_valid_total_actual = static_cast<std::size_t>(std::count_if(
+          result.research_all_candidates.begin(), result.research_all_candidates.end(),
+          [](const auto & trace) {return trace.hard_valid;}));
+      result.research_runtime_ranking_us = elapsedUs(ranking_start);
+      research_cycle->runtime_ranking_us += result.research_runtime_ranking_us;
+      result.research_runtime_corridor_actual_us =
+        research_cycle->runtime_corridor_us - research_corridor_before;
+      result.research_runtime_probe_anchor_us =
+        research_cycle->runtime_probe_anchor_us - research_probe_before;
+      result.research_runtime_root_solver_actual_us =
+        research_cycle->runtime_root_solve_us - research_root_before;
+      result.research_runtime_reconstruction_actual_us =
+        research_cycle->runtime_spline_reconstruction_us - research_spline_before;
+      result.research_runtime_geometry_recompute_us =
+        research_cycle->runtime_geometry_recompute_us - research_geometry_before;
+      result.research_runtime_velocity_shaping_us =
+        research_cycle->runtime_velocity_shaping_us - research_velocity_before;
+      result.research_runtime_candidate_measurement_us =
+        research_cycle->runtime_candidate_measurement_us - research_measurement_before;
+      result.research_runtime_hard_validation_actual_us =
+        research_cycle->runtime_hard_validation_us - research_validation_before;
+    }
     return result;
   }
 
@@ -470,6 +597,22 @@ private:
   {
     return std::chrono::duration<double, std::micro>(Clock::now() - start).count();
   }
+
+  struct ResearchTimer
+  {
+    explicit ResearchTimer(double * destination)
+    : total(destination), start(destination == nullptr ? Clock::time_point() : Clock::now()) {}
+
+    double * total{nullptr};
+    Clock::time_point start;
+
+    ~ResearchTimer()
+    {
+      if (total != nullptr) {
+        *total += elapsedUs(start);
+      }
+    }
+  };
 
   static std::uint64_t fnvAppend(std::uint64_t hash, const void * data, std::size_t size)
   {
@@ -793,6 +936,8 @@ private:
     const std::vector<P3ShadowObstacleEnvelope> & visible,
     double cluster_start, double cluster_end, bool go_left, bool outside_is_left) const
   {
+    PlanningResearchCycle * research_cycle = planner_.activeResearchCycle();
+    const auto research_start = research_cycle == nullptr ? Clock::time_point() : Clock::now();
     Corridor result;
     std::vector<double> stations{
       0.0, cluster_start, cluster_end, 0.5 * (cluster_start + cluster_end)};
@@ -878,6 +1023,9 @@ private:
       digest << ':' << sample.station << ',' << sample.lower << ',' << sample.upper;
     }
     result.branch_id = fnvHex(digest.str());
+    if (research_cycle != nullptr) {
+      research_cycle->runtime_corridor_us += elapsedUs(research_start);
+    }
     return result;
   }
 
@@ -895,6 +1043,8 @@ private:
     const Corridor & corridor, double cluster_start, double cluster_end,
     double target, const std::string & policy = "CURVATURE_CONTINUITY") const
   {
+    PlanningResearchCycle * research_cycle = planner_.activeResearchCycle();
+    const auto research_start = research_cycle == nullptr ? Clock::time_point() : Clock::now();
     std::vector<const BranchSample *> span;
     for (const auto & sample : corridor.branch) {
       if (sample.station > cluster_start + kEpsilon &&
@@ -943,6 +1093,9 @@ private:
     } else {
       probe.desired = selected->center;
     }
+    if (research_cycle != nullptr) {
+      research_cycle->runtime_probe_anchor_us += elapsedUs(research_start);
+    }
     return probe;
   }
 
@@ -967,6 +1120,8 @@ private:
     const std::array<double, 5> & stations, double ego_d, double target,
     double station, double desired, double lower, double upper) const
   {
+    PlanningResearchCycle * research_cycle = planner_.activeResearchCycle();
+    const auto research_start = research_cycle == nullptr ? Clock::time_point() : Clock::now();
     RootSolve result;
     std::size_t segment = 0U;
     while (segment + 1U < 4U && station > stations[segment + 1U]) {
@@ -1018,6 +1173,9 @@ private:
     p3_analytic_solver::sortAndDeduplicate(result.branch);
     p3_analytic_solver::sortAndDeduplicate(result.bounded);
     p3_analytic_solver::sortAndDeduplicate(result.accepted);
+    if (research_cycle != nullptr) {
+      research_cycle->runtime_root_solve_us += elapsedUs(research_start);
+    }
     return result;
   }
 
@@ -1050,6 +1208,11 @@ private:
     std::size_t generation, double & reconstruction_us, double & hard_validation_us) const
   {
     const auto reconstruction_start = Clock::now();
+    PlanningResearchCycle * research_cycle = planner_.activeResearchCycle();
+    const double geometry_before = research_cycle == nullptr ? 0.0 :
+      research_cycle->runtime_geometry_recompute_us;
+    const double velocity_before = research_cycle == nullptr ? 0.0 :
+      research_cycle->runtime_velocity_shaping_us;
     const auto segments = makeC2Profile(
       stations, {ego.d, target, middle, target, 0.0});
     (void)outside_is_left;
@@ -1074,6 +1237,10 @@ private:
       waypoint.x_m = global.x_m - waypoint.d_m * std::sin(global.psi_rad);
       waypoint.y_m = global.y_m + waypoint.d_m * std::cos(global.psi_rad);
       path.wpnts.push_back(waypoint);
+    }
+    const double spline_reconstruction_us = elapsedUs(reconstruction_start);
+    if (research_cycle != nullptr) {
+      research_cycle->runtime_spline_reconstruction_us += spline_reconstruction_us;
     }
     if (path.wpnts.size() >= static_cast<std::size_t>(parameters_.minimum_path_points)) {
       confirmed_critical_speed_mps = planner_.finalizeP3ShadowPath(
@@ -1107,6 +1274,10 @@ private:
     trace.exit_scale = exit_scale;
     trace.d_target = target;
     trace.d_mid = middle;
+    trace.knot_stations = stations;
+    trace.point_count = path.wpnts.size();
+    trace.validator_executed =
+      path.wpnts.size() >= static_cast<std::size_t>(parameters_.minimum_path_points);
     trace.hard_valid = evaluation.hard_valid;
     trace.minimum_normalized_safety_slack = evaluation.minimum_normalized_safety_slack;
     trace.minimum_track_margin_m = evaluation.minimum_track_margin_m;
@@ -1115,6 +1286,9 @@ private:
     trace.minimum_curvature_margin_radpm = evaluation.minimum_curvature_margin_radpm;
     trace.peak_curvature_rate_radpm2 = evaluation.peak_curvature_rate_radpm2;
     trace.peak_lateral_slope = peakSlope(ego, path);
+    trace.lateral_slope_margin = parameters_.maximum_lateral_slope - trace.peak_lateral_slope;
+    trace.curvature_rate_margin_radpm2 =
+      parameters_.maximum_curvature_rate_radpm2 - trace.peak_curvature_rate_radpm2;
     trace.velocity_loss = evaluation.velocity_loss;
     trace.global_path_deviation_m = evaluation.global_path_deviation_m;
     trace.ego_braking_distance_deficit_m = evaluation.ego_braking_distance_deficit_m;
@@ -1134,8 +1308,16 @@ private:
     trace.exit_reaches_next_obstacle = exitReachesNextObstacle(
       ego, path, obstacles, stations[3], stations[4]);
     trace.validation = evaluation;
+    trace.all_observed_violation_flags = evaluation.all_observed_violation_flags;
     trace.path_digest = pathDigest(path);
     trace.source_branch_regime = sourceBranchRegime(stations, ego.d, target, middle);
+    trace.runtime_spline_reconstruction_us = spline_reconstruction_us;
+    trace.runtime_geometry_recompute_us = research_cycle == nullptr ? 0.0 :
+      research_cycle->runtime_geometry_recompute_us - geometry_before;
+    trace.runtime_velocity_shaping_us = research_cycle == nullptr ? 0.0 :
+      research_cycle->runtime_velocity_shaping_us - velocity_before;
+    trace.runtime_candidate_measurement_us = evaluation.runtime_candidate_measurement_us;
+    trace.runtime_hard_validation_us = evaluation.runtime_hard_validation_us;
     trace.path = std::move(path);
     return trace;
   }
@@ -1347,6 +1529,9 @@ private:
     const std::array<double, 5> & stations, double ego_d, double target,
     double station, double desired, double lower, double upper) const
   {
+    PlanningResearchCycle * cycle = planner_.activeResearchCycle();
+    ResearchTimer research_timer(
+      cycle == nullptr ? nullptr : &cycle->runtime_root_solve_us);
     InactiveSolve result;
     std::size_t segment = 0U;
     while (segment + 1U < 4U && station > stations[segment + 1U]) {
@@ -1492,8 +1677,10 @@ private:
       outcome.runtime_hard_validation_us);
     const std::string side = domain.go_left ? "LEFT" : "RIGHT";
     trace.mapping_source = "FROZEN_V2_EXTENSION";
+    trace.generator_stage = "M0_V2";
     trace.candidate_template = candidate_template;
     trace.source_cell = source_cell;
+    trace.root_type = source_cell;
     trace.component_id = component.id;
     trace.candidate_identity = "M0_V2_" + side + "_" + candidate_template + "_" +
       trace.path_digest;
@@ -1546,11 +1733,22 @@ private:
     outcome.branch_root_count += roots.branch.size();
     outcome.bounded_root_count += roots.bounded.size();
     outcome.accepted_root_count += roots.accepted.size();
-    for (const double root : roots.accepted) {
+    for (std::size_t root_index = 0U; root_index < roots.accepted.size(); ++root_index) {
+      const double root = roots.accepted[root_index];
+      const std::size_t before = outcome.candidates.size();
       addM0ExtensionCandidate(
         outcome, ego, obstacles, domain, outside_is_left, component,
         "BRANCH_AWARE_ANALYTIC_ROOT", "ACTIVE_OUTER", target, root, entry, exit,
         generation, seen);
+      if (outcome.candidates.size() > before) {
+        auto & trace = outcome.candidates.back();
+        trace.s_probe = probe.station;
+        trace.d_probe = probe.desired;
+        trace.probe_location_rule = probe.location_rule;
+        trace.probe_anchor_rule = probe.anchor_rule;
+        trace.root_index = static_cast<std::int64_t>(root_index);
+        trace.root_type = "ACTIVE_OUTER";
+      }
     }
   }
 
@@ -1781,6 +1979,7 @@ private:
       candidate_template << ':' << source_cell << ':' << context.component_index << ':' <<
       source_root_index << ':' << target << ':' << middle << ':' << entry << ':' << exit;
     trace.mapping_source = "M1_BRANCH_COMPLETE_ACTIVE_SET_CLOSURE";
+    trace.generator_stage = "M1";
     trace.candidate_template = candidate_template;
     trace.source_cell = source_cell;
     trace.component_id = context.component.id;
@@ -1789,7 +1988,14 @@ private:
     trace.logical_identity = "M1_" + side + "_" + candidate_template + "_" +
       source_cell + "_c" + std::to_string(context.component_index) + "_r" +
       std::to_string(source_root_index);
-    (void)probe;
+    trace.root_index = static_cast<std::int64_t>(source_root_index);
+    trace.root_type = source_cell;
+    if (probe != nullptr) {
+      trace.s_probe = probe->station;
+      trace.d_probe = probe->desired;
+      trace.probe_location_rule = probe->location_rule;
+      trace.probe_anchor_rule = probe->anchor_rule;
+    }
     const std::size_t index = outcome.candidates.size();
     if (trace.hard_valid) {
       ++result.m1_hard_valid_count;
@@ -2017,7 +2223,8 @@ private:
           result.bounded_root_count += roots.bounded.size();
           result.accepted_root_count += roots.accepted.size();
 
-          for (const double root : roots.accepted) {
+          for (std::size_t root_index = 0U; root_index < roots.accepted.size(); ++root_index) {
+            const double root = roots.accepted[root_index];
             if (result.candidates.size() >= kFrozenCandidateCap) {
               result.failure = "CANDIDATE_CAP_EXCEEDED";
               cap_exceeded = true;
@@ -2029,9 +2236,16 @@ private:
               generation++, result.runtime_reconstruction_us,
               result.runtime_hard_validation_us);
             trace.mapping_source = "FROZEN_V1";
+            trace.generator_stage = "M0_V1";
             trace.candidate_template = "FROZEN_V1_CURVATURE_CONTINUITY";
             trace.source_cell = "ACTIVE_OUTER";
             trace.component_id = result.corridor.branch_id;
+            trace.s_probe = result.probe.station;
+            trace.d_probe = result.probe.desired;
+            trace.probe_location_rule = result.probe.location_rule;
+            trace.probe_anchor_rule = result.probe.anchor_rule;
+            trace.root_index = static_cast<std::int64_t>(root_index);
+            trace.root_type = "ACTIVE_OUTER";
             const std::string side = go_left ? "LEFT" : "RIGHT";
             trace.candidate_identity = "M0_V1_" + side + "_" + trace.path_digest;
             trace.logical_identity = "M0_V1_" + side;
@@ -2176,6 +2390,9 @@ P3ShadowResult RacelineSplinePlanner::evaluateP3Shadow(
     failed.p0_failure_reason = p0_failure_reason;
     failed.failure_classification =
       std::string("EVALUATOR_INVARIANT_VIOLATION: ") + error.what();
+    if (activeResearchCycle() != nullptr) {
+      captureP3ResearchEvaluation(*activeResearchCycle(), "INVARIANT", failed);
+    }
     return failed;
   }
 }
@@ -2192,6 +2409,9 @@ P3ShadowResult RacelineSplinePlanner::evaluateP3ShadowUnguarded(
   P3ShadowResult strict = evaluator.run(
     ego, obstacles, snapshot_source_stamp_ns, snapshot_epoch,
     global_reference_generation, p0_failure_reason);
+  if (activeResearchCycle() != nullptr) {
+    captureP3ResearchEvaluation(*activeResearchCycle(), "STRICT", strict);
+  }
   if (strict.would_recover || !strict.invoked || strict.cluster_obstacle_ids.empty()) {
     return strict;
   }
@@ -2204,6 +2424,9 @@ P3ShadowResult RacelineSplinePlanner::evaluateP3ShadowUnguarded(
   P3ShadowResult relaxed = evaluator.run(
     ego, obstacles, snapshot_source_stamp_ns, snapshot_epoch,
     global_reference_generation, p0_failure_reason, true);
+  if (activeResearchCycle() != nullptr) {
+    captureP3ResearchEvaluation(*activeResearchCycle(), "RELAXED", relaxed);
+  }
   if (std::getenv("P3_DEBUG_RELAXED") != nullptr) {
     std::fprintf(stderr, "[RELAXED] recover=%d fail=%s candidates=%zu\n",
       relaxed.would_recover ? 1 : 0, relaxed.failure_classification.c_str(),

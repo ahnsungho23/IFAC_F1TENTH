@@ -42,6 +42,26 @@ namespace
 
 constexpr double kGeometryEpsilon = 1.0e-9;
 
+class ScopeExit
+{
+public:
+  explicit ScopeExit(std::function<void()> callback)
+  : callback_(std::move(callback)) {}
+
+  ~ScopeExit()
+  {
+    if (callback_) {
+      callback_();
+    }
+  }
+
+  ScopeExit(const ScopeExit &) = delete;
+  ScopeExit & operator=(const ScopeExit &) = delete;
+
+private:
+  std::function<void()> callback_;
+};
+
 std::int64_t steadyNowNs()
 {
   return std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -60,6 +80,13 @@ geometry_msgs::msg::Quaternion yawQuaternion(double yaw)
   quaternion.z = std::sin(0.5 * yaw);
   quaternion.w = std::cos(0.5 * yaw);
   return quaternion;
+}
+
+double quaternionYaw(const geometry_msgs::msg::Quaternion & quaternion)
+{
+  return std::atan2(
+    2.0 * (quaternion.w * quaternion.z + quaternion.x * quaternion.y),
+    1.0 - 2.0 * (quaternion.y * quaternion.y + quaternion.z * quaternion.z));
 }
 
 bool finiteOdometry(const nav_msgs::msg::Odometry & odometry)
@@ -252,6 +279,7 @@ LocalPlannerNode::LocalPlannerNode(const rclcpp::NodeOptions & options)
 {
   initializeParameters();
   planner_.setParameters(planner_parameters_);
+  initializeResearchInstrumentation();
   initializeInterfaces();
   last_side_switch_time_ = eventNow();
   RCLCPP_INFO(
@@ -570,6 +598,25 @@ void LocalPlannerNode::initializeParameters()
     declare_parameter<bool>("replay_diagnostics_enable", false);
   replay_diagnostics_topic_ = declare_parameter<std::string>(
     "replay_diagnostics_topic", "/cma_replay/planner_events");
+  research_instrumentation_enable_ =
+    declare_parameter<bool>("research_instrumentation_enable", false);
+  research_all_violation_audit_enable_ =
+    declare_parameter<bool>("research_all_violation_audit_enable", false);
+  research_output_root_ = declare_parameter<std::string>(
+    "research_output_root", "/tmp/local_planning_research");
+  research_run_id_ = declare_parameter<std::string>("research_run_id", "");
+  research_scenario_id_ = declare_parameter<std::string>("research_scenario_id", "");
+  research_git_commit_ = declare_parameter<std::string>("research_git_commit", "");
+  research_git_dirty_status_ =
+    declare_parameter<std::string>("research_git_dirty_status", "");
+  research_source_sha256_ =
+    declare_parameter<std::string>("research_source_sha256", "");
+  research_config_sha256_ =
+    declare_parameter<std::string>("research_config_sha256", "");
+  research_parameter_snapshot_id_ =
+    declare_parameter<std::string>("research_parameter_snapshot_id", "");
+  research_queue_capacity_ =
+    declare_parameter<int>("research_queue_capacity", 128);
   lockstep_mode_ = declare_parameter<bool>("lockstep_mode", false);
   // TEST_ACTIVE(P3 주도 + P0 백업)가 기본 주행 모드입니다 (2026-08-12).
   const std::string p3_mode = declare_parameter<std::string>("p3_mode", "TEST_ACTIVE");
@@ -756,6 +803,61 @@ void LocalPlannerNode::initializeParameters()
             "settings, observation/uncertainty guard settings, commitment chain release, "
             "commitment locks, and point counts must be valid");
   }
+}
+
+std::string LocalPlannerNode::effectiveParametersJson() const
+{
+  auto names = list_parameters({}, 100U).names;
+  std::sort(names.begin(), names.end());
+  const auto parameters = get_parameters(names);
+  std::ostringstream output;
+  output << '{';
+  for (std::size_t index = 0U; index < parameters.size(); ++index) {
+    if (index > 0U) {
+      output << ',';
+    }
+    output << '"' << jsonEscape(parameters[index].get_name()) << "\":{\"type\":"
+           << static_cast<int>(parameters[index].get_type())
+           << ",\"value\":\"" << jsonEscape(parameters[index].value_to_string()) << "\"}";
+  }
+  output << '}';
+  return output.str();
+}
+
+void LocalPlannerNode::initializeResearchInstrumentation()
+{
+  if (!research_instrumentation_enable_) {
+    return;
+  }
+  if (research_run_id_.empty()) {
+    research_run_id_ = "local_planning_" + std::to_string(steadyNowNs());
+  }
+  const std::string parameter_json = effectiveParametersJson();
+  if (research_parameter_snapshot_id_.empty()) {
+    std::uint64_t hash = 1469598103934665603ULL;
+    for (const unsigned char byte : parameter_json) {
+      hash ^= static_cast<std::uint64_t>(byte);
+      hash *= 1099511628211ULL;
+    }
+    std::ostringstream identity;
+    identity << "fnv1a64:" << std::hex << std::setfill('0') << std::setw(16) << hash;
+    research_parameter_snapshot_id_ = identity.str();
+  }
+  PlanningResearchConfig config;
+  config.output_root = research_output_root_;
+  config.run_id = research_run_id_;
+  config.scenario_id = research_scenario_id_;
+  config.git_commit = research_git_commit_;
+  config.git_dirty_status = research_git_dirty_status_;
+  config.source_sha256 = research_source_sha256_;
+  config.config_sha256 = research_config_sha256_;
+  config.effective_parameter_snapshot_id = research_parameter_snapshot_id_;
+  config.effective_parameters_json = parameter_json;
+  config.queue_capacity = static_cast<std::size_t>(std::max(1, research_queue_capacity_));
+  research_logger_ = std::make_unique<PlanningResearchLogger>(std::move(config));
+  RCLCPP_INFO(
+    get_logger(), "Research instrumentation enabled: run=%s output=%s",
+    research_run_id_.c_str(), research_logger_->runDirectory().c_str());
 }
 
 void LocalPlannerNode::initializeInterfaces()
@@ -3180,6 +3282,17 @@ P3ManeuverLifecycleDecision LocalPlannerNode::advanceP3Lifecycle(
   const P3CallbackSnapshot & snapshot,
   const std::function<const P3ShadowResult &()> & evaluate)
 {
+  const auto timed_lifecycle = [this](const auto & operation) {
+      if (active_research_cycle_ == nullptr) {
+        return operation();
+      }
+      const auto start = std::chrono::steady_clock::now();
+      auto decision = operation();
+      active_research_cycle_->runtime_lifecycle_revalidation_us +=
+        std::chrono::duration<double, std::micro>(
+        std::chrono::steady_clock::now() - start).count();
+      return decision;
+    };
   if (!p3_maneuver_lifecycle_.active() &&
     (p3_maneuver_lifecycle_.state() == P3ManeuverLifecycleState::kInvalidated ||
     p3_maneuver_lifecycle_.state() == P3ManeuverLifecycleState::kComplete))
@@ -3190,10 +3303,14 @@ P3ManeuverLifecycleDecision LocalPlannerNode::advanceP3Lifecycle(
   if (!snapshot.ready) {
     if (p3_maneuver_lifecycle_.active()) {
       if (snapshot.maneuver.source_stale || snapshot.maneuver.safe_stop_authority) {
-        return p3_maneuver_lifecycle_.continueCurrent(
-          snapshot.maneuver, planner_, commitment_soft_violation_confirm_cycles_);
+        return timed_lifecycle([&]() {
+                   return p3_maneuver_lifecycle_.continueCurrent(
+              snapshot.maneuver, planner_, commitment_soft_violation_confirm_cycles_);
+          });
       }
-      return p3_maneuver_lifecycle_.invalidateExternal(snapshot.not_ready_reason);
+      return timed_lifecycle([&]() {
+                 return p3_maneuver_lifecycle_.invalidateExternal(snapshot.not_ready_reason);
+        });
     }
     P3ManeuverLifecycleDecision decision;
     decision.state = p3_maneuver_lifecycle_.state();
@@ -3210,10 +3327,14 @@ P3ManeuverLifecycleDecision LocalPlannerNode::advanceP3Lifecycle(
   // which continuation just invalidated (so authority does not drop to P0 for one cycle).
   if (p3_maneuver_lifecycle_.active()) {
     if (!snapshot.has_odometry || !has_global_waypoints_) {
-      return p3_maneuver_lifecycle_.invalidateExternal(snapshot.not_ready_reason);
+      return timed_lifecycle([&]() {
+                 return p3_maneuver_lifecycle_.invalidateExternal(snapshot.not_ready_reason);
+        });
     }
-    auto continued = p3_maneuver_lifecycle_.continueCurrent(
-      snapshot.maneuver, planner_, commitment_soft_violation_confirm_cycles_);
+    auto continued = timed_lifecycle([&]() {
+          return p3_maneuver_lifecycle_.continueCurrent(
+          snapshot.maneuver, planner_, commitment_soft_violation_confirm_cycles_);
+      });
     // Return BEFORE touching evaluate(): this is the branch that makes continuation-first a
     // computation saving and not merely an output priority.
     if (continued.has_output || continued.complete) {
@@ -3226,7 +3347,9 @@ P3ManeuverLifecycleDecision LocalPlannerNode::advanceP3Lifecycle(
   }
   const P3ShadowResult & evaluation = evaluate();
   if (evaluation.invoked && evaluation.would_recover) {
-    return p3_maneuver_lifecycle_.selectFresh(snapshot.maneuver, evaluation, planner_);
+    return timed_lifecycle([&]() {
+               return p3_maneuver_lifecycle_.selectFresh(snapshot.maneuver, evaluation, planner_);
+      });
   }
   P3ManeuverLifecycleDecision decision;
   decision.state = p3_maneuver_lifecycle_.state();
@@ -3256,6 +3379,34 @@ RacelineSplineResult LocalPlannerNode::makeP3ActiveResult(
   return result;
 }
 
+void LocalPlannerNode::captureResearchLifecycle(
+  const P3ShadowResult & evaluation,
+  const P3ManeuverLifecycleDecision & lifecycle)
+{
+  if (active_research_cycle_ == nullptr) {
+    return;
+  }
+  auto & cycle = *active_research_cycle_;
+  cycle.lifecycle_state = p3ManeuverLifecycleStateName(lifecycle.state);
+  cycle.continuation_result = lifecycle.reason;
+  cycle.invalidation_reason = lifecycle.invalidated ? lifecycle.reason : std::string();
+  cycle.active = lifecycle.has_output || p3_maneuver_lifecycle_.active();
+  cycle.continued = lifecycle.has_output && !lifecycle.fresh_selected;
+  cycle.fresh = lifecycle.fresh_selected;
+  cycle.selected_side = (lifecycle.has_output || evaluation.would_recover) ?
+    ((lifecycle.has_output ? lifecycle.go_left : evaluation.selected_go_left) ? "LEFT" : "RIGHT") :
+    "NONE";
+  cycle.selected_candidate_identity = lifecycle.original_candidate_identity != "NONE" ?
+    lifecycle.original_candidate_identity : evaluation.selected_candidate_identity;
+  cycle.lifecycle_revalidation_count =
+    static_cast<std::size_t>(lifecycle.guarded_validation_attempted) +
+    static_cast<std::size_t>(lifecycle.raw_validation_attempted);
+  if (lifecycle.invalidated || !evaluation.would_recover) {
+    cycle.fallback_reason = lifecycle.reason.empty() ?
+      evaluation.failure_classification : lifecycle.reason;
+  }
+}
+
 void LocalPlannerNode::publishP3CycleDiagnostic(
   const P3CallbackSnapshot & snapshot,
   const P3ShadowResult & evaluation,
@@ -3263,6 +3414,11 @@ void LocalPlannerNode::publishP3CycleDiagnostic(
   const std::string & path_owner,
   bool p0_backup_only)
 {
+  captureResearchLifecycle(evaluation, lifecycle);
+  if (active_research_cycle_ != nullptr) {
+    active_research_cycle_->lifecycle_owner = path_owner;
+    active_research_cycle_->backup = p0_backup_only;
+  }
   // Ownership is a state, not an event: at the 25 ms planning period an unconditional INFO here
   // was 40 lines/second of identical text, which buries the transitions that actually matter.
   // Log every real change, and throttle the steady state so a stuck condition is still visible.
@@ -3506,6 +3662,73 @@ void LocalPlannerNode::publishP3CycleDiagnostic(
 
 void LocalPlannerNode::onPlanningTimer()
 {
+  std::optional<PlanningResearchCycle> research_cycle;
+  std::unique_ptr<ScopeExit> research_finish;
+  std::chrono::steady_clock::time_point research_callback_start;
+  if (research_logger_ != nullptr) {
+    research_callback_start = std::chrono::steady_clock::now();
+    research_cycle.emplace();
+    auto & cycle = *research_cycle;
+    cycle.all_violation_audit_enabled = research_all_violation_audit_enable_;
+    cycle.run_id = research_run_id_;
+    cycle.scenario_id = research_scenario_id_;
+    cycle.callback_sequence = ++research_callback_sequence_;
+    cycle.ros_time_ns = eventNow().nanoseconds();
+    cycle.p3_mode = p3RuntimeModeName(p3_mode_);
+    active_research_cycle_ = &cycle;
+    planner_.setActiveResearchCycle(&cycle);
+    research_finish = std::make_unique<ScopeExit>([&, research_callback_start]() {
+          auto & finished = *research_cycle;
+          finished.obstacle_source_stamp_ns = latest_obstacle_source_stamp_ns_;
+          finished.obstacle_sequence = obstacles_message_sequence_;
+          finished.source_epoch = p3_source_epoch_;
+          finished.reference_generation = global_reference_generation_;
+          finished.lifecycle_owner = current_path_owner_;
+          finished.selected_path_digest = last_selected_path_digest_;
+          finished.backup = finished.backup || current_path_owner_ == "P0_BACKUP_ONLY";
+          finished.safe_stop = safe_stop_lifecycle_.active();
+          finished.global_handoff = handoff_active_;
+          nav_msgs::msg::Odometry odometry;
+          bool have_odometry = false;
+          {
+            std::lock_guard<std::mutex> lock(odometry_mutex_);
+            have_odometry = has_odometry_;
+            if (have_odometry) {
+              odometry = latest_odometry_;
+            }
+          }
+          if (have_odometry) {
+            finished.ego_s = odometry.pose.pose.position.x;
+            finished.ego_d = odometry.pose.pose.position.y;
+            finished.measured_speed_mps = odometry.twist.twist.linear.x;
+            if (!global_waypoints_.wpnts.empty() && planner_.trackLength() > 0.0) {
+              const auto closest = std::min_element(
+              global_waypoints_.wpnts.begin(), global_waypoints_.wpnts.end(),
+                [&](const auto & first, const auto & second) {
+                  const auto distance = [&](const auto & waypoint) {
+                    double forward = planner_.forwardDistance(finished.ego_s, waypoint.s_m);
+                    if (forward > 0.5 * planner_.trackLength()) {
+                      forward -= planner_.trackLength();
+                    }
+                    return std::abs(forward);
+                  };
+                  return distance(first) < distance(second);
+              });
+              finished.ego_x = closest->x_m - finished.ego_d * std::sin(closest->psi_rad);
+              finished.ego_y = closest->y_m + finished.ego_d * std::cos(closest->psi_rad);
+              finished.ego_yaw = closest->psi_rad +
+              quaternionYaw(odometry.pose.pose.orientation);
+              finished.ego_pose_source = "FRENET_REFERENCE_RECONSTRUCTION";
+            }
+          }
+          finished.runtime_callback_total_us = std::chrono::duration<double, std::micro>(
+          std::chrono::steady_clock::now() - research_callback_start).count();
+          planner_.setActiveResearchCycle(nullptr);
+          active_research_cycle_ = nullptr;
+          (void)research_logger_->submit(std::move(finished));
+      });
+  }
+
   if (!lockstep_mode_) {
     drainLatestObstacleIngress();
   }

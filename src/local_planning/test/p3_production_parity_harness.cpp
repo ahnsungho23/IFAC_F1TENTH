@@ -17,6 +17,7 @@
 // It never embeds, links, or invokes the external evaluator.
 
 #include <cmath>
+#include <cstdlib>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -27,6 +28,7 @@
 #include <vector>
 
 #include "local_planning/raceline_spline_planner.hpp"
+#include "local_planning/research_instrumentation.hpp"
 
 namespace
 {
@@ -247,8 +249,16 @@ void emit(const Stream & stream)
   }
   for (std::size_t frame_index = 0U; frame_index < stream.frames.size(); ++frame_index) {
     const auto & frame = stream.frames[frame_index];
+    local_planning::PlanningResearchCycle research_cycle;
+    const bool research_enabled = std::getenv("LOCAL_PLANNING_RESEARCH_PARITY") != nullptr;
+    if (research_enabled) {
+      research_cycle.all_violation_audit_enabled =
+        std::getenv("LOCAL_PLANNING_RESEARCH_ALL_VIOLATIONS") != nullptr;
+      planner.setActiveResearchCycle(&research_cycle);
+    }
     const auto result = planner.evaluateP3Shadow(
       frame.ego, frame.obstacles, frame.source_stamp_ns, 0U, 1U, "PARITY_ORACLE");
+    planner.setActiveResearchCycle(nullptr);
     std::cout << stream.scenario << '\t' << frame_index << '\t' << "SUMMARY" << '\t' << -1 <<
       '\t' << result.selected_candidate_identity << '\t' << result.selected_path_digest << '\t' <<
       result.would_recover << '\t' << clean(result.failure_classification) << '\t' <<

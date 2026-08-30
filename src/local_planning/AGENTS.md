@@ -533,6 +533,21 @@ C is left and it waited 22.67 s.
 
 ## Interfaces
 
+### Research instrumentation
+
+- Keep `research_instrumentation_enable=false` and
+  `research_all_violation_audit_enable=false` in operational/simulation YAML.
+- Research fields are write-only observations. Never feed them into P3 generation, validation,
+  ranking, lifecycle, safe-stop, or publication.
+- Preserve both M0-V1 sides and M1 probe/root provenance in research traces without changing the
+  production returned candidate vector or the frozen candidate cap.
+- The callback may only submit with a bounded non-blocking/try-lock operation. Disk writes and
+  fsync belong to the writer thread; queue saturation drops logs and increments the loss counter.
+- Never overwrite an existing research run directory. Require git/source/config provenance when
+  enabled and keep the schema documented in `docs/research_instrumentation.md`.
+- The optional all-violation pass is non-authoritative, runs after the production first-failure
+  verdict, and stays default-off.
+
 - Subscribe: `/global_waypoints` (`f110_msgs/msg/WpntArray`).
 - Subscribe: `/confirmed_static_obs` (`f110_msgs/msg/ObstacleArray`, `obstacles_topic`); each
   obstacle must provide finite
