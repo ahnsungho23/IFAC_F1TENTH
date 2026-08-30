@@ -116,6 +116,52 @@ const char * validationFailureName(int value)
   }
 }
 
+std::string r3SelectedFactorsJson(const std::vector<P3R3SelectedFactorTrace> & factors)
+{
+  std::ostringstream output;
+  output << '[';
+  for (std::size_t index = 0U; index < factors.size(); ++index) {
+    if (index > 0U) {
+      output << ',';
+    }
+    const auto & factor = factors[index];
+    output << "{\"rank_stream\":\"" << jsonEscape(factor.rank_stream) << "\""
+           << ",\"stream_rank\":" << factor.stream_rank
+           << ",\"side\":\"" << (factor.go_left ? "LEFT" : "RIGHT") << "\""
+           << ",\"d_target\":" << jsonNumber(factor.d_target)
+           << ",\"d_mid\":" << jsonNumber(factor.d_mid)
+           << ",\"entry_scale\":" << jsonNumber(factor.entry_scale)
+           << ",\"exit_scale\":" << jsonNumber(factor.exit_scale)
+           << ",\"target_source\":\"" << jsonEscape(factor.target_source) << "\""
+           << ",\"mid_source\":\"" << jsonEscape(factor.mid_source) << "\""
+           << ",\"lateral_factor_index\":" << factor.lateral_factor_index
+           << ",\"transition_index\":" << factor.transition_index
+           << ",\"exit_conflict_proxy\":"
+           << (factor.exit_conflict_proxy ? "true" : "false")
+           << ",\"maximum_corridor_violation_m\":"
+           << jsonNumber(factor.maximum_corridor_violation_m)
+           << ",\"sum_corridor_violation_m\":"
+           << jsonNumber(factor.sum_corridor_violation_m)
+           << ",\"slope_excess\":" << jsonNumber(factor.slope_excess)
+           << ",\"curvature_proxy\":" << jsonNumber(factor.curvature_proxy)
+           << ",\"center_error\":" << jsonNumber(factor.center_error)
+           << ",\"minimum_clearance_m\":" << jsonNumber(factor.minimum_clearance_m)
+           << ",\"shape_energy\":" << jsonNumber(factor.shape_energy)
+           << ",\"constructed\":" << (factor.constructed ? "true" : "false")
+           << ",\"path_digest_duplicate\":"
+           << (factor.path_digest_duplicate ? "true" : "false")
+           << ",\"validator_executed\":"
+           << (factor.validator_executed ? "true" : "false")
+           << ",\"hard_valid\":" << (factor.hard_valid ? "true" : "false")
+           << ",\"usable_valid\":" << (factor.usable_valid ? "true" : "false")
+           << ",\"path_digest\":\"" << jsonEscape(factor.path_digest) << "\""
+           << ",\"candidate_identity\":\""
+           << jsonEscape(factor.candidate_identity) << "\"}";
+  }
+  output << ']';
+  return output.str();
+}
+
 std::string planningJson(
   const PlanningResearchCycle & cycle, const PlanningResearchConfig & config,
   std::uint64_t dropped_log_count)
@@ -178,7 +224,15 @@ std::string planningJson(
          << ",\"returned_candidate_count\":" << cycle.returned_candidate_count
          << ",\"lifecycle_revalidation_count\":" << cycle.lifecycle_revalidation_count
          << ",\"safe_stop_escape_evaluator_count\":"
-         << cycle.safe_stop_escape_evaluator_count << '}'
+         << cycle.safe_stop_escape_evaluator_count
+         << ",\"r3_invocation_count\":" << cycle.r3_invocation_count
+         << ",\"r3_constructed_candidate_count\":"
+         << cycle.r3_constructed_candidate_count
+         << ",\"r3_path_digest_duplicate_count\":"
+         << cycle.r3_path_digest_duplicate_count
+         << ",\"r3_validator_call_count\":" << cycle.r3_validator_call_count
+         << ",\"r3_hard_valid_count\":" << cycle.r3_hard_valid_count
+         << ",\"r3_usable_valid_count\":" << cycle.r3_usable_valid_count << '}'
          << ",\"runtime_us\":{\"callback_total\":"
          << jsonNumber(cycle.runtime_callback_total_us)
          << ",\"planning_total\":" << jsonNumber(cycle.runtime_planning_total_us)
@@ -196,7 +250,8 @@ std::string planningJson(
          << ",\"hard_validation\":" << jsonNumber(cycle.runtime_hard_validation_us)
          << ",\"ranking\":" << jsonNumber(cycle.runtime_ranking_us)
          << ",\"lifecycle_revalidation\":"
-         << jsonNumber(cycle.runtime_lifecycle_revalidation_us) << '}'
+         << jsonNumber(cycle.runtime_lifecycle_revalidation_us)
+         << ",\"r3_total\":" << jsonNumber(cycle.runtime_r3_total_us) << '}'
          << ",\"evaluation_count\":" << cycle.evaluations.size()
          << ",\"dropped_log_count\":" << dropped_log_count << '}';
   return output.str();
@@ -243,6 +298,12 @@ std::string candidateJson(
          << ",\"source_cell\":\"" << jsonEscape(candidate.source_cell) << "\""
          << ",\"analytic_branch_regime\":\""
          << jsonEscape(candidate.analytic_branch_regime) << "\""
+         << ",\"r3\":{\"rank_stream\":\""
+         << jsonEscape(candidate.r3_rank_stream) << "\""
+         << ",\"target_source\":\"" << jsonEscape(candidate.r3_target_source) << "\""
+         << ",\"mid_source\":\"" << jsonEscape(candidate.r3_mid_source) << "\""
+         << ",\"lateral_factor_index\":" << candidate.r3_lateral_factor_index
+         << ",\"transition_index\":" << candidate.r3_transition_index << '}'
          << ",\"returned_by_policy\":"
          << (candidate.returned_by_policy ? "true" : "false")
          << ",\"discarded_side\":" << (candidate.discarded_side ? "true" : "false")
@@ -280,6 +341,7 @@ std::string candidateJson(
          << ",\"validation_authority\":\""
          << jsonEscape(candidate.validation_authority) << "\""
          << ",\"hard_valid\":" << (candidate.hard_valid ? "true" : "false")
+         << ",\"usable_valid\":" << (candidate.usable_valid ? "true" : "false")
          << ",\"first_failure_enum\":" << candidate.first_failure_enum
          << ",\"first_failure_name\":\""
          << validationFailureName(candidate.first_failure_enum) << "\""
@@ -389,6 +451,32 @@ std::string evaluationJson(
          << evaluation.validate_candidate_executed_total_actual
          << ",\"hard_valid_total_actual\":" << evaluation.hard_valid_total_actual
          << ",\"returned_candidate_count\":" << evaluation.returned_candidate_count
+         << ",\"r3\":{\"invoked\":" << (evaluation.r3_invoked ? "true" : "false")
+         << ",\"method_name\":\"" << jsonEscape(evaluation.r3_method_name) << "\""
+         << ",\"method_sha256\":\"" << jsonEscape(evaluation.r3_method_sha256) << "\""
+         << ",\"lateral_factor_count\":" << evaluation.r3_lateral_factor_count
+         << ",\"pair_priority_count\":" << evaluation.r3_pair_priority_count
+         << ",\"lexicographic_factor_count\":"
+         << evaluation.r3_lexicographic_factor_count
+         << ",\"coverage_factor_count\":" << evaluation.r3_coverage_factor_count
+         << ",\"constructed_candidate_count\":"
+         << evaluation.r3_constructed_candidate_count
+         << ",\"path_digest_duplicate_count\":"
+         << evaluation.r3_path_digest_duplicate_count
+         << ",\"validator_call_count\":" << evaluation.r3_validator_call_count
+         << ",\"hard_valid_count\":" << evaluation.r3_hard_valid_count
+         << ",\"usable_valid_count\":" << evaluation.r3_usable_valid_count
+         << ",\"fallback_after_failure\":\""
+         << jsonEscape(evaluation.r3_fallback_after_failure) << "\""
+         << ",\"runtime_factor_generation_us\":"
+         << jsonNumber(evaluation.r3_runtime_factor_generation_us)
+         << ",\"runtime_reconstruction_us\":"
+         << jsonNumber(evaluation.r3_runtime_reconstruction_us)
+         << ",\"runtime_validation_us\":"
+         << jsonNumber(evaluation.r3_runtime_validation_us)
+         << ",\"runtime_total_us\":" << jsonNumber(evaluation.r3_runtime_total_us)
+         << ",\"selected_factors\":"
+         << r3SelectedFactorsJson(evaluation.r3_selected_factors) << '}'
          << ",\"candidate_path_digests\":" << jsonStrings(candidate_digests)
          << ",\"generator_stages\":" << jsonStrings(stages)
          << ",\"templates\":" << jsonStrings(templates)
@@ -568,6 +656,24 @@ void captureP3ResearchEvaluation(
     result.research_validate_candidate_executed_total_actual;
   evaluation.hard_valid_total_actual = result.research_hard_valid_total_actual;
   evaluation.returned_candidate_count = result.candidate_count;
+  evaluation.r3_invoked = result.r3_invoked;
+  evaluation.r3_method_name = result.r3_method_name;
+  evaluation.r3_method_sha256 = result.r3_method_sha256;
+  evaluation.r3_lateral_factor_count = result.r3_lateral_factor_count;
+  evaluation.r3_pair_priority_count = result.r3_pair_priority_count;
+  evaluation.r3_lexicographic_factor_count = result.r3_lexicographic_factor_count;
+  evaluation.r3_coverage_factor_count = result.r3_coverage_factor_count;
+  evaluation.r3_constructed_candidate_count = result.r3_constructed_candidate_count;
+  evaluation.r3_path_digest_duplicate_count = result.r3_path_digest_duplicate_count;
+  evaluation.r3_validator_call_count = result.r3_validator_call_count;
+  evaluation.r3_hard_valid_count = result.r3_hard_valid_count;
+  evaluation.r3_usable_valid_count = result.r3_usable_valid_count;
+  evaluation.r3_fallback_after_failure = result.r3_fallback_after_failure;
+  evaluation.r3_runtime_factor_generation_us = result.r3_runtime_factor_generation_us;
+  evaluation.r3_runtime_reconstruction_us = result.r3_runtime_reconstruction_us;
+  evaluation.r3_runtime_validation_us = result.r3_runtime_validation_us;
+  evaluation.r3_runtime_total_us = result.r3_runtime_total_us;
+  evaluation.r3_selected_factors = result.r3_selected_factors;
   evaluation.runtime_total_us = result.runtime_total_us;
   evaluation.runtime_corridor_us = result.research_runtime_corridor_actual_us;
   evaluation.runtime_probe_anchor_us = result.research_runtime_probe_anchor_us;
@@ -596,6 +702,11 @@ void captureP3ResearchEvaluation(
     record.mapping_source = trace.mapping_source;
     record.source_cell = trace.source_cell;
     record.analytic_branch_regime = trace.source_branch_regime;
+    record.r3_rank_stream = trace.r3_rank_stream;
+    record.r3_target_source = trace.r3_target_source;
+    record.r3_mid_source = trace.r3_mid_source;
+    record.r3_lateral_factor_index = trace.r3_lateral_factor_index;
+    record.r3_transition_index = trace.r3_transition_index;
     record.returned_by_policy = trace.returned_by_policy;
     record.discarded_side = trace.discarded_side;
     record.d_target = trace.d_target;
@@ -621,6 +732,8 @@ void captureP3ResearchEvaluation(
     record.validator_executed = trace.validator_executed;
     record.validation_authority = trace.validation_authority;
     record.hard_valid = trace.hard_valid;
+    record.usable_valid = trace.hard_valid && !trace.exit_reaches_next_obstacle &&
+      trace.ego_braking_distance_deficit_m <= 1.0e-9;
     record.first_failure_enum = trace.validation.first_failure_kind;
     record.first_failure_reason = trace.rejection_reason;
     record.failure_waypoint_index = trace.validation.failure_waypoint_index;
@@ -669,6 +782,12 @@ void captureP3ResearchEvaluation(
   // evaluator-local totals here: plan(), lifecycle, retention, and safe-stop may invoke the same
   // authority again in the same callback, and summing both paths would double count P3 calls.
   cycle.returned_candidate_count += evaluation.returned_candidate_count;
+  cycle.r3_invocation_count += evaluation.r3_invoked ? 1U : 0U;
+  cycle.r3_constructed_candidate_count += evaluation.r3_constructed_candidate_count;
+  cycle.r3_path_digest_duplicate_count += evaluation.r3_path_digest_duplicate_count;
+  cycle.r3_validator_call_count += evaluation.r3_validator_call_count;
+  cycle.r3_hard_valid_count += evaluation.r3_hard_valid_count;
+  cycle.r3_usable_valid_count += evaluation.r3_usable_valid_count;
   cycle.runtime_planning_total_us += evaluation.runtime_total_us;
   cycle.runtime_corridor_us += evaluation.runtime_corridor_us;
   cycle.runtime_probe_anchor_us += evaluation.runtime_probe_anchor_us;
@@ -679,6 +798,7 @@ void captureP3ResearchEvaluation(
   cycle.runtime_candidate_measurement_us += evaluation.runtime_candidate_measurement_us;
   cycle.runtime_hard_validation_us += evaluation.runtime_hard_validation_us;
   cycle.runtime_ranking_us += evaluation.runtime_ranking_us;
+  cycle.runtime_r3_total_us += evaluation.r3_runtime_total_us;
   cycle.evaluations.push_back(std::move(evaluation));
 }
 

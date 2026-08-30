@@ -3311,7 +3311,11 @@ std::size_t RacelineSplinePlanner::generateP3Candidates(
     candidate.go_left = trace.go_left;
     candidate.target_d = trace.d_target;
     candidate.path = trace.path;
-    candidate.audit_index = trace.generation_index;
+    // R3's frozen post-validation tuple is exact (no epsilon collapse). Reuse the existing
+    // production comparator downstream while preserving that frozen tie order. M0/M1 keep their
+    // historical generation-index tiebreak unchanged.
+    candidate.audit_index = trace.generator_stage == "R3_K12" && trace.final_rank > 0 ?
+      static_cast<std::size_t>(trace.final_rank - 1) : trace.generation_index;
     candidate.exit_reaches_next_obstacle = trace.exit_reaches_next_obstacle;
     candidate.entry_transition_scale = trace.entry_scale;
     candidate.exit_transition_scale = trace.exit_scale;

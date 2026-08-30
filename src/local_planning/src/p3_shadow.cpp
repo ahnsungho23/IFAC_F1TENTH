@@ -34,6 +34,7 @@
 
 #include "local_planning/candidate_rank.hpp"
 #include "local_planning/p3_analytic_solver.hpp"
+#include "local_planning/p3_r3_k12.hpp"
 #include "local_planning/path_digest.hpp"
 #include "local_planning/raceline_spline_planner.hpp"
 #include "local_planning/research_instrumentation.hpp"
@@ -246,7 +247,8 @@ public:
     std::uint64_t snapshot_epoch,
     std::uint64_t global_reference_generation,
     const std::string & p0_failure_reason,
-    bool relaxed_clearance_gate = false) const
+    bool relaxed_clearance_gate = false,
+    std::vector<P3R3K12ProductionCandidate> * r3_production_factors = nullptr) const
   {
     P3ShadowResult result;
     result.enabled = true;
@@ -319,18 +321,28 @@ public:
       // The frozen mapping review catches the whole M0 policy at this boundary. Preserve that
       // behavior so h0<=0 becomes a fail-closed no-M0 offer instead of escaping the callback.
       m0_nonpositive_abort = true;
-      if (research_cycle != nullptr) {
+      if (research_cycle != nullptr || r3_production_factors != nullptr) {
         for (const auto & side : sides) {
-          if (side.go_left) {
-            result.research_m0_v1_constructed_left += side.candidates.size();
-          } else {
-            result.research_m0_v1_constructed_right += side.candidates.size();
+          if (research_cycle != nullptr) {
+            if (side.go_left) {
+              result.research_m0_v1_constructed_left += side.candidates.size();
+            } else {
+              result.research_m0_v1_constructed_right += side.candidates.size();
+            }
+            result.research_discarded_side_candidate_count += side.candidates.size();
           }
-          result.research_discarded_side_candidate_count += side.candidates.size();
-          for (auto trace : side.candidates) {
-            trace.returned_by_policy = false;
-            trace.discarded_side = true;
-            research_pre_abort_candidates.push_back(std::move(trace));
+          for (const auto & trace : side.candidates) {
+            if (r3_production_factors != nullptr) {
+              r3_production_factors->push_back({
+                  trace.go_left, trace.d_target, trace.d_mid,
+                  trace.entry_scale, trace.exit_scale});
+            }
+            if (research_cycle != nullptr) {
+              auto research_trace = trace;
+              research_trace.returned_by_policy = false;
+              research_trace.discarded_side = true;
+              research_pre_abort_candidates.push_back(std::move(research_trace));
+            }
           }
         }
       }
@@ -365,21 +377,31 @@ public:
 
     std::vector<P3ShadowCandidateTrace> research_side_candidates =
       std::move(research_pre_abort_candidates);
-    if (research_cycle != nullptr) {
+    if (research_cycle != nullptr || r3_production_factors != nullptr) {
       for (const auto & side : sides) {
-        if (side.go_left) {
-          result.research_m0_v1_constructed_left += side.candidates.size();
-        } else {
-          result.research_m0_v1_constructed_right += side.candidates.size();
-        }
         const bool discarded = &side != baseline;
-        if (discarded) {
-          result.research_discarded_side_candidate_count += side.candidates.size();
+        if (research_cycle != nullptr) {
+          if (side.go_left) {
+            result.research_m0_v1_constructed_left += side.candidates.size();
+          } else {
+            result.research_m0_v1_constructed_right += side.candidates.size();
+          }
+          if (discarded) {
+            result.research_discarded_side_candidate_count += side.candidates.size();
+          }
         }
-        for (auto trace : side.candidates) {
-          trace.returned_by_policy = !discarded;
-          trace.discarded_side = discarded;
-          research_side_candidates.push_back(std::move(trace));
+        for (const auto & trace : side.candidates) {
+          if (r3_production_factors != nullptr) {
+            r3_production_factors->push_back({
+                trace.go_left, trace.d_target, trace.d_mid,
+                trace.entry_scale, trace.exit_scale});
+          }
+          if (research_cycle != nullptr) {
+            auto research_trace = trace;
+            research_trace.returned_by_policy = !discarded;
+            research_trace.discarded_side = discarded;
+            research_side_candidates.push_back(std::move(research_trace));
+          }
         }
       }
     }
@@ -525,6 +547,15 @@ public:
       result.failure_classification = baseline->failure;
     }
     result.runtime_total_us = elapsedUs(total_start);
+    if (r3_production_factors != nullptr) {
+      for (const auto & trace : result.candidates) {
+        if (trace.generator_stage != "M0_V1") {
+          r3_production_factors->push_back({
+              trace.go_left, trace.d_target, trace.d_mid,
+              trace.entry_scale, trace.exit_scale});
+        }
+      }
+    }
     if (research_cycle != nullptr) {
       const auto ranking_start = Clock::now();
       std::vector<std::size_t> feasible_order;
@@ -598,6 +629,273 @@ public:
         research_cycle->runtime_hard_validation_us - research_validation_before;
     }
     return result;
+  }
+
+  P3ShadowResult runR3K12(
+    const EgoFrenetState & ego,
+    const std::vector<f110_msgs::msg::Obstacle> & obstacles,
+    const P3ShadowResult & production_failure,
+    const std::vector<P3R3K12ProductionCandidate> & production_candidates) const
+  {
+    const auto total_start = Clock::now();
+    P3ShadowResult result = production_failure;
+    result.r3_invoked = true;
+    result.r3_method_name = kP3R3K12MethodName;
+    result.r3_method_sha256 = kP3R3K12MethodSha256;
+    result.mapping_semantics = kP3R3K12MethodName;
+    result.r3_fallback_after_failure = production_failure.failure_classification;
+    result.would_recover = false;
+    result.candidates.clear();
+    result.candidate_count = 0U;
+    result.hard_validator_call_count = 0U;
+    result.hard_valid_count = 0U;
+    result.selected_source = "NONE";
+    result.selected_candidate_template = "NONE";
+    result.selected_candidate_identity = "NONE";
+    result.selected_logical_identity = "NONE";
+    result.selected_path_digest = "NONE";
+    result.selected_probe_s = std::numeric_limits<double>::quiet_NaN();
+    result.selected_probe_d = std::numeric_limits<double>::quiet_NaN();
+    result.selected_validation_available = false;
+    result.selected_path.wpnts.clear();
+
+    const P3ShadowPlanningContext context = planner_.buildP3ShadowPlanningContext(
+      ego, obstacles, false);
+    if (!context.valid) {
+      result.r3_runtime_total_us = elapsedUs(total_start);
+      result.runtime_total_us = result.r3_runtime_total_us;
+      return result;
+    }
+    cycle_cluster_ids_ = context.cluster_ids;
+
+    const auto factor_start = Clock::now();
+    const std::vector<P3R3K12SideGeometry> geometries = buildR3K12Geometry(
+      ego, obstacles, context);
+    const P3R3K12Selection selection = selectP3R3K12Factors(
+      geometries, production_candidates);
+    result.r3_runtime_factor_generation_us = elapsedUs(factor_start);
+    result.r3_lateral_factor_count = selection.lateral_factor_count;
+    result.r3_pair_priority_count = selection.pair_priority_count;
+
+    std::set<std::string> validated_path_digests;
+    std::optional<std::size_t> best_index;
+    const auto consume_stream = [&](const std::string & stream_name,
+      const std::vector<P3R3K12Factor> & factors, std::size_t quota) {
+        std::size_t consumed = 0U;
+        for (std::size_t stream_rank = 0U;
+          stream_rank < factors.size() && consumed < quota; ++stream_rank)
+        {
+          const auto & factor = factors[stream_rank];
+          const auto & domain = factor.go_left ? context.left : context.right;
+          if (!domain.valid) {
+            continue;
+          }
+          const std::array<double, 5> stations = stationsFor(
+            parameters_, domain, context.outside_is_left, factor.entry_scale,
+            factor.exit_scale, ego.d, factor.d_target, referenceSpacing());
+          double minimum_length = std::numeric_limits<double>::quiet_NaN();
+          if (!strictPositiveSegments(stations, minimum_length)) {
+            continue;  // frozen construction guards do not consume K
+          }
+
+          const auto reconstruction_start = Clock::now();
+          double reconstruction_us = 0.0;
+          double validation_us = 0.0;
+          const std::size_t generation_index = result.r3_constructed_candidate_count;
+          P3ShadowCandidateTrace trace = buildCandidate(
+            ego, obstacles, factor.go_left, context.outside_is_left,
+            factor.d_target, factor.d_mid, factor.entry_scale, factor.exit_scale,
+            stations, generation_index, reconstruction_us, validation_us, false);
+          result.r3_runtime_reconstruction_us += elapsedUs(reconstruction_start);
+          ++consumed;
+          ++result.r3_constructed_candidate_count;
+          if (stream_name == "LEXICOGRAPHIC") {
+            ++result.r3_lexicographic_factor_count;
+          } else {
+            ++result.r3_coverage_factor_count;
+          }
+
+          P3R3SelectedFactorTrace factor_trace;
+          factor_trace.rank_stream = stream_name;
+          factor_trace.stream_rank = stream_rank;
+          factor_trace.go_left = factor.go_left;
+          factor_trace.d_target = factor.d_target;
+          factor_trace.d_mid = factor.d_mid;
+          factor_trace.entry_scale = factor.entry_scale;
+          factor_trace.exit_scale = factor.exit_scale;
+          factor_trace.target_source = factor.target_source;
+          factor_trace.mid_source = factor.mid_source;
+          factor_trace.lateral_factor_index = factor.lateral_factor_index;
+          factor_trace.transition_index = factor.transition_index;
+          factor_trace.exit_conflict_proxy = factor.exit_conflict_proxy;
+          factor_trace.maximum_corridor_violation_m = factor.maximum_corridor_violation_m;
+          factor_trace.sum_corridor_violation_m = factor.sum_corridor_violation_m;
+          factor_trace.slope_excess = factor.slope_excess;
+          factor_trace.curvature_proxy = factor.curvature_proxy;
+          factor_trace.center_error = factor.center_error;
+          factor_trace.minimum_clearance_m = factor.minimum_clearance_m;
+          factor_trace.shape_energy = factor.shape_energy;
+          factor_trace.constructed = true;
+          factor_trace.path_digest = trace.path_digest;
+
+          if (!validated_path_digests.insert(trace.path_digest).second) {
+            factor_trace.path_digest_duplicate = true;
+            const auto original = std::find_if(
+              result.candidates.begin(), result.candidates.end(), [&trace](const auto & candidate) {
+                return candidate.path_digest == trace.path_digest;
+              });
+            if (original != result.candidates.end()) {
+              factor_trace.hard_valid = original->hard_valid;
+              factor_trace.usable_valid = original->hard_valid &&
+                !original->exit_reaches_next_obstacle &&
+                original->ego_braking_distance_deficit_m <= kCandidateRankEpsilon;
+              factor_trace.candidate_identity = original->candidate_identity;
+            }
+            ++result.r3_path_digest_duplicate_count;
+            result.r3_selected_factors.push_back(std::move(factor_trace));
+            continue;  // duplicate consumes K but not the logical exact-validator budget
+          }
+
+          const auto validation_start = Clock::now();
+          validateReconstructedCandidate(ego, obstacles, trace, validation_us);
+          result.r3_runtime_validation_us += elapsedUs(validation_start);
+          if (trace.validator_executed) {
+            ++result.r3_validator_call_count;
+          }
+          trace.mapping_source = kP3R3K12MethodName;
+          trace.generator_stage = "R3_K12";
+          trace.candidate_template = "DIRECT_FACTOR_" + stream_name;
+          trace.source_cell = stream_name;
+          trace.component_id = "DIRECT_FACTOR_POOL";
+          trace.root_type = "DIRECT_D_MID_FACTOR";
+          trace.probe_location_rule = "NOT_USED_DIRECT_FACTOR";
+          trace.probe_anchor_rule = "NOT_USED_DIRECT_FACTOR";
+          trace.r3_rank_stream = stream_name;
+          trace.r3_target_source = factor.target_source;
+          trace.r3_mid_source = factor.mid_source;
+          trace.r3_lateral_factor_index = factor.lateral_factor_index;
+          trace.r3_transition_index = factor.transition_index;
+          const std::string side = factor.go_left ? "LEFT" : "RIGHT";
+          trace.candidate_identity = "R3_K12_" + stream_name + "_" + side + "_" +
+            trace.path_digest;
+          trace.logical_identity = "R3_K12_" + stream_name + "_" + side + "_" +
+            std::to_string(stream_rank);
+          trace.returned_by_policy = true;
+
+          factor_trace.validator_executed = trace.validator_executed;
+          factor_trace.hard_valid = trace.hard_valid;
+          factor_trace.usable_valid = trace.hard_valid &&
+            !trace.exit_reaches_next_obstacle &&
+            trace.ego_braking_distance_deficit_m <= kCandidateRankEpsilon;
+          factor_trace.candidate_identity = trace.candidate_identity;
+          if (trace.hard_valid) {
+            ++result.r3_hard_valid_count;
+            if (factor_trace.usable_valid) {
+              ++result.r3_usable_valid_count;
+            }
+          }
+          result.r3_selected_factors.push_back(std::move(factor_trace));
+          result.candidates.push_back(std::move(trace));
+        }
+      };
+
+    consume_stream("LEXICOGRAPHIC", selection.lexicographic, kP3R3K12LexicographicQuota);
+    consume_stream("COVERAGE", selection.coverage, kP3R3K12CoverageQuota);
+
+    if (result.r3_constructed_candidate_count > kP3R3K12CandidateBudget ||
+      result.r3_validator_call_count > kP3R3K12CandidateBudget)
+    {
+      throw std::runtime_error("R3-K12 reconstructed-candidate/validator-call bound violated");
+    }
+    result.candidate_count = result.candidates.size();
+    result.hard_validator_call_count = result.r3_validator_call_count;
+    result.hard_valid_count = result.r3_hard_valid_count;
+
+    std::vector<std::size_t> feasible_order;
+    for (std::size_t index = 0U; index < result.candidates.size(); ++index) {
+      if (result.candidates[index].hard_valid) {
+        feasible_order.push_back(index);
+      }
+    }
+    std::stable_sort(
+      feasible_order.begin(), feasible_order.end(),
+      [&result](std::size_t first, std::size_t second) {
+        return betterR3FrozenRank(result.candidates[first], result.candidates[second]);
+      });
+    for (std::size_t rank = 0U; rank < feasible_order.size(); ++rank) {
+      result.candidates[feasible_order[rank]].final_rank = static_cast<int>(rank + 1U);
+    }
+    if (!feasible_order.empty()) {
+      best_index = feasible_order.front();
+    }
+
+    if (best_index.has_value()) {
+      auto & selected = result.candidates[*best_index];
+      selected.selected = true;
+      result.would_recover = true;
+      result.selected_go_left = selected.go_left;
+      result.selected_obstacle_ids = context.cluster_ids;
+      const auto & selected_domain = selected.go_left ? context.left : context.right;
+      result.selected_cluster_start_forward_m = selected_domain.cluster_start;
+      result.selected_cluster_end_forward_m = selected_domain.cluster_end;
+      result.selected_cluster_end_s = planner_.wrapS(ego.s + selected_domain.cluster_end);
+      result.selected_source = kP3R3K12MethodName;
+      result.selected_candidate_template = selected.candidate_template;
+      result.selected_source_cell = selected.source_cell;
+      result.selected_component_id = selected.component_id;
+      result.selected_source_branch_regime = selected.source_branch_regime;
+      result.selected_candidate_identity = selected.candidate_identity;
+      result.selected_logical_identity = selected.logical_identity;
+      result.selected_path_digest = selected.path_digest;
+      result.selected_d_target = selected.d_target;
+      result.selected_d_mid = selected.d_mid;
+      result.selected_min_track_margin_m = selected.minimum_track_margin_m;
+      result.selected_min_obstacle_margin_m = selected.minimum_obstacle_margin_m;
+      result.selected_curvature_margin = selected.minimum_curvature_margin_radpm;
+      result.selected_curvature_rate_margin =
+        parameters_.maximum_curvature_rate_radpm2 - selected.peak_curvature_rate_radpm2;
+      result.selected_slope_margin =
+        parameters_.maximum_lateral_slope - selected.peak_lateral_slope;
+      result.selected_min_speed_mps = selected.minimum_commanded_speed_mps;
+      result.selected_max_speed_mps = selected.maximum_commanded_speed_mps;
+      result.selected_validation = selected.validation;
+      result.selected_validation_available = true;
+      result.selected_path = selected.path;
+      result.failure_classification = "NONE";
+      result.r3_fallback_after_failure = "NONE";
+    }
+
+    if (planner_.activeResearchCycle() != nullptr) {
+      result.research_all_candidates = result.candidates;
+      result.research_constructed_total_actual = result.r3_constructed_candidate_count;
+      result.research_validate_candidate_executed_total_actual = result.r3_validator_call_count;
+      result.research_hard_valid_total_actual = result.r3_hard_valid_count;
+    }
+    result.r3_runtime_total_us = elapsedUs(total_start);
+    result.runtime_total_us = result.r3_runtime_total_us;
+    return result;
+  }
+
+  static void copyR3Audit(P3ShadowResult & destination, const P3ShadowResult & source)
+  {
+    destination.r3_invoked = source.r3_invoked;
+    destination.r3_method_name = source.r3_method_name;
+    destination.r3_method_sha256 = source.r3_method_sha256;
+    destination.r3_lateral_factor_count = source.r3_lateral_factor_count;
+    destination.r3_pair_priority_count = source.r3_pair_priority_count;
+    destination.r3_lexicographic_factor_count = source.r3_lexicographic_factor_count;
+    destination.r3_coverage_factor_count = source.r3_coverage_factor_count;
+    destination.r3_constructed_candidate_count = source.r3_constructed_candidate_count;
+    destination.r3_path_digest_duplicate_count = source.r3_path_digest_duplicate_count;
+    destination.r3_validator_call_count = source.r3_validator_call_count;
+    destination.r3_hard_valid_count = source.r3_hard_valid_count;
+    destination.r3_usable_valid_count = source.r3_usable_valid_count;
+    destination.r3_runtime_factor_generation_us = source.r3_runtime_factor_generation_us;
+    destination.r3_runtime_reconstruction_us = source.r3_runtime_reconstruction_us;
+    destination.r3_runtime_validation_us = source.r3_runtime_validation_us;
+    destination.r3_runtime_total_us = source.r3_runtime_total_us;
+    destination.r3_fallback_after_failure = source.r3_fallback_after_failure;
+    destination.r3_selected_factors = source.r3_selected_factors;
   }
 
 private:
@@ -758,6 +1056,282 @@ private:
     double runtime_reconstruction_us{0.0};
     double runtime_hard_validation_us{0.0};
   };
+
+  std::vector<P3ShadowObstacleEnvelope> frozenR3Visible(
+    const EgoFrenetState & ego,
+    const std::vector<f110_msgs::msg::Obstacle> & obstacles) const
+  {
+    constexpr double kFrozenVehicleHalfWidthM = 0.15;
+    constexpr double kFrozenSafetyMarginM = 0.08;
+    constexpr double kFrozenLookaheadM = 15.0;
+    constexpr double kFrozenObstacleProjectionM =
+      kFrozenVehicleHalfWidthM + kFrozenSafetyMarginM;
+    std::vector<P3ShadowObstacleEnvelope> visible;
+    for (const auto & obstacle : obstacles) {
+      const double center = planner_.forwardDistance(ego.s, obstacle.s_center);
+      double span = std::min(
+        planner_.forwardDistance(obstacle.s_start, obstacle.s_end),
+        planner_.forwardDistance(obstacle.s_end, obstacle.s_start));
+      if (!(span > kEpsilon)) {
+        span = std::max(0.05, std::abs(obstacle.size));
+      }
+      const double half = 0.5 * span;
+      P3ShadowObstacleEnvelope expanded;
+      expanded.id = obstacle.id;
+      expanded.start = center - half;
+      expanded.end = center + half;
+      expanded.center = center;
+      expanded.d_right =
+        std::min(obstacle.d_right, obstacle.d_left) - kFrozenObstacleProjectionM;
+      expanded.d_left =
+        std::max(obstacle.d_right, obstacle.d_left) + kFrozenObstacleProjectionM;
+      if (expanded.end >= 0.0 && expanded.start <= kFrozenLookaheadM) {
+        visible.push_back(expanded);
+      }
+    }
+    std::sort(visible.begin(), visible.end(), [](const auto & first, const auto & second) {
+        return first.start < second.start;
+      });
+    return visible;
+  }
+
+  CorridorSample frozenR3CorridorSample(
+    const EgoFrenetState & ego,
+    const std::vector<P3ShadowObstacleEnvelope> & visible,
+    double station) const
+  {
+    constexpr double kFrozenVehicleHalfWidthM = 0.15;
+    constexpr double kFrozenWallSafetyMarginM = 0.04;
+    constexpr double kFrozenFallbackTrackHalfWidthM = 1.5;
+    const auto & reference = planner_.reference_.wpnts[
+      planner_.nearestReferenceIndex(planner_.wrapS(ego.s + station))];
+    const double left = reference.d_left > 0.05 ?
+      reference.d_left : kFrozenFallbackTrackHalfWidthM;
+    const double right = reference.d_right > 0.05 ?
+      reference.d_right : kFrozenFallbackTrackHalfWidthM;
+    CorridorSample sample;
+    sample.station = station;
+    sample.curvature = reference.kappa_radpm;
+    // Preserve the frozen Python expression order exactly. Grouping the two margins changes
+    // some binary64 corridor endpoints by one ulp and therefore changes exact factor dedup.
+    sample.track = {
+      -right + kFrozenVehicleHalfWidthM + kFrozenWallSafetyMarginM,
+      left - kFrozenVehicleHalfWidthM - kFrozenWallSafetyMarginM};
+    if (sample.track.upper > sample.track.lower + kEpsilon) {
+      sample.feasible.push_back(sample.track);
+    }
+    for (const auto & obstacle : visible) {
+      if (station + kEpsilon < obstacle.start || station - kEpsilon > obstacle.end) {
+        continue;
+      }
+      sample.active_obstacles.push_back(obstacle.id);
+      sample.feasible = subtractInterval(
+        sample.feasible, {obstacle.d_right, obstacle.d_left});
+    }
+    return sample;
+  }
+
+  Corridor makeFrozenR3Corridor(
+    const EgoFrenetState & ego,
+    const std::vector<P3ShadowObstacleEnvelope> & visible,
+    double cluster_start,
+    double cluster_end,
+    bool go_left,
+    bool outside_is_left) const
+  {
+    constexpr double kFrozenPostApexFarM = 6.178529850015357;
+    constexpr double kFrozenMaximumExitScale = 3.698773101198193;
+    constexpr double kFrozenOutsideMultiplier = 0.4060036444074003;
+    const double multiplier = go_left == outside_is_left ? kFrozenOutsideMultiplier : 1.0;
+    const double horizon = cluster_end +
+      kFrozenPostApexFarM * kFrozenMaximumExitScale * multiplier;
+    std::vector<double> stations{
+      0.0, cluster_start, cluster_end, 0.5 * (cluster_start + cluster_end)};
+    for (const auto & obstacle : visible) {
+      if (obstacle.end < -kEpsilon || obstacle.start > horizon + kEpsilon) {
+        continue;
+      }
+      stations.push_back(std::max(0.0, obstacle.start));
+      stations.push_back(std::clamp(obstacle.center, 0.0, horizon));
+      stations.push_back(std::min(horizon, obstacle.end));
+    }
+    const std::size_t first = planner_.nextReferenceIndex(ego.s);
+    for (std::size_t count = 0U; count < planner_.reference_.wpnts.size(); ++count) {
+      const auto & waypoint =
+        planner_.reference_.wpnts[(first + count) % planner_.reference_.wpnts.size()];
+      const double station = planner_.forwardDistance(ego.s, waypoint.s_m);
+      if (station > horizon + kEpsilon) {
+        break;
+      }
+      stations.push_back(station);
+    }
+    stations = uniqueSorted(std::move(stations));
+
+    Corridor result;
+    result.connected = true;
+    result.branch_count = 1U;
+    Interval previous{};
+    bool have_previous = false;
+    for (const double station : stations) {
+      CorridorSample sample = frozenR3CorridorSample(ego, visible, station);
+      result.branch_count = std::max(result.branch_count, sample.feasible.size());
+      if (sample.feasible.empty()) {
+        result.connected = false;
+        result.samples.push_back(std::move(sample));
+        continue;
+      }
+      const Interval selected = go_left ? sample.feasible.back() : sample.feasible.front();
+      if (have_previous && !overlaps(previous, selected)) {
+        result.connected = false;
+      }
+      previous = selected;
+      have_previous = true;
+      result.branch.push_back({
+          sample.station, selected.lower, selected.upper,
+          0.5 * (selected.lower + selected.upper), selected.upper - selected.lower,
+          sample.curvature});
+      result.samples.push_back(std::move(sample));
+    }
+    return result;
+  }
+
+  double frozenR3ReferenceSpacing() const
+  {
+    std::vector<double> spacing;
+    for (std::size_t index = 1U; index < planner_.reference_.wpnts.size(); ++index) {
+      spacing.push_back(
+        planner_.reference_.wpnts[index].s_m - planner_.reference_.wpnts[index - 1U].s_m);
+    }
+    if (spacing.empty()) {
+      return 0.25;
+    }
+    std::sort(spacing.begin(), spacing.end());
+    const std::size_t middle = spacing.size() / 2U;
+    return spacing.size() % 2U == 0U ?
+           0.5 * (spacing[middle - 1U] + spacing[middle]) : spacing[middle];
+  }
+
+  std::vector<P3R3K12SideGeometry> buildR3K12Geometry(
+    const EgoFrenetState & ego,
+    const std::vector<f110_msgs::msg::Obstacle> & obstacles,
+    const P3ShadowPlanningContext & context) const
+  {
+    constexpr double kFrozenFeatureHorizonM = 32.0;
+    const auto visible = frozenR3Visible(ego, obstacles);
+    const std::set<int> cluster_ids(context.cluster_ids.begin(), context.cluster_ids.end());
+    std::vector<P3R3K12SideGeometry> output;
+    for (const bool go_left : {false, true}) {
+      const auto & domain = go_left ? context.left : context.right;
+      if (!domain.valid) {
+        continue;
+      }
+      const Corridor corridor = makeFrozenR3Corridor(
+        ego, visible, domain.cluster_start, domain.cluster_end,
+        go_left, context.outside_is_left);
+      if (corridor.branch.empty()) {
+        continue;
+      }
+      const auto ranges = connectedConstantRanges(corridor, domain);
+      std::vector<const BranchSample *> span;
+      for (const auto & sample : corridor.branch) {
+        if (sample.station > domain.cluster_start + kEpsilon &&
+          sample.station < domain.cluster_end - kEpsilon)
+        {
+          span.push_back(&sample);
+        }
+      }
+      if (span.empty()) {
+        span.push_back(&nearestBranchSample(
+            corridor, 0.5 * (domain.cluster_start + domain.cluster_end)));
+      }
+      const BranchSample * bottleneck = *std::min_element(
+        span.begin(), span.end(), [](const auto * first, const auto * second) {
+          return std::tie(first->width, first->station) <
+                 std::tie(second->width, second->station);
+        });
+      const CorridorSample midpoint_sample = frozenR3CorridorSample(
+        ego, visible, 0.5 * (domain.cluster_start + domain.cluster_end));
+      if (midpoint_sample.feasible.empty()) {
+        continue;
+      }
+      const Interval midpoint_interval =
+        go_left ? midpoint_sample.feasible.back() : midpoint_sample.feasible.front();
+
+      std::set<double> sample_stations{
+        0.0, std::max(0.0, domain.cluster_start), std::max(0.0, domain.cluster_end),
+        std::max(0.0, 0.5 * (domain.cluster_start + domain.cluster_end))};
+      std::vector<double> reference_stations;
+      const std::size_t first = planner_.nextReferenceIndex(ego.s);
+      for (std::size_t count = 0U; count < planner_.reference_.wpnts.size(); ++count) {
+        const auto & waypoint =
+          planner_.reference_.wpnts[(first + count) % planner_.reference_.wpnts.size()];
+        const double station = planner_.forwardDistance(ego.s, waypoint.s_m);
+        if (station > kFrozenFeatureHorizonM + kEpsilon) {
+          break;
+        }
+        sample_stations.insert(station);
+        reference_stations.push_back(station);
+      }
+      for (const auto & obstacle : visible) {
+        for (const double station : {obstacle.start, obstacle.center, obstacle.end}) {
+          if (station >= -kEpsilon && station <= kFrozenFeatureHorizonM + kEpsilon) {
+            sample_stations.insert(std::max(0.0, station));
+          }
+        }
+      }
+
+      P3R3K12SideGeometry geometry;
+      geometry.go_left = go_left;
+      geometry.outside_is_left = context.outside_is_left;
+      geometry.ego_d = ego.d;
+      geometry.ego_speed = ego.speed;
+      geometry.cluster_start = domain.cluster_start;
+      geometry.cluster_end = domain.cluster_end;
+      geometry.domain_lower = std::min(domain.minimum_target, domain.maximum_target);
+      geometry.domain_upper = std::max(domain.minimum_target, domain.maximum_target);
+      geometry.reference_spacing_m = frozenR3ReferenceSpacing();
+      for (const auto & range : ranges) {
+        geometry.components.push_back({range.lower, range.upper});
+      }
+      std::vector<double> center_values{
+        bottleneck->center, 0.5 * (midpoint_interval.lower + midpoint_interval.upper)};
+      for (const double station : sample_stations) {
+        const CorridorSample sample = frozenR3CorridorSample(ego, visible, station);
+        if (sample.feasible.empty()) {
+          continue;
+        }
+        const Interval selected = go_left ? sample.feasible.back() : sample.feasible.front();
+        if (station >= domain.cluster_start - kEpsilon &&
+          station <= domain.cluster_end + kEpsilon)
+        {
+          center_values.push_back(0.5 * (selected.lower + selected.upper));
+        }
+      }
+      std::sort(center_values.begin(), center_values.end());
+      center_values.erase(
+        std::unique(center_values.begin(), center_values.end()), center_values.end());
+      geometry.center_values = std::move(center_values);
+      for (const double station : reference_stations) {
+        const CorridorSample sample = frozenR3CorridorSample(ego, visible, station);
+        P3R3K12CorridorSample row;
+        row.station = station;
+        if (!sample.feasible.empty()) {
+          const Interval selected = go_left ? sample.feasible.back() : sample.feasible.front();
+          row.lower = selected.lower;
+          row.upper = selected.upper;
+          row.center = 0.5 * (selected.lower + selected.upper);
+          row.width = selected.upper - selected.lower;
+          row.finite = std::isfinite(row.lower) && std::isfinite(row.upper);
+        }
+        row.later_obstacle_active = std::any_of(
+          sample.active_obstacles.begin(), sample.active_obstacles.end(),
+          [&cluster_ids](int id) {return cluster_ids.find(id) == cluster_ids.end();});
+        geometry.reference_samples.push_back(row);
+      }
+      output.push_back(std::move(geometry));
+    }
+    return output;
+  }
 
   static double elapsedUs(const Clock::time_point & start)
   {
@@ -1371,7 +1945,8 @@ private:
     const std::vector<f110_msgs::msg::Obstacle> & obstacles,
     bool go_left, bool outside_is_left, double target, double middle,
     double entry_scale, double exit_scale, const std::array<double, 5> & stations,
-    std::size_t generation, double & reconstruction_us, double & hard_validation_us) const
+    std::size_t generation, double & reconstruction_us, double & hard_validation_us,
+    bool run_exact_validation = true) const
   {
     const auto reconstruction_start = Clock::now();
     PlanningResearchCycle * research_cycle = planner_.activeResearchCycle();
@@ -1419,7 +1994,9 @@ private:
     reconstruction_us += elapsedUs(reconstruction_start);
 
     P3ShadowPathEvaluation evaluation;
-    if (path.wpnts.size() >= static_cast<std::size_t>(parameters_.minimum_path_points)) {
+    if (run_exact_validation &&
+      path.wpnts.size() >= static_cast<std::size_t>(parameters_.minimum_path_points))
+    {
       const auto validation_start = Clock::now();
       // 후보 검증의 장애물 범위는 이 기동이 책임지는 구간(클러스터 끝 + post_merge_lookahead)
       // 까지다. `generateP3Candidates`가 P0 선택 경로에서 이미 같은 horizon으로 재검증하고
@@ -1433,7 +2010,7 @@ private:
         planner_.maneuverScopeEnd(ego, obstacles, cycle_cluster_ids_, stations[3]));
       evaluation = planner_.validateP3ShadowPath(ego, path, obstacles, 1.0, collision_horizon);
       hard_validation_us += elapsedUs(validation_start);
-    } else {
+    } else if (path.wpnts.size() < static_cast<std::size_t>(parameters_.minimum_path_points)) {
       evaluation.rejection_reason = "spline segment has too few global race-line samples";
     }
 
@@ -1456,7 +2033,7 @@ private:
       trace.waypoint0_footprint_track_margin_m = waypoint0_sample->footprint_clearance_m;
       trace.waypoint0_footprint_invalid = waypoint0_sample->invalid;
     }
-    trace.validator_executed =
+    trace.validator_executed = run_exact_validation &&
       path.wpnts.size() >= static_cast<std::size_t>(parameters_.minimum_path_points);
     trace.hard_valid = evaluation.hard_valid;
     trace.minimum_normalized_safety_slack = evaluation.minimum_normalized_safety_slack;
@@ -1500,6 +2077,47 @@ private:
     trace.runtime_hard_validation_us = evaluation.runtime_hard_validation_us;
     trace.path = std::move(path);
     return trace;
+  }
+
+  void validateReconstructedCandidate(
+    const EgoFrenetState & ego,
+    const std::vector<f110_msgs::msg::Obstacle> & obstacles,
+    P3ShadowCandidateTrace & trace,
+    double & hard_validation_us) const
+  {
+    if (trace.validator_executed) {
+      return;
+    }
+    P3ShadowPathEvaluation evaluation;
+    if (trace.path.wpnts.size() >= static_cast<std::size_t>(parameters_.minimum_path_points)) {
+      const auto validation_start = Clock::now();
+      const std::optional<double> collision_horizon(
+        planner_.maneuverScopeEnd(
+          ego, obstacles, cycle_cluster_ids_, trace.knot_stations[3]));
+      evaluation = planner_.validateP3ShadowPath(
+        ego, trace.path, obstacles, 1.0, collision_horizon);
+      hard_validation_us += elapsedUs(validation_start);
+      trace.validator_executed = true;
+    } else {
+      evaluation.rejection_reason = "spline segment has too few global race-line samples";
+    }
+    trace.validation = evaluation;
+    trace.hard_valid = evaluation.hard_valid;
+    trace.minimum_normalized_safety_slack = evaluation.minimum_normalized_safety_slack;
+    trace.minimum_track_margin_m = evaluation.minimum_track_margin_m;
+    trace.minimum_obstacle_margin_m = evaluation.minimum_obstacle_margin_m;
+    trace.peak_curvature_radpm = evaluation.peak_curvature_radpm;
+    trace.minimum_curvature_margin_radpm = evaluation.minimum_curvature_margin_radpm;
+    trace.peak_curvature_rate_radpm2 = evaluation.peak_curvature_rate_radpm2;
+    trace.curvature_rate_margin_radpm2 =
+      parameters_.maximum_curvature_rate_radpm2 - trace.peak_curvature_rate_radpm2;
+    trace.velocity_loss = evaluation.velocity_loss;
+    trace.global_path_deviation_m = evaluation.global_path_deviation_m;
+    trace.ego_braking_distance_deficit_m = evaluation.ego_braking_distance_deficit_m;
+    trace.rejection_reason = evaluation.rejection_reason;
+    trace.all_observed_violation_flags = evaluation.all_observed_violation_flags;
+    trace.runtime_candidate_measurement_us = evaluation.runtime_candidate_measurement_us;
+    trace.runtime_hard_validation_us = evaluation.runtime_hard_validation_us;
   }
 
   // 클러스터를 지난 뒤(exit 램프 + merge 뒤 꼬리)에도 오프셋이 남아 다음 장애물의 물리
@@ -1551,6 +2169,29 @@ private:
     const P3ShadowCandidateTrace & first, const P3ShadowCandidateTrace & second)
   {
     return betterCandidateRank(rankKey(first), rankKey(second));
+  }
+
+  // The frozen offline method used this exact tuple without epsilon collapsing. It is isolated
+  // to the new R3 recovery stage; M0/M1 and the shared production comparator remain unchanged.
+  static bool betterR3FrozenRank(
+    const P3ShadowCandidateTrace & first, const P3ShadowCandidateTrace & second)
+  {
+    return std::make_tuple(
+      first.exit_reaches_next_obstacle,
+      first.ego_braking_distance_deficit_m > kCandidateRankEpsilon,
+      first.ego_braking_distance_deficit_m,
+      first.velocity_loss,
+      -first.minimum_normalized_safety_slack,
+      first.global_path_deviation_m,
+      first.generation_index) <
+           std::make_tuple(
+      second.exit_reaches_next_obstacle,
+      second.ego_braking_distance_deficit_m > kCandidateRankEpsilon,
+      second.ego_braking_distance_deficit_m,
+      second.velocity_loss,
+      -second.minimum_normalized_safety_slack,
+      second.global_path_deviation_m,
+      second.generation_index);
   }
 
   static CandidateRankKey rankKey(const P3ShadowCandidateTrace & trace)
@@ -2600,9 +3241,11 @@ P3ShadowResult RacelineSplinePlanner::evaluateP3ShadowUnguarded(
   const std::string & p0_failure_reason) const
 {
   const P3ShadowEvaluator evaluator(*this);
+  std::vector<P3R3K12ProductionCandidate> strict_production_factors;
   P3ShadowResult strict = evaluator.run(
     ego, obstacles, snapshot_source_stamp_ns, snapshot_epoch,
-    global_reference_generation, p0_failure_reason);
+    global_reference_generation, p0_failure_reason, false,
+    &strict_production_factors);
   if (activeResearchCycle() != nullptr) {
     captureP3ResearchEvaluation(*activeResearchCycle(), "STRICT", strict);
   }
@@ -2635,7 +3278,16 @@ P3ShadowResult RacelineSplinePlanner::evaluateP3ShadowUnguarded(
     relaxed.selected_source += "+RELAXED_CLEARANCE_GATE";
     return relaxed;
   }
-  return strict;
+  P3ShadowResult r3 = evaluator.runR3K12(
+    ego, obstacles, relaxed, strict_production_factors);
+  if (activeResearchCycle() != nullptr) {
+    captureP3ResearchEvaluation(*activeResearchCycle(), "R3_RECOVERY", r3);
+  }
+  if (r3.would_recover) {
+    return r3;
+  }
+  P3ShadowEvaluator::copyR3Audit(relaxed, r3);
+  return relaxed;
 }
 
 }  // namespace local_planning

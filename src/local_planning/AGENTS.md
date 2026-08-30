@@ -195,6 +195,19 @@ YAML/C++/하니스를 같이 맞추십시오. control의 `base_max_accel`/`prebr
   selected `target_d` sits well beyond the clearance minimum. Tests that pin margins must narrow
   the track so the valid window pins the plateau (see the margin tests in
   `test/test_raceline_spline.cpp`).
+- The frozen post-ladder recovery is `R3_LEXICOGRAPHIC_COVERAGE_RESERVE_K12`, method SHA-256
+  `7b861e8c7e23ae168413885ea0dc2d09769046ff48a562700b658e084d116fcc`. Invoke it only after
+  both strict and relaxed production ladders return no hard-valid candidate. A production success
+  must return before R3, with zero R3 reconstruction and validator calls. R3 reconstructs at most
+  12 existing P3-family paths: ten lexicographically ranked factor tuples plus two coverage-reserve
+  tuples. Preserve the frozen lateral-factor generation, transition order, Python-3.12-compatible
+  floating-point ordering, quotas, digest deduplication, and exact post-validation rank. A digest
+  duplicate consumes its selected-factor slot but not a validator call. Every unique reconstructed
+  path receives the existing exact validator once; never widen the validator or usable-path
+  contract. A recovered hard-valid result enters the existing downstream rank/lifecycle flow, and
+  total R3 construction and validation counts must each remain `<= 12`. If R3 also fails, preserve
+  the pre-R3 fallback/safe-stop result exactly. This is a frozen method, not a new parameter or a
+  tuning surface.
 - Reject a side before spline fitting when even its minimum-clearance target cannot fit the waypoint
   track widths across the expanded obstacle-cluster span. Use the remaining track-bound interval as
   the target sampling range; full sampled-path validation still applies before and after the span.

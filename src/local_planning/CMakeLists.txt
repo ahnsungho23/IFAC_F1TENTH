@@ -25,6 +25,7 @@ add_library(local_planner_core STATIC
   src/obstacle_guard.cpp
   src/path_digest.cpp
   src/p3_maneuver_lifecycle.cpp
+  src/p3_r3_k12.cpp
   src/p3_shadow.cpp
   src/raceline_spline_planner.cpp
   src/research_instrumentation.cpp
@@ -138,6 +139,11 @@ if(BUILD_TESTING)
     target_link_libraries(test_research_instrumentation local_planner_core)
   endif()
 
+  ament_add_gtest(test_p3_r3_k12 test/test_p3_r3_k12.cpp)
+  if(TARGET test_p3_r3_k12)
+    target_link_libraries(test_p3_r3_k12 local_planner_core)
+  endif()
+
   ament_add_gtest(test_maneuver_memory test/test_maneuver_memory.cpp)
   if(TARGET test_maneuver_memory)
     target_link_libraries(test_maneuver_memory local_planner_core)
@@ -182,9 +188,18 @@ if(BUILD_TESTING)
       target_include_directories(test_p3_production_parity PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/test")
   endif()
 
+  add_executable(
+    p3_r3_k12_integration_harness
+    test/p3_r3_k12_integration_harness.cpp)
+  ament_target_dependencies(p3_r3_k12_integration_harness f110_msgs)
+  target_link_libraries(p3_r3_k12_integration_harness local_planner_core)
+
   # 대회 규정 기반 속성 테스트. 재생 안전망과 같은 시나리오 스트림에서 기준선·파라미터만
   # 빌려 쓰고, 장애물 배치는 규정으로부터 생성한다.
-  ament_add_gtest(test_rule_property test/test_rule_property.cpp)
+  # R3 runs only after the full production ladder fails.  The deterministic rule-property
+  # corpus deliberately exercises many such failures, so keep its existing sample count and
+  # give the exact K=12 reconstruction/validation work enough wall time in non-optimized CI.
+  ament_add_gtest(test_rule_property test/test_rule_property.cpp TIMEOUT 900)
   if(TARGET test_rule_property)
     ament_target_dependencies(test_rule_property f110_msgs)
     target_link_libraries(test_rule_property local_planner_core)

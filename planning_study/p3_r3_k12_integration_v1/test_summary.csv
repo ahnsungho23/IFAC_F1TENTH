@@ -1,0 +1,13 @@
+test_or_check,scope,status,result,notes
+release_direct_cmake_build,local_planning,PASS,all_targets_built,isolated build directory under /tmp
+release_ctest_non_property,local_planning,PASS,24/24,"all tests except long property and two documented pre-existing contract mismatches"
+test_rule_property,local_planning,PASS,1/1 in 490.90 s,"existing full sample count; TIMEOUT raised to 900 s only"
+offline_vs_integrated_parity,seen snapshots,PASS,86/86,"PILOT_SEEN_DEVELOPMENT_DATA + DEVELOPMENT + VALIDATION_SEEN_AFTER_V1"
+downstream_plan_selection_parity,seen snapshots,PASS,40/40,"re-measured and revalidated selected path digest matches every frozen hard recovery"
+instrumentation_off_on_parity,seen snapshots,PASS,86/86,result columns exact after excluding runtime measurement
+production_success_noninterference,success controls,PASS,18/18,"selected result/path digest and production candidate sequence exact; R3 calls zero"
+params_match_yaml,pre-existing contract,PRE_EXISTING_FAILURE,1 mismatch,safety_margin_m stuck_case_harness 0.05 vs operational YAML 0.08
+control_contract_match,pre-existing contract,PRE_EXISTING_FAILURE,1 mismatch,control_max_steering_right_rad local YAML 0.361 vs control 0.41
+isolated_colcon_install,package infrastructure,PRE_EXISTING_FAILURE,compile completed then install failed,"HEAD CMake installs missing src/local_planning/scripts/check_tracking_lut.py"
+full_closed_loop_benchmark,out_of_scope,NOT_RUN,0 runs,explicitly prohibited in integration task
+final_holdout_content,out_of_scope,NOT_ACCESSED,0 event files read,not used for parity or tuning

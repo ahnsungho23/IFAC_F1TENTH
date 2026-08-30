@@ -146,6 +146,12 @@ struct P3ShadowCandidateTrace
   std::string source_cell;
   std::string component_id;
   std::string source_branch_regime;
+  // Frozen R3-K12 direct-factor provenance. Empty/default for the production M0/M1 ladder.
+  std::string r3_rank_stream;
+  std::string r3_target_source;
+  std::string r3_mid_source;
+  std::size_t r3_lateral_factor_index{0U};
+  std::size_t r3_transition_index{0U};
   std::string candidate_identity;
   std::string logical_identity;
   std::string path_digest;
@@ -191,6 +197,36 @@ struct P3ShadowCandidateTrace
   f110_msgs::msg::WpntArray path;
 };
 
+struct P3R3SelectedFactorTrace
+{
+  std::string rank_stream;
+  std::size_t stream_rank{0U};
+  bool go_left{false};
+  double d_target{std::numeric_limits<double>::quiet_NaN()};
+  double d_mid{std::numeric_limits<double>::quiet_NaN()};
+  double entry_scale{std::numeric_limits<double>::quiet_NaN()};
+  double exit_scale{std::numeric_limits<double>::quiet_NaN()};
+  std::string target_source;
+  std::string mid_source;
+  std::size_t lateral_factor_index{0U};
+  std::size_t transition_index{0U};
+  bool exit_conflict_proxy{false};
+  double maximum_corridor_violation_m{std::numeric_limits<double>::quiet_NaN()};
+  double sum_corridor_violation_m{std::numeric_limits<double>::quiet_NaN()};
+  double slope_excess{std::numeric_limits<double>::quiet_NaN()};
+  double curvature_proxy{std::numeric_limits<double>::quiet_NaN()};
+  double center_error{std::numeric_limits<double>::quiet_NaN()};
+  double minimum_clearance_m{std::numeric_limits<double>::quiet_NaN()};
+  double shape_energy{std::numeric_limits<double>::quiet_NaN()};
+  bool constructed{false};
+  bool path_digest_duplicate{false};
+  bool validator_executed{false};
+  bool hard_valid{false};
+  bool usable_valid{false};
+  std::string path_digest;
+  std::string candidate_identity;
+};
+
 struct P3ShadowResult
 {
   bool enabled{false};
@@ -209,6 +245,25 @@ struct P3ShadowResult
   std::size_t candidate_count{0U};
   std::size_t hard_validator_call_count{0U};
   std::size_t hard_valid_count{0U};
+
+  bool r3_invoked{false};
+  std::string r3_method_name{"NONE"};
+  std::string r3_method_sha256{"NONE"};
+  std::size_t r3_lateral_factor_count{0U};
+  std::size_t r3_pair_priority_count{0U};
+  std::size_t r3_lexicographic_factor_count{0U};
+  std::size_t r3_coverage_factor_count{0U};
+  std::size_t r3_constructed_candidate_count{0U};
+  std::size_t r3_path_digest_duplicate_count{0U};
+  std::size_t r3_validator_call_count{0U};
+  std::size_t r3_hard_valid_count{0U};
+  std::size_t r3_usable_valid_count{0U};
+  double r3_runtime_factor_generation_us{0.0};
+  double r3_runtime_reconstruction_us{0.0};
+  double r3_runtime_validation_us{0.0};
+  double r3_runtime_total_us{0.0};
+  std::string r3_fallback_after_failure{"NOT_INVOKED"};
+  std::vector<P3R3SelectedFactorTrace> r3_selected_factors;
 
   std::size_t m0_candidate_count{0U};
   std::size_t m0_validator_call_count{0U};

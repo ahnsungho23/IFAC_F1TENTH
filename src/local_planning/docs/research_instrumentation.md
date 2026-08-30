@@ -70,6 +70,7 @@ P3의 failure classification이나 선택 입력으로 사용되지 않습니다
 | source lineage | `source_stamp_ns`, `obstacle_sequence`, `source_epoch`, `reference_generation` |
 | exact evaluator state | `ego.s/d/speed_mps`, obstacle의 `id/s_start/s_end/s_center/d_right/d_left/d_center/is_static/is_visible` |
 | outcome | `invoked`, `selected`, `failure_classification`, constructed/validator/hard-valid/returned count |
+| R3 recovery | `r3.invoked`, method name/SHA, lateral/pair-priority count, lexicographic/coverage/constructed/digest-duplicate/validator/hard-valid/usable-valid count, fallback, phase/total runtime, exact selected-factor lineage |
 | candidate ownership | `candidate_path_digests`, `generator_stages`, `templates` |
 
 snapshot ID는 instrumentation이 ON일 때만 계산하는 64-bit FNV-1a raw-field digest입니다.
@@ -86,8 +87,8 @@ ID 일치는 같은 evaluator 입력임을 확인하는 용도이며, bag 밖에
 | header/provenance join | `schema_version`, `event_type`, `run_id`, `scenario_id`, `callback_sequence`, `ros_time_ns`, `obstacle_source_stamp_ns`, `obstacle_sequence`, `source_epoch`, `reference_generation`, `git_commit`, `source_sha256`, `config_sha256`, `effective_parameter_snapshot_id` |
 | ego | `ego.x`, `ego.y`, `ego.yaw`, `ego.pose_source`, `ego.s`, `ego.d`, `ego.speed_mps` |
 | lifecycle | `p3_mode`, `lifecycle_state`, `lifecycle_owner`, `continuation_result`, `invalidation_reason`, `selected_side`, `selected_candidate_identity`, `selected_path_digest`, `fallback_reason`, `active`, `continued`, `fresh`, `backup`, `safe_stop`, `global_handoff` |
-| callback-global counters | `strict_attempted`, `relaxed_attempted`, `m0_v1_constructed_right`, `m0_v1_constructed_left`, `discarded_side_candidate_count`, `m0_v2_constructed`, `m1_constructed`, `constructed_total_actual`, `validate_candidate_executed_total_actual`, `hard_valid_total_actual`, `returned_candidate_count`, `lifecycle_revalidation_count`, `safe_stop_escape_evaluator_count` |
-| runtime µs | `callback_total`, `planning_total`, `corridor_extraction`, `probe_anchor_selection`, `analytic_root_solve`, `spline_reconstruction`, `geometry_recomputation`, `velocity_shaping`, `candidate_measurement`, `hard_validation`, `ranking`, `lifecycle_revalidation` |
+| callback-global counters | `strict_attempted`, `relaxed_attempted`, `m0_v1_constructed_right`, `m0_v1_constructed_left`, `discarded_side_candidate_count`, `m0_v2_constructed`, `m1_constructed`, `constructed_total_actual`, `validate_candidate_executed_total_actual`, `hard_valid_total_actual`, `returned_candidate_count`, `lifecycle_revalidation_count`, `safe_stop_escape_evaluator_count`, R3 invocation/constructed/digest-duplicate/validator/hard-valid/usable-valid count |
+| runtime µs | `callback_total`, `planning_total`, `corridor_extraction`, `probe_anchor_selection`, `analytic_root_solve`, `spline_reconstruction`, `geometry_recomputation`, `velocity_shaping`, `candidate_measurement`, `hard_validation`, `ranking`, `lifecycle_revalidation`, `r3_total` |
 | logging | `evaluation_count`, `dropped_log_count` |
 
 local planner는 Cartesian localization topic을 직접 받지 않습니다. 따라서 `ego.x/y`는 recorded
@@ -115,6 +116,7 @@ attempt boolean의 합입니다.
 |---|---|
 | join | `schema_version`, `event_type`, `run_id`, `scenario_id`, `callback_sequence`, `evaluation_sequence`, `evaluation_role`, `clearance_pass`, 네 snapshot ID, source lineage |
 | identity | `generator_stage`, `template`, `side`, `generation_order`, `candidate_identity`, `logical_identity`, `path_digest`, `component`, `mapping_source`, `source_cell`, `analytic_branch_regime`, `returned_by_policy`, `discarded_side` |
+| R3 factor lineage | `r3.rank_stream`, `target_source`, `mid_source`, `lateral_factor_index`, `transition_index` |
 | P3 geometry | `d_target`, `s_probe`, `d_probe`, `d_mid`, `root_index`, `root_type`, `probe_location_rule`, `probe_anchor_rule`, `entry_scale`, `exit_scale`, `z0..z4`, `point_count`, `waypoint0.*` |
 | validation | `validator_executed`, `validation_authority`, `hard_valid`, `first_failure_enum`, `first_failure_name`, `first_failure_reason`, `failure_waypoint_index`, `failure_obstacle_id`, `all_observed_violation_flags` |
 | margin/peak | `center_track_m`, `footprint_track_m`, `obstacle_m`, `peak_lateral_slope`, `lateral_slope_margin`, `peak_positive_curvature_radpm`, `peak_negative_curvature_radpm`, `signed_curvature_margin_radpm`, `peak_curvature_rate_radpm2`, `curvature_rate_margin_radpm2` |
@@ -131,6 +133,15 @@ side를 `discarded_side=true`, `returned_by_policy=false`로 남깁니다. M0-V2
 후보를 남깁니다. M1 analytic candidate는 버리던 `Probe*`에서 `s_probe`, `d_probe`, 두 rule과
 source root index/type을 복사합니다. `ZERO_INTERFACE`처럼 probe가 없는 closure는 의도적으로
 `s_probe/d_probe=null`입니다. 이 복사는 생성 뒤 research 구조에만 이루어집니다.
+
+R3 evaluation은 `clearance_pass=R3_RECOVERY`로 별도 기록됩니다. production strict/relaxed가
+성공하면 `r3.invoked=false`이고 R3 구성/validator count는 0입니다. production failure 뒤 R3가
+실행되면 method SHA, 10+2 stream별 선택 수, construction guard 결과, digest 중복, exact validator
+호출 수, hard/usable-valid 수, fallback과 phase runtime을 기록합니다. `selected_factors`와 R3
+candidate event의 factor index/source를 함께 사용하면 동결 selector의 factor → reconstructed path
+→ exact verdict lineage를 복원할 수 있습니다. 이 필드는 기존
+`research_instrumentation_enable=false` gate 안에만 있으므로 기본 OFF 동작에는 logger나 JSON
+직렬화 비용이 추가되지 않습니다.
 
 production verdict는 기존 `validateCandidate()`의 첫 failure와 early-return 순서 그대로입니다.
 전체 위반 audit를 켜면 그 verdict를 얻은 뒤 별도 pass가 동일 path/visible obstacle을 읽어

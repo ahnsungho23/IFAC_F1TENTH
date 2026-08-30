@@ -69,12 +69,44 @@ TEST(ResearchInstrumentation, WritesVersionedPlanningAndCandidateEventsAndFlushe
     evaluation.lineage.obstacle_sequence = 9U;
     evaluation.lineage.source_epoch = 2U;
     evaluation.lineage.reference_generation = 5U;
+    evaluation.r3_invoked = true;
+    evaluation.r3_method_name = "R3_LEXICOGRAPHIC_COVERAGE_RESERVE_K12";
+    evaluation.r3_method_sha256 =
+      "7b861e8c7e23ae168413885ea0dc2d09769046ff48a562700b658e084d116fcc";
+    evaluation.r3_lateral_factor_count = 42U;
+    evaluation.r3_pair_priority_count = 84U;
+    evaluation.r3_lexicographic_factor_count = 10U;
+    evaluation.r3_coverage_factor_count = 2U;
+    evaluation.r3_constructed_candidate_count = 12U;
+    evaluation.r3_path_digest_duplicate_count = 1U;
+    evaluation.r3_validator_call_count = 11U;
+    evaluation.r3_hard_valid_count = 3U;
+    evaluation.r3_usable_valid_count = 2U;
+    evaluation.r3_fallback_after_failure = "NONE";
+    P3R3SelectedFactorTrace selected_factor;
+    selected_factor.rank_stream = "LEXICOGRAPHIC";
+    selected_factor.stream_rank = 4U;
+    selected_factor.path_digest = "r3_digest";
+    selected_factor.validator_executed = true;
+    selected_factor.hard_valid = true;
+    selected_factor.usable_valid = true;
+    evaluation.r3_selected_factors.push_back(selected_factor);
+    cycle.r3_invocation_count = 1U;
+    cycle.r3_constructed_candidate_count = 12U;
+    cycle.r3_path_digest_duplicate_count = 1U;
+    cycle.r3_validator_call_count = 11U;
+    cycle.r3_hard_valid_count = 3U;
+    cycle.r3_usable_valid_count = 2U;
     P3ResearchCandidateRecord candidate;
     candidate.generator_stage = "M1";
     candidate.candidate_identity = "M1_TEST";
     candidate.s_probe = 4.0;
     candidate.d_probe = -0.25;
     candidate.root_index = 1;
+    candidate.r3_rank_stream = "LEXICOGRAPHIC";
+    candidate.r3_target_source = "PRODUCTION_TARGET";
+    candidate.r3_mid_source = "TARGET_PLUS_0.05M";
+    candidate.usable_valid = true;
     candidate.waypoint0_footprint_track_margin_m = 0.125;
     evaluation.candidates.push_back(candidate);
     cycle.evaluations.push_back(evaluation);
@@ -95,17 +127,29 @@ TEST(ResearchInstrumentation, WritesVersionedPlanningAndCandidateEventsAndFlushe
   EXPECT_NE(planning.find("\"effective_parameter_snapshot_id\":\"parameters\""),
     std::string::npos);
   EXPECT_NE(planning.find("\"dropped_log_count\":0"), std::string::npos);
+  EXPECT_NE(planning.find("\"r3_invocation_count\":1"), std::string::npos);
+  EXPECT_NE(planning.find("\"r3_validator_call_count\":11"), std::string::npos);
   EXPECT_NE(evaluations.find("\"event_type\":\"EVALUATION_EVENT\""), std::string::npos);
   EXPECT_NE(evaluations.find("\"evaluation_sequence\":3"), std::string::npos);
   EXPECT_NE(evaluations.find("\"evaluation_role\":\"TEST_ROLE\""), std::string::npos);
   EXPECT_NE(evaluations.find("\"input_snapshot_id\":\"input_test\""), std::string::npos);
   EXPECT_NE(evaluations.find("\"source_stamp_ns\":1234"), std::string::npos);
+  EXPECT_NE(evaluations.find("\"method_name\":\"R3_LEXICOGRAPHIC_COVERAGE_RESERVE_K12\""),
+    std::string::npos);
+  EXPECT_NE(evaluations.find(
+        "\"method_sha256\":\"7b861e8c7e23ae168413885ea0dc2d09769046ff48a562700b658e084d116fcc\""),
+    std::string::npos);
+  EXPECT_NE(evaluations.find("\"constructed_candidate_count\":12"), std::string::npos);
+  EXPECT_NE(evaluations.find("\"validator_call_count\":11"), std::string::npos);
+  EXPECT_NE(evaluations.find("\"rank_stream\":\"LEXICOGRAPHIC\""), std::string::npos);
   EXPECT_NE(candidates.find("\"generator_stage\":\"M1\""), std::string::npos);
   EXPECT_NE(candidates.find("\"evaluation_sequence\":3"), std::string::npos);
   EXPECT_NE(candidates.find("\"reference_snapshot_id\":\"ref_test\""), std::string::npos);
   EXPECT_NE(candidates.find("\"s_probe\":4"), std::string::npos);
   EXPECT_NE(candidates.find("\"d_probe\":-0.25"), std::string::npos);
   EXPECT_NE(candidates.find("\"root_index\":1"), std::string::npos);
+  EXPECT_NE(candidates.find("\"usable_valid\":true"), std::string::npos);
+  EXPECT_NE(candidates.find("\"target_source\":\"PRODUCTION_TARGET\""), std::string::npos);
   EXPECT_NE(candidates.find("\"footprint_track_margin_m\":0.125"), std::string::npos);
   EXPECT_NE(summary.find("\"clean_shutdown\":true"), std::string::npos);
   EXPECT_NE(summary.find("\"written_cycle_count\":1"), std::string::npos);

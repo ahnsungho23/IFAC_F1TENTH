@@ -1537,6 +1537,26 @@ P3 후보는 발행 전 P0 시절과 동일한 안전 계층으로 재측정(`me
 안에서 safety-slack 최대 지점을 고른다. 넓은 트랙에서는 선택된 `target_d`가 최소 clearance
 보다 훨씬 클 수 있다(성능·안전 트레이드오프는 순위 규칙이 동일하므로 변화 없음).
 
+### Frozen R3-K12 post-ladder recovery (2026-08-31)
+
+strict와 relaxed production ladder가 모두 hard-valid 후보를 찾지 못한 경우에만 동결된
+`R3_LEXICOGRAPHIC_COVERAGE_RESERVE_K12`를 한 번 실행한다. 동결 method SHA-256은
+`7b861e8c7e23ae168413885ea0dc2d09769046ff48a562700b658e084d116fcc`이다. production이 성공하면
+R3는 호출되지 않으며 R3 경로 구성과 validator 호출은 모두 0이다.
+
+R3는 새 경로군을 만들지 않는다. 같은 5-knot P3 family 안에서 production이 만든 lateral
+factor와 동결 transition factor를 조합하고, geometry-conditioned lexicographic stream 10개와
+coverage-reserve stream 2개를 순서대로 선택한다. 선택된 factor slot은 최대 12개이며 construction
+guard를 통과한 경로만 구성된다. 같은 path digest가 다시 나오면 그 slot은 소비하지만 exact
+validator는 재호출하지 않는다. 따라서 한 evaluator의 R3 reconstructed candidate와 exact
+validator 호출은 각각 최대 12회이다.
+
+각 unique 경로는 기존 `validateCandidate()`를 정확히 한 번 통과한다. hard-valid 후보의 최종
+순서는 동결된 7-key rank tuple의 exact lexicographic 비교로 정하고, 이후에는 기존 candidate
+선택·lifecycle·publication 흐름으로 넘긴다. R3도 실패하면 R3 진입 전 production failure가 택한
+fallback/safe-stop 의미를 그대로 유지한다. 차량 치수, corridor, clearance, validator, usable-path
+계약, speed shaping, lifecycle parameter는 이 통합에서 바뀌지 않았다.
+
 ### P3 콜백 비용 정리 (2026-08-15)
 
 세 가지가 함께 정리됐다. 셋 다 **안전 로직은 건드리지 않는다** — 검증 항목, 마진, 임계값,

@@ -79,6 +79,11 @@ struct P3ResearchCandidateRecord
   std::string mapping_source;
   std::string source_cell;
   std::string analytic_branch_regime;
+  std::string r3_rank_stream;
+  std::string r3_target_source;
+  std::string r3_mid_source;
+  std::size_t r3_lateral_factor_index{0U};
+  std::size_t r3_transition_index{0U};
   bool returned_by_policy{false};
   bool discarded_side{false};
 
@@ -111,6 +116,7 @@ struct P3ResearchCandidateRecord
   bool validator_executed{false};
   std::string validation_authority{"GUARD"};
   bool hard_valid{false};
+  bool usable_valid{false};
   int first_failure_enum{0};
   std::string first_failure_reason;
   std::int64_t failure_waypoint_index{-1};
@@ -165,6 +171,24 @@ struct P3ResearchEvaluationRecord
   std::size_t validate_candidate_executed_total_actual{0U};
   std::size_t hard_valid_total_actual{0U};
   std::size_t returned_candidate_count{0U};
+  bool r3_invoked{false};
+  std::string r3_method_name{"NONE"};
+  std::string r3_method_sha256{"NONE"};
+  std::size_t r3_lateral_factor_count{0U};
+  std::size_t r3_pair_priority_count{0U};
+  std::size_t r3_lexicographic_factor_count{0U};
+  std::size_t r3_coverage_factor_count{0U};
+  std::size_t r3_constructed_candidate_count{0U};
+  std::size_t r3_path_digest_duplicate_count{0U};
+  std::size_t r3_validator_call_count{0U};
+  std::size_t r3_hard_valid_count{0U};
+  std::size_t r3_usable_valid_count{0U};
+  std::string r3_fallback_after_failure{"NOT_INVOKED"};
+  double r3_runtime_factor_generation_us{0.0};
+  double r3_runtime_reconstruction_us{0.0};
+  double r3_runtime_validation_us{0.0};
+  double r3_runtime_total_us{0.0};
+  std::vector<P3R3SelectedFactorTrace> r3_selected_factors;
   double runtime_total_us{0.0};
   double runtime_corridor_us{0.0};
   double runtime_probe_anchor_us{0.0};
@@ -234,6 +258,12 @@ struct PlanningResearchCycle
   std::size_t returned_candidate_count{0U};
   std::size_t lifecycle_revalidation_count{0U};
   std::size_t safe_stop_escape_evaluator_count{0U};
+  std::size_t r3_invocation_count{0U};
+  std::size_t r3_constructed_candidate_count{0U};
+  std::size_t r3_path_digest_duplicate_count{0U};
+  std::size_t r3_validator_call_count{0U};
+  std::size_t r3_hard_valid_count{0U};
+  std::size_t r3_usable_valid_count{0U};
 
   double runtime_callback_total_us{0.0};
   double runtime_planning_total_us{0.0};
@@ -247,6 +277,7 @@ struct PlanningResearchCycle
   double runtime_hard_validation_us{0.0};
   double runtime_ranking_us{0.0};
   double runtime_lifecycle_revalidation_us{0.0};
+  double runtime_r3_total_us{0.0};
 
   std::vector<P3ResearchEvaluationRecord> evaluations;
 };
