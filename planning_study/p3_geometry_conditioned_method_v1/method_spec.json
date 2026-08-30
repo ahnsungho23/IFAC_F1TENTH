@@ -1,0 +1,222 @@
+{
+  "schema": "p3_geometry_conditioned_method_v1",
+  "status": "DEVELOPMENT_FROZEN_BEFORE_VALIDATION_UNSEEN",
+  "data_contract": {
+    "design_roles": [
+      "PILOT_SEEN_DEVELOPMENT_DATA",
+      "DEVELOPMENT"
+    ],
+    "online_oracle_features": 0,
+    "validation_unseen_inspected": false,
+    "final_holdout_unseen_inspected": false,
+    "dataset_split_modified": false
+  },
+  "unchanged_authorities": [
+    "P3_SPLINE_FAMILY",
+    "P3_RECONSTRUCTION",
+    "HARD_VALIDATOR",
+    "RANKER",
+    "LIFECYCLE",
+    "VEHICLE_PARAMETERS",
+    "COLLISION_MODEL",
+    "SPEED_SHAPING",
+    "PRODUCTION_YAML"
+  ],
+  "lateral_factor": {
+    "definition": [
+      "side",
+      "d_target",
+      "d_mid",
+      "target_generation_source",
+      "middle_generation_source"
+    ],
+    "production_values": [
+      "all unique production (side,d_target,d_mid) lateral tuples",
+      "all unique production d_target values"
+    ],
+    "corridor_target_anchors_per_connected_component": {
+      "near_inset": "near + (far-near)/64",
+      "quarter": "near + 0.25*(far-near)",
+      "center": "0.5*(near+far)",
+      "three_quarter": "near + 0.75*(far-near)",
+      "near_far_order": "ascending (abs(value),value)",
+      "side_domain": {
+        "LEFT": [
+          0.0,
+          1.5
+        ],
+        "RIGHT": [
+          -1.5,
+          0.0
+        ]
+      },
+      "maximum_connected_components": 2
+    },
+    "d_mid_recipes_for_each_target": {
+      "MID_EQUALS_TARGET": "d_mid=d_target",
+      "BOTTLENECK_CENTER": "d_mid=corridor_bottleneck_center",
+      "TARGET_CENTER_HALF": "d_mid=0.5*(d_target+corridor_bottleneck_center)",
+      "REFERENCE_INWARD_25PCT": "d_mid=0.75*d_target",
+      "REFERENCE_INWARD_50PCT": "d_mid=0.5*d_target"
+    },
+    "clamp_m": [
+      -1.5,
+      1.5
+    ],
+    "priority": {
+      "exact_production_lateral_tuple": 0.0,
+      "derived_formula": "1 + target_priority + middle_priority",
+      "target_priority": {
+        "PRODUCTION_TARGET": 0.0,
+        "COMPONENT_NEAR_INSET": 1.0,
+        "COMPONENT_QUARTER": 2.0,
+        "COMPONENT_CENTER": 3.0,
+        "COMPONENT_THREE_QUARTER": 4.0
+      },
+      "middle_priority": {
+        "MID_EQUALS_TARGET": 0.0,
+        "BOTTLENECK_CENTER": 1.0,
+        "TARGET_CENTER_HALF": 2.0,
+        "REFERENCE_INWARD_25PCT": 3.0,
+        "REFERENCE_INWARD_50PCT": 4.0
+      }
+    }
+  },
+  "transition_factor": {
+    "definition": [
+      "entry_scale",
+      "exit_scale",
+      "same_event_production_transition_provenance"
+    ],
+    "pool": "all unique (entry_scale,exit_scale) pairs already generated in the same production evaluation",
+    "normalization": "(value-min)/(max-min), or 0 when the event has one value",
+    "fixed_archetypes_in_order": [
+      [
+        0.0,
+        0.0
+      ],
+      [
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        1.0
+      ],
+      [
+        1.0,
+        1.0
+      ],
+      [
+        0.5,
+        0.5
+      ]
+    ],
+    "fixed_priority": "min(archetype_index + euclidean_distance_to_archetype)"
+  },
+  "preplanning_features": [
+    "ego_d_m",
+    "ego_speed_mps",
+    "obstacle_start_distance_m",
+    "available_entry_distance_m",
+    "obstacle_longitudinal_span_m",
+    "inflated_obstacle_d_right_m",
+    "inflated_obstacle_d_left_m",
+    "chosen_side_free_lower_m",
+    "chosen_side_free_upper_m",
+    "chosen_side_free_width_m",
+    "corridor_bottleneck_lower_m",
+    "corridor_bottleneck_upper_m",
+    "corridor_bottleneck_width_m",
+    "corridor_bottleneck_center_m",
+    "corridor_bottleneck_station_m",
+    "available_merge_exit_distance_m",
+    "reference_curvature_entry_radpm",
+    "reference_curvature_obstacle_radpm",
+    "reference_curvature_exit_radpm",
+    "maximum_abs_reference_curvature_radpm",
+    "curvature_sign_change",
+    "track_width_variation_m"
+  ],
+  "geometry_transition_target": {
+    "desired_entry_normalized": "1 if available_entry_distance<0.25 or max_abs_curvature>0.5 or obstacle_start_distance>2.0, otherwise 0",
+    "desired_exit_normalized": "0 if available_merge_exit_distance<2.0, otherwise 1 if curvature_sign_change or track_width_variation>0.6, otherwise 0",
+    "transition_error": "abs(entry_normalized-desired_entry)+abs(exit_normalized-desired_exit)",
+    "threshold_units": {
+      "entry_distance": "m",
+      "curvature": "rad/m",
+      "far_obstacle_distance": "m",
+      "merge_distance": "m",
+      "track_width_variation": "m"
+    }
+  },
+  "geometry_lateral_target": {
+    "narrow_corridor": "bottleneck_width<0.25 m",
+    "far_obstacle": "obstacle_start_distance>2.0 m",
+    "desired_when_far": "d_target=d_mid=component_three_quarter",
+    "desired_target_otherwise": "bottleneck_center when narrow, otherwise component_near_inset",
+    "desired_mid_otherwise": "bottleneck_center when obstacle_span>=0.12 m or narrow, otherwise candidate d_target",
+    "normalizer": "max(0.1,bottleneck_width)",
+    "lateral_error": "abs(candidate_d_target-desired_d_target)/normalizer + abs(candidate_d_mid-desired_d_mid)/normalizer"
+  },
+  "candidate_pool": {
+    "formula": "unique lateral factors cross unique same-event production transition factors",
+    "exclude": "exact full tuples already executed by production",
+    "new_spline_family": false
+  },
+  "selectors": {
+    "H3_FIXED_BOUNDED": {
+      "conditioned_on_geometry": false,
+      "score_tuple": [
+        "lateral_priority+fixed_transition_priority",
+        "max(lateral_priority,fixed_transition_priority)",
+        "lateral_priority",
+        "fixed_transition_priority",
+        "RIGHT_before_LEFT",
+        "lexical_full_tuple"
+      ]
+    },
+    "H4A_GEOMETRY_TRANSITION": {
+      "conditioned_factors": [
+        "transition"
+      ],
+      "score_tuple": [
+        "geometry_transition_error+0.20*lateral_priority",
+        "geometry_transition_error",
+        "lateral_priority",
+        "RIGHT_before_LEFT",
+        "lexical_full_tuple"
+      ]
+    },
+    "H4B_GEOMETRY_LATERAL_TRANSITION": {
+      "conditioned_factors": [
+        "lateral",
+        "transition"
+      ],
+      "score_tuple": [
+        "geometry_lateral_error+1.5*geometry_transition_error+0.05*lateral_priority",
+        "geometry_lateral_error",
+        "geometry_transition_error",
+        "RIGHT_before_LEFT",
+        "lexical_full_tuple"
+      ]
+    }
+  },
+  "candidate_budgets_evaluated": [
+    4,
+    8,
+    12,
+    16,
+    24
+  ],
+  "execution_contract": {
+    "sort": "ascending lexicographic score tuple",
+    "take": "first K unique exact tuples",
+    "path_deduplication": "after exact P3 reconstruction and path digest, retain first digest before exact validator",
+    "validator": "unchanged exact production validator",
+    "ranking": "unchanged production ranker",
+    "fallback": "run production first; invoke proposed stage only when production has zero hard-valid candidates; if proposed stage also has zero, retain unchanged production fallback/lifecycle authority",
+    "success_behavior": "when production has a hard-valid candidate, do not invoke proposed stage and do not change the selected path"
+  },
+  "audit_harness_limitation": "the detached audit harness validates during reconstruction; CSVs separately retain raw harness executions and the unique-digest validator count required by the frozen method"
+}

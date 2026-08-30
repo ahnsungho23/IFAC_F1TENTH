@@ -1,0 +1,105 @@
+{
+  "schema_version": "P3_GEOMETRY_FACTOR_RANKING_SELECTED_V2_1",
+  "decision": "GO_FOR_FINAL_HOLDOUT_EVALUATION_BUT_HOLDOUT_NOT_RUN",
+  "method_name": "R3_LEXICOGRAPHIC_COVERAGE_RESERVE_K12",
+  "activation": {
+    "production_hard_valid_exists": "return production result and do not invoke v2",
+    "production_hard_valid_absent": "invoke bounded v2 recovery stage",
+    "fallback_after_v2_failure": "unchanged production lifecycle/fallback authority"
+  },
+  "factor_space_authority": "factor_space_spec.json",
+  "budget": {
+    "k_fully_reconstructed_candidates": 12,
+    "construction_guard_rejects": "do not consume K; continue best-first",
+    "path_digest_duplicates": "consume K after reconstruction but are not sent to the logical exact validator",
+    "logical_exact_validator_calls_max": 12
+  },
+  "rank_streams": {
+    "lexicographic": {
+      "order": [
+        "exit_conflict_proxy",
+        "max_corridor_violation_m > 1e-9",
+        "max_corridor_violation_m",
+        "slope_excess > 1e-9",
+        "slope_excess",
+        "sum_corridor_violation_m",
+        "curvature_proxy",
+        "center_error",
+        "negative_minimum_clearance_m",
+        "shape_energy",
+        "stable_tie"
+      ]
+    },
+    "coverage": {
+      "base_score": "40*max_corridor_violation + 2*sum_corridor_violation + 8*slope_excess + 0.12*curvature_proxy + 0.25*center_error + 2*max(0,0.02-minimum_clearance) + 0.02*shape_energy + 0.002*source_priority",
+      "greedy_priority_after_first": "base_score - 2.0*min(1.0,min_distance_to_selected)",
+      "distance": "0.5*side_mismatch + abs(dt-dt_selected)/1.5 + abs(dm-dm_selected)/3.0 + 0.20*abs(entry_norm-entry_norm_selected) + 0.20*abs(exit_norm-exit_norm_selected)"
+    }
+  },
+  "quota_schedule_for_general_k": [
+    "lexicographic constructed ranks 1..10",
+    "coverage constructed ranks 1..2",
+    "lexicographic constructed ranks 11..18",
+    "coverage constructed ranks 3..6",
+    "remaining lexicographic",
+    "remaining coverage"
+  ],
+  "selected_k12_composition": "first 10 fully reconstructed lexicographic candidates followed by first 2 fully reconstructed coverage candidates",
+  "stable_tie_break": [
+    "source_priority",
+    "lateral_factor_index",
+    "transition_index",
+    "RIGHT before LEFT",
+    "exact configuration key lexical"
+  ],
+  "deduplication": {
+    "factor_tuple": "exact binary64 identity",
+    "preconstruction_shape": "exact side,d_target,d_mid,z0..z4 identity",
+    "post_reconstruction_path": "first path_digest only reaches logical exact validator"
+  },
+  "usable_valid_predicate": "hard_valid && !exit_reaches_next_obstacle && braking_deficit_m <= 1e-9",
+  "seen_results": {
+    "development": {
+      "hard": "17/23",
+      "usable": "14/17"
+    },
+    "validation_seen_after_v1": {
+      "hard": "19/25",
+      "usable": "18/19"
+    },
+    "combined_seen": {
+      "hard": "36/48",
+      "usable": "32/36"
+    },
+    "pilot_seen_auxiliary": {
+      "hard": "4/5",
+      "usable": "4/5"
+    }
+  },
+  "combined_seen_k12_compute": {
+    "episodes": 77,
+    "fully_reconstructed_candidates_total": 924,
+    "fully_reconstructed_candidates_per_episode": 12,
+    "unique_path_digests_total": 852,
+    "logical_exact_validator_calls_total": 852,
+    "logical_exact_validator_calls_max_per_episode": 12
+  },
+  "success_control": {
+    "count": 18,
+    "v2_invocation_count": 0,
+    "selected_path_change_count": 0,
+    "additional_reconstruction_or_validator_count": 0
+  },
+  "dataset_status": {
+    "design_data": [
+      "PILOT_SEEN_DEVELOPMENT_DATA",
+      "DEVELOPMENT",
+      "VALIDATION_SEEN_AFTER_V1"
+    ],
+    "final_holdout_unseen_accessed": false,
+    "final_holdout_run": false
+  },
+  "implementation_authority": "run_factor_ranking_v2.py",
+  "implementation_sha256": "2cd87b4c9faf9e9f84c96295f137b4edeed21fafc9abeccf48298b603f075c03",
+  "hash_contract": "SHA-256 of exact selected_v2_method_spec.json bytes is stored in selected_v2_method_spec.sha256"
+}

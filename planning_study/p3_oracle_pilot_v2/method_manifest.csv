@@ -1,0 +1,22 @@
+item,value
+baseline_tag,research_instrumentation_v2
+baseline_commit,80ae205fd470f537bd1e5449fb906c5548f6653a
+baseline_source_aggregate_sha256,55a078d810ad39551a491e04a84b559394873cbf01319195a996f2cde2100521
+baseline_config_aggregate_sha256,6009b3211a50dce7159b95553b7dbea1417eb20b50dbc6fb716947973a2e334a
+episode_selection,"Preparation ranks 1-9; all independent episode starts; no outcome cherry-pick"
+localization_label,LOC_UNKNOWN
+stress_provenance,"V2E08=LOCALIZATION_STRESS_CANDIDATE"
+exact_lineage_gate,"instrumentation-v2 input/ego/obstacle/reference IDs plus source stamp/sequence/epoch/reference generation"
+reconstruction_gate,"all constructed and returned path-digest multisets; production anchor hard-valid/reason/hard-margin parity"
+p3_family,"Frozen production quintic-Hermite P3 only"
+target_domain,"Every valid STRICT/RELAXED LEFT/RIGHT production side domain from inspectP3OracleContext"
+d_mid_domain_m,"[-1.5,1.5]"
+coarse_grid_m,0.05
+coarse_anchors,"domain endpoints plus every production d_target and d_mid"
+transition_scales,"Only entry/exit pairs observed among that event's production candidates"
+refinement,"30 lowest normalized violation-score coarse seeds; +/-0.04 m in d_target/d_mid; 0.01 m grid"
+validator,"Frozen production construction/finalization/validateCandidate chain"
+ranking,"Existing seven-key production ordering; request index only deterministic final tie-break"
+classification,"ORACLE_VALID_P3_EXISTS; NO_VALID_P3_FOUND_IN_ORACLE_DOMAIN; ORACLE_INCONCLUSIVE"
+evidence_gate,"production hard-valid=0 AND oracle hard-valid>0 AND lineage/parity PASS => PILOT_EVIDENCE_OF_MAPPING_MISS"
+non_claim,"No final MAPPING_MISSED_EXISTING_P3 dataset label; no proof outside the finite oracle domain"

@@ -1,0 +1,81 @@
+{
+  "schema": "p3_geometry_conditioned_validation_freeze_verification_v1",
+  "verified_at_utc": "2026-08-30T12:30:16.137338+00:00",
+  "freeze_gate_passed": true,
+  "expected": {
+    "method_spec_sha256": "6f3f5a66fe901ae1121c6e9997332e09a1e0421df09a7da7c1673110e9a69f91",
+    "selected_prototype_spec_sha256": "7e6aad0541b87b1568a82b27f03d2087f31b2c059af4c5380effd25d0a8bd018",
+    "dataset_split_manifest_sha256": "c57cfe8e57dfca4bb318d30047e8f7215f6994e88a39babfbdbb10ce7637b2f4",
+    "split_freeze_sha256": "eade6b9dc1cb6603e873303fa04599f98672eed74e2cff123f3968a21c420e02",
+    "method_impl_sha256": "900a262e49436fa75a1567d49b7823ef4e4cb7f08d313389cd2de26c647c3722",
+    "oracle_runner_sha256": "ed0d8a54cd8d3e3452c78f336c378f384e60a74f1d641ffd6f05208acdc51198",
+    "harness_sha256": "8b23f2b6df54c2e93794ee087f3ebd7a14f9921544af4f97eef755535e045e7e",
+    "repository_head": "80ae205fd470f537bd1e5449fb906c5548f6653a",
+    "validation_count": 37
+  },
+  "observed": {
+    "method_spec_sha256": "6f3f5a66fe901ae1121c6e9997332e09a1e0421df09a7da7c1673110e9a69f91",
+    "selected_prototype_spec_sha256": "7e6aad0541b87b1568a82b27f03d2087f31b2c059af4c5380effd25d0a8bd018",
+    "dataset_split_manifest_sha256": "c57cfe8e57dfca4bb318d30047e8f7215f6994e88a39babfbdbb10ce7637b2f4",
+    "split_freeze_sha256": "eade6b9dc1cb6603e873303fa04599f98672eed74e2cff123f3968a21c420e02",
+    "method_impl_sha256": "900a262e49436fa75a1567d49b7823ef4e4cb7f08d313389cd2de26c647c3722",
+    "oracle_runner_sha256": "ed0d8a54cd8d3e3452c78f336c378f384e60a74f1d641ffd6f05208acdc51198",
+    "harness_sha256": "8b23f2b6df54c2e93794ee087f3ebd7a14f9921544af4f97eef755535e045e7e",
+    "repository_head": "80ae205fd470f537bd1e5449fb906c5548f6653a"
+  },
+  "split_manifest_authority": {
+    "split_seed": "p3_mapping_research_corpus_v1_seed_20260830",
+    "split_algorithm_version": "episode_iterative_stratification_v1",
+    "counts": {
+      "PILOT_SEEN_DEVELOPMENT_DATA": 9,
+      "DEVELOPMENT": 110,
+      "VALIDATION_UNSEEN": 37,
+      "FINAL_HOLDOUT_UNSEEN": 37
+    },
+    "outcome_fields_consulted_for_split": []
+  },
+  "frozen_primary": {
+    "name": "H4A_GEOMETRY_TRANSITION_K24",
+    "selector_authority": "method_spec.json#/selectors/H4A_GEOMETRY_TRANSITION",
+    "candidate_budget_k": 24,
+    "conditioned_factors": [
+      "transition"
+    ],
+    "lateral_basis": "fixed bounded factor basis in method_spec.json",
+    "tie_break": "method_spec H4A score tuple ascending",
+    "deduplication": "exact tuple before reconstruction; first unique path digest before validator",
+    "fallback": "production first; skip proposed stage on production hard-valid; unchanged fallback if proposed stage fails",
+    "development_failure_result": {
+      "oracle_valid_episode_count": 23,
+      "recovered_episode_count": 16,
+      "recovery_rate": 0.6956521739130435,
+      "selected_tuple_count_total": 550,
+      "deduplicated_validator_calls_total": 411,
+      "construction_guard_reject_count_total": 114,
+      "duplicate_path_count_total": 25,
+      "hard_valid_candidate_count_total": 55
+    },
+    "auxiliary_success_control_result": {
+      "control_count": 18,
+      "production_digest_parity_pass_count": 18,
+      "standalone_generates_hard_valid_count": 18,
+      "production_selected_side_available_count": 17,
+      "deployment_additional_validator_calls": 0,
+      "deployment_selected_path_changes": 0
+    },
+    "selection_reason": "same 16/23 failure recovery as H4B while retaining standalone hard-valid availability on all 18 seen success controls; production-first fallback remains mandatory"
+  },
+  "source_file_sha256": {
+    "src/local_planning/src/p3_shadow.cpp": "cbbcc6e181d0d416b3d3be47b0be5b2cbfd4cf39ddd34cc1ac223989e9257ca5",
+    "src/local_planning/include/local_planning/p3_analytic_solver.hpp": "e410106266984237f6b1e3286b56aa0093d8ae394a66cc838dbcb2d16c3b8081",
+    "src/local_planning/include/local_planning/candidate_rank.hpp": "5eb849808d6abad1353a5ccd29ea231af3d65550241598073e65001285cb5127",
+    "src/local_planning/config/local_planning.yaml": "0a99dfce38a8552d40bb8903e49ad19bb06dcf7252490a66abc8fa187b4d432d",
+    "planning_study/p3_mapping_miss_diagnosis_v1/analyze_mapping_miss.py": "62c50bb727beea18adb92fbcc3bf3866523e42ec05383f04f4cb5dcf8ab58ab3",
+    "/tmp/p3_oracle_snapshots_v1.tsv": "29c724e3244b4f62466b41c8c814ccd3fbe8dd81ac42cfd5d62747cc40b96c14"
+  },
+  "production_source_worktree_diff_files": [],
+  "production_source_worktree_clean": true,
+  "validation_rows_loaded_after_gate": true,
+  "final_holdout_rows_loaded": 0,
+  "validation_rows_loaded": 37
+}

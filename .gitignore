@@ -13,3 +13,13 @@ __pycache__/
 # Matplotlib font cache
 .matplotlib/
 .idea/
+
+# Large deterministic research dumps.  Compact summaries, exact inputs, and
+# regeneration scripts are versioned in the corresponding planning_study tree.
+planning_study/p3_factorized_candidate_design_v1/factorized_candidate_space.csv
+planning_study/p3_geometry_conditioned_method_v1/selected_candidates_audit.csv
+planning_study/p3_geometry_conditioned_validation_v1/raw_oracle/oracle_valid_candidates.csv
+planning_study/p3_geometry_factor_ranking_v2/selected_candidates_audit.csv
+planning_study/p3_mapping_research_corpus_v1/raw_oracle/oracle_valid_candidates.csv
+planning_study/p3_oracle_pilot_v1/oracle_candidates.csv
+planning_study/p3_oracle_pilot_v2/oracle_valid_candidates.csv

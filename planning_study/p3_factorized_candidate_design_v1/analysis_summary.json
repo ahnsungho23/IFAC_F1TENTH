@@ -1,0 +1,51 @@
+{
+  "BASELINE_PRODUCTION": {
+    "candidates": 249,
+    "validators": 249,
+    "hard_valid_candidates": 0,
+    "recovered_oracle_valid_episodes": 0,
+    "duplicate_path_rate": 0.1285140562248996
+  },
+  "A_EXISTING_D_MID_POOL": {
+    "candidates": 417,
+    "validators": 417,
+    "hard_valid_candidates": 2,
+    "recovered_oracle_valid_episodes": 1,
+    "duplicate_path_rate": 0.09352517985611511
+  },
+  "A_UNCOUPLE_D_MID_DEV_COUNTERFACTUAL": {
+    "candidates": 265,
+    "validators": 265,
+    "hard_valid_candidates": 16,
+    "recovered_oracle_valid_episodes": 9,
+    "duplicate_path_rate": 0.1320754716981132
+  },
+  "B_CROSS_PAIR_TRANSITIONS": {
+    "candidates": 2181,
+    "validators": 2181,
+    "hard_valid_candidates": 63,
+    "recovered_oracle_valid_episodes": 5,
+    "duplicate_path_rate": 0.023383768913342505
+  },
+  "AB_EXISTING_FACTOR_BASIS": {
+    "candidates": 4077,
+    "validators": 4077,
+    "hard_valid_candidates": 69,
+    "recovered_oracle_valid_episodes": 7,
+    "duplicate_path_rate": 0.014961981849399068
+  },
+  "AB_DEV_COUNTERFACTUAL": {
+    "candidates": 2226,
+    "validators": 2226,
+    "hard_valid_candidates": 81,
+    "recovered_oracle_valid_episodes": 13,
+    "duplicate_path_rate": 0.02425876010781671
+  },
+  "FULL_LxT_DEV_UPPER_BOUND": {
+    "candidates": 21978,
+    "validators": 21978,
+    "hard_valid_candidates": 9051,
+    "recovered_oracle_valid_episodes": 23,
+    "duplicate_path_rate": 0.05996905996905997
+  }
+}

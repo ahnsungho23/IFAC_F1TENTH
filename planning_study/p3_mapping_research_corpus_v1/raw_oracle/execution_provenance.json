@@ -1,0 +1,9 @@
+{
+  "dataset_split_manifest_sha256": "c57cfe8e57dfca4bb318d30047e8f7215f6994e88a39babfbdbb10ce7637b2f4",
+  "development_oracle_manifest_sha256": "552fd15d91d02e2d450585ec625392a8cb1a50a1f0146b2b65d3562dddf67cb4",
+  "pilot_v2_runner_sha256": "ed0d8a54cd8d3e3452c78f336c378f384e60a74f1d641ffd6f05208acdc51198",
+  "oracle_harness_sha256": "8b23f2b6df54c2e93794ee087f3ebd7a14f9921544af4f97eef755535e045e7e",
+  "oracle_event_count": 40,
+  "input_policy": "DEVELOPMENT oracle_selected only; VALIDATION and FINAL_HOLDOUT not loaded",
+  "search_policy": "exact deterministic pilot-v2 coarse 0.05 m plus 30-seed local refine 0.01 m"
+}

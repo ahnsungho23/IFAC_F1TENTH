@@ -1,0 +1,43 @@
+{
+  "baseline": {
+    "tag": "research_instrumentation_v2",
+    "commit": "80ae205fd470f537bd1e5449fb906c5548f6653a",
+    "source_aggregate_sha256": "55a078d810ad39551a491e04a84b559394873cbf01319195a996f2cde2100521",
+    "config_aggregate_sha256": "6009b3211a50dce7159b95553b7dbea1417eb20b50dbc6fb716947973a2e334a",
+    "production_source_modified": false
+  },
+  "detached_audit_harness": {
+    "binary_sha256": "5b159b0f59a4cdca9b3ff73d5ac2cf5960af9bbd0354f7d1b5b7aa4df6976fa0",
+    "runner_sha256": "ed0d8a54cd8d3e3452c78f336c378f384e60a74f1d641ffd6f05208acdc51198",
+    "cmake_sha256": "f32fd9974dbe6109aed10072a77ec7d2801a9e02a3768c52c56cc90296699c2a",
+    "planner_header_sha256": "66679ce5448c9cbce668ae88f5be7b2f91fff55f9f95dee045eb5d77df2fea74",
+    "p3_shadow_with_audit_adapter_sha256": "8ed473bdd8e7a9618d1994489cf3f4f26154f0815a7f70775913e80bc492b2c3",
+    "harness_source_sha256": "fa630858ce59c5d34d6fa3bcbd8379274d22f445ea02f324d88ccdb76bcd3511",
+    "location": "/tmp/p3_oracle_v2_src",
+    "scope": "audit-only adapters and output; no production call site or policy change"
+  },
+  "execution": {
+    "event_count": 9,
+    "conclusive_event_count": 9,
+    "oracle_success_count": 4,
+    "oracle_success_ratio": 0.4444444444444444,
+    "success_bag_count": 4,
+    "success_reference_domain_count": 2,
+    "total_requests": 168188,
+    "constructed_paths": 100510,
+    "validator_executions": 100510,
+    "hard_valid_rows": 2317,
+    "search_runtime_s": 18.3876515360098,
+    "raw_coarse_refine_output_aggregate_sha256": "1433d213cf8582060012836aea796467a957a258b3c9f09f0bb885e1846a7ff9"
+  },
+  "artifact_sha256": {
+    "oracle_summary.csv": "0d30bba904058646164d6bba044e9c8659fcdbd72cf914a67a385fcacb2c95d6",
+    "lineage_parity.csv": "9005a230d07f331ff762f48636966b67a391ab90375ebd388a584856227bb796",
+    "production_anchor_parity.csv": "4f8f893d659472550b820f04c5610f70828b1639fcac01c9d68164be7e3c2e59",
+    "production_candidates.csv": "c1b4fa0c8f12816e85cf885ff95cd8f9a78bafdf09d50a977daa71b8352c12d1",
+    "oracle_valid_candidates.csv": "4c50a44cc5c3b7172f5e8c4bace4b49a01a159adffbeb27d31502c6b2fb96333",
+    "nearest_invalid_candidates.csv": "79f21f8c94787db35a9f56a362b097fd5f290382a79bddf9f3a22647f8a14293",
+    "oracle_first_failure_distribution.csv": "f5d26913e7bbe4fe57e542276b2d232578fa94124d33b208ba37dceccc45f0ef",
+    "search_domain.json": "0bb327c16bf9838c0a70400adfad66587fc5403d5e1f7bcb2565804521292dcc"
+  }
+}

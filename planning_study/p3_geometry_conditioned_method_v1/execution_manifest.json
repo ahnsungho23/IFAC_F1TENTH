@@ -1,0 +1,27 @@
+{
+  "study": "P3_GEOMETRY_CONDITIONED_METHOD_V1",
+  "dataset_scope": "DVE001..DVE040 DEVELOPMENT only",
+  "validation_or_holdout_rows_read": 0,
+  "production_source_modified": false,
+  "split_modified": false,
+  "harness_sha256": "8b23f2b6df54c2e93794ee087f3ebd7a14f9921544af4f97eef755535e045e7e",
+  "budgets": [
+    4,
+    8,
+    12,
+    16,
+    24
+  ],
+  "selectors": [
+    "H3_FIXED_BOUNDED",
+    "H4A_GEOMETRY_TRANSITION",
+    "H4B_GEOMETRY_LATERAL_TRANSITION"
+  ],
+  "online_pool_contract": "production lateral/target values plus deterministic corridor anchors and midpoint recipes crossed only with same-event production transition factors",
+  "oracle_outcome_online_feature_count": 0,
+  "success_control_contract": "hash-selected seen strict production successes outside every frozen failure episode; official split unchanged",
+  "success_control_count": 18,
+  "success_control_production_digest_parity_pass_count": 18,
+  "validation_or_holdout_manifest_rows_loaded": 0,
+  "frozen_failure_episode_callbacks_retained_for_success_control": 0
+}

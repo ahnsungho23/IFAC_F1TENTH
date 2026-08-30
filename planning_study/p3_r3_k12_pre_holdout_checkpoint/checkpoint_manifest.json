@@ -1,0 +1,38 @@
+{
+  "schema_version": "p3_pre_holdout_checkpoint_v1",
+  "checkpoint_name": "p3_r3_k12_pre_holdout",
+  "branch": "planning_research_baseline_audit",
+  "baseline_parent_commit": "80ae205fd470f537bd1e5449fb906c5548f6653a",
+  "selected_method": "R3_LEXICOGRAPHIC_COVERAGE_RESERVE_K12",
+  "frozen_sha256": {
+    "selected_method_spec": "7b861e8c7e23ae168413885ea0dc2d09769046ff48a562700b658e084d116fcc",
+    "reference_oracle_v2_spec": "62b63b8ab05d5a73565398141bd05a9db4a102541855fb2e3634d85b18a6bffe",
+    "evaluation_contract": "226b1b44a9bea6adf26715658f36ae8e7b2c322e030f363270728f9e044b1dad",
+    "dataset_split_manifest": "c57cfe8e57dfca4bb318d30047e8f7215f6994e88a39babfbdbb10ce7637b2f4",
+    "oracle_v2_harness_binary": "8b23f2b6df54c2e93794ee087f3ebd7a14f9921544af4f97eef755535e045e7e",
+    "oracle_v1_harness_source": "d7050e61a1f2c582fa3a08fc5f94cad4c8f378b4bc2a5ce1b11162174180e69a",
+    "oracle_v2_harness_source": "c3aa74b1aa76ca87899fbe3805fe8fa972b7d6168ff1d9fff360914d48d38594",
+    "oracle_adapter_patch": "53ae5d741d4d8efbbd7b795e3ed6e32db28b0097351e4be2f74d5feef3f5edd9"
+  },
+  "production_baseline": {
+    "src_local_planning_tree": "d7b078199a64b39bfc4346d1f642837c9ea40e9f",
+    "src_local_planning_config_tree": "578d1ba804734ee9bb2744553794451f6e3ad78e",
+    "checkpoint_changes_production_source_or_config": false
+  },
+  "dataset_access": {
+    "split_manifest_treatment": "OPAQUE_SHA256_ONLY",
+    "final_holdout_rows_loaded": 0,
+    "final_holdout_evaluations_executed": 0
+  },
+  "excluded_reproducible_raw_dumps": [
+    {"bytes": 21288755, "path": "planning_study/p3_factorized_candidate_design_v1/factorized_candidate_space.csv"},
+    {"bytes": 2358818, "path": "planning_study/p3_geometry_conditioned_method_v1/selected_candidates_audit.csv"},
+    {"bytes": 4729396, "path": "planning_study/p3_geometry_conditioned_validation_v1/raw_oracle/oracle_valid_candidates.csv"},
+    {"bytes": 4582043, "path": "planning_study/p3_geometry_factor_ranking_v2/selected_candidates_audit.csv"},
+    {"bytes": 5992660, "path": "planning_study/p3_mapping_research_corpus_v1/raw_oracle/oracle_valid_candidates.csv"},
+    {"bytes": 2007049, "path": "planning_study/p3_oracle_pilot_v1/oracle_candidates.csv"},
+    {"bytes": 1169328, "path": "planning_study/p3_oracle_pilot_v2/oracle_valid_candidates.csv"}
+  ],
+  "excluded_reproducible_raw_dumps_total_bytes": 42128049,
+  "runtime_or_build_artifacts_committed": false
+}

@@ -1,0 +1,2574 @@
+{
+  "DVE001": {
+    "event": {
+      "bag": "rosbag2_2026_08_25-09_59_22",
+      "elapsed_s": "955.620097445",
+      "callback_sequence": "36618",
+      "evaluation_sequence": "1",
+      "input_snapshot_id": "input_39ddec62374c3dde",
+      "ego_snapshot_id": "ego_c143e47b1df4dbeb",
+      "obstacle_snapshot_id": "obs_adfc2fbef47b4d4d",
+      "reference_snapshot_id": "ref_4dc0768eb37d9590"
+    },
+    "target_domains": {
+      "STRICT_RIGHT": [
+        -0.7225000000000001,
+        -0.4678264568302881
+      ],
+      "STRICT_LEFT": [
+        0.19643665874293456,
+        0.76
+      ],
+      "RELAXED_RIGHT": [
+        -0.7225000000000001,
+        -0.4678264568302881
+      ],
+      "RELAXED_LEFT": [
+        0.19643665874293456,
+        0.76
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.4971684162574945
+      ],
+      [
+        0.7136694116555473,
+        0.4971684162574945
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 5460,
+      "refine": 1741
+    }
+  },
+  "DVE002": {
+    "event": {
+      "bag": "rosbag2_2026_08_24-19_00_30",
+      "elapsed_s": "540.620135977",
+      "callback_sequence": "19268",
+      "evaluation_sequence": "1",
+      "input_snapshot_id": "input_39d145f2d675ebb8",
+      "ego_snapshot_id": "ego_d06d66a917236d82",
+      "obstacle_snapshot_id": "obs_cee7eec9ebeb4e8f",
+      "reference_snapshot_id": "ref_3f5d487564f4ee3d"
+    },
+    "target_domains": {
+      "STRICT_RIGHT": [
+        -0.6475,
+        -0.6159535896339117
+      ],
+      "STRICT_LEFT": [
+        0.41795442595556653,
+        0.9600000000000002
+      ],
+      "RELAXED_RIGHT": [
+        -0.6475,
+        -0.6159535896339117
+      ],
+      "RELAXED_LEFT": [
+        0.41795442595556653,
+        0.9600000000000002
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.4971684162574945
+      ],
+      [
+        0.7136694116555473,
+        0.4971684162574945
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 3972,
+      "refine": 2538
+    }
+  },
+  "DVE003": {
+    "event": {
+      "bag": "rosbag2_2026_08_25-09_59_22",
+      "elapsed_s": "1019.770095303",
+      "callback_sequence": "39120",
+      "evaluation_sequence": "1",
+      "input_snapshot_id": "input_66404f71ba20d6c5",
+      "ego_snapshot_id": "ego_efbaac93080b88fd",
+      "obstacle_snapshot_id": "obs_2f7cd8e2f6389967",
+      "reference_snapshot_id": "ref_4dc0768eb37d9590"
+    },
+    "target_domains": {
+      "STRICT_RIGHT": [
+        -0.9850000000000001,
+        -0.562044823089171
+      ],
+      "STRICT_LEFT": [
+        0.15,
+        0.7850000000000001
+      ],
+      "RELAXED_RIGHT": [
+        -0.9850000000000001,
+        -0.562044823089171
+      ],
+      "RELAXED_LEFT": [
+        0.15,
+        0.7850000000000001
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.4971684162574945
+      ],
+      [
+        0.7136694116555473,
+        0.4971684162574945
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 6558,
+      "refine": 1991
+    }
+  },
+  "DVE004": {
+    "event": {
+      "bag": "rosbag2_2026_08_24-19_24_17",
+      "elapsed_s": "596.260105794",
+      "callback_sequence": "23493",
+      "evaluation_sequence": "1",
+      "input_snapshot_id": "input_bbcbf73ac85f2005",
+      "ego_snapshot_id": "ego_7f7bdc344e0ec8eb",
+      "obstacle_snapshot_id": "obs_a11d501c83cbc772",
+      "reference_snapshot_id": "ref_3f5d487564f4ee3d"
+    },
+    "target_domains": {
+      "STRICT_RIGHT": [
+        -0.6475,
+        -0.4950899188648962
+      ],
+      "STRICT_LEFT": [
+        0.15,
+        0.9725000000000001
+      ],
+      "RELAXED_RIGHT": [
+        -0.6475,
+        -0.4950899188648962
+      ],
+      "RELAXED_LEFT": [
+        0.15,
+        0.9725000000000001
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        1.310934367577036,
+        6.677829896219816
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 2978,
+      "refine": 868
+    }
+  },
+  "DVE005": {
+    "event": {
+      "bag": "rosbag2_2026_08_24-19_24_17",
+      "elapsed_s": "637.11014269",
+      "callback_sequence": "25100",
+      "evaluation_sequence": "1",
+      "input_snapshot_id": "input_9b8b5d73e1fdab91",
+      "ego_snapshot_id": "ego_742f9c136eaf5ce9",
+      "obstacle_snapshot_id": "obs_5d06b0a06c1d94c3",
+      "reference_snapshot_id": "ref_3f5d487564f4ee3d"
+    },
+    "target_domains": {
+      "STRICT_RIGHT": [
+        -0.71,
+        -0.39115057871499376
+      ],
+      "STRICT_LEFT": [
+        0.15,
+        0.9850000000000001
+      ],
+      "RELAXED_RIGHT": [
+        -0.71,
+        -0.39115057871499376
+      ],
+      "RELAXED_LEFT": [
+        0.15,
+        0.9850000000000001
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.6049868191659147
+      ],
+      [
+        0.5145810930150512,
+        3.94735730932694
+      ],
+      [
+        0.5145810930150512,
+        7.397546202396385
+      ],
+      [
+        1.310934367577036,
+        0.6049868191659147
+      ],
+      [
+        1.310934367577036,
+        3.94735730932694
+      ],
+      [
+        1.310934367577036,
+        7.397546202396385
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 21518,
+      "refine": 1740
+    }
+  },
+  "DVE006": {
+    "event": {
+      "bag": "rosbag2_2026_08_24-19_00_30",
+      "elapsed_s": "556.070105096",
+      "callback_sequence": "19818",
+      "evaluation_sequence": "1",
+      "input_snapshot_id": "input_c19b1459ec894f6f",
+      "ego_snapshot_id": "ego_e87e892fce79b379",
+      "obstacle_snapshot_id": "obs_42cda81b09bb185e",
+      "reference_snapshot_id": "ref_3f5d487564f4ee3d"
+    },
+    "target_domains": {
+      "STRICT_RIGHT": [
+        -0.6600000000000001,
+        -0.62612552681928
+      ],
+      "STRICT_LEFT": [
+        0.15,
+        0.9600000000000002
+      ],
+      "RELAXED_RIGHT": [
+        -0.6600000000000001,
+        -0.62612552681928
+      ],
+      "RELAXED_LEFT": [
+        0.15,
+        0.9600000000000002
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.4971684162574945
+      ],
+      [
+        0.7136694116555473,
+        0.4971684162574945
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 5708,
+      "refine": 1740
+    }
+  },
+  "DVE007": {
+    "event": {
+      "bag": "rosbag2_2026_08_24-19_24_17",
+      "elapsed_s": "607.510060878",
+      "callback_sequence": "23923",
+      "evaluation_sequence": "1",
+      "input_snapshot_id": "input_ec2de627746e8a6e",
+      "ego_snapshot_id": "ego_cac1613222f1cc3f",
+      "obstacle_snapshot_id": "obs_ce4198d3fda20362",
+      "reference_snapshot_id": "ref_3f5d487564f4ee3d"
+    },
+    "target_domains": {
+      "STRICT_RIGHT": [
+        -0.8600000000000001,
+        -0.2275967546695623
+      ],
+      "STRICT_LEFT": [
+        0.2502629819789842,
+        0.9725000000000001
+      ],
+      "RELAXED_RIGHT": [
+        -0.8600000000000001,
+        -0.2275967546695623
+      ],
+      "RELAXED_LEFT": [
+        0.2502629819789842,
+        0.9725000000000001
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        1.310934367577036,
+        7.397546202396385
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 3846,
+      "refine": 1560
+    }
+  },
+  "DVE008": {
+    "event": {
+      "bag": "rosbag2_2026_08_24-19_00_30",
+      "elapsed_s": "436.890084667",
+      "callback_sequence": "15424",
+      "evaluation_sequence": "1",
+      "input_snapshot_id": "input_fbb87040f1e60f36",
+      "ego_snapshot_id": "ego_935d3467e4889f84",
+      "obstacle_snapshot_id": "obs_2f2f782c6f8cdc25",
+      "reference_snapshot_id": "ref_3f5d487564f4ee3d"
+    },
+    "target_domains": {
+      "STRICT_LEFT": [
+        0.31223431778039207,
+        0.7850000000000001
+      ],
+      "RELAXED_LEFT": [
+        0.31223431778039207,
+        0.7850000000000001
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.4971684162574945
+      ],
+      [
+        0.7136694116555473,
+        0.4971684162574945
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 2980,
+      "refine": 1096
+    }
+  },
+  "DVE009": {
+    "event": {
+      "bag": "rosbag2_2026_08_24-19_00_30",
+      "elapsed_s": "540.040086959",
+      "callback_sequence": "19245",
+      "evaluation_sequence": "1",
+      "input_snapshot_id": "input_585b24804c5dfe9e",
+      "ego_snapshot_id": "ego_f0a9d2972bef30c0",
+      "obstacle_snapshot_id": "obs_6fbc221ca31df787",
+      "reference_snapshot_id": "ref_3f5d487564f4ee3d"
+    },
+    "target_domains": {
+      "STRICT_RIGHT": [
+        -0.6475,
+        -0.3417368522637951
+      ],
+      "STRICT_LEFT": [
+        0.4688228254292527,
+        0.9725000000000001
+      ],
+      "RELAXED_RIGHT": [
+        -0.6475,
+        -0.3417368522637951
+      ],
+      "RELAXED_LEFT": [
+        0.4688228254292527,
+        0.9725000000000001
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.4971684162574945
+      ],
+      [
+        0.7136694116555473,
+        0.4971684162574945
+      ],
+      [
+        1.310934367577036,
+        6.623406445023952
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 7944,
+      "refine": 988
+    }
+  },
+  "DVE010": {
+    "event": {
+      "bag": "rosbag2_2026_08_24-19_00_30",
+      "elapsed_s": "542.840073923",
+      "callback_sequence": "19351",
+      "evaluation_sequence": "1",
+      "input_snapshot_id": "input_e4a71ad1a8c46e7c",
+      "ego_snapshot_id": "ego_3eba85b77522f621",
+      "obstacle_snapshot_id": "obs_517157fa9682b999",
+      "reference_snapshot_id": "ref_3f5d487564f4ee3d"
+    },
+    "target_domains": {
+      "STRICT_RIGHT": [
+        -0.6475,
+        -0.6437619718508489
+      ],
+      "STRICT_LEFT": [
+        0.48278321218374576,
+        0.9600000000000002
+      ],
+      "RELAXED_RIGHT": [
+        -0.6475,
+        -0.6437619718508489
+      ],
+      "RELAXED_LEFT": [
+        0.48278321218374576,
+        0.9600000000000002
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.4971684162574945
+      ],
+      [
+        0.7136694116555473,
+        0.4971684162574945
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 3724,
+      "refine": 2156
+    }
+  },
+  "DVE011": {
+    "event": {
+      "bag": "rosbag2_2026_08_24-19_00_30",
+      "elapsed_s": "550.800105388",
+      "callback_sequence": "19637",
+      "evaluation_sequence": "1",
+      "input_snapshot_id": "input_7a0606942b1aa59e",
+      "ego_snapshot_id": "ego_7d95c0e82a9e5cf8",
+      "obstacle_snapshot_id": "obs_8a7b8cac981f56cd",
+      "reference_snapshot_id": "ref_3f5d487564f4ee3d"
+    },
+    "target_domains": {
+      "STRICT_LEFT": [
+        0.3284559552364552,
+        0.9600000000000002
+      ],
+      "RELAXED_LEFT": [
+        0.3284559552364552,
+        0.9600000000000002
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.4971684162574945
+      ],
+      [
+        0.7136694116555473,
+        0.4971684162574945
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 3972,
+      "refine": 1224
+    }
+  },
+  "DVE012": {
+    "event": {
+      "bag": "rosbag2_2026_08_24-19_00_30",
+      "elapsed_s": "502.350083951",
+      "callback_sequence": "17797",
+      "evaluation_sequence": "1",
+      "input_snapshot_id": "input_4035b9762e1920e7",
+      "ego_snapshot_id": "ego_785617080d8afa27",
+      "obstacle_snapshot_id": "obs_751927fce06197ef",
+      "reference_snapshot_id": "ref_3f5d487564f4ee3d"
+    },
+    "target_domains": {
+      "STRICT_RIGHT": [
+        -1.1350000000000002,
+        -0.4058738239266747
+      ],
+      "STRICT_LEFT": [
+        0.15,
+        0.7725
+      ],
+      "RELAXED_RIGHT": [
+        -1.1350000000000002,
+        -0.4058738239266747
+      ],
+      "RELAXED_LEFT": [
+        0.15,
+        0.7725
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.4971684162574945
+      ],
+      [
+        0.5145810930150512,
+        0.6049868191659147
+      ],
+      [
+        0.5145810930150512,
+        3.94735730932694
+      ],
+      [
+        0.5145810930150512,
+        7.397546202396385
+      ],
+      [
+        0.5145814727458835,
+        7.397546202396385
+      ],
+      [
+        0.5145818524767158,
+        7.397546202396385
+      ],
+      [
+        0.5145826119383806,
+        7.397546202396385
+      ],
+      [
+        0.5145841308617101,
+        7.397546202396385
+      ],
+      [
+        0.5145871687083691,
+        7.397546202396385
+      ],
+      [
+        0.514593244401687,
+        7.397546202396385
+      ],
+      [
+        0.5146053957883228,
+        7.397546202396385
+      ],
+      [
+        0.5146296985615942,
+        7.397546202396385
+      ],
+      [
+        0.5146783041081373,
+        7.397546202396385
+      ],
+      [
+        0.5147755152012236,
+        7.397546202396385
+      ],
+      [
+        0.5149699373873959,
+        7.397546202396385
+      ],
+      [
+        0.5153587817597406,
+        7.397546202396385
+      ],
+      [
+        0.51613647050443,
+        7.397546202396385
+      ],
+      [
+        0.5176918479938089,
+        7.397546202396385
+      ],
+      [
+        0.5208026029725666,
+        7.397546202396385
+      ],
+      [
+        0.5270241129300821,
+        7.397546202396385
+      ],
+      [
+        0.5394671328451132,
+        7.397546202396385
+      ],
+      [
+        0.5643531726751752,
+        7.397546202396385
+      ],
+      [
+        0.6141252523352992,
+        7.397546202396385
+      ],
+      [
+        0.7136694116555473,
+        0.4971684162574945
+      ],
+      [
+        0.7136694116555473,
+        7.397546202396385
+      ],
+      [
+        0.9127577302960436,
+        7.397546202396385
+      ],
+      [
+        1.310934367577036,
+        0.6049868191659147
+      ],
+      [
+        1.310934367577036,
+        3.94735730932694
+      ],
+      [
+        1.310934367577036,
+        7.397546202396385
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 155964,
+      "refine": 2058
+    }
+  },
+  "DVE013": {
+    "event": {
+      "bag": "rosbag2_2026_08_24-19_00_30",
+      "elapsed_s": "432.890075117",
+      "callback_sequence": "15317",
+      "evaluation_sequence": "1",
+      "input_snapshot_id": "input_3e3ea10d7a0a3850",
+      "ego_snapshot_id": "ego_0714c08f573ad8fb",
+      "obstacle_snapshot_id": "obs_350b0082df3a7ced",
+      "reference_snapshot_id": "ref_3f5d487564f4ee3d"
+    },
+    "target_domains": {
+      "STRICT_RIGHT": [
+        -0.71,
+        -0.6629183794513199
+      ],
+      "STRICT_LEFT": [
+        0.5594090775956639,
+        0.7850000000000001
+      ],
+      "RELAXED_RIGHT": [
+        -0.71,
+        -0.6629183794513199
+      ],
+      "RELAXED_LEFT": [
+        0.5594090775956639,
+        0.7850000000000001
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.4971684162574945
+      ],
+      [
+        0.7136694116555473,
+        0.4971684162574945
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 2780,
+      "refine": 1208
+    }
+  },
+  "DVE014": {
+    "event": {
+      "bag": "rosbag2_2026_08_24-19_24_17",
+      "elapsed_s": "724.130108493",
+      "callback_sequence": "28107",
+      "evaluation_sequence": "1",
+      "input_snapshot_id": "input_17d5ab52e7357889",
+      "ego_snapshot_id": "ego_a0510f98e9e50943",
+      "obstacle_snapshot_id": "obs_5960d55e739a2823",
+      "reference_snapshot_id": "ref_3f5d487564f4ee3d"
+    },
+    "target_domains": {
+      "STRICT_RIGHT": [
+        -0.8975000000000002,
+        -0.37068151566060736
+      ],
+      "STRICT_LEFT": [
+        0.15,
+        0.8600000000000001
+      ],
+      "RELAXED_RIGHT": [
+        -0.8975000000000002,
+        -0.37068151566060736
+      ],
+      "RELAXED_LEFT": [
+        0.15,
+        0.8600000000000001
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.4971684162574945
+      ],
+      [
+        0.5145810930150512,
+        0.6049868191659147
+      ],
+      [
+        0.5145810930150512,
+        3.94735730932694
+      ],
+      [
+        0.5145810930150512,
+        7.397546202396385
+      ],
+      [
+        0.7136694116555473,
+        0.4971684162574945
+      ],
+      [
+        1.310934367577036,
+        0.6049868191659147
+      ],
+      [
+        1.310934367577036,
+        3.94735730932694
+      ],
+      [
+        1.310934367577036,
+        7.397546202396385
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 31218,
+      "refine": 1180
+    }
+  },
+  "DVE015": {
+    "event": {
+      "bag": "rosbag2_2026_08_24-19_24_17",
+      "elapsed_s": "451.360084483",
+      "callback_sequence": "17738",
+      "evaluation_sequence": "1",
+      "input_snapshot_id": "input_ddc7505b9aadb26d",
+      "ego_snapshot_id": "ego_9f2d452de9a10016",
+      "obstacle_snapshot_id": "obs_f239c2917f0ce8da",
+      "reference_snapshot_id": "ref_3f5d487564f4ee3d"
+    },
+    "target_domains": {
+      "STRICT_RIGHT": [
+        -0.7350000000000001,
+        -0.33559383557115957
+      ],
+      "STRICT_LEFT": [
+        0.1986560828478513,
+        0.9475
+      ],
+      "RELAXED_RIGHT": [
+        -0.7350000000000001,
+        -0.33559383557115957
+      ],
+      "RELAXED_LEFT": [
+        0.1986560828478513,
+        0.9475
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.4971684162574945
+      ],
+      [
+        0.7136694116555473,
+        0.4971684162574945
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 6948,
+      "refine": 1284
+    }
+  },
+  "DVE016": {
+    "event": {
+      "bag": "rosbag2_2026_08_25-09_59_22",
+      "elapsed_s": "131.890234914",
+      "callback_sequence": "5379",
+      "evaluation_sequence": "1",
+      "input_snapshot_id": "input_081c8ef59fddf7ed",
+      "ego_snapshot_id": "ego_44bcc650e8e00377",
+      "obstacle_snapshot_id": "obs_1df9ca05a80f37e6",
+      "reference_snapshot_id": "ref_4dc0768eb37d9590"
+    },
+    "target_domains": {
+      "STRICT_LEFT": [
+        0.15,
+        1.0725000000000002
+      ],
+      "RELAXED_LEFT": [
+        0.15,
+        1.0725000000000002
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.5904752484623668
+      ],
+      [
+        0.5145810930150512,
+        3.4829870468134074
+      ],
+      [
+        0.5145810930150512,
+        6.46880567736932
+      ],
+      [
+        1.310934367577036,
+        0.5904752484623668
+      ],
+      [
+        1.310934367577036,
+        3.4829870468134074
+      ],
+      [
+        1.310934367577036,
+        6.46880567736932
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 15890,
+      "refine": 802
+    }
+  },
+  "DVE017": {
+    "event": {
+      "bag": "rosbag2_2026_08_24-19_24_17",
+      "elapsed_s": "475.030131896",
+      "callback_sequence": "18681",
+      "evaluation_sequence": "1",
+      "input_snapshot_id": "input_31d67faaa5a5c3ba",
+      "ego_snapshot_id": "ego_de240eede693bb32",
+      "obstacle_snapshot_id": "obs_f239c2917f0ce8da",
+      "reference_snapshot_id": "ref_3f5d487564f4ee3d"
+    },
+    "target_domains": {
+      "STRICT_RIGHT": [
+        -0.7350000000000001,
+        -0.33559383557115957
+      ],
+      "STRICT_LEFT": [
+        0.1986560828478513,
+        0.9475
+      ],
+      "RELAXED_RIGHT": [
+        -0.7350000000000001,
+        -0.33559383557115957
+      ],
+      "RELAXED_LEFT": [
+        0.1986560828478513,
+        0.9475
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.4971684162574945
+      ],
+      [
+        0.7136694116555473,
+        0.4971684162574945
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 6948,
+      "refine": 1966
+    }
+  },
+  "DVE018": {
+    "event": {
+      "bag": "rosbag2_2026_08_24-19_00_30",
+      "elapsed_s": "503.810092178",
+      "callback_sequence": "17837",
+      "evaluation_sequence": "1",
+      "input_snapshot_id": "input_1f3c869a13cb35c2",
+      "ego_snapshot_id": "ego_374e7a381894d78b",
+      "obstacle_snapshot_id": "obs_929fe85a3e5d8c06",
+      "reference_snapshot_id": "ref_3f5d487564f4ee3d"
+    },
+    "target_domains": {
+      "STRICT_RIGHT": [
+        -1.1350000000000002,
+        -0.393252662812106
+      ],
+      "STRICT_LEFT": [
+        0.15,
+        0.7725
+      ],
+      "RELAXED_RIGHT": [
+        -1.1350000000000002,
+        -0.393252662812106
+      ],
+      "RELAXED_LEFT": [
+        0.15,
+        0.7725
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.4971684162574945
+      ],
+      [
+        0.5145810930150512,
+        0.6049868191659147
+      ],
+      [
+        0.5145810930150512,
+        3.94735730932694
+      ],
+      [
+        0.5145810930150512,
+        7.397546202396385
+      ],
+      [
+        0.7136694116555473,
+        0.4971684162574945
+      ],
+      [
+        1.310934367577036,
+        0.6049868191659147
+      ],
+      [
+        1.310934367577036,
+        3.94735730932694
+      ],
+      [
+        1.310934367577036,
+        7.397546202396385
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 34338,
+      "refine": 904
+    }
+  },
+  "DVE019": {
+    "event": {
+      "bag": "rosbag2_2026_08_24-19_00_30",
+      "elapsed_s": "521.070291282",
+      "callback_sequence": "18496",
+      "evaluation_sequence": "1",
+      "input_snapshot_id": "input_0e0674e6cff1eda4",
+      "ego_snapshot_id": "ego_51bfd7f2154e6834",
+      "obstacle_snapshot_id": "obs_2e8bda070c814cf6",
+      "reference_snapshot_id": "ref_3f5d487564f4ee3d"
+    },
+    "target_domains": {
+      "STRICT_RIGHT": [
+        -1.0350000000000001,
+        -0.6366515960958754
+      ],
+      "STRICT_LEFT": [
+        0.15,
+        0.7725
+      ],
+      "RELAXED_RIGHT": [
+        -1.0350000000000001,
+        -0.6366515960958754
+      ],
+      "RELAXED_LEFT": [
+        0.15,
+        0.7725
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.4971684162574945
+      ],
+      [
+        0.7136694116555473,
+        0.4971684162574945
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 7178,
+      "refine": 736
+    }
+  },
+  "DVE020": {
+    "event": {
+      "bag": "rosbag2_2026_08_25-09_59_22",
+      "elapsed_s": "943.440243488",
+      "callback_sequence": "36131",
+      "evaluation_sequence": "1",
+      "input_snapshot_id": "input_0c2622817b125aa6",
+      "ego_snapshot_id": "ego_aed34634d2980c06",
+      "obstacle_snapshot_id": "obs_cfc5984889cad23c",
+      "reference_snapshot_id": "ref_4dc0768eb37d9590"
+    },
+    "target_domains": {
+      "STRICT_RIGHT": [
+        -0.6975,
+        -0.4990264203454232
+      ],
+      "STRICT_LEFT": [
+        0.15,
+        0.76
+      ],
+      "RELAXED_RIGHT": [
+        -0.6975,
+        -0.4990264203454232
+      ],
+      "RELAXED_LEFT": [
+        0.15,
+        0.76
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.4971684162574945
+      ],
+      [
+        0.7136694116555473,
+        0.4971684162574945
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 5550,
+      "refine": 1354
+    }
+  },
+  "DVE021": {
+    "event": {
+      "bag": "rosbag2_2026_08_24-19_24_17",
+      "elapsed_s": "282.730123782",
+      "callback_sequence": "11297",
+      "evaluation_sequence": "2",
+      "input_snapshot_id": "input_028ec84dd0c46e90",
+      "ego_snapshot_id": "ego_74f6cc8988355e99",
+      "obstacle_snapshot_id": "obs_a5bdd6440e736a0d",
+      "reference_snapshot_id": "ref_3f5d487564f4ee3d"
+    },
+    "target_domains": {
+      "STRICT_RIGHT": [
+        -0.6600000000000001,
+        -0.15
+      ],
+      "STRICT_LEFT": [
+        0.4581786423655439,
+        0.8600000000000001
+      ],
+      "RELAXED_RIGHT": [
+        -0.6600000000000001,
+        -0.15
+      ],
+      "RELAXED_LEFT": [
+        0.4581786423655439,
+        0.8600000000000001
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.4971684162574945
+      ],
+      [
+        0.7136694116555473,
+        0.4971684162574945
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 5956,
+      "refine": 968
+    }
+  },
+  "DVE022": {
+    "event": {
+      "bag": "rosbag2_2026_08_24-19_00_30",
+      "elapsed_s": "456.340144384",
+      "callback_sequence": "16031",
+      "evaluation_sequence": "1",
+      "input_snapshot_id": "input_12ff1878e70757bf",
+      "ego_snapshot_id": "ego_b7c3ed2d9900bef6",
+      "obstacle_snapshot_id": "obs_f24392646cc69e8c",
+      "reference_snapshot_id": "ref_3f5d487564f4ee3d"
+    },
+    "target_domains": {
+      "STRICT_RIGHT": [
+        -0.7350000000000001,
+        -0.5575054042659014
+      ],
+      "STRICT_LEFT": [
+        0.15,
+        0.7850000000000001
+      ],
+      "RELAXED_RIGHT": [
+        -0.7350000000000001,
+        -0.5575054042659014
+      ],
+      "RELAXED_LEFT": [
+        0.15,
+        0.7850000000000001
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.4971684162574945
+      ],
+      [
+        0.7136694116555473,
+        0.4971684162574945
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 5212,
+      "refine": 780
+    }
+  },
+  "DVE023": {
+    "event": {
+      "bag": "rosbag2_2026_08_24-19_24_17",
+      "elapsed_s": "337.010090849",
+      "callback_sequence": "13306",
+      "evaluation_sequence": "1",
+      "input_snapshot_id": "input_d54cc5c4684ebcfb",
+      "ego_snapshot_id": "ego_50ad95a27e386f83",
+      "obstacle_snapshot_id": "obs_27983e1d0242eebf",
+      "reference_snapshot_id": "ref_3f5d487564f4ee3d"
+    },
+    "target_domains": {
+      "STRICT_RIGHT": [
+        -0.7350000000000001,
+        -0.15
+      ],
+      "STRICT_LEFT": [
+        0.5332789257404695,
+        0.6475
+      ],
+      "RELAXED_RIGHT": [
+        -0.7350000000000001,
+        -0.15
+      ],
+      "RELAXED_LEFT": [
+        0.5332789257404695,
+        0.6475
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.4971684162574945
+      ],
+      [
+        0.7136694116555473,
+        0.4971684162574945
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 4716,
+      "refine": 1152
+    }
+  },
+  "DVE024": {
+    "event": {
+      "bag": "rosbag2_2026_08_24-19_24_17",
+      "elapsed_s": "440.410079648",
+      "callback_sequence": "17339",
+      "evaluation_sequence": "1",
+      "input_snapshot_id": "input_ebee5dae5d3afcdb",
+      "ego_snapshot_id": "ego_b5f0c6b097812319",
+      "obstacle_snapshot_id": "obs_b04398ef3221888e",
+      "reference_snapshot_id": "ref_3f5d487564f4ee3d"
+    },
+    "target_domains": {
+      "STRICT_RIGHT": [
+        -0.6600000000000001,
+        -0.45966705945396313
+      ],
+      "STRICT_LEFT": [
+        0.15,
+        0.9600000000000002
+      ],
+      "RELAXED_RIGHT": [
+        -0.6600000000000001,
+        -0.45966705945396313
+      ],
+      "RELAXED_LEFT": [
+        0.15,
+        0.9600000000000002
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.4971684162574945
+      ],
+      [
+        0.5145810930150512,
+        0.6049868191659147
+      ],
+      [
+        0.5145810930150512,
+        3.94735730932694
+      ],
+      [
+        0.5145810930150512,
+        7.397546202396385
+      ],
+      [
+        0.5145814727458835,
+        7.397546202396385
+      ],
+      [
+        0.5145818524767158,
+        7.397546202396385
+      ],
+      [
+        0.5145826119383806,
+        7.397546202396385
+      ],
+      [
+        0.5145841308617101,
+        7.397546202396385
+      ],
+      [
+        0.5145871687083691,
+        7.397546202396385
+      ],
+      [
+        0.514593244401687,
+        7.397546202396385
+      ],
+      [
+        0.5146053957883228,
+        7.397546202396385
+      ],
+      [
+        0.5146296985615942,
+        7.397546202396385
+      ],
+      [
+        0.5146783041081373,
+        7.397546202396385
+      ],
+      [
+        0.5147755152012236,
+        7.397546202396385
+      ],
+      [
+        0.5149699373873959,
+        7.397546202396385
+      ],
+      [
+        0.5153587817597406,
+        7.397546202396385
+      ],
+      [
+        0.51613647050443,
+        7.397546202396385
+      ],
+      [
+        0.5176918479938089,
+        7.397546202396385
+      ],
+      [
+        0.5208026029725666,
+        7.397546202396385
+      ],
+      [
+        0.5270241129300821,
+        7.397546202396385
+      ],
+      [
+        0.5394671328451132,
+        7.397546202396385
+      ],
+      [
+        0.5643531726751752,
+        7.397546202396385
+      ],
+      [
+        0.6141252523352992,
+        7.397546202396385
+      ],
+      [
+        0.7136694116555473,
+        0.4971684162574945
+      ],
+      [
+        0.7136694116555473,
+        7.397546202396385
+      ],
+      [
+        0.9127577302960436,
+        7.397546202396385
+      ],
+      [
+        1.310934367577036,
+        0.6049868191659147
+      ],
+      [
+        1.310934367577036,
+        3.94735730932694
+      ],
+      [
+        1.310934367577036,
+        7.397546202396385
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 119192,
+      "refine": 1981
+    }
+  },
+  "DVE025": {
+    "event": {
+      "bag": "rosbag2_2026_08_25-09_59_22",
+      "elapsed_s": "157.190081808",
+      "callback_sequence": "6371",
+      "evaluation_sequence": "1",
+      "input_snapshot_id": "input_7e7f963257cf07d9",
+      "ego_snapshot_id": "ego_34e7fb29bb288f07",
+      "obstacle_snapshot_id": "obs_7213ca3d71716bab",
+      "reference_snapshot_id": "ref_4dc0768eb37d9590"
+    },
+    "target_domains": {
+      "STRICT_LEFT": [
+        0.2396651784717656,
+        1.0975000000000001
+      ],
+      "RELAXED_LEFT": [
+        0.2396651784717656,
+        1.0975000000000001
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.5921644291425211
+      ],
+      [
+        0.5145810930150512,
+        3.5370408285783457
+      ],
+      [
+        0.5145810930150512,
+        6.576913240899197
+      ],
+      [
+        1.310934367577036,
+        0.5921644291425211
+      ],
+      [
+        1.310934367577036,
+        3.5370408285783457
+      ],
+      [
+        1.310934367577036,
+        6.576913240899197
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 14378,
+      "refine": 1764
+    }
+  },
+  "DVE026": {
+    "event": {
+      "bag": "rosbag2_2026_08_24-19_00_30",
+      "elapsed_s": "540.240106205",
+      "callback_sequence": "19253",
+      "evaluation_sequence": "1",
+      "input_snapshot_id": "input_2591f04a7eb6aab9",
+      "ego_snapshot_id": "ego_86dc1b95239f10b4",
+      "obstacle_snapshot_id": "obs_2ab7cea8dde3b7cb",
+      "reference_snapshot_id": "ref_3f5d487564f4ee3d"
+    },
+    "target_domains": {
+      "STRICT_RIGHT": [
+        -0.6475,
+        -0.5556682137916645
+      ],
+      "STRICT_LEFT": [
+        0.31054882697326147,
+        0.9725000000000001
+      ],
+      "RELAXED_RIGHT": [
+        -0.6475,
+        -0.5556682137916645
+      ],
+      "RELAXED_LEFT": [
+        0.31054882697326147,
+        0.9725000000000001
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.4971684162574945
+      ],
+      [
+        0.7136694116555473,
+        0.4971684162574945
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 4716,
+      "refine": 1008
+    }
+  },
+  "DVE027": {
+    "event": {
+      "bag": "rosbag2_2026_08_24-19_24_17",
+      "elapsed_s": "241.530096499",
+      "callback_sequence": "9676",
+      "evaluation_sequence": "1",
+      "input_snapshot_id": "input_caeb287a1b212148",
+      "ego_snapshot_id": "ego_9199b485dfda42ce",
+      "obstacle_snapshot_id": "obs_89eb6c7d83b3733f",
+      "reference_snapshot_id": "ref_3f5d487564f4ee3d"
+    },
+    "target_domains": {
+      "STRICT_RIGHT": [
+        -0.7725,
+        -0.5254286119081919
+      ],
+      "STRICT_LEFT": [
+        0.15,
+        1.4975
+      ],
+      "RELAXED_RIGHT": [
+        -0.7725,
+        -0.5254286119081919
+      ],
+      "RELAXED_LEFT": [
+        0.15,
+        1.4975
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.4971684162574945
+      ],
+      [
+        0.5145810930150512,
+        0.5888479394644465
+      ],
+      [
+        0.5145810930150512,
+        3.430913158879957
+      ],
+      [
+        0.5145810930150512,
+        6.36465790150242
+      ],
+      [
+        0.7136694116555473,
+        0.4971684162574945
+      ],
+      [
+        1.310934367577036,
+        6.36465790150242
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 29656,
+      "refine": 1792
+    }
+  },
+  "DVE028": {
+    "event": {
+      "bag": "rosbag2_2026_08_24-19_24_17",
+      "elapsed_s": "283.560121394",
+      "callback_sequence": "11330",
+      "evaluation_sequence": "1",
+      "input_snapshot_id": "input_76b75ea160210fd8",
+      "ego_snapshot_id": "ego_a857487f2932eeb3",
+      "obstacle_snapshot_id": "obs_1b1f99f5c898e0c6",
+      "reference_snapshot_id": "ref_3f5d487564f4ee3d"
+    },
+    "target_domains": {
+      "STRICT_RIGHT": [
+        -0.6475,
+        -0.19628117930148958
+      ],
+      "STRICT_LEFT": [
+        0.39739048841144065,
+        0.8975000000000002
+      ],
+      "RELAXED_RIGHT": [
+        -0.6475,
+        -0.19628117930148958
+      ],
+      "RELAXED_LEFT": [
+        0.39739048841144065,
+        0.8975000000000002
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.4971684162574945
+      ],
+      [
+        0.7136694116555473,
+        0.4971684162574945
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 5956,
+      "refine": 792
+    }
+  },
+  "DVE029": {
+    "event": {
+      "bag": "rosbag2_2026_08_24-19_00_30",
+      "elapsed_s": "781.420081134",
+      "callback_sequence": "28697",
+      "evaluation_sequence": "1",
+      "input_snapshot_id": "input_5415f847d940f8fe",
+      "ego_snapshot_id": "ego_55983ac283c6ef7d",
+      "obstacle_snapshot_id": "obs_0c8d49976ddfe16e",
+      "reference_snapshot_id": "ref_3f5d487564f4ee3d"
+    },
+    "target_domains": {
+      "STRICT_RIGHT": [
+        -0.585,
+        -0.40695853087089273
+      ],
+      "STRICT_LEFT": [
+        0.15,
+        0.8475000000000001
+      ],
+      "RELAXED_RIGHT": [
+        -0.585,
+        -0.40695853087089273
+      ],
+      "RELAXED_LEFT": [
+        0.15,
+        0.8475000000000001
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.4971684162574945
+      ],
+      [
+        0.5145810930150512,
+        0.593389663145893
+      ],
+      [
+        0.5145810930150512,
+        3.576248316686247
+      ],
+      [
+        0.5145810930150512,
+        6.655328217115
+      ],
+      [
+        0.5145814727458835,
+        6.655328217115
+      ],
+      [
+        0.5145818524767158,
+        6.655328217115
+      ],
+      [
+        0.5145826119383806,
+        6.655328217115
+      ],
+      [
+        0.5145841308617101,
+        6.655328217115
+      ],
+      [
+        0.5145871687083691,
+        6.655328217115
+      ],
+      [
+        0.514593244401687,
+        6.655328217115
+      ],
+      [
+        0.5146053957883228,
+        6.655328217115
+      ],
+      [
+        0.5146296985615942,
+        6.655328217115
+      ],
+      [
+        0.5146783041081373,
+        6.655328217115
+      ],
+      [
+        0.5147755152012236,
+        6.655328217115
+      ],
+      [
+        0.5149699373873959,
+        6.655328217115
+      ],
+      [
+        0.5153587817597406,
+        6.655328217115
+      ],
+      [
+        0.51613647050443,
+        6.655328217115
+      ],
+      [
+        0.5176918479938089,
+        6.655328217115
+      ],
+      [
+        0.5208026029725666,
+        6.655328217115
+      ],
+      [
+        0.5270241129300821,
+        6.655328217115
+      ],
+      [
+        0.5394671328451132,
+        6.655328217115
+      ],
+      [
+        0.5643531726751752,
+        6.655328217115
+      ],
+      [
+        0.6141252523352992,
+        6.655328217115
+      ],
+      [
+        0.7136694116555473,
+        0.4971684162574945
+      ],
+      [
+        0.7136694116555473,
+        6.655328217115
+      ],
+      [
+        0.9127577302960436,
+        6.655328217115
+      ],
+      [
+        1.310934367577036,
+        0.593389663145893
+      ],
+      [
+        1.310934367577036,
+        3.576248316686247
+      ],
+      [
+        1.310934367577036,
+        6.655328217115
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 104692,
+      "refine": 904
+    }
+  },
+  "DVE030": {
+    "event": {
+      "bag": "rosbag2_2026_08_24-19_00_30",
+      "elapsed_s": "549.62009893",
+      "callback_sequence": "19593",
+      "evaluation_sequence": "1",
+      "input_snapshot_id": "input_2303230a5b6e22c4",
+      "ego_snapshot_id": "ego_7808ee5c3b4cf042",
+      "obstacle_snapshot_id": "obs_eb85be7db25b4bf3",
+      "reference_snapshot_id": "ref_3f5d487564f4ee3d"
+    },
+    "target_domains": {
+      "STRICT_LEFT": [
+        0.27328719588206707,
+        0.9725000000000001
+      ],
+      "RELAXED_LEFT": [
+        0.27328719588206707,
+        0.9725000000000001
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.4971684162574945
+      ],
+      [
+        0.7136694116555473,
+        0.4971684162574945
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 4220,
+      "refine": 1728
+    }
+  },
+  "DVE031": {
+    "event": {
+      "bag": "rosbag2_2026_08_24-19_00_30",
+      "elapsed_s": "501.330131488",
+      "callback_sequence": "17767",
+      "evaluation_sequence": "1",
+      "input_snapshot_id": "input_d0e3ce0e90063b06",
+      "ego_snapshot_id": "ego_a72d5346799deb9b",
+      "obstacle_snapshot_id": "obs_48fcafc5926e0ba2",
+      "reference_snapshot_id": "ref_3f5d487564f4ee3d"
+    },
+    "target_domains": {
+      "STRICT_RIGHT": [
+        -1.1350000000000002,
+        -0.3876991809397833
+      ],
+      "STRICT_LEFT": [
+        0.15,
+        0.7725
+      ],
+      "RELAXED_RIGHT": [
+        -1.1350000000000002,
+        -0.3876991809397833
+      ],
+      "RELAXED_LEFT": [
+        0.15,
+        0.7725
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.4971684162574945
+      ],
+      [
+        0.5145810930150512,
+        0.6049868191659147
+      ],
+      [
+        0.5145810930150512,
+        3.94735730932694
+      ],
+      [
+        0.5145810930150512,
+        7.397546202396385
+      ],
+      [
+        0.7136694116555473,
+        0.4971684162574945
+      ],
+      [
+        1.310934367577036,
+        0.6049868191659147
+      ],
+      [
+        1.310934367577036,
+        3.94735730932694
+      ],
+      [
+        1.310934367577036,
+        7.397546202396385
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 34338,
+      "refine": 660
+    }
+  },
+  "DVE032": {
+    "event": {
+      "bag": "rosbag2_2026_08_24-19_00_30",
+      "elapsed_s": "541.540084109",
+      "callback_sequence": "19304",
+      "evaluation_sequence": "1",
+      "input_snapshot_id": "input_2ea57706fda35620",
+      "ego_snapshot_id": "ego_09a34acdef3981c0",
+      "obstacle_snapshot_id": "obs_2729f14befdd0639",
+      "reference_snapshot_id": "ref_3f5d487564f4ee3d"
+    },
+    "target_domains": {
+      "STRICT_LEFT": [
+        0.482473732234475,
+        0.9600000000000002
+      ],
+      "RELAXED_LEFT": [
+        0.482473732234475,
+        0.9600000000000002
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.4971684162574945
+      ],
+      [
+        0.7136694116555473,
+        0.4971684162574945
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 3228,
+      "refine": 2226
+    }
+  },
+  "DVE033": {
+    "event": {
+      "bag": "rosbag2_2026_08_24-19_00_30",
+      "elapsed_s": "539.020313429",
+      "callback_sequence": "19212",
+      "evaluation_sequence": "1",
+      "input_snapshot_id": "input_2260f7231b3f2993",
+      "ego_snapshot_id": "ego_20621b9919566c7b",
+      "obstacle_snapshot_id": "obs_bd4680c4cb8bd9eb",
+      "reference_snapshot_id": "ref_3f5d487564f4ee3d"
+    },
+    "target_domains": {
+      "STRICT_RIGHT": [
+        -0.6475,
+        -0.3967704986800383
+      ],
+      "STRICT_LEFT": [
+        0.4756921859053121,
+        0.9725000000000001
+      ],
+      "RELAXED_RIGHT": [
+        -0.6475,
+        -0.3967704986800383
+      ],
+      "RELAXED_LEFT": [
+        0.4756921859053121,
+        0.9725000000000001
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.4971684162574945
+      ],
+      [
+        0.7136694116555473,
+        0.4971684162574945
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 4964,
+      "refine": 1384
+    }
+  },
+  "DVE034": {
+    "event": {
+      "bag": "rosbag2_2026_08_24-19_00_30",
+      "elapsed_s": "431.040090643",
+      "callback_sequence": "15245",
+      "evaluation_sequence": "1",
+      "input_snapshot_id": "input_f1b20b049f4f1e7b",
+      "ego_snapshot_id": "ego_3c3fe730b31bbf53",
+      "obstacle_snapshot_id": "obs_edc4090519e1cef8",
+      "reference_snapshot_id": "ref_3f5d487564f4ee3d"
+    },
+    "target_domains": {
+      "STRICT_RIGHT": [
+        -0.71,
+        -0.6221953008839884
+      ],
+      "RELAXED_RIGHT": [
+        -0.71,
+        -0.6221953008839884
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.4971684162574945
+      ],
+      [
+        0.7136694116555473,
+        0.4971684162574945
+      ],
+      [
+        0.7136694116555473,
+        2.222262862792217
+      ],
+      [
+        1.310934367577036,
+        0.6049868191659147
+      ],
+      [
+        1.310934367577036,
+        7.397546202396385
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 4492,
+      "refine": 1314
+    }
+  },
+  "DVE035": {
+    "event": {
+      "bag": "rosbag2_2026_08_24-19_00_30",
+      "elapsed_s": "463.120114542",
+      "callback_sequence": "16296",
+      "evaluation_sequence": "1",
+      "input_snapshot_id": "input_9d39f739df3c334c",
+      "ego_snapshot_id": "ego_a1a8a27bec1727a7",
+      "obstacle_snapshot_id": "obs_3c867bb75f212e3f",
+      "reference_snapshot_id": "ref_3f5d487564f4ee3d"
+    },
+    "target_domains": {
+      "STRICT_LEFT": [
+        0.38161069420339233,
+        0.7850000000000001
+      ],
+      "RELAXED_LEFT": [
+        0.38161069420339233,
+        0.7850000000000001
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.4971684162574945
+      ],
+      [
+        0.5145810930150512,
+        0.5923733595692273
+      ],
+      [
+        0.5145810930150512,
+        3.5437266022329443
+      ],
+      [
+        0.5145810930150512,
+        6.590284788208394
+      ],
+      [
+        0.7136694116555473,
+        0.4971684162574945
+      ],
+      [
+        1.310934367577036,
+        0.5923733595692273
+      ],
+      [
+        1.310934367577036,
+        3.5437266022329443
+      ],
+      [
+        1.310934367577036,
+        6.590284788208394
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 11104,
+      "refine": 1800
+    }
+  },
+  "DVE036": {
+    "event": {
+      "bag": "rosbag2_2026_08_24-19_24_17",
+      "elapsed_s": "688.580130043",
+      "callback_sequence": "26697",
+      "evaluation_sequence": "1",
+      "input_snapshot_id": "input_598015aa27edc053",
+      "ego_snapshot_id": "ego_bdf2e563b39548ea",
+      "obstacle_snapshot_id": "obs_1549e5381a20068c",
+      "reference_snapshot_id": "ref_3f5d487564f4ee3d"
+    },
+    "target_domains": {
+      "STRICT_RIGHT": [
+        -1.0350000000000001,
+        -0.19458925552305367
+      ],
+      "STRICT_LEFT": [
+        0.2736324204897088,
+        0.8475000000000001
+      ],
+      "RELAXED_RIGHT": [
+        -1.0350000000000001,
+        -0.19458925552305367
+      ],
+      "RELAXED_LEFT": [
+        0.2736324204897088,
+        0.8475000000000001
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.6049868191659147
+      ],
+      [
+        0.5145810930150512,
+        3.94735730932694
+      ],
+      [
+        0.5145810930150512,
+        7.397546202396385
+      ],
+      [
+        1.310934367577036,
+        0.6049868191659147
+      ],
+      [
+        1.310934367577036,
+        3.94735730932694
+      ],
+      [
+        1.310934367577036,
+        7.397546202396385
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 25358,
+      "refine": 1100
+    }
+  },
+  "DVE037": {
+    "event": {
+      "bag": "rosbag2_2026_08_24-19_00_30",
+      "elapsed_s": "690.370080558",
+      "callback_sequence": "25075",
+      "evaluation_sequence": "1",
+      "input_snapshot_id": "input_3efc43506f140ae9",
+      "ego_snapshot_id": "ego_767c4c16c7049274",
+      "obstacle_snapshot_id": "obs_b0980d79e7351e19",
+      "reference_snapshot_id": "ref_3f5d487564f4ee3d"
+    },
+    "target_domains": {
+      "STRICT_RIGHT": [
+        -1.11,
+        -0.5167417354954325
+      ],
+      "STRICT_LEFT": [
+        0.2544249849817284,
+        0.8225
+      ],
+      "RELAXED_RIGHT": [
+        -1.11,
+        -0.5167417354954325
+      ],
+      "RELAXED_LEFT": [
+        0.2544249849817284,
+        0.8225
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.4971684162574945
+      ],
+      [
+        0.7136694116555473,
+        0.4971684162574945
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 7062,
+      "refine": 2364
+    }
+  },
+  "DVE038": {
+    "event": {
+      "bag": "rosbag2_2026_08_25-09_59_22",
+      "elapsed_s": "955.040083764",
+      "callback_sequence": "36595",
+      "evaluation_sequence": "1",
+      "input_snapshot_id": "input_4b8a8ea42f2361cd",
+      "ego_snapshot_id": "ego_a58588c203576036",
+      "obstacle_snapshot_id": "obs_00fd63085944bd55",
+      "reference_snapshot_id": "ref_4dc0768eb37d9590"
+    },
+    "target_domains": {
+      "STRICT_RIGHT": [
+        -0.7225000000000001,
+        -0.4744513939744379
+      ],
+      "STRICT_LEFT": [
+        0.19616567566948911,
+        0.76
+      ],
+      "RELAXED_RIGHT": [
+        -0.7225000000000001,
+        -0.4744513939744379
+      ],
+      "RELAXED_LEFT": [
+        0.19616567566948911,
+        0.76
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.4971684162574945
+      ],
+      [
+        0.7136694116555473,
+        0.4971684162574945
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 5460,
+      "refine": 1694
+    }
+  },
+  "DVE039": {
+    "event": {
+      "bag": "rosbag2_2026_08_25-09_59_22",
+      "elapsed_s": "1016.13025888",
+      "callback_sequence": "39020",
+      "evaluation_sequence": "1",
+      "input_snapshot_id": "input_5a7b558eb17ae16d",
+      "ego_snapshot_id": "ego_275068b987ed5725",
+      "obstacle_snapshot_id": "obs_61d649fd8de7e3a3",
+      "reference_snapshot_id": "ref_4dc0768eb37d9590"
+    },
+    "target_domains": {
+      "STRICT_RIGHT": [
+        -0.8225,
+        -0.4368537982807025
+      ],
+      "STRICT_LEFT": [
+        0.28893162081239143,
+        0.9475
+      ],
+      "RELAXED_RIGHT": [
+        -0.8225,
+        -0.4368537982807025
+      ],
+      "RELAXED_LEFT": [
+        0.28893162081239143,
+        0.9475
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.4971684162574945
+      ],
+      [
+        0.5145810930150512,
+        0.5794025890870645
+      ],
+      [
+        0.5145810930150512,
+        3.1286619468037347
+      ],
+      [
+        0.5145810930150512,
+        5.760155477349975
+      ],
+      [
+        0.7136694116555473,
+        0.4971684162574945
+      ],
+      [
+        0.7136694116555473,
+        1.8129151815306146
+      ],
+      [
+        0.7136694116555473,
+        2.222262862792217
+      ],
+      [
+        1.310934367577036,
+        0.5794025890870645
+      ],
+      [
+        1.310934367577036,
+        0.6049868191659147
+      ],
+      [
+        1.310934367577036,
+        3.1286619468037347
+      ],
+      [
+        1.310934367577036,
+        5.760155477349975
+      ],
+      [
+        1.310934367577036,
+        7.397546202396385
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 51372,
+      "refine": 1598
+    }
+  },
+  "DVE040": {
+    "event": {
+      "bag": "rosbag2_2026_08_25-09_59_22",
+      "elapsed_s": "157.120087446",
+      "callback_sequence": "6368",
+      "evaluation_sequence": "1",
+      "input_snapshot_id": "input_b225bfe0b8cafdc8",
+      "ego_snapshot_id": "ego_47c1391ce7245e6c",
+      "obstacle_snapshot_id": "obs_14a66721633bb718",
+      "reference_snapshot_id": "ref_4dc0768eb37d9590"
+    },
+    "target_domains": {
+      "STRICT_LEFT": [
+        0.2261569025686936,
+        1.0975000000000001
+      ],
+      "RELAXED_LEFT": [
+        0.2261569025686936,
+        1.0975000000000001
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.5919207127660597
+      ],
+      [
+        0.5145810930150512,
+        3.5292419045315793
+      ],
+      [
+        0.5145810930150512,
+        6.561315392805664
+      ],
+      [
+        1.310934367577036,
+        0.5919207127660597
+      ],
+      [
+        1.310934367577036,
+        3.5292419045315793
+      ],
+      [
+        1.310934367577036,
+        6.561315392805664
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 14378,
+      "refine": 1464
+    }
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "template_case_count": 13,
+  "minimum_route_option_failure_counts": {
+    "COVERAGE_FAILURE_MISSING_OPTION": 9,
+    "SELECTION_FAILURE_WITH_EXISTING_OPTION": 4
+  },
+  "other_refined_counts": {
+    "INTERACTION_OF_MULTIPLE_EXISTING_PARAMETERS": 5,
+    "TRUE_UNCLASSIFIED_MECHANISM__D_TARGET_ONLY_COVERAGE_GAP": 1
+  },
+  "best_scale_pair_coverage": [
+    {
+      "budget": 1,
+      "covered": 16,
+      "fraction": 0.6956521739130435
+    },
+    {
+      "budget": 2,
+      "covered": 21,
+      "fraction": 0.9130434782608695
+    },
+    {
+      "budget": 3,
+      "covered": 22,
+      "fraction": 0.9565217391304348
+    },
+    {
+      "budget": 4,
+      "covered": 23,
+      "fraction": 1.0
+    },
+    {
+      "budget": 5,
+      "covered": 23,
+      "fraction": 1.0
+    }
+  ],
+  "new_oracle_searches_run": 0,
+  "validation_or_holdout_rows_read": 0
+}

@@ -1,0 +1,194 @@
+diff --git a/src/local_planning/CMakeLists.txt b/src/local_planning/CMakeLists.txt
+index 2ecbd299..d088ddf9 100644
+--- a/src/local_planning/CMakeLists.txt
++++ b/src/local_planning/CMakeLists.txt
+@@ -42,6 +42,10 @@ add_executable(local_planner_node src/local_planner_main.cpp)
+ ament_target_dependencies(local_planner_node rclcpp)
+ target_link_libraries(local_planner_node local_planner_core)
+ 
++# Detached audit-only target. This source tree lives under /tmp and is not the production checkout.
++add_executable(p3_family_oracle_harness test/p3_family_oracle_harness.cpp)
++target_link_libraries(p3_family_oracle_harness local_planner_core)
++
+ install(TARGETS
+   local_planner_node
+   DESTINATION lib/${PROJECT_NAME}
+diff --git a/src/local_planning/include/local_planning/raceline_spline_planner.hpp b/src/local_planning/include/local_planning/raceline_spline_planner.hpp
+index d9028298..f87d2d48 100644
+--- a/src/local_planning/include/local_planning/raceline_spline_planner.hpp
++++ b/src/local_planning/include/local_planning/raceline_spline_planner.hpp
+@@ -645,6 +645,22 @@ public:
+     const std::string & p0_failure_reason,
+     const std::string & research_evaluation_role = "") const;
+ 
++  // Detached oracle-harness adapters. They expose the frozen production construction and
++  // validator chain without changing generator policy or any runtime call site.
++  P3ShadowPlanningContext inspectP3OracleContext(
++    const EgoFrenetState & ego,
++    const std::vector<f110_msgs::msg::Obstacle> & obstacles,
++    bool relaxed_clearance_gate = false) const;
++  P3ShadowCandidateTrace evaluateP3OracleCandidate(
++    const EgoFrenetState & ego,
++    const std::vector<f110_msgs::msg::Obstacle> & obstacles,
++    bool go_left,
++    double d_target,
++    double d_mid,
++    double entry_scale,
++    double exit_scale,
++    bool relaxed_clearance_gate = false) const;
++
+   // 위 함수가 try로 감싸는 실제 구현. 예외를 그대로 던지므로 직접 부르지 말 것.
+   P3ShadowResult evaluateP3ShadowUnguarded(
+     const EgoFrenetState & ego,
+diff --git a/src/local_planning/src/p3_shadow.cpp b/src/local_planning/src/p3_shadow.cpp
+index 5a2f9432..9632242e 100644
+--- a/src/local_planning/src/p3_shadow.cpp
++++ b/src/local_planning/src/p3_shadow.cpp
+@@ -231,6 +231,66 @@ public:
+     return count < 2U ? 0.25 : planner_.trackLength() / static_cast<double>(count);
+   }
+ 
++  P3ShadowCandidateTrace oracleCandidate(
++    const EgoFrenetState & ego,
++    const std::vector<f110_msgs::msg::Obstacle> & obstacles,
++    bool go_left,
++    double d_target,
++    double d_mid,
++    double entry_scale,
++    double exit_scale,
++    bool relaxed_clearance_gate) const
++  {
++    const P3ShadowPlanningContext context = planner_.buildP3ShadowPlanningContext(
++      ego, obstacles, relaxed_clearance_gate);
++    if (!context.valid) {
++      throw std::runtime_error("oracle context unavailable: " + context.reason);
++    }
++    const P3ShadowSideDomain & domain = go_left ? context.left : context.right;
++    if (!domain.valid) {
++      throw std::runtime_error("oracle side unavailable: " + domain.reason);
++    }
++    cycle_cluster_ids_ = context.cluster_ids;
++    const auto stations = stationsFor(
++      parameters_, domain, context.outside_is_left, entry_scale, exit_scale,
++      ego.d, d_target, referenceSpacing());
++    double reconstruction_us = 0.0;
++    double validation_us = 0.0;
++    P3ShadowCandidateTrace trace;
++    try {
++      trace = buildCandidate(
++        ego, obstacles, go_left, context.outside_is_left, d_target, d_mid,
++        entry_scale, exit_scale, stations, 0U, reconstruction_us, validation_us);
++    } catch (const std::runtime_error & error) {
++      if (std::string(error.what()) != "non-positive quintic-Hermite segment") {
++        throw;
++      }
++      trace.go_left = go_left;
++      trace.d_target = d_target;
++      trace.d_mid = d_mid;
++      trace.entry_scale = entry_scale;
++      trace.exit_scale = exit_scale;
++      trace.knot_stations = stations;
++      trace.rejection_reason = error.what();
++    }
++    if (!trace.path.wpnts.empty()) {
++      const auto waypoint0 = planner_.measureFootprintTrackBound(trace.path.wpnts.front(), 0U);
++      trace.waypoint0_s_m = waypoint0.waypoint_s_m;
++      trace.waypoint0_d_m = trace.path.wpnts.front().d_m;
++      trace.waypoint0_x_m = waypoint0.waypoint_x_m;
++      trace.waypoint0_y_m = waypoint0.waypoint_y_m;
++      trace.waypoint0_yaw_rad = waypoint0.waypoint_yaw_rad;
++      trace.waypoint0_center_track_margin_m = waypoint0.centerline_clearance_m;
++      trace.waypoint0_footprint_track_margin_m = waypoint0.footprint_clearance_m;
++      trace.waypoint0_footprint_invalid = waypoint0.invalid;
++    }
++    trace.generator_stage = "ORACLE_GRID";
++    trace.candidate_template = "FROZEN_P3_FAMILY";
++    trace.mapping_source = "AUDIT_ONLY_DETERMINISTIC_ORACLE";
++    trace.source_cell = relaxed_clearance_gate ? "RELAXED_DOMAIN" : "STRICT_DOMAIN";
++    return trace;
++  }
++
+ private:
+   // 이 사이클이 책임지는 클러스터. buildCandidate가 검증 지평을 구할 때 필요한데 호출
+   // 경로가 셋(M0/M0확장/M1)이라 인자로 흘리면 시그니처 셋이 다 바뀐다. 평가기는
+@@ -1339,6 +1399,30 @@ private:
+     p3_analytic_solver::sortAndDeduplicate(result.branch);
+     p3_analytic_solver::sortAndDeduplicate(result.bounded);
+     p3_analytic_solver::sortAndDeduplicate(result.accepted);
++    if (std::getenv("P3_MAPPING_SOLVE_TRACE") != nullptr) {
++      const auto vector_text = [](const std::vector<double> & values) {
++          std::ostringstream stream;
++          stream << std::setprecision(17);
++          for (std::size_t index = 0U; index < values.size(); ++index) {
++            if (index != 0U) {
++              stream << ',';
++            }
++            stream << values[index];
++          }
++          return stream.str();
++        };
++      std::ostringstream stream;
++      stream << std::setprecision(17) << "AUDIT_SOLVE\tACTIVE_OUTER\t" << ego_d << '\t' <<
++        target << '\t' << station << '\t' << desired << '\t' << lower << '\t' << upper;
++      for (const double value : stations) {
++        stream << '\t' << value;
++      }
++      stream << '\t' << result.algebraic.equation_class << '\t' <<
++        vector_text(result.algebraic.raw_roots) << '\t' << vector_text(result.finite) << '\t' <<
++        vector_text(result.branch) << '\t' << vector_text(result.bounded) << '\t' <<
++        vector_text(result.accepted) << '\n';
++      std::fputs(stream.str().c_str(), stderr);
++    }
+     if (research_cycle != nullptr) {
+       research_cycle->runtime_root_solve_us += elapsedUs(research_start);
+     }
+@@ -1755,6 +1839,19 @@ private:
+     if (std::abs(residual) <= 1.0e-12 * std::max(1.0, std::abs(desired))) {
+       result.accepted.push_back(root);
+     }
++    if (std::getenv("P3_MAPPING_SOLVE_TRACE") != nullptr) {
++      std::ostringstream stream;
++      stream << std::setprecision(17) << "AUDIT_SOLVE\tALL_INACTIVE\t" << ego_d << '\t' <<
++        target << '\t' << station << '\t' << desired << '\t' << lower << '\t' << upper;
++      for (const double value : stations) {
++        stream << '\t' << value;
++      }
++      stream << "\tLINEAR_ONE_ROOT\t" << root << "\t" << root << "\t" <<
++        (result.branch_roots ? std::to_string(root) : std::string()) << "\t" <<
++        (result.bounded_roots ? std::to_string(root) : std::string()) << "\t" <<
++        (result.accepted.empty() ? std::string() : std::to_string(root)) << '\n';
++      std::fputs(stream.str().c_str(), stderr);
++    }
+     return result;
+   }
+ 
+@@ -2537,6 +2634,29 @@ private:
+   const RacelineSplineParameters & parameters_;
+ };
+ 
++P3ShadowPlanningContext RacelineSplinePlanner::inspectP3OracleContext(
++  const EgoFrenetState & ego,
++  const std::vector<f110_msgs::msg::Obstacle> & obstacles,
++  bool relaxed_clearance_gate) const
++{
++  return buildP3ShadowPlanningContext(ego, obstacles, relaxed_clearance_gate);
++}
++
++P3ShadowCandidateTrace RacelineSplinePlanner::evaluateP3OracleCandidate(
++  const EgoFrenetState & ego,
++  const std::vector<f110_msgs::msg::Obstacle> & obstacles,
++  bool go_left,
++  double d_target,
++  double d_mid,
++  double entry_scale,
++  double exit_scale,
++  bool relaxed_clearance_gate) const
++{
++  return P3ShadowEvaluator(*this).oracleCandidate(
++    ego, obstacles, go_left, d_target, d_mid, entry_scale, exit_scale,
++    relaxed_clearance_gate);
++}
++
+ P3ShadowResult RacelineSplinePlanner::evaluateP3Shadow(
+   const EgoFrenetState & ego,
+   const std::vector<f110_msgs::msg::Obstacle> & obstacles,

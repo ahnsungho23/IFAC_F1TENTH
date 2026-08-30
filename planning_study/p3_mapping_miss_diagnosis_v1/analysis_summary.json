@@ -1,0 +1,23 @@
+{
+  "direct_event_ids_derived": [
+    "V2E01",
+    "V2E02",
+    "V2E08"
+  ],
+  "event_dominant_classification": {
+    "V2E01": "D_PROBE_DOMINANT",
+    "V2E02": "D_PROBE_DOMINANT",
+    "V2E08": "ROOT_FILTERING_DOMINANT"
+  },
+  "production_source_head": "80ae205fd470f537bd1e5449fb906c5548f6653a",
+  "all_events_label": "PILOT_SEEN_DEVELOPMENT_DATA",
+  "v2e03": {
+    "production_target": 0.19958710018478393,
+    "production_mid": 0.19958710018478393,
+    "production_entry": 0.5145810930150512,
+    "production_exit": 0.4971684162574945,
+    "oracle_valid_entry": 0.5145810930150512,
+    "oracle_valid_exit": 6.620727869394503,
+    "oracle_minimum_normalized_safety_slack": 0.009441546991508065
+  }
+}

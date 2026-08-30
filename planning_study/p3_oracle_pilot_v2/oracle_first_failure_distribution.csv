@@ -1,0 +1,54 @@
+event_id,first_failure_reason,count
+V2E01,non-positive quintic-Hermite segment,27750
+V2E01,quintic d-offset exceeds maximum_lateral_slope,740
+V2E01,d-offset leaves the global waypoint track bounds,728
+V2E01,footprint_track_bound,542
+V2E01,shifted race line exceeds left control steering curvature,284
+V2E01,shifted race line exceeds right control steering curvature,58
+V2E02,non-positive quintic-Hermite segment,6048
+V2E02,quintic d-offset exceeds maximum_lateral_slope,782
+V2E02,shifted race line exceeds right control steering curvature,748
+V2E02,shifted race line exceeds left control steering curvature,536
+V2E02,footprint_track_bound,482
+V2E02,d-offset intersects an inflated static-obstacle box,336
+V2E02,d-offset leaves the global waypoint track bounds,316
+V2E03,non-positive quintic-Hermite segment,17680
+V2E03,shifted race line exceeds left control steering curvature,1336
+V2E03,quintic d-offset exceeds maximum_lateral_slope,963
+V2E03,shifted race line exceeds right control steering curvature,873
+V2E03,d-offset leaves the global waypoint track bounds,770
+V2E03,footprint_track_bound,768
+V2E03,d-offset intersects an inflated static-obstacle box,400
+V2E03,path entry is discontinuous from the current ego d,16
+V2E04,footprint_track_bound,15208
+V2E05,footprint_track_bound,5012
+V2E05,non-positive quintic-Hermite segment,992
+V2E05,shifted race line exceeds left control steering curvature,762
+V2E05,quintic d-offset exceeds maximum_lateral_slope,574
+V2E05,shifted race line exceeds right control steering curvature,368
+V2E05,d-offset leaves the global waypoint track bounds,6
+V2E05,d-offset intersects an inflated static-obstacle box,2
+V2E06,d-offset intersects an inflated static-obstacle box,52232
+V2E07,non-positive quintic-Hermite segment,2480
+V2E07,quintic d-offset exceeds maximum_lateral_slope,2456
+V2E07,shifted race line exceeds left control steering curvature,658
+V2E07,shifted race line exceeds right control steering curvature,656
+V2E07,d-offset leaves the global waypoint track bounds,112
+V2E07,footprint_track_bound,64
+V2E07,d-offset intersects an inflated static-obstacle box,24
+V2E07,shifted race line exceeds maximum_curvature_rate_radpm2,24
+V2E08,non-positive quintic-Hermite segment,9504
+V2E08,d-offset intersects an inflated static-obstacle box,2598
+V2E08,shifted race line exceeds left control steering curvature,1298
+V2E08,quintic d-offset exceeds maximum_lateral_slope,1076
+V2E08,footprint_track_bound,846
+V2E08,shifted race line exceeds right control steering curvature,699
+V2E08,d-offset leaves the global waypoint track bounds,276
+V2E08,path entry is discontinuous from the current ego d,160
+V2E09,non-positive quintic-Hermite segment,3224
+V2E09,shifted race line exceeds left control steering curvature,1748
+V2E09,quintic d-offset exceeds maximum_lateral_slope,358
+V2E09,d-offset leaves the global waypoint track bounds,144
+V2E09,d-offset intersects an inflated static-obstacle box,114
+V2E09,footprint_track_bound,28
+V2E09,shifted race line exceeds right control steering curvature,12

@@ -1,0 +1,566 @@
+{
+  "V2E01": {
+    "event": {
+      "bag": "rosbag2_2026_08_24-19_24_17",
+      "elapsed_s": "721.860092154",
+      "callback_sequence": "28019",
+      "evaluation_sequence": "2",
+      "input_snapshot_id": "input_a8ec4988462399a8",
+      "ego_snapshot_id": "ego_990e2e93806512d0",
+      "obstacle_snapshot_id": "obs_2e1448b268b59468",
+      "reference_snapshot_id": "ref_3f5d487564f4ee3d"
+    },
+    "target_domains": {
+      "STRICT_RIGHT": [
+        -0.8975000000000002,
+        -0.45687960954981943
+      ],
+      "STRICT_LEFT": [
+        0.15,
+        0.8600000000000001
+      ],
+      "RELAXED_RIGHT": [
+        -0.8975000000000002,
+        -0.45687960954981943
+      ],
+      "RELAXED_LEFT": [
+        0.15,
+        0.8600000000000001
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.4971684162574945
+      ],
+      [
+        0.5145810930150512,
+        0.6049868191659147
+      ],
+      [
+        0.5145810930150512,
+        3.94735730932694
+      ],
+      [
+        0.5145810930150512,
+        7.397546202396385
+      ],
+      [
+        0.7136694116555473,
+        0.4971684162574945
+      ],
+      [
+        1.310934367577036,
+        0.6049868191659147
+      ],
+      [
+        1.310934367577036,
+        3.94735730932694
+      ],
+      [
+        1.310934367577036,
+        7.397546202396385
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 29138,
+      "refine": 1208
+    }
+  },
+  "V2E02": {
+    "event": {
+      "bag": "rosbag2_2026_08_24-19_00_30",
+      "elapsed_s": "920.020217297",
+      "callback_sequence": "33976",
+      "evaluation_sequence": "2",
+      "input_snapshot_id": "input_645b00b881df6758",
+      "ego_snapshot_id": "ego_b58db822e7396c3d",
+      "obstacle_snapshot_id": "obs_53c472e6879e97d8",
+      "reference_snapshot_id": "ref_3f5d487564f4ee3d"
+    },
+    "target_domains": {
+      "STRICT_RIGHT": [
+        -0.7725,
+        -0.5608157329002084
+      ],
+      "STRICT_LEFT": [
+        0.15,
+        0.81
+      ],
+      "RELAXED_RIGHT": [
+        -0.7725,
+        -0.5608157329002084
+      ],
+      "RELAXED_LEFT": [
+        0.15,
+        0.81
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.4971684162574945
+      ],
+      [
+        0.7136694116555473,
+        0.4971684162574945
+      ],
+      [
+        1.310934367577036,
+        6.630707249408404
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 8700,
+      "refine": 1158
+    }
+  },
+  "V2E03": {
+    "event": {
+      "bag": "rosbag2_2026_08_25-09_59_22",
+      "elapsed_s": "157.790274414",
+      "callback_sequence": "6394",
+      "evaluation_sequence": "2",
+      "input_snapshot_id": "input_24190b2cad858546",
+      "ego_snapshot_id": "ego_5aad1456e138fa99",
+      "obstacle_snapshot_id": "obs_5de923c94deee105",
+      "reference_snapshot_id": "ref_4dc0768eb37d9590"
+    },
+    "target_domains": {
+      "STRICT_LEFT": [
+        0.1853345144734313,
+        1.0975000000000001
+      ],
+      "RELAXED_LEFT": [
+        0.1853345144734313,
+        1.0975000000000001
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.4971684162574945
+      ],
+      [
+        0.5145810930150512,
+        0.5928490327127602
+      ],
+      [
+        0.5145810930150512,
+        3.5589481428259986
+      ],
+      [
+        0.5145810930150512,
+        6.620727869394503
+      ],
+      [
+        0.7136694116555473,
+        0.4971684162574945
+      ],
+      [
+        1.310934367577036,
+        0.5928490327127602
+      ],
+      [
+        1.310934367577036,
+        3.5589481428259986
+      ],
+      [
+        1.310934367577036,
+        6.620727869394503
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 21858,
+      "refine": 962
+    }
+  },
+  "V2E04": {
+    "event": {
+      "bag": "rosbag2_2026_08_25-09_59_22",
+      "elapsed_s": "671.170114851",
+      "callback_sequence": "25383",
+      "evaluation_sequence": "2",
+      "input_snapshot_id": "input_c3ff4ba7f2e4a225",
+      "ego_snapshot_id": "ego_00b8ffdde7cd5cd0",
+      "obstacle_snapshot_id": "obs_5b80cc6b78418464",
+      "reference_snapshot_id": "ref_4dc0768eb37d9590"
+    },
+    "target_domains": {
+      "STRICT_LEFT": [
+        0.15,
+        0.8725
+      ],
+      "RELAXED_LEFT": [
+        0.15,
+        0.8725
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.4971684162574945
+      ],
+      [
+        0.7136694116555473,
+        0.4971684162574945
+      ],
+      [
+        0.7136694116555473,
+        1.5297951041989524
+      ],
+      [
+        1.310934367577036,
+        0.5617075842538356
+      ],
+      [
+        1.310934367577036,
+        4.627675168023326
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 12812,
+      "refine": 2396
+    }
+  },
+  "V2E05": {
+    "event": {
+      "bag": "rosbag2_2026_08_24-19_00_30",
+      "elapsed_s": "577.84009522",
+      "callback_sequence": "20689",
+      "evaluation_sequence": "2",
+      "input_snapshot_id": "input_ff0e4aabe90dd592",
+      "ego_snapshot_id": "ego_a0caf5c61a06d65c",
+      "obstacle_snapshot_id": "obs_df6fd9330849475b",
+      "reference_snapshot_id": "ref_3f5d487564f4ee3d"
+    },
+    "target_domains": {
+      "STRICT_RIGHT": [
+        -0.935,
+        -0.15
+      ],
+      "STRICT_LEFT": [
+        0.7322103296603543,
+        0.8350000000000002
+      ],
+      "RELAXED_RIGHT": [
+        -0.935,
+        -0.15
+      ],
+      "RELAXED_LEFT": [
+        0.7322103296603543,
+        0.8350000000000002
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.4971684162574945
+      ],
+      [
+        0.7136694116555473,
+        0.4971684162574945
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 5460,
+      "refine": 2256
+    }
+  },
+  "V2E06": {
+    "event": {
+      "bag": "rosbag2_2026_08_24-19_00_30",
+      "elapsed_s": "786.320082278",
+      "callback_sequence": "28885",
+      "evaluation_sequence": "2",
+      "input_snapshot_id": "input_fe84e355d169104f",
+      "ego_snapshot_id": "ego_8268cc3fba5172b1",
+      "obstacle_snapshot_id": "obs_6336a74e373c764d",
+      "reference_snapshot_id": "ref_3f5d487564f4ee3d"
+    },
+    "target_domains": {
+      "STRICT_RIGHT": [
+        -0.585,
+        -0.35146790418236995
+      ],
+      "STRICT_LEFT": [
+        0.15,
+        0.8475000000000001
+      ],
+      "RELAXED_RIGHT": [
+        -0.585,
+        -0.35146790418236995
+      ],
+      "RELAXED_LEFT": [
+        0.15,
+        0.8475000000000001
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.4971684162574945
+      ],
+      [
+        0.5145810930150512,
+        0.6049868191659147
+      ],
+      [
+        0.5145810930150512,
+        3.94735730932694
+      ],
+      [
+        0.5145810930150512,
+        7.397546202396385
+      ],
+      [
+        0.7136694116555473,
+        0.4971684162574945
+      ],
+      [
+        0.7136694116555473,
+        1.8596451391495756
+      ],
+      [
+        0.7136694116555473,
+        2.222262862792217
+      ],
+      [
+        1.310934367577036,
+        0.5823232114382496
+      ],
+      [
+        1.310934367577036,
+        0.6049868191659147
+      ],
+      [
+        1.310934367577036,
+        3.94735730932694
+      ],
+      [
+        1.310934367577036,
+        5.947075307825819
+      ],
+      [
+        1.310934367577036,
+        7.397546202396385
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 49772,
+      "refine": 2460
+    }
+  },
+  "V2E07": {
+    "event": {
+      "bag": "rosbag2_2026_08_24-19_00_30",
+      "elapsed_s": "552.200231483",
+      "callback_sequence": "19683",
+      "evaluation_sequence": "2",
+      "input_snapshot_id": "input_5d2a7fc65a9acf60",
+      "ego_snapshot_id": "ego_c2651cfae2a2aef2",
+      "obstacle_snapshot_id": "obs_66be48f5ca780bcd",
+      "reference_snapshot_id": "ref_3f5d487564f4ee3d"
+    },
+    "target_domains": {
+      "STRICT_LEFT": [
+        0.3104186070520835,
+        0.9725000000000001
+      ],
+      "RELAXED_LEFT": [
+        0.3104186070520835,
+        0.9725000000000001
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.4971684162574945
+      ],
+      [
+        0.7136694116555473,
+        0.4971684162574945
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 3972,
+      "refine": 2502
+    }
+  },
+  "V2E08": {
+    "event": {
+      "bag": "rosbag2_2026_08_25-09_23_32",
+      "elapsed_s": "6.410459678",
+      "callback_sequence": "358",
+      "evaluation_sequence": "2",
+      "input_snapshot_id": "input_c188350a33bf060b",
+      "ego_snapshot_id": "ego_6e54d6b4942b4df9",
+      "obstacle_snapshot_id": "obs_9e69e85fcbed6bfe",
+      "reference_snapshot_id": "ref_4dc0768eb37d9590"
+    },
+    "target_domains": {
+      "STRICT_RIGHT": [
+        -0.7475,
+        -0.15
+      ],
+      "RELAXED_RIGHT": [
+        -0.7475,
+        -0.15
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.4971684162574945
+      ],
+      [
+        0.5145810930150512,
+        0.6049868191659147
+      ],
+      [
+        0.5145810930150512,
+        3.94735730932694
+      ],
+      [
+        0.5145810930150512,
+        7.397546202396385
+      ],
+      [
+        0.7136694116555473,
+        0.4971684162574945
+      ],
+      [
+        1.310934367577036,
+        0.6049868191659147
+      ],
+      [
+        1.310934367577036,
+        3.94735730932694
+      ],
+      [
+        1.310934367577036,
+        7.397546202396385
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 15858,
+      "refine": 2048
+    }
+  },
+  "V2E09": {
+    "event": {
+      "bag": "rosbag2_2026_08_25-09_59_22",
+      "elapsed_s": "538.290114425",
+      "callback_sequence": "20095",
+      "evaluation_sequence": "2",
+      "input_snapshot_id": "input_41612a91b96e6838",
+      "ego_snapshot_id": "ego_3be254b1e844ebd0",
+      "obstacle_snapshot_id": "obs_8686dbf1d67609d0",
+      "reference_snapshot_id": "ref_4dc0768eb37d9590"
+    },
+    "target_domains": {
+      "STRICT_RIGHT": [
+        -0.7725,
+        -0.15
+      ],
+      "STRICT_LEFT": [
+        0.6633394457517824,
+        0.7850000000000001
+      ],
+      "RELAXED_RIGHT": [
+        -0.7725,
+        -0.15
+      ],
+      "RELAXED_LEFT": [
+        0.6633394457517824,
+        0.7850000000000001
+      ]
+    },
+    "d_mid_domain": [
+      -1.5,
+      1.5
+    ],
+    "coarse_step_m": 0.05,
+    "refine_half_width_m": 0.04,
+    "refine_step_m": 0.01,
+    "production_entry_exit_pairs": [
+      [
+        0.5145810930150512,
+        0.4971684162574945
+      ],
+      [
+        0.7136694116555473,
+        0.4971684162574945
+      ]
+    ],
+    "coarse_seed_count_for_refinement": 30,
+    "requests": {
+      "coarse_and_anchor": 4716,
+      "refine": 912
+    }
+  }
+}

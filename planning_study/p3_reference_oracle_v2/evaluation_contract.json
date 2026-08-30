@@ -1,0 +1,44 @@
+{
+  "schema_version": "P3_EVALUATION_CONTRACT_V2_1",
+  "contract_name": "HARD_AND_USABLE_P3_EVALUATION_CONTRACT_V2",
+  "frozen_before_oracle_v2_seen_data_recomputation": true,
+  "hard_valid_p3": {
+    "definition": "exact frozen production hard-validator pass",
+    "predicate": "hard_valid == 1",
+    "failure_reason_requirement": "empty",
+    "additional_thresholds": []
+  },
+  "usable_valid_p3": {
+    "definition": "HARD_VALID_P3 plus predeclared maneuver-transition and braking realizability conditions already present in production ranking diagnostics",
+    "predicate": "hard_valid == 1 AND exit_reaches_next_obstacle == 0 AND braking_deficit_m <= 1e-9",
+    "conditions": [
+      {
+        "field": "exit_reaches_next_obstacle",
+        "operator": "==",
+        "value": false,
+        "physical_rationale": "the post-cluster exit ramp must not enter a later obstacle's clearance-expanded Frenet interval before merge"
+      },
+      {
+        "field": "braking_deficit_m",
+        "operator": "<=",
+        "value": 1e-09,
+        "physical_rationale": "the remaining forward distance must cover configured response delay plus speed-dependent braking distance to the candidate speed profile"
+      }
+    ]
+  },
+  "audited_but_not_thresholded": [
+    "obstacle_margin_m",
+    "minimum_normalized_safety_slack",
+    "velocity_loss",
+    "center_track_margin_m",
+    "footprint_track_margin_m",
+    "lateral_slope_margin",
+    "signed_curvature_margin_radpm",
+    "curvature_rate_margin_radpm2",
+    "global_path_deviation_m"
+  ],
+  "rationale_for_no_extra_margin_threshold": "footprint, slope, directional curvature and curvature-rate are already hard gates; center-track is not the rotated footprint; obstacle and normalized slack are ranking measurements with scope/reserve semantics that differ from the maneuver-bounded hard obstacle check; velocity loss and global deviation are quality objectives without frozen safety cutoffs",
+  "method_outcomes_used_to_choose_conditions": false,
+  "production_validator_modified": false,
+  "production_ranker_modified": false
+}

@@ -1,0 +1,20 @@
+{
+  "development_episode_count_searched": 40,
+  "conclusive_oracle_count": 40,
+  "oracle_valid_count": 23,
+  "oracle_invalid_count": 17,
+  "mechanism_counts_among_oracle_valid": {
+    "TEMPLATE_OR_TRANSITION_SELECTION": 13,
+    "OTHER": 6,
+    "D_PROBE_DOMINANT": 3,
+    "S_PROBE_DOMINANT": 1
+  },
+  "dprobe_dominant_count": 3,
+  "dprobe_bag_count": 1,
+  "dprobe_reference_domain_count": 1,
+  "dprobe_delta_signed_min_m": -0.40009529871528754,
+  "dprobe_delta_signed_median_m": 0.021150578714993817,
+  "dprobe_delta_signed_max_m": 0.04068151566060735,
+  "dprobe_delta_abs_median_m": 0.04068151566060735,
+  "dprobe_corrections_toward_zero_count": 3
+}

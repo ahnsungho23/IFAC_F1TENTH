@@ -1,0 +1,30 @@
+{
+  "study": "P3_FACTORIZED_CANDIDATE_GENERATION_DESIGN_V1",
+  "repository_head": "80ae205fd470f537bd1e5449fb906c5548f6653a",
+  "dataset_scope": "DVE001..DVE040 DEVELOPMENT only",
+  "validation_or_holdout_rows_read": 0,
+  "baseline_direct_reconstruction_parity_events": 40,
+  "baseline_direct_reconstruction_parity_status": "PASS",
+  "production_planner_modified": false,
+  "new_spline_family": false,
+  "clearance_gate": "STRICT_ONLY (all 23 oracle-valid episodes have strict hard-valid rows)",
+  "harness": "/tmp/p3_oracle_v2_build/p3_family_oracle_harness",
+  "harness_sha256": "8b23f2b6df54c2e93794ee087f3ebd7a14f9921544af4f97eef755535e045e7e",
+  "harness_source_sha256": "c3aa74b1aa76ca87899fbe3805fe8fa972b7d6168ff1d9fff360914d48d38594",
+  "inputs": {
+    "production_candidates.csv": "43c047813a6b74316b43796b2d1cc8312f537d489c4d9bcea95bb3224ed1130e",
+    "oracle_valid_candidates.csv": "6dadbf4f845539e10b255cbc7e1150cd3ced47c780041dedb0397cc96f21a0d9",
+    "development_oracle_summary.csv": "6494eb5c8f7f60c3c09bcc2806657c3f668a31acb4267695a00c97625ebbfbc9",
+    "mapping_failure_taxonomy.csv": "b0f90425e3114cbc8bd4c8397d619f17af79f8f269f87d86d2720aa1a967ae12",
+    "transition_failure_taxonomy.csv": "63ddc87b934baf198b5f099c61111bbfd3bcf9ed815a8576c010144c66a79817"
+  },
+  "variant_definitions": {
+    "BASELINE_PRODUCTION": "exact production full tuples",
+    "A_EXISTING_D_MID_POOL": "zero target x same-side production d_mid; current transition",
+    "A_UNCOUPLE_D_MID_DEV_COUNTERFACTUAL": "nearest already-open strict hard-valid d_mid at same zero side/target/transition",
+    "B_CROSS_PAIR_TRANSITIONS": "unique production lateral tuples x event production transitions",
+    "AB_EXISTING_FACTOR_BASIS": "A-existing lateral basis x event production transitions",
+    "AB_DEV_COUNTERFACTUAL": "A-development lateral basis x event production transitions",
+    "FULL_LxT_DEV_UPPER_BOUND": "production plus strict oracle-valid lateral tuples x event production transitions"
+  }
+}

@@ -1,0 +1,6 @@
+mechanism,development_oracle_feasible_count,development_unrecovered_count,development_unrecovered_fraction,validation_oracle_feasible_count,validation_unrecovered_count,validation_unrecovered_fraction,comparison_note
+CANDIDATE_BUDGET_TRUNCATION,23,0,0.0,24,2,0.08333333333333333,descriptive taxonomy; labels differ in source granularity
+MULTI_PARAMETER_INTERACTION,23,0,0.0,24,4,0.16666666666666666,descriptive taxonomy; labels differ in source granularity
+OTHER,23,4,0.17391304347826086,24,0,0.0,descriptive taxonomy; labels differ in source granularity
+PROBE_ROOT_ISSUE,23,2,0.08695652173913043,24,5,0.20833333333333334,descriptive taxonomy; labels differ in source granularity
+TRANSITION_SELECTOR_MISS,23,1,0.043478260869565216,24,0,0.0,descriptive taxonomy; labels differ in source granularity

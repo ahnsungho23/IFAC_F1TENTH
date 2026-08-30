@@ -1,0 +1,80 @@
+{
+  "schema": "p3_geometry_conditioned_selected_prototype_v1",
+  "freeze_status": "FROZEN_ON_DEVELOPMENT_BEFORE_VALIDATION_UNSEEN",
+  "repository_head": "80ae205fd470f537bd1e5449fb906c5548f6653a",
+  "method_spec_sha256": "6f3f5a66fe901ae1121c6e9997332e09a1e0421df09a7da7c1673110e9a69f91",
+  "offline_implementation_sha256": "900a262e49436fa75a1567d49b7823ef4e4cb7f08d313389cd2de26c647c3722",
+  "development_results_sha256": "9842b0992dc168dfe66a5c8ae5a0d0bad0a6eabdbef29bee4513e7cf9720f205",
+  "success_control_manifest_sha256": "010e8155e995c0a89be2b81188fdaa4b1cd40cc4b6d614f486293c9e98274c75",
+  "exact_validator_harness_sha256": "8b23f2b6df54c2e93794ee087f3ebd7a14f9921544af4f97eef755535e045e7e",
+  "primary": {
+    "name": "H4A_GEOMETRY_TRANSITION_K24",
+    "selector_authority": "method_spec.json#/selectors/H4A_GEOMETRY_TRANSITION",
+    "candidate_budget_k": 24,
+    "conditioned_factors": [
+      "transition"
+    ],
+    "lateral_basis": "fixed bounded factor basis in method_spec.json",
+    "tie_break": "method_spec H4A score tuple ascending",
+    "deduplication": "exact tuple before reconstruction; first unique path digest before validator",
+    "fallback": "production first; skip proposed stage on production hard-valid; unchanged fallback if proposed stage fails",
+    "development_failure_result": {
+      "oracle_valid_episode_count": 23,
+      "recovered_episode_count": 16,
+      "recovery_rate": 0.6956521739130435,
+      "selected_tuple_count_total": 550,
+      "deduplicated_validator_calls_total": 411,
+      "construction_guard_reject_count_total": 114,
+      "duplicate_path_count_total": 25,
+      "hard_valid_candidate_count_total": 55
+    },
+    "auxiliary_success_control_result": {
+      "control_count": 18,
+      "production_digest_parity_pass_count": 18,
+      "standalone_generates_hard_valid_count": 18,
+      "production_selected_side_available_count": 17,
+      "deployment_additional_validator_calls": 0,
+      "deployment_selected_path_changes": 0
+    },
+    "selection_reason": "same 16/23 failure recovery as H4B while retaining standalone hard-valid availability on all 18 seen success controls; production-first fallback remains mandatory"
+  },
+  "fallback_ablation": {
+    "name": "H4B_GEOMETRY_LATERAL_TRANSITION_K12",
+    "selector_authority": "method_spec.json#/selectors/H4B_GEOMETRY_LATERAL_TRANSITION",
+    "candidate_budget_k": 12,
+    "conditioned_factors": [
+      "lateral",
+      "transition"
+    ],
+    "tie_break": "method_spec H4B score tuple ascending",
+    "deduplication": "exact tuple before reconstruction; first unique path digest before validator",
+    "fallback": "production first; skip proposed stage on production hard-valid; unchanged fallback if proposed stage fails",
+    "development_failure_result": {
+      "oracle_valid_episode_count": 23,
+      "recovered_episode_count": 16,
+      "recovery_rate": 0.6956521739130435,
+      "selected_tuple_count_total": 276,
+      "deduplicated_validator_calls_total": 223,
+      "construction_guard_reject_count_total": 53,
+      "duplicate_path_count_total": 0,
+      "hard_valid_candidate_count_total": 42
+    },
+    "auxiliary_success_control_result": {
+      "control_count": 18,
+      "production_digest_parity_pass_count": 18,
+      "standalone_generates_hard_valid_count": 11,
+      "production_selected_side_available_count": 10,
+      "deployment_additional_validator_calls": 0,
+      "deployment_selected_path_changes": 0
+    },
+    "selection_reason": "efficiency ablation: matches primary failure recovery with half K, but weaker standalone success-control availability prevents primary selection"
+  },
+  "scope_guards": {
+    "validation_unseen_inspected": false,
+    "final_holdout_unseen_inspected": false,
+    "dataset_split_modified": false,
+    "production_planner_modified": false,
+    "generalization_claimed": false,
+    "novelty_claimed": false
+  }
+}

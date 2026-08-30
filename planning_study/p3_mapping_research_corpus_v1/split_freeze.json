@@ -1,0 +1,26 @@
+{
+  "split_seed": "p3_mapping_research_corpus_v1_seed_20260830",
+  "split_algorithm_version": "episode_iterative_stratification_v1",
+  "source_eligible_manifest_sha256": "257577c116eb07064e5a3cc367b660a9eee4f5f26460b3582af2afc7205145b0",
+  "dataset_split_manifest_sha256": "c57cfe8e57dfca4bb318d30047e8f7215f6994e88a39babfbdbb10ce7637b2f4",
+  "development_oracle_manifest_sha256": "552fd15d91d02e2d450585ec625392a8cb1a50a1f0146b2b65d3562dddf67cb4",
+  "counts": {
+    "PILOT_SEEN_DEVELOPMENT_DATA": 9,
+    "DEVELOPMENT": 110,
+    "VALIDATION_UNSEEN": 37,
+    "FINAL_HOLDOUT_UNSEEN": 37
+  },
+  "development_oracle_selected_count": 40,
+  "outcome_fields_consulted_for_non_pilot_split": [],
+  "feature_axes": [
+    "bag",
+    "reference_snapshot_id",
+    "obstacle_side_bin",
+    "obstacle_count_bin",
+    "obstacle_width_bin",
+    "ego_speed_bin",
+    "reference_curvature_abs_bin",
+    "reference_curvature_sign_bin",
+    "lifecycle_context_bin"
+  ]
+}

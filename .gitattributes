@@ -1,0 +1,14 @@
+# Preserve generated research CSV bytes exactly. Python's csv writer uses CRLF,
+# which is data-format output rather than source-code trailing whitespace.
+planning_study/**/*.csv -diff
+
+# Historical frozen documents/patches retain their original whitespace bytes.
+planning_study/p3_factorized_candidate_design_v1/research_framing_comparison.md -diff
+planning_study/p3_geometry_conditioned_method_v1/README.md -diff
+planning_study/p3_geometry_conditioned_method_v1/method_spec.md -diff
+planning_study/p3_geometry_conditioned_method_v1/selector_hypotheses.md -diff
+planning_study/p3_geometry_conditioned_validation_v1/README.md -diff
+planning_study/p3_reference_oracle_v2/README.md -diff
+planning_study/p3_reference_oracle_v2/evaluation_contract.md -diff
+planning_study/p3_reference_oracle_v2/oracle_v2_spec.md -diff
+planning_study/p3_reference_oracle_v2/harness/local_planning_oracle_adapters.patch -diff

@@ -1,0 +1,22 @@
+{
+  "schema": "p3_geometry_conditioned_validation_execution_v1",
+  "dataset_role": "VALIDATION_UNSEEN",
+  "episode_count": 37,
+  "production_failure_count": 37,
+  "selectors": {
+    "H3_FIXED_BOUNDED": 24,
+    "H4A_GEOMETRY_TRANSITION": 24,
+    "H4B_GEOMETRY_LATERAL_TRANSITION": 12
+  },
+  "oracle_policy": "unchanged deterministic pilot-v2 broad oracle",
+  "oracle_runner_sha256": "ed0d8a54cd8d3e3452c78f336c378f384e60a74f1d641ffd6f05208acdc51198",
+  "harness_sha256": "8b23f2b6df54c2e93794ee087f3ebd7a14f9921544af4f97eef755535e045e7e",
+  "method_spec_sha256": "6f3f5a66fe901ae1121c6e9997332e09a1e0421df09a7da7c1673110e9a69f91",
+  "selected_prototype_spec_sha256": "7e6aad0541b87b1568a82b27f03d2087f31b2c059af4c5380effd25d0a8bd018",
+  "dataset_split_manifest_sha256": "c57cfe8e57dfca4bb318d30047e8f7215f6994e88a39babfbdbb10ce7637b2f4",
+  "lineage_and_digest_parity_pass_count": 37,
+  "final_holdout_rows_loaded": 0,
+  "frozen_method_modified": false,
+  "production_source_modified": false,
+  "tuning_performed": false
+}
