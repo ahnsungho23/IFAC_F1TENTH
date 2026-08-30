@@ -1,0 +1,25 @@
+{
+  "schema_version": "P3_R3_K12_FINAL_HOLDOUT_PREFLIGHT_1",
+  "verified_at_utc": "2026-08-30T15:38:15.371147007Z",
+  "checkpoint_commit_expected": "1fe52ed5ea6c64d1deb2dcb9059e3ca64fa5f83d",
+  "checkpoint_commit_observed": "1fe52ed5ea6c64d1deb2dcb9059e3ca64fa5f83d",
+  "checkpoint_tag": "p3_r3_k12_pre_holdout",
+  "checkpoint_tag_type": "annotated tag",
+  "checkpoint_tag_target": "1fe52ed5ea6c64d1deb2dcb9059e3ca64fa5f83d",
+  "working_tree_clean_before_output_creation": true,
+  "production_diff_from_checkpoint_empty": true,
+  "git_diff_check_passed": true,
+  "holdout_rows_loaded": 0,
+  "holdout_evaluations_executed": 0,
+  "runner_predeclared_before_holdout_open": true,
+  "runner_sha256": "80ae296248c46dd82a46f1cf24757ed4a54961804db9a27e8663e0110eb27eec",
+  "frozen_authority_sha256": {
+    "selected_method_spec": "7b861e8c7e23ae168413885ea0dc2d09769046ff48a562700b658e084d116fcc",
+    "reference_oracle_v2_spec": "62b63b8ab05d5a73565398141bd05a9db4a102541855fb2e3634d85b18a6bffe",
+    "evaluation_contract": "226b1b44a9bea6adf26715658f36ae8e7b2c322e030f363270728f9e044b1dad",
+    "dataset_split_manifest": "c57cfe8e57dfca4bb318d30047e8f7215f6994e88a39babfbdbb10ce7637b2f4",
+    "exact_validator_harness": "8b23f2b6df54c2e93794ee087f3ebd7a14f9921544af4f97eef755535e045e7e"
+  },
+  "preflight_result": "PASS",
+  "execution_contract": "Open exactly 37 FINAL_HOLDOUT_UNSEEN rows once; fail closed on lineage, production reconstruction, validator parity, or oracle coverage; no redesign, tuning, rerun, commit, or push."
+}

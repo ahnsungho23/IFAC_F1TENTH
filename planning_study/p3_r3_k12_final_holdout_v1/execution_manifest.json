@@ -1,0 +1,56 @@
+{
+  "authority_sha256_after": {
+    "dataset_split_manifest": "c57cfe8e57dfca4bb318d30047e8f7215f6994e88a39babfbdbb10ce7637b2f4",
+    "evaluation_contract": "226b1b44a9bea6adf26715658f36ae8e7b2c322e030f363270728f9e044b1dad",
+    "harness": "8b23f2b6df54c2e93794ee087f3ebd7a14f9921544af4f97eef755535e045e7e",
+    "method_impl": "2cd87b4c9faf9e9f84c96295f137b4edeed21fafc9abeccf48298b603f075c03",
+    "method_v1_impl": "900a262e49436fa75a1567d49b7823ef4e4cb7f08d313389cd2de26c647c3722",
+    "reference_impl": "afe8fe9298be34f1b88ee44f35fd1c833fc11eab55fe05b3177e882d7e8e839a",
+    "reference_oracle_v2_spec": "62b63b8ab05d5a73565398141bd05a9db4a102541855fb2e3634d85b18a6bffe",
+    "reference_stream": "29c724e3244b4f62466b41c8c814ccd3fbe8dd81ac42cfd5d62747cc40b96c14",
+    "selected_method_spec": "7b861e8c7e23ae168413885ea0dc2d09769046ff48a562700b658e084d116fcc"
+  },
+  "authority_sha256_before": {
+    "dataset_split_manifest": "c57cfe8e57dfca4bb318d30047e8f7215f6994e88a39babfbdbb10ce7637b2f4",
+    "evaluation_contract": "226b1b44a9bea6adf26715658f36ae8e7b2c322e030f363270728f9e044b1dad",
+    "harness": "8b23f2b6df54c2e93794ee087f3ebd7a14f9921544af4f97eef755535e045e7e",
+    "method_impl": "2cd87b4c9faf9e9f84c96295f137b4edeed21fafc9abeccf48298b603f075c03",
+    "method_v1_impl": "900a262e49436fa75a1567d49b7823ef4e4cb7f08d313389cd2de26c647c3722",
+    "reference_impl": "afe8fe9298be34f1b88ee44f35fd1c833fc11eab55fe05b3177e882d7e8e839a",
+    "reference_oracle_v2_spec": "62b63b8ab05d5a73565398141bd05a9db4a102541855fb2e3634d85b18a6bffe",
+    "reference_stream": "29c724e3244b4f62466b41c8c814ccd3fbe8dd81ac42cfd5d62747cc40b96c14",
+    "selected_method_spec": "7b861e8c7e23ae168413885ea0dc2d09769046ff48a562700b658e084d116fcc"
+  },
+  "checkpoint_commit": "1fe52ed5ea6c64d1deb2dcb9059e3ca64fa5f83d",
+  "checkpoint_tag": "p3_r3_k12_pre_holdout",
+  "commit_or_push_performed": false,
+  "ended_at_utc": "2026-08-30T16:30:09.430490+00:00",
+  "holdout_opened_at_utc": "2026-08-30T15:38:48.269142+00:00",
+  "holdout_row_count": 37,
+  "method_redesign_or_tuning_performed": false,
+  "one_shot_execution": true,
+  "preflight": {
+    "head": "1fe52ed5ea6c64d1deb2dcb9059e3ca64fa5f83d",
+    "observed": {
+      "dataset_split_manifest": "c57cfe8e57dfca4bb318d30047e8f7215f6994e88a39babfbdbb10ce7637b2f4",
+      "evaluation_contract": "226b1b44a9bea6adf26715658f36ae8e7b2c322e030f363270728f9e044b1dad",
+      "harness": "8b23f2b6df54c2e93794ee087f3ebd7a14f9921544af4f97eef755535e045e7e",
+      "method_impl": "2cd87b4c9faf9e9f84c96295f137b4edeed21fafc9abeccf48298b603f075c03",
+      "method_v1_impl": "900a262e49436fa75a1567d49b7823ef4e4cb7f08d313389cd2de26c647c3722",
+      "reference_impl": "afe8fe9298be34f1b88ee44f35fd1c833fc11eab55fe05b3177e882d7e8e839a",
+      "reference_oracle_v2_spec": "62b63b8ab05d5a73565398141bd05a9db4a102541855fb2e3634d85b18a6bffe",
+      "reference_stream": "29c724e3244b4f62466b41c8c814ccd3fbe8dd81ac42cfd5d62747cc40b96c14",
+      "selected_method_spec": "7b861e8c7e23ae168413885ea0dc2d09769046ff48a562700b658e084d116fcc"
+    },
+    "outside_output_dirty_empty": true,
+    "production_diff_empty": true,
+    "runner_sha256": "80ae296248c46dd82a46f1cf24757ed4a54961804db9a27e8663e0110eb27eec",
+    "tag_target": "1fe52ed5ea6c64d1deb2dcb9059e3ca64fa5f83d"
+  },
+  "production_planner_modified": false,
+  "rerun_performed": false,
+  "schema_version": "P3_R3_K12_FINAL_HOLDOUT_EXECUTION_1",
+  "selected_method": "R3_LEXICOGRAPHIC_COVERAGE_RESERVE_K12",
+  "started_at_utc": "2026-08-30T15:38:48.241627+00:00",
+  "status": "FINAL_HOLDOUT_OPENED_AND_EVALUATED_NO_LONGER_UNSEEN"
+}

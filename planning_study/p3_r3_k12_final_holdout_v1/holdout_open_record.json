@@ -1,0 +1,9 @@
+{
+  "dataset_split_manifest_sha256": "c57cfe8e57dfca4bb318d30047e8f7215f6994e88a39babfbdbb10ce7637b2f4",
+  "one_shot_execution": true,
+  "opened_at_utc": "2026-08-30T15:38:48.269142+00:00",
+  "rerun_allowed": false,
+  "row_count": 37,
+  "schema_version": "P3_FINAL_HOLDOUT_OPEN_RECORD_1",
+  "status": "FINAL_HOLDOUT_OPENED_NO_LONGER_UNSEEN"
+}

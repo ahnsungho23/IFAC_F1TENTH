@@ -1,0 +1,8 @@
+method,event_count,candidate_mean,candidate_max,validator_mean,validator_max,runtime_p50_s,runtime_p95_s,runtime_p99_s,runtime_max_s,runtime_scope
+PRODUCTION,37,8.378378378378379,30,8.378378378378379,30,0.012150795002526138,0.025844378001056628,0.04743244440178389,0.05720398200355703,standalone research harness wall time
+H3_FIXED_BOUNDED_K24,37,24,24,22.18918918918919,24,nan,nan,nan,nan,not separately timed; embedded in oracle audit
+H4A_GEOMETRY_TRANSITION_K24,37,24,24,20.405405405405407,24,nan,nan,nan,nan,not separately timed; embedded in oracle audit
+H4B_GEOMETRY_LATERAL_TRANSITION_K12,37,12,12,9.891891891891891,12,nan,nan,nan,nan,not separately timed; embedded in oracle audit
+R3_LEXICOGRAPHIC_COVERAGE_RESERVE_K12,37,12,12,10.621621621621621,12,0.04696600700117415,0.12119000680104365,0.1566264728846727,0.1746411940039252,standalone research harness wall time
+REFERENCE_ORACLE_V2,37,245806.1891891892,1935705,245806.1891891892,1935705,13.428024619999633,348.15847906619194,451.75094922522055,465.10659396497795,standalone exact oracle wall time
+R3_K12_OFFLINE_AUDIT_OVERHEAD_NOT_CONTRACT_BUDGET,37,12,12,12,12,nan,nan,nan,nan,audit implementation evaluates ranking streams; not deployable K12 budget
