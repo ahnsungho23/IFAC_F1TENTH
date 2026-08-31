@@ -1,0 +1,355 @@
+{
+  "candidate_identity": {
+    "claim_scope": "IMMUTABLE_GEOMETRY_GENERAL_CLOSED_LOOP_CANDIDATE_NOT_FINAL_PAPER_METHOD",
+    "method_name": "V3_SIDE_BALANCED_DISJOINT",
+    "prevalidation_lock_sha256": "ea30a441695732e87d43d6863e1a31992dbfdd45749d324047495b6c96824185",
+    "research_status": "GQSC_V3_CLEAN_BUT_COVERAGE_TRADEOFF",
+    "schema": "GQSC_V3_GEOMETRY_GENERAL_METHOD_V1"
+  },
+  "computational_contract": {
+    "coverage_reserve": 2,
+    "lateral_cap_per_side": 32,
+    "lateral_global_cap": 64,
+    "lexicographic_quota": 10,
+    "pair_proxy_budget": 128,
+    "p3_reconstruction_cap": 12,
+    "transition_family_cap": 7,
+    "validator_call_cap": 12
+  },
+  "deduplication_contract": {
+    "configuration_dedup_before_proxy": "exact binary64 tuple (side,d_target,d_mid,entry_scale,exit_scale)",
+    "factor_stream_dedup": "exact preconstruction_shape_bits=(side,d_target,d_mid,z0,z1,z2,z3,z4)",
+    "path_dedup_after_reconstruction": "exact path_digest; duplicate consumes K but reuses the first verdict and does not call validator again",
+    "reserve_disjointness": "coverage shapes matching any selected lexicographic preconstruction shape are ineligible"
+  },
+  "exact_validator_contract": {
+    "collision_horizon": "maneuverScopeEnd(ego,obstacles,cluster_ids,z3)",
+    "evaluation_call": "validateP3ShadowPath(ego,path,obstacles,obstacle_reserve_scale=1.0,collision_horizon)",
+    "frozen_evaluation_contract_sha256": "226b1b44a9bea6adf26715658f36ae8e7b2c322e030f363270728f9e044b1dad",
+    "hard_gate_order": [
+      "entry continuity: reject only when lateral tracking error exceeds its reserve AND entry slope exceeds maximum_lateral_slope",
+      "at least one forward waypoint",
+      "minimum_path_points",
+      "center d within reference left/right widths eroded by trackBoundaryReserve",
+      "rotated rectangular vehicle footprint within track bounds including wall_safety_margin",
+      "no waypoint inside static-obstacle Frenet AABB inflated by obstacleSafetyClearance, within collision horizon",
+      "strictly increasing global race-line forward station",
+      "successive |delta d|/delta s <= maximum_lateral_slope",
+      "successive |delta kappa|/delta s <= maximum_curvature_rate_radpm2",
+      "signed curvature within maximumCurvatureFor(kappa)"
+    ],
+    "minimum_points_precheck": "reconstruction with fewer than minimum_path_points is not passed to validateP3ShadowPath",
+    "offline_frozen_parameters": {
+      "control_max_steering_left_rad": 0.41,
+      "control_max_steering_right_rad": 0.361,
+      "control_understeer_gradient_left_rad_per_mps2": 0.014,
+      "control_understeer_gradient_right_rad_per_mps2": 0.019,
+      "control_wheelbase_m": 0.33,
+      "entry_continuity_baseline_m": 0.5,
+      "entry_discontinuity_min_budget_m": 0.2,
+      "fallback_track_half_width_m": 1.5,
+      "maximum_curvature_radpm": 1.316266519079011,
+      "maximum_curvature_rate_radpm2": 20.0,
+      "maximum_lateral_slope": 0.8,
+      "minimum_path_points": 8,
+      "obstacle_reserve_from_lut": false,
+      "post_merge_lookahead_m": 5.0,
+      "safety_margin_m": 0.08,
+      "tracking_error_reserve_m": 0.0,
+      "vehicle_half_width_m": 0.15,
+      "vehicle_length_m": 0.56,
+      "wall_safety_margin_m": 0.04
+    },
+    "usable_diagnostic_not_hard_gate": "hard_valid AND NOT exit_reaches_next_obstacle AND ego_braking_distance_deficit_m <= 1e-9",
+    "validator_identity": "RacelineSplinePlanner::validateCandidate via validateP3ShadowPath"
+  },
+  "final_candidate_ranking": {
+    "comparator": "P3ShadowEvaluator::betterR3FrozenRank exact std::tuple ordering",
+    "ordered_fields": [
+      "exit_reaches_next_obstacle ascending",
+      "ego_braking_distance_deficit_m > 1e-9 ascending",
+      "ego_braking_distance_deficit_m ascending",
+      "velocity_loss ascending",
+      "negative minimum_normalized_safety_slack ascending",
+      "global_path_deviation_m ascending",
+      "generation_index ascending"
+    ],
+    "scope": "hard-valid reconstructed candidates only",
+    "sort": "stable_sort"
+  },
+  "lateral_operator_contract": {
+    "center_values": "first two corridor center samples; if absent use bottleneck_center",
+    "component_orientation": "near endpoint minimizes (abs(d),d); far is the other endpoint",
+    "component_recipes_in_order": [
+      {
+        "d_mid": "d_target-0.04",
+        "d_target": "near",
+        "operator": "COMPONENT_NEAR_MID_MINUS_004",
+        "source_priority": 2
+      },
+      {
+        "d_mid": "0.25*d_target",
+        "d_target": "near",
+        "operator": "COMPONENT_NEAR_REFERENCE_INWARD025",
+        "source_priority": 2
+      },
+      {
+        "d_mid": "d_target",
+        "d_target": "near+(far-near)/32",
+        "operator": "COMPONENT_F1_32_EQUAL",
+        "source_priority": 2
+      },
+      {
+        "d_mid": "d_target+0.75*(center[0]-d_target)",
+        "d_target": "near+(far-near)/8",
+        "operator": "COMPONENT_F1_8_CENTER075",
+        "source_priority": 2
+      },
+      {
+        "d_mid": "d_target-0.05",
+        "d_target": "near+3*(far-near)/8",
+        "operator": "COMPONENT_F3_8_MID_MINUS_005",
+        "source_priority": 2
+      },
+      {
+        "d_mid": "d_target-0.15",
+        "d_target": "near+0.5*(far-near)",
+        "operator": "COMPONENT_HALF_MID_MINUS_015",
+        "provenance_note": "inherited general-bank operator; distinct from the removed v2 COMPONENT_HALF_FAR002_INWARD015 replacement",
+        "source_priority": 2
+      },
+      {
+        "d_mid": "d_target+0.125*(center[min(1,last)]-d_target)",
+        "d_target": "near+2*(far-near)/3",
+        "operator": "COMPONENT_F2_3_CENTER0125",
+        "source_priority": 2
+      }
+    ],
+    "direct_target_recipes_in_order": [
+      {
+        "d_mid": "d_target",
+        "operator": "P_TARGET_EQUAL",
+        "source_priority": 0
+      },
+      {
+        "d_mid": "d_target-0.02",
+        "operator": "P_TARGET_MID_MINUS_002",
+        "source_priority": 1
+      }
+    ],
+    "first_two_target_expansion_in_order": [
+      {
+        "d_mid": "shifted_target",
+        "d_target": "target-0.01",
+        "operator": "P_TARGET_MINUS_001_EQUAL"
+      },
+      {
+        "d_mid": "shifted_target-0.01",
+        "d_target": "target+0.01",
+        "operator": "P_TARGET_PLUS_001_MID_MINUS_001"
+      },
+      {
+        "d_mid": "shifted_target",
+        "d_target": "target+0.01",
+        "operator": "P_TARGET_PLUS_001_EQUAL"
+      },
+      {
+        "d_mid": "shifted_target-0.08",
+        "d_target": "target-0.06",
+        "operator": "P_TARGET_MINUS_006_MID_MINUS_008"
+      },
+      {
+        "d_mid": "shifted_target-0.02",
+        "d_target": "target+0.06",
+        "operator": "P_TARGET_PLUS_006_MID_MINUS_002"
+      },
+      {
+        "d_mid": "shifted_target-0.05",
+        "d_target": "target-0.10",
+        "operator": "P_TARGET_MINUS_010_MID_MINUS_005"
+      },
+      {
+        "d_mid": "shifted_target+0.15",
+        "d_target": "target-0.02",
+        "operator": "P_TARGET_MINUS_002_MID_PLUS_015"
+      },
+      {
+        "d_mid": "shifted_target+0.4375*(center[min(1,last)]-shifted_target)",
+        "d_target": "target+0.06",
+        "operator": "P_TARGET_PLUS_006_CENTER1_04375"
+      },
+      {
+        "d_mid": "target-0.10",
+        "d_target": "target",
+        "operator": "P_TARGET_MID_MINUS_010"
+      },
+      {
+        "d_mid": "target+0.05",
+        "d_target": "target",
+        "operator": "P_TARGET_MID_PLUS_005"
+      },
+      {
+        "d_mid": "target+0.125*(center[0]-target)",
+        "d_target": "target",
+        "operator": "P_TARGET_CENTER0125"
+      },
+      {
+        "d_mid": "target+0.25*(center[0]-target)",
+        "d_target": "target",
+        "operator": "P_TARGET_CENTER025"
+      }
+    ],
+    "global_clamps": {
+      "d_mid": "[-1.5,1.5]",
+      "d_target": "[domain_lower,domain_upper]"
+    },
+    "post_expansion_recipes_in_order": [
+      {
+        "d_mid": "center[i]",
+        "d_target": "center[i]",
+        "operator": "CORRIDOR_CENTER_EQUAL",
+        "source_priority": 4
+      },
+      {
+        "note": "repeat P_TARGET_CENTER0125, P_TARGET_CENTER025, P_TARGET_MID_MINUS_010, P_TARGET_MID_PLUS_005 for each target at priority 4; exact-pair dedup normally preserves an earlier instance"
+      }
+    ],
+    "seed_targets_in_order": [
+      "argmin_(d in five-point inclusive side-domain grid) (abs(d),d)",
+      "near+(far-near)/64 where near minimizes (abs(d),d)"
+    ],
+    "within_side_dedup": "exact binary64 (d_target,d_mid), first insertion wins"
+  },
+  "method_serialization": {
+    "canonical_bytes": "the exact committed UTF-8 JSON bytes with LF line endings",
+    "hash_algorithm": "SHA-256",
+    "sha_sidecar": "gqsc_v3_geometry_general_method.sha256"
+  },
+  "proposal_ordering_contract": {
+    "lateral_order": "for source_priority=0..7, interleave RIGHT then LEFT at equal within-side index",
+    "pair_order": "for transition wave=0..6, traverse lateral_factor_index ascending; retain first exact-unique configuration until B128",
+    "retain_cap_for_B128": 64,
+    "side_convention": "RIGHT=false before LEFT=true"
+  },
+  "provenance_contract": {
+    "component_half_far002_inward015": "EXCLUDED: add_component_half_far002_inward015=false",
+    "final_holdout_access": "PROHIBITED_AND_NOT_ACCESSED",
+    "min_outward": "EXCLUDED: diversity_policy is not ZERO_INTERFACE_EQUAL_MIN_OUTWARD",
+    "no_validation_directed_repair": true,
+    "production_decision_behavior_changed_by_this_freeze": false,
+    "retained_event_or_map_specific_v2_parameterization": false
+  },
+  "proxy_ranking_contract": {
+    "base_score": "40*maximum_corridor_violation_m + 2*sum_corridor_violation_m + 8*slope_excess + 0.12*curvature_proxy + 0.25*center_error + 2*max(0,0.02-minimum_clearance_m) + 0.02*shape_energy + 0.002*source_priority",
+    "construction_guard_handling": "lexicographic ranks unguarded first; guarded candidates follow by stable tie only",
+    "lexicographic_fields_in_order": [
+      "exit_conflict_proxy ascending",
+      "maximum_corridor_violation_m>1e-9 ascending",
+      "maximum_corridor_violation_m ascending",
+      "slope_excess>1e-9 ascending",
+      "slope_excess ascending",
+      "sum_corridor_violation_m ascending",
+      "curvature_proxy ascending",
+      "center_error ascending",
+      "minimum_clearance_m descending",
+      "shape_energy ascending",
+      "stable tie"
+    ],
+    "stable_tie_fields_in_order": [
+      "source_priority ascending",
+      "lateral_factor_index ascending",
+      "transition_index ascending",
+      "go_left ascending"
+    ]
+  },
+  "reconstruction_contract": {
+    "family": "existing five-knot P3 d(s); no analytic probe/root input",
+    "station_equations": {
+      "required": "abs(d_target-ego_d)/0.8",
+      "z0": "z1-z1*11.442220427651225*entry_scale/15.0, unless z1<required then 0",
+      "z1": "cluster_start, unless cluster_start<required then max(required,reference_spacing)",
+      "z2": "0.5*(z1+z3)",
+      "z3": "cluster_end",
+      "z4": "cluster_end+6.178529850015357*exit_scale*(0.4060036444074003 if selected side is outside side else 1)"
+    },
+    "strict_guard": "z0<z1<z2<z3<z4; failed construction guards do not consume K",
+    "spline_semantics": "existing P3 reconstruction and velocity shaping are unchanged"
+  },
+  "reserve_diversity_contract": {
+    "eligibility": "construction_guard_proxy=false and exact preconstruction shape not selected by lexicographic stream",
+    "fallback": "if fewer than two selected, fill remaining slots from all eligible sides with the same proxy order",
+    "policy": "V3_SIDE_BALANCED_DISJOINT",
+    "selection_order": [
+      "best eligible RIGHT shape, quota 1",
+      "best eligible LEFT shape, quota 1",
+      "general eligible fallback to total quota 2"
+    ],
+    "within_slot_order": "exit_conflict_proxy, base_score, stable tie"
+  },
+  "source_pin_sha256": {
+    "planning_study/p3_reference_oracle_v2/evaluation_contract.json": "226b1b44a9bea6adf26715658f36ae8e7b2c322e030f363270728f9e044b1dad",
+    "src/local_planning/config/local_planning.yaml": "0a99dfce38a8552d40bb8903e49ad19bb06dcf7252490a66abc8fa187b4d432d",
+    "src/local_planning/include/local_planning/candidate_rank.hpp": "5eb849808d6abad1353a5ccd29ea231af3d65550241598073e65001285cb5127",
+    "src/local_planning/include/local_planning/p3_r3_k12.hpp": "b61f5892d3538bd3ac3653ae7a319306ed8a669d8658311d82998ed46bf6158c",
+    "src/local_planning/include/local_planning/p3_shadow.hpp": "b5a3216ecaf85a93a936a70d7d0f0c5151b060551aa2b5ffe651e77e7fb71774",
+    "src/local_planning/include/local_planning/raceline_spline_planner.hpp": "214c9240bb71457fa344b197a9196236c87ad9123acb035bbfcbc1199031ef43",
+    "src/local_planning/src/p3_r3_k12.cpp": "ab0d1bb04db071d2aa3d6a228a6fd5bfea01da8e90487a0fb36c207156214949",
+    "src/local_planning/src/p3_shadow.cpp": "22cabaae490ebec249f0467e144ceb55da70e4659b779395f3cf3a7c3f455b8f",
+    "src/local_planning/src/raceline_spline_planner.cpp": "98fcfc5a9044da82a0e7ad3b144cb9791df30a39cabc5c21ddc164f089c4b957",
+    "src/local_planning/test/p3_r3_k12_integration_harness.cpp": "fa6928a1506959181f13da63b68354ff54036691474a55b89c84fb5808df3ff8",
+    "src/local_planning/test/test_p3_r3_k12.cpp": "1c7976b05baf592987093b29b8ce34d43016772677fe4ebdc80e4e29c3ecaa5e"
+  },
+  "transition_operator_contract": {
+    "families_in_order": [
+      {
+        "entry": "entry_min",
+        "exit": "exit_min",
+        "family": "SHORT_ENTRY_SHORT_EXIT"
+      },
+      {
+        "entry": "entry_min+0.25*(entry_max-entry_min)",
+        "exit": "exit_min",
+        "family": "MEDIUM_ENTRY_SHORT_EXIT"
+      },
+      {
+        "entry": "entry_max",
+        "exit": "exit_min+(exit_max-exit_min)/64",
+        "family": "LONG_ENTRY_SHORT_EXIT"
+      },
+      {
+        "entry": "entry_max",
+        "exit": "exit_min+0.5*(exit_max-exit_min)",
+        "family": "LONG_ENTRY_MEDIUM_EXIT"
+      },
+      {
+        "entry": "entry_max",
+        "exit": "exit_max",
+        "family": "LONG_ENTRY_LONG_EXIT"
+      },
+      {
+        "entry": "entry_min",
+        "exit": "exit_max",
+        "family": "SHORT_ENTRY_LONG_EXIT"
+      },
+      {
+        "entry": "entry_min",
+        "exit": "exit_min+0.5*(exit_max-exit_min)",
+        "family": "SHORT_ENTRY_MEDIUM_EXIT"
+      }
+    ],
+    "lateral_specific_preference_rules_in_order": [
+      "P_TARGET_EQUAL: LONG_ENTRY_MEDIUM_EXIT,LONG_ENTRY_LONG_EXIT,SHORT_ENTRY_LONG_EXIT,SHORT_ENTRY_SHORT_EXIT,MEDIUM_ENTRY_SHORT_EXIT",
+      "COMPONENT_F1_32*: SHORT_ENTRY_LONG_EXIT,SHORT_ENTRY_SHORT_EXIT,MEDIUM_ENTRY_SHORT_EXIT",
+      "COMPONENT*: SHORT_ENTRY_SHORT_EXIT,MEDIUM_ENTRY_SHORT_EXIT,LONG_ENTRY_MEDIUM_EXIT,SHORT_ENTRY_LONG_EXIT",
+      "*MINUS_006*: MEDIUM_ENTRY_SHORT_EXIT,SHORT_ENTRY_SHORT_EXIT",
+      "*PLUS_006*: MEDIUM_ENTRY_SHORT_EXIT,SHORT_ENTRY_MEDIUM_EXIT,SHORT_ENTRY_SHORT_EXIT",
+      "*PLUS_001*: LONG_ENTRY_LONG_EXIT,SHORT_ENTRY_SHORT_EXIT,LONG_ENTRY_MEDIUM_EXIT",
+      "*MINUS_001*: LONG_ENTRY_LONG_EXIT,LONG_ENTRY_MEDIUM_EXIT,SHORT_ENTRY_SHORT_EXIT",
+      "*MINUS_002*: LONG_ENTRY_MEDIUM_EXIT,SHORT_ENTRY_SHORT_EXIT",
+      "*MINUS_010*: SHORT_ENTRY_SHORT_EXIT,LONG_ENTRY_MEDIUM_EXIT",
+      "*CENTER*: SHORT_ENTRY_SHORT_EXIT,LONG_ENTRY_SHORT_EXIT,LONG_ENTRY_MEDIUM_EXIT",
+      "default: all seven family order"
+    ],
+    "removed_v2_only_preference_rule": "COMPONENT_HALF_FAR002_INWARD015 is unreachable because the operator is excluded"
+  }
+}

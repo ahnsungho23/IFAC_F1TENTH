@@ -1,0 +1,6 @@
+architecture,execution_status,snapshot_count,hard_success_count,usable_path_exists_count,selected_usable_count,legacy_success_regression_count,legacy_usable_regression_count,legacy_failure_hard_recovery_count,legacy_failure_usable_recovery_count,candidate_constructions_total,validator_executions_total,legacy_seed_constructions_not_in_architecture_count,legacy_seed_validators_not_in_architecture_count,maximum_gqsc_constructions,maximum_gqsc_validators
+A_LEGACY_ONLY,EXECUTABLE_SHADOW,104,18,14,14,0,0,0,0,1349,1349,0,0,0,0
+B_LEGACY_THEN_GQSC_B128,EXECUTABLE_SHADOW,104,62,50,50,0,0,44,36,2381,2239,0,0,12,12
+C_GQSC_B128_ONLY,OUTCOME_ONLY_NOT_STANDALONE_EXECUTABLE_CURRENT_LEGACY_SEEDS_REQUIRED,104,62,51,51,0,0,44,36,1248,1087,1349,1349,12,12
+D_M0V1_THEN_GQSC_B128,EXECUTABLE_SHADOW,104,34,31,31,6,5,22,22,829,786,0,0,12,12
+E_MINIMAL_PREFIX_IF_JUSTIFIED,SAME_AS_D_PENDING_COVERAGE_AND_RUNTIME_GATE,104,34,31,31,6,5,22,22,829,786,0,0,12,12

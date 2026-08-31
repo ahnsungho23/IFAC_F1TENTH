@@ -255,7 +255,9 @@ public:
     std::uint64_t global_reference_generation,
     const std::string & p0_failure_reason,
     bool relaxed_clearance_gate = false,
-    std::vector<P3R3K12ProductionCandidate> * r3_production_factors = nullptr) const
+    std::vector<P3R3K12ProductionCandidate> * r3_production_factors = nullptr,
+    bool stop_after_m0_v1 = false,
+    std::vector<P3R3K12ProductionSeedTrace> * r3_seed_lineage = nullptr) const
   {
     P3ShadowResult result;
     result.enabled = true;
@@ -265,6 +267,18 @@ public:
     result.global_reference_generation = global_reference_generation;
     result.p0_failure_reason = p0_failure_reason;
     const auto total_start = Clock::now();
+    const auto append_r3_seed = [&](const P3ShadowCandidateTrace & trace) {
+        const P3R3K12ProductionCandidate factor{
+          trace.go_left, trace.d_target, trace.d_mid, trace.entry_scale, trace.exit_scale};
+        if (r3_production_factors != nullptr) {
+          r3_production_factors->push_back(factor);
+        }
+        if (r3_seed_lineage != nullptr) {
+          r3_seed_lineage->push_back({
+            factor, trace.generator_stage, trace.candidate_template, trace.source_cell,
+            trace.root_type, trace.probe_location_rule, trace.probe_anchor_rule});
+        }
+      };
     PlanningResearchCycle * research_cycle = planner_.activeResearchCycle();
     const double research_corridor_before = research_cycle == nullptr ? 0.0 :
       research_cycle->runtime_corridor_us;
@@ -294,8 +308,10 @@ public:
       return result;
     }
 
+    const auto context_start = Clock::now();
     const P3ShadowPlanningContext context = planner_.buildP3ShadowPlanningContext(
       ego, obstacles, relaxed_clearance_gate);
+    result.runtime_context_preparation_us = elapsedUs(context_start);
     if (!context.valid) {
       result.failure_classification = context.reason.empty() ?
         "NO_BLOCKING_CLUSTER" : context.reason;
@@ -315,6 +331,7 @@ public:
     std::vector<SideResult> sides;
     std::vector<P3ShadowCandidateTrace> research_pre_abort_candidates;
     sides.reserve(2U);
+    const auto m0_v1_start = Clock::now();
     try {
       for (const bool go_left : {false, true}) {
         const auto & domain = go_left ? context.left : context.right;
@@ -328,7 +345,9 @@ public:
       // The frozen mapping review catches the whole M0 policy at this boundary. Preserve that
       // behavior so h0<=0 becomes a fail-closed no-M0 offer instead of escaping the callback.
       m0_nonpositive_abort = true;
-      if (research_cycle != nullptr || r3_production_factors != nullptr) {
+      if (research_cycle != nullptr || r3_production_factors != nullptr ||
+        r3_seed_lineage != nullptr)
+      {
         for (const auto & side : sides) {
           if (research_cycle != nullptr) {
             if (side.go_left) {
@@ -339,11 +358,7 @@ public:
             result.research_discarded_side_candidate_count += side.candidates.size();
           }
           for (const auto & trace : side.candidates) {
-            if (r3_production_factors != nullptr) {
-              r3_production_factors->push_back({
-                  trace.go_left, trace.d_target, trace.d_mid,
-                  trace.entry_scale, trace.exit_scale});
-            }
+            append_r3_seed(trace);
             if (research_cycle != nullptr) {
               auto research_trace = trace;
               research_trace.returned_by_policy = false;
@@ -353,11 +368,24 @@ public:
           }
         }
       }
+      for (const auto & side : sides) {
+        result.m0_v1_candidate_count_actual += side.candidates.size();
+        result.m0_v1_validator_call_count_actual += side.validator_calls;
+        result.m0_v1_hard_valid_count_actual += side.hard_valid_count;
+      }
       sides.clear();
       SideResult aborted;
       aborted.domain_valid = true;
       aborted.failure = "NON_POSITIVE_SEGMENT_ABORT";
       sides.push_back(std::move(aborted));
+    }
+    result.runtime_m0_v1_us = elapsedUs(m0_v1_start);
+    if (!m0_nonpositive_abort) {
+      for (const auto & side : sides) {
+        result.m0_v1_candidate_count_actual += side.candidates.size();
+        result.m0_v1_validator_call_count_actual += side.validator_calls;
+        result.m0_v1_hard_valid_count_actual += side.hard_valid_count;
+      }
     }
 
     // Frozen M0 runQuery semantics retain exactly one canonical side record: RIGHT first when
@@ -384,7 +412,9 @@ public:
 
     std::vector<P3ShadowCandidateTrace> research_side_candidates =
       std::move(research_pre_abort_candidates);
-    if (research_cycle != nullptr || r3_production_factors != nullptr) {
+    if (research_cycle != nullptr || r3_production_factors != nullptr ||
+      r3_seed_lineage != nullptr)
+    {
       for (const auto & side : sides) {
         const bool discarded = &side != baseline;
         if (research_cycle != nullptr) {
@@ -398,11 +428,7 @@ public:
           }
         }
         for (const auto & trace : side.candidates) {
-          if (r3_production_factors != nullptr) {
-            r3_production_factors->push_back({
-                trace.go_left, trace.d_target, trace.d_mid,
-                trace.entry_scale, trace.exit_scale});
-          }
+          append_r3_seed(trace);
           if (research_cycle != nullptr) {
             auto research_trace = trace;
             research_trace.returned_by_policy = !discarded;
@@ -436,9 +462,10 @@ public:
     std::optional<P3ShadowCandidateTrace> selected;
     if (baseline->best_index.has_value()) {
       selected = baseline->candidates[*baseline->best_index];
-    } else {
+    } else if (!stop_after_m0_v1) {
       ExtensionOutcome extension;
       if (!m0_nonpositive_abort) {
+        const auto m0_v2_start = Clock::now();
         try {
           // 🔴 2026-08-17: 확장 계열의 상한을 **남은 총예산**으로 제한한다.
           //
@@ -458,6 +485,7 @@ public:
           // M1 then receives the complete cap-24 budget and its strict segment guard is authority.
           m0_nonpositive_abort = true;
         }
+        result.runtime_m0_v2_us = elapsedUs(m0_v2_start);
       }
       if (m0_nonpositive_abort) {
         result.raw_root_count = 0U;
@@ -479,6 +507,9 @@ public:
         result.m0_candidate_count += extension.candidates.size();
         result.m0_validator_call_count += extension.validator_calls;
         result.m0_hard_valid_count += extension.hard_valid_count;
+        result.m0_v2_candidate_count = extension.candidates.size();
+        result.m0_v2_validator_call_count = extension.validator_calls;
+        result.m0_v2_hard_valid_count = extension.hard_valid_count;
         result.runtime_root_solver_us += extension.runtime_root_solver_us;
         result.runtime_reconstruction_us += extension.runtime_reconstruction_us;
         result.runtime_hard_validation_us += extension.runtime_hard_validation_us;
@@ -494,7 +525,9 @@ public:
         }
         result.m1_invoked = true;
         result.m1_budget = kTotalCandidateCap - result.m0_candidate_count;
+        const auto m1_start = Clock::now();
         ExtensionOutcome m1 = evaluateM1(ego, obstacles, context, result);
+        result.runtime_m1_us = elapsedUs(m1_start);
         result.runtime_root_solver_us += m1.runtime_root_solver_us;
         result.runtime_reconstruction_us += m1.runtime_reconstruction_us;
         result.runtime_hard_validation_us += m1.runtime_hard_validation_us;
@@ -511,6 +544,7 @@ public:
       }
     }
 
+    const auto final_bookkeeping_start = Clock::now();
     result.candidate_count = result.m0_candidate_count + result.m1_candidate_count;
     result.hard_validator_call_count =
       result.m0_validator_call_count + result.m1_validator_call_count;
@@ -524,6 +558,7 @@ public:
       result.selected_cluster_end_forward_m = selected_domain.cluster_end;
       result.selected_cluster_end_s = planner_.wrapS(ego.s + selected_domain.cluster_end);
       result.selected_source = selected->mapping_source;
+      result.selected_generator_stage = selected->generator_stage;
       result.selected_candidate_template = selected->candidate_template;
       result.selected_source_cell = selected->source_cell;
       result.selected_component_id = selected->component_id;
@@ -553,13 +588,12 @@ public:
     } else {
       result.failure_classification = baseline->failure;
     }
+    result.runtime_final_bookkeeping_us = elapsedUs(final_bookkeeping_start);
     result.runtime_total_us = elapsedUs(total_start);
-    if (r3_production_factors != nullptr) {
+    if (r3_production_factors != nullptr || r3_seed_lineage != nullptr) {
       for (const auto & trace : result.candidates) {
         if (trace.generator_stage != "M0_V1") {
-          r3_production_factors->push_back({
-              trace.go_left, trace.d_target, trace.d_mid,
-              trace.entry_scale, trace.exit_scale});
+          append_r3_seed(trace);
         }
       }
     }
@@ -644,12 +678,51 @@ public:
     const P3ShadowResult & production_failure,
     const std::vector<P3R3K12ProductionCandidate> & production_candidates) const
   {
+    return runR3Selection(
+      ego, obstacles, production_failure, production_candidates, std::nullopt);
+  }
+
+  P3ShadowResult runR3RT(
+    const EgoFrenetState & ego,
+    const std::vector<f110_msgs::msg::Obstacle> & obstacles,
+    const P3ShadowResult & production_failure,
+    const std::vector<P3R3K12ProductionCandidate> & production_candidates,
+    std::size_t pair_budget) const
+  {
+    return runR3Selection(
+      ego, obstacles, production_failure, production_candidates, pair_budget);
+  }
+
+  P3ShadowResult runR3RTStandalone(
+    const EgoFrenetState & ego,
+    const std::vector<f110_msgs::msg::Obstacle> & obstacles,
+    const P3ShadowResult & base,
+    std::size_t pair_budget,
+    const P3R3RTStandaloneOptions & options = {}) const
+  {
+    return runR3Selection(ego, obstacles, base, {}, pair_budget, true, options);
+  }
+
+  P3ShadowResult runR3Selection(
+    const EgoFrenetState & ego,
+    const std::vector<f110_msgs::msg::Obstacle> & obstacles,
+    const P3ShadowResult & production_failure,
+    const std::vector<P3R3K12ProductionCandidate> & production_candidates,
+    const std::optional<std::size_t> & bounded_pair_budget,
+    bool standalone = false,
+    const P3R3RTStandaloneOptions & standalone_options = {}) const
+  {
+    const bool bounded = bounded_pair_budget.has_value();
+    const std::string method_name = standalone ?
+      "GQSC_STANDALONE_DIRECT_SEED_NATIVE_B" + std::to_string(*bounded_pair_budget) : bounded ?
+      "R3_RT_NO_RESERVES_DIAGONAL_NATIVE_B" + std::to_string(*bounded_pair_budget) :
+      kP3R3K12MethodName;
     const auto total_start = Clock::now();
     P3ShadowResult result = production_failure;
     result.r3_invoked = true;
-    result.r3_method_name = kP3R3K12MethodName;
-    result.r3_method_sha256 = kP3R3K12MethodSha256;
-    result.mapping_semantics = kP3R3K12MethodName;
+    result.r3_method_name = method_name;
+    result.r3_method_sha256 = bounded ? "RESEARCH_SHADOW_NOT_FROZEN" : kP3R3K12MethodSha256;
+    result.mapping_semantics = method_name;
     result.r3_fallback_after_failure = production_failure.failure_classification;
     result.would_recover = false;
     result.candidates.clear();
@@ -657,10 +730,18 @@ public:
     result.hard_validator_call_count = 0U;
     result.hard_valid_count = 0U;
     result.selected_source = "NONE";
+    result.selected_generator_stage = "NONE";
     result.selected_candidate_template = "NONE";
     result.selected_candidate_identity = "NONE";
     result.selected_logical_identity = "NONE";
     result.selected_path_digest = "NONE";
+    result.selected_d_target = std::numeric_limits<double>::quiet_NaN();
+    result.selected_d_mid = std::numeric_limits<double>::quiet_NaN();
+    result.selected_min_track_margin_m = std::numeric_limits<double>::quiet_NaN();
+    result.selected_min_obstacle_margin_m = std::numeric_limits<double>::quiet_NaN();
+    result.selected_curvature_margin = std::numeric_limits<double>::quiet_NaN();
+    result.selected_curvature_rate_margin = std::numeric_limits<double>::quiet_NaN();
+    result.selected_slope_margin = std::numeric_limits<double>::quiet_NaN();
     result.selected_probe_s = std::numeric_limits<double>::quiet_NaN();
     result.selected_probe_d = std::numeric_limits<double>::quiet_NaN();
     result.selected_validation_available = false;
@@ -676,20 +757,43 @@ public:
       return result;
     }
     cycle_cluster_ids_ = context.cluster_ids;
+    result.enabled = true;
+    result.invoked = true;
+    result.cluster_obstacle_ids = context.cluster_ids;
+    result.cluster_start_forward_m = context.right.cluster_start;
+    result.cluster_end_forward_m = context.right.cluster_end;
+    result.left_domain = context.left;
+    result.right_domain = context.right;
 
     const auto factor_start = Clock::now();
     const auto geometry_start = Clock::now();
     R3GeometryProfile geometry_profile;
     const std::vector<P3R3K12SideGeometry> geometries = buildR3K12Geometry(
       ego, obstacles, context, &geometry_profile);
+    if (bounded) {
+      result.r3_side_geometry_trace = geometries;
+    }
     result.r3_runtime_geometry_preparation_us = elapsedUs(geometry_start);
     result.r3_corridor_sample_evaluation_count =
       geometry_profile.corridor_sample_evaluation_count;
     result.r3_reference_spacing_scan_count = geometry_profile.reference_spacing_scan_count;
     result.r3_reference_sample_count = geometry_profile.reference_sample_count;
     P3R3K12SelectionProfile selection_profile;
-    const P3R3K12Selection selection = selectP3R3K12Factors(
-      geometries, production_candidates, &selection_profile);
+    P3R3K12Selection selection;
+    if (bounded) {
+      result.r3_rt_selection = standalone ?
+        selectP3R3RTStandaloneFactors(
+        geometries, *bounded_pair_budget, &selection_profile, standalone_options) :
+        selectP3R3RTFactors(
+        geometries, production_candidates, *bounded_pair_budget, &selection_profile);
+      selection.lateral_factor_count = result.r3_rt_selection.proposed_laterals.size();
+      selection.pair_priority_count = result.r3_rt_selection.pair_pool.size();
+      selection.lexicographic = result.r3_rt_selection.lexicographic;
+      selection.coverage = result.r3_rt_selection.coverage;
+    } else {
+      selection = selectP3R3K12Factors(
+        geometries, production_candidates, &selection_profile);
+    }
     result.r3_runtime_factor_generation_us = elapsedUs(factor_start);
     result.r3_lateral_factor_count = selection.lateral_factor_count;
     result.r3_pair_priority_count = selection.pair_priority_count;
@@ -804,8 +908,9 @@ public:
           if (trace.validator_executed) {
             ++result.r3_validator_call_count;
           }
-          trace.mapping_source = kP3R3K12MethodName;
-          trace.generator_stage = "R3_K12";
+          trace.mapping_source = method_name;
+          trace.generator_stage = standalone ? "GQSC_STANDALONE_NATIVE" :
+            bounded ? "R3_RT_NATIVE" : "R3_K12";
           trace.candidate_template = "DIRECT_FACTOR_" + stream_name;
           trace.source_cell = stream_name;
           trace.component_id = "DIRECT_FACTOR_POOL";
@@ -818,9 +923,13 @@ public:
           trace.r3_lateral_factor_index = factor.lateral_factor_index;
           trace.r3_transition_index = factor.transition_index;
           const std::string side = factor.go_left ? "LEFT" : "RIGHT";
-          trace.candidate_identity = "R3_K12_" + stream_name + "_" + side + "_" +
+          const std::string identity_prefix = standalone ? "GQSC_STANDALONE_NATIVE_" :
+            bounded ? "R3_RT_NATIVE_" : "R3_K12_";
+          trace.candidate_identity = identity_prefix +
+            stream_name + "_" + side + "_" +
             trace.path_digest;
-          trace.logical_identity = "R3_K12_" + stream_name + "_" + side + "_" +
+          trace.logical_identity = identity_prefix +
+            stream_name + "_" + side + "_" +
             std::to_string(stream_rank);
           trace.returned_by_policy = true;
 
@@ -882,7 +991,8 @@ public:
       result.selected_cluster_start_forward_m = selected_domain.cluster_start;
       result.selected_cluster_end_forward_m = selected_domain.cluster_end;
       result.selected_cluster_end_s = planner_.wrapS(ego.s + selected_domain.cluster_end);
-      result.selected_source = kP3R3K12MethodName;
+      result.selected_source = method_name;
+      result.selected_generator_stage = selected.generator_stage;
       result.selected_candidate_template = selected.candidate_template;
       result.selected_source_cell = selected.source_cell;
       result.selected_component_id = selected.component_id;
@@ -1381,7 +1491,17 @@ private:
       geometry.cluster_end = domain.cluster_end;
       geometry.domain_lower = std::min(domain.minimum_target, domain.maximum_target);
       geometry.domain_upper = std::max(domain.minimum_target, domain.maximum_target);
+      geometry.bottleneck_center = bottleneck->center;
       geometry.reference_spacing_m = frozenR3ReferenceSpacing(profile);
+      const auto direct_entries = entryScales(true);
+      const auto direct_exits = exitScales(
+        ego, domain.cluster_end, go_left, context.outside_is_left, true);
+      if (!direct_entries.empty() && !direct_exits.empty()) {
+        geometry.entry_scale_min = direct_entries.front();
+        geometry.entry_scale_max = direct_entries.back();
+        geometry.exit_scale_min = direct_exits.front();
+        geometry.exit_scale_max = direct_exits.back();
+      }
       for (const auto & range : ranges) {
         geometry.components.push_back({range.lower, range.upper});
       }
@@ -3392,6 +3512,160 @@ P3ShadowResult RacelineSplinePlanner::evaluateP3ShadowUnguarded(
   }
   P3ShadowEvaluator::copyR3Audit(relaxed, r3);
   return relaxed;
+}
+
+P3ShadowResult RacelineSplinePlanner::evaluateP3R3RTShadow(
+  const EgoFrenetState & ego,
+  const std::vector<f110_msgs::msg::Obstacle> & obstacles,
+  std::size_t pair_budget) const
+{
+  try {
+    const P3ShadowEvaluator evaluator(*this);
+    std::vector<P3R3K12ProductionCandidate> strict_production_factors;
+    P3ShadowResult strict = evaluator.run(
+      ego, obstacles, 0, 0U, 1U, "R3_RT_NATIVE_RESEARCH", false,
+      &strict_production_factors);
+    if (strict.would_recover || !strict.invoked || strict.cluster_obstacle_ids.empty()) {
+      return strict;
+    }
+    P3ShadowResult relaxed = evaluator.run(
+      ego, obstacles, 0, 0U, 1U, "R3_RT_NATIVE_RESEARCH", true);
+    if (relaxed.would_recover) {
+      relaxed.selected_source += "+RELAXED_CLEARANCE_GATE";
+      return relaxed;
+    }
+    return evaluator.runR3RT(
+      ego, obstacles, relaxed, strict_production_factors, pair_budget);
+  } catch (const std::exception & error) {
+    P3ShadowResult failed;
+    failed.enabled = true;
+    failed.p0_failure_reason = "R3_RT_NATIVE_RESEARCH";
+    failed.failure_classification =
+      std::string("R3_RT_RESEARCH_INVARIANT_VIOLATION: ") + error.what();
+    return failed;
+  }
+}
+
+P3ShadowResult RacelineSplinePlanner::evaluateP3LegacyPassShadow(
+  const EgoFrenetState & ego,
+  const std::vector<f110_msgs::msg::Obstacle> & obstacles,
+  bool relaxed_clearance_gate,
+  bool stop_after_m0_v1) const
+{
+  try {
+    const P3ShadowEvaluator evaluator(*this);
+    return evaluator.run(
+      ego, obstacles, 0, 0U, 1U, "GQSC_ARCHITECTURE_RESEARCH",
+      relaxed_clearance_gate, nullptr, stop_after_m0_v1);
+  } catch (const std::exception & error) {
+    P3ShadowResult failed;
+    failed.enabled = true;
+    failed.p0_failure_reason = "GQSC_ARCHITECTURE_RESEARCH";
+    failed.failure_classification =
+      std::string("LEGACY_PASS_RESEARCH_INVARIANT_VIOLATION: ") + error.what();
+    return failed;
+  }
+}
+
+P3ShadowResult RacelineSplinePlanner::evaluateP3LegacyOnlyShadow(
+  const EgoFrenetState & ego,
+  const std::vector<f110_msgs::msg::Obstacle> & obstacles) const
+{
+  P3ShadowResult strict = evaluateP3LegacyPassShadow(ego, obstacles, false, false);
+  if (strict.would_recover || !strict.invoked || strict.cluster_obstacle_ids.empty()) {
+    return strict;
+  }
+  P3ShadowResult relaxed = evaluateP3LegacyPassShadow(ego, obstacles, true, false);
+  if (relaxed.would_recover) {
+    relaxed.selected_source += "+RELAXED_CLEARANCE_GATE";
+  }
+  return relaxed;
+}
+
+P3ShadowResult RacelineSplinePlanner::evaluateP3R3RTForcedShadow(
+  const EgoFrenetState & ego,
+  const std::vector<f110_msgs::msg::Obstacle> & obstacles,
+  std::size_t pair_budget) const
+{
+  try {
+    const P3ShadowEvaluator evaluator(*this);
+    std::vector<P3R3K12ProductionCandidate> strict_production_factors;
+    std::vector<P3R3K12ProductionSeedTrace> strict_seed_lineage;
+    P3ShadowResult base = evaluator.run(
+      ego, obstacles, 0, 0U, 1U, "GQSC_FORCED_RESEARCH", false,
+      &strict_production_factors, false, &strict_seed_lineage);
+    if (!base.invoked || base.cluster_obstacle_ids.empty()) {
+      return base;
+    }
+    if (!base.would_recover) {
+      base = evaluator.run(
+        ego, obstacles, 0, 0U, 1U, "GQSC_FORCED_RESEARCH", true);
+    }
+    base.r3_production_seed_trace = std::move(strict_seed_lineage);
+    P3ShadowResult gqsc = evaluator.runR3RT(
+      ego, obstacles, base, strict_production_factors, pair_budget);
+    if (!gqsc.would_recover && base.would_recover) {
+      gqsc.failure_classification = "NO_HARD_VALID_GQSC_CANDIDATE";
+    }
+    return gqsc;
+  } catch (const std::exception & error) {
+    P3ShadowResult failed;
+    failed.enabled = true;
+    failed.p0_failure_reason = "GQSC_FORCED_RESEARCH";
+    failed.failure_classification =
+      std::string("GQSC_FORCED_RESEARCH_INVARIANT_VIOLATION: ") + error.what();
+    return failed;
+  }
+}
+
+P3ShadowResult RacelineSplinePlanner::evaluateP3R3RTStandaloneShadow(
+  const EgoFrenetState & ego,
+  const std::vector<f110_msgs::msg::Obstacle> & obstacles,
+  std::size_t pair_budget,
+  const P3R3RTStandaloneOptions & options) const
+{
+  try {
+    P3ShadowResult base;
+    base.enabled = true;
+    base.invoked = true;
+    base.p0_failure_reason = "GQSC_STANDALONE_DIRECT_SEED_RESEARCH";
+    base.failure_classification = "STANDALONE_DIRECT_SEED_ENTRY";
+    const P3ShadowEvaluator evaluator(*this);
+    return evaluator.runR3RTStandalone(ego, obstacles, base, pair_budget, options);
+  } catch (const std::exception & error) {
+    P3ShadowResult failed;
+    failed.enabled = true;
+    failed.invoked = true;
+    failed.p0_failure_reason = "GQSC_STANDALONE_DIRECT_SEED_RESEARCH";
+    failed.failure_classification =
+      std::string("GQSC_STANDALONE_RESEARCH_INVARIANT_VIOLATION: ") + error.what();
+    return failed;
+  }
+}
+
+P3ShadowResult RacelineSplinePlanner::evaluateP3R3RTM0V1PrefixShadow(
+  const EgoFrenetState & ego,
+  const std::vector<f110_msgs::msg::Obstacle> & obstacles,
+  std::size_t pair_budget) const
+{
+  try {
+    const P3ShadowEvaluator evaluator(*this);
+    std::vector<P3R3K12ProductionCandidate> m0_v1_factors;
+    P3ShadowResult m0_v1 = evaluator.run(
+      ego, obstacles, 0, 0U, 1U, "M0_V1_THEN_GQSC_RESEARCH", false,
+      &m0_v1_factors, true);
+    if (m0_v1.would_recover || !m0_v1.invoked || m0_v1.cluster_obstacle_ids.empty()) {
+      return m0_v1;
+    }
+    return evaluator.runR3RT(ego, obstacles, m0_v1, m0_v1_factors, pair_budget);
+  } catch (const std::exception & error) {
+    P3ShadowResult failed;
+    failed.enabled = true;
+    failed.p0_failure_reason = "M0_V1_THEN_GQSC_RESEARCH";
+    failed.failure_classification =
+      std::string("M0_V1_GQSC_RESEARCH_INVARIANT_VIOLATION: ") + error.what();
+    return failed;
+  }
 }
 
 }  // namespace local_planning

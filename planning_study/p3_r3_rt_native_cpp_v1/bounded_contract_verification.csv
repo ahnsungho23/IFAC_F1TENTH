@@ -1,0 +1,4 @@
+budget_b,snapshot_count,maximum_lateral_proposals,lateral_bound,maximum_transition_proposals,transition_bound,maximum_pair_proxy_evaluations,pair_proxy_bound,maximum_reconstructions,reconstruction_bound,maximum_validator_calls,validator_bound,hidden_full_exact_r3_pool_materialized,all_python_cpp_parity
+64,86,36,64,7,7,64,64,12,12,12,12,0,1
+96,86,48,64,7,7,96,96,12,12,12,12,0,1
+128,86,64,64,7,7,128,128,12,12,12,12,0,1

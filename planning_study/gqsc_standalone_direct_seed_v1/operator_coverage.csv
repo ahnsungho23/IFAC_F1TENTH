@@ -1,0 +1,4 @@
+source_kind,snapshot_count,legacy_hard,legacy_usable,teacher_hard,teacher_usable,standalone_hard,standalone_usable,standalone_hard_delta_vs_teacher,standalone_usable_delta_vs_teacher
+LEGACY_SUCCESS_CONTROL,18,18,14,18,15,17,15,-1,0
+FROZEN_PRODUCTION_FAILURE,86,0,0,44,36,43,39,-1,3
+ALL,104,18,14,62,51,60,54,-2,3

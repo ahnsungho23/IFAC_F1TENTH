@@ -24,6 +24,8 @@
 
 #include <f110_msgs/msg/wpnt_array.hpp>
 
+#include "local_planning/p3_r3_k12.hpp"
+
 namespace local_planning
 {
 
@@ -288,10 +290,24 @@ struct P3ShadowResult
   double r3_runtime_total_us{0.0};
   std::string r3_fallback_after_failure{"NOT_INVOKED"};
   std::vector<P3R3SelectedFactorTrace> r3_selected_factors;
+  // Non-empty only for the explicit native R3-RT research/shadow callable.
+  P3R3RTSelection r3_rt_selection;
+  // Passive inputs to the explicit research selector, retained only for standalone-generator
+  // dependency studies. They never participate in production or shadow selection decisions.
+  std::vector<P3R3K12ProductionSeedTrace> r3_production_seed_trace;
+  std::vector<P3R3K12SideGeometry> r3_side_geometry_trace;
 
   std::size_t m0_candidate_count{0U};
   std::size_t m0_validator_call_count{0U};
   std::size_t m0_hard_valid_count{0U};
+  // Passive research timing/count audit of the legacy fresh-candidate ladder.  These fields are
+  // observations only and are populated even when the heavyweight research logger is OFF.
+  std::size_t m0_v1_candidate_count_actual{0U};
+  std::size_t m0_v1_validator_call_count_actual{0U};
+  std::size_t m0_v1_hard_valid_count_actual{0U};
+  std::size_t m0_v2_candidate_count{0U};
+  std::size_t m0_v2_validator_call_count{0U};
+  std::size_t m0_v2_hard_valid_count{0U};
   bool m1_invoked{false};
   std::size_t m1_budget{0U};
   std::size_t m1_context_count{0U};
@@ -319,6 +335,7 @@ struct P3ShadowResult
   double selected_cluster_end_forward_m{std::numeric_limits<double>::quiet_NaN()};
   double selected_cluster_end_s{std::numeric_limits<double>::quiet_NaN()};
   std::string selected_source{"NONE"};
+  std::string selected_generator_stage{"NONE"};
   std::string selected_candidate_template{"NONE"};
   std::string selected_source_cell{"NONE"};
   std::string selected_component_id{"NONE"};
@@ -344,6 +361,11 @@ struct P3ShadowResult
   f110_msgs::msg::WpntArray selected_path;
 
   double runtime_total_us{0.0};
+  double runtime_context_preparation_us{0.0};
+  double runtime_m0_v1_us{0.0};
+  double runtime_m0_v2_us{0.0};
+  double runtime_m1_us{0.0};
+  double runtime_final_bookkeeping_us{0.0};
   double runtime_corridor_us{0.0};
   double runtime_root_solver_us{0.0};
   double runtime_reconstruction_us{0.0};

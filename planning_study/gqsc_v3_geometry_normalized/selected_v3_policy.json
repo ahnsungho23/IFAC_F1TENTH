@@ -1,0 +1,34 @@
+{
+  "candidate_cap": 12,
+  "component_half_far002_inward015_enabled": false,
+  "coverage_reserve": 2,
+  "development_hard_count": 24,
+  "development_policy_comparison_sha256": "ac045a16a8b1bb41da1a70a22e5cfbb46c337ee42d0bcf8d28170a438d0cd7e6",
+  "development_usable_count": 21,
+  "geometry_coordinates": [
+    "side_sigma",
+    "u_target",
+    "u_mid",
+    "entry_normalized",
+    "exit_normalized"
+  ],
+  "lateral_bank": "CLEAN_STANDALONE_V1_UNCHANGED",
+  "lexicographic_quota": 10,
+  "method_name": "V3_SIDE_BALANCED_DISJOINT",
+  "native_selector_header_sha256": "b61f5892d3538bd3ac3653ae7a319306ed8a669d8658311d82998ed46bf6158c",
+  "native_selector_source_sha256": "ab0d1bb04db071d2aa3d6a228a6fd5bfea01da8e90487a0fb36c207156214949",
+  "pair_budget": 128,
+  "policy_id": "P2",
+  "predeclaration_sha256": {
+    "v3_operator_candidates.md": "9a0d91dd208e375ae6d486190669c57d4bda59e2945dd4afad0beb2a0bdadfdf",
+    "v3_parameter_provenance.md": "018a6b0258536d11247454d77c6107f9970c71964f282c17b174350f5f355cb6"
+  },
+  "release_harness_sha256": "05ee034bee29ef439213768e0dc3b624febae95bfb392a6f0117d1a8e23f3d3f",
+  "schema_version": "GQSC_V3_PREVALIDATION_LOCK_V1",
+  "selection_corpus": "DEVELOPMENT_49",
+  "selection_rule": "clean,bounded,usable_nonregression,max_usable,max_hard,max_both_side_coverage,max_unique_lateral,min_complexity",
+  "selector_enum": "V3_SIDE_BALANCED_DISJOINT",
+  "status": "V3_PREVALIDATION_LOCKED",
+  "validator_cap": 12,
+  "zero_interface_equal_min_outward_enabled": false
+}

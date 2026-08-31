@@ -21,12 +21,15 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <functional>
 #include <iomanip>
 #include <limits>
 #include <map>
 #include <numeric>
+#include <optional>
 #include <set>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <tuple>
@@ -394,6 +397,28 @@ std::array<double, 5> stationsFor(
   const double multiplier = geometry.go_left == geometry.outside_is_left ?
     kOutsideExitMultiplier : 1.0;
   const double exit_length = kPostApexFarM * exit * multiplier;
+  const double required = std::abs(target - geometry.ego_d) / kMaximumLateralSlope;
+  double apex = geometry.cluster_start;
+  double start = apex - apex * kPreApexFarM * entry / kLookaheadM;
+  if (!(apex >= required)) {
+    apex = std::max(required, geometry.reference_spacing_m);
+    start = 0.0;
+  }
+  return {
+    start, apex, 0.5 * (apex + geometry.cluster_end), geometry.cluster_end,
+    geometry.cluster_end + exit_length};
+}
+
+// The bounded Python prototype forms `combined = exit * multiplier` before multiplying by the
+// post-apex distance.  Preserve that binary64 operation order for exact shadow parity without
+// changing the frozen exact-R3 stationsFor() path above.
+std::array<double, 5> boundedStationsFor(
+  const P3R3K12SideGeometry & geometry, double entry, double exit, double target)
+{
+  const double multiplier = geometry.go_left == geometry.outside_is_left ?
+    kOutsideExitMultiplier : 1.0;
+  const double combined = exit * multiplier;
+  const double exit_length = kPostApexFarM * combined;
   const double required = std::abs(target - geometry.ego_d) / kMaximumLateralSlope;
   double apex = geometry.cluster_start;
   double start = apex - apex * kPreApexFarM * entry / kLookaheadM;
@@ -1078,6 +1103,738 @@ std::vector<P3R3K12Factor> coverageOrder(
     pool, selected, kP3R3K12CoverageQuota, profile);
 }
 
+std::vector<P3R3K12Factor> standaloneCoverageOrder(
+  const std::vector<RankedFactor> & pool,
+  const std::vector<P3R3K12Factor> & lexicographic,
+  const std::vector<P3R3K12SideGeometry> & sides,
+  P3R3RTStandaloneDiversityPolicy policy,
+  P3R3K12SelectionProfile * profile)
+{
+  if (policy == P3R3RTStandaloneDiversityPolicy::V1_BASELINE) {
+    return coverageOrder(pool, profile);
+  }
+  const auto start = ProfileClock::now();
+  std::set<std::array<std::uint64_t, 8>> excluded_shapes;
+  for (const auto & row : lexicographic) {
+    excluded_shapes.insert(row.preconstruction_shape_bits);
+  }
+  std::map<bool, const P3R3K12SideGeometry *> geometry_by_side;
+  for (const auto & geometry : sides) {
+    geometry_by_side[geometry.go_left] = &geometry;
+  }
+  const auto near_fraction = [&geometry_by_side](const RankedFactor & row) {
+      const auto found = geometry_by_side.find(row.go_left);
+      if (found == geometry_by_side.end()) {
+        return std::numeric_limits<double>::infinity();
+      }
+      double near = found->second->domain_lower;
+      double far = found->second->domain_upper;
+      if (std::make_tuple(std::abs(far), far) < std::make_tuple(std::abs(near), near)) {
+        std::swap(near, far);
+      }
+      const double span = far - near;
+      return std::abs(span) <= kEpsilon ? std::numeric_limits<double>::infinity() :
+             (row.d_target - near) / span;
+    };
+  const auto outward_delta = [&geometry_by_side](const RankedFactor & row) {
+      const auto found = geometry_by_side.find(row.go_left);
+      if (found == geometry_by_side.end()) {
+        return -std::numeric_limits<double>::infinity();
+      }
+      double near = found->second->domain_lower;
+      double far = found->second->domain_upper;
+      if (std::make_tuple(std::abs(far), far) < std::make_tuple(std::abs(near), near)) {
+        std::swap(near, far);
+      }
+      if (std::abs(far - near) <= kEpsilon) {
+        return -std::numeric_limits<double>::infinity();
+      }
+      return std::copysign(1.0, far - near) * (row.d_mid - row.d_target);
+    };
+  const auto normalized_coordinate = [&geometry_by_side](const auto & row) {
+      std::array<double, 5> coordinate{
+        row.go_left ? 1.0 : 0.0, 0.0, 0.0, row.entry_normalized, row.exit_normalized};
+      const auto found = geometry_by_side.find(row.go_left);
+      if (found == geometry_by_side.end()) {
+        coordinate[1] = std::numeric_limits<double>::infinity();
+        coordinate[2] = std::numeric_limits<double>::infinity();
+        return coordinate;
+      }
+      double near = found->second->domain_lower;
+      double far = found->second->domain_upper;
+      if (std::make_tuple(std::abs(far), far) < std::make_tuple(std::abs(near), near)) {
+        std::swap(near, far);
+      }
+      const double span = far - near;
+      if (std::abs(span) <= kEpsilon) {
+        coordinate[1] = std::numeric_limits<double>::infinity();
+        coordinate[2] = std::numeric_limits<double>::infinity();
+        return coordinate;
+      }
+      coordinate[1] = (row.d_target - near) / span;
+      coordinate[2] = (row.d_mid - near) / span;
+      return coordinate;
+    };
+  std::vector<double> base_scores;
+  base_scores.reserve(pool.size());
+  for (const auto & row : pool) {
+    base_scores.push_back(baseScore(row));
+  }
+  std::vector<std::size_t> selected;
+  std::set<std::array<std::uint64_t, 8>> selected_shapes = excluded_shapes;
+  const auto append = [&selected, &selected_shapes, &pool](std::size_t index) {
+      if (selected_shapes.insert(pool[index].preconstruction_shape_bits).second) {
+        selected.push_back(index);
+        return true;
+      }
+      return false;
+    };
+  const auto select_coverage = [&pool, &base_scores, &selected, &selected_shapes, &append](
+    std::size_t quota, const std::function<bool(const RankedFactor &)> & eligible) {
+      std::vector<std::size_t> remaining;
+      remaining.reserve(pool.size());
+      for (std::size_t index = 0U; index < pool.size(); ++index) {
+        if (!pool[index].construction_guard_proxy &&
+          selected_shapes.find(pool[index].preconstruction_shape_bits) == selected_shapes.end() &&
+          eligible(pool[index]))
+        {
+          remaining.push_back(index);
+        }
+      }
+      std::vector<std::size_t> local;
+      while (!remaining.empty() && local.size() < quota) {
+        const auto adjusted_score = [&pool, &base_scores, &local](std::size_t row_index) {
+            if (local.empty()) {
+              return base_scores[row_index];
+            }
+            const auto & row = pool[row_index];
+            double distance = std::numeric_limits<double>::infinity();
+            for (const std::size_t chosen_index : local) {
+              const auto & chosen = pool[chosen_index];
+              distance = std::min(
+                distance,
+                (row.go_left != chosen.go_left ? 0.5 : 0.0) +
+                std::abs(row.d_target - chosen.d_target) / 1.5 +
+                std::abs(row.d_mid - chosen.d_mid) / 3.0 +
+                0.20 * std::abs(row.entry_normalized - chosen.entry_normalized) +
+                0.20 * std::abs(row.exit_normalized - chosen.exit_normalized));
+            }
+            return base_scores[row_index] - 2.0 * std::min(1.0, distance);
+          };
+        std::size_t best = 0U;
+        double best_adjusted = adjusted_score(remaining.front());
+        for (std::size_t index = 1U; index < remaining.size(); ++index) {
+          const std::size_t candidate = remaining[index];
+          const double candidate_adjusted = adjusted_score(candidate);
+          int comparison = orderedCompare(
+            pool[candidate].exit_conflict_proxy,
+            pool[remaining[best]].exit_conflict_proxy);
+          if (comparison == 0) {
+            comparison = orderedCompare(candidate_adjusted, best_adjusted);
+          }
+          if (comparison == 0) {
+            comparison = orderedCompare(base_scores[candidate], base_scores[remaining[best]]);
+          }
+          if (comparison < 0 ||
+            (comparison == 0 && stableTieLess(pool[candidate], pool[remaining[best]])))
+          {
+            best = index;
+            best_adjusted = candidate_adjusted;
+          }
+        }
+        const std::size_t chosen = remaining[best];
+        remaining.erase(remaining.begin() + static_cast<std::ptrdiff_t>(best));
+        if (append(chosen)) {
+          local.push_back(chosen);
+        }
+      }
+    };
+  const auto zero_interface = [&near_fraction](const RankedFactor & row) {
+      const double fraction = near_fraction(row);
+      return row.transition_index == 0U && fraction >= -kEpsilon &&
+             fraction <= 1.0 / 32.0 + kEpsilon;
+    };
+  if (policy == P3R3RTStandaloneDiversityPolicy::DISJOINT_COVERAGE) {
+    select_coverage(kP3R3K12CoverageQuota, [](const auto &) {return true;});
+  } else if (policy == P3R3RTStandaloneDiversityPolicy::V3_SIDE_BALANCED_DISJOINT) {
+    select_coverage(1U, [](const auto & row) {return !row.go_left;});
+    select_coverage(1U, [](const auto & row) {return row.go_left;});
+    if (selected.size() < kP3R3K12CoverageQuota) {
+      select_coverage(
+        kP3R3K12CoverageQuota - selected.size(), [](const auto &) {return true;});
+    }
+  } else if (policy == P3R3RTStandaloneDiversityPolicy::V3_NORMALIZED_MAXIMIN_DISJOINT) {
+    std::vector<std::array<double, 5>> reference_coordinates;
+    reference_coordinates.reserve(lexicographic.size() + kP3R3K12CoverageQuota);
+    for (const auto & row : lexicographic) {
+      reference_coordinates.push_back(normalized_coordinate(row));
+    }
+    const auto minimum_distance = [&normalized_coordinate, &reference_coordinates](
+      const RankedFactor & row) {
+        const auto coordinate = normalized_coordinate(row);
+        double minimum = std::numeric_limits<double>::infinity();
+        for (const auto & reference : reference_coordinates) {
+          double distance = 0.0;
+          for (std::size_t index = 0U; index < coordinate.size(); ++index) {
+            const double delta = coordinate[index] - reference[index];
+            distance += delta * delta;
+          }
+          minimum = std::min(minimum, distance);
+        }
+        return minimum;
+      };
+    while (selected.size() < kP3R3K12CoverageQuota) {
+      std::optional<std::size_t> best;
+      double best_distance = -std::numeric_limits<double>::infinity();
+      for (std::size_t index = 0U; index < pool.size(); ++index) {
+        if (pool[index].construction_guard_proxy ||
+          selected_shapes.find(pool[index].preconstruction_shape_bits) != selected_shapes.end())
+        {
+          continue;
+        }
+        const double distance = minimum_distance(pool[index]);
+        if (!best.has_value() || distance > best_distance ||
+          (distance == best_distance && lexicographicProxyLess(pool[index], pool[*best])))
+        {
+          best = index;
+          best_distance = distance;
+        }
+      }
+      if (!best.has_value() || !append(*best)) {
+        break;
+      }
+      reference_coordinates.push_back(normalized_coordinate(pool[*best]));
+    }
+  } else if (policy == P3R3RTStandaloneDiversityPolicy::SHORT_SHORT_RESERVE) {
+    select_coverage(kP3R3K12CoverageQuota, [](const auto & row) {
+        return row.transition_index == 0U;
+      });
+  } else {
+    select_coverage(1U, [&zero_interface](const auto & row) {
+        return zero_interface(row) && std::abs(row.d_mid - row.d_target) <= kEpsilon;
+      });
+    if (policy == P3R3RTStandaloneDiversityPolicy::ZERO_INTERFACE_PROXY_SPLIT) {
+      select_coverage(1U, [&zero_interface](const auto & row) {
+          return zero_interface(row) && std::abs(row.d_mid - row.d_target) > kEpsilon;
+        });
+    } else {
+      std::vector<std::size_t> outward;
+      for (std::size_t index = 0U; index < pool.size(); ++index) {
+        if (!pool[index].construction_guard_proxy && zero_interface(pool[index]) &&
+          outward_delta(pool[index]) > kEpsilon &&
+          selected_shapes.find(pool[index].preconstruction_shape_bits) == selected_shapes.end())
+        {
+          outward.push_back(index);
+        }
+      }
+      const bool select_min = policy ==
+        P3R3RTStandaloneDiversityPolicy::ZERO_INTERFACE_EQUAL_MIN_OUTWARD;
+      std::sort(outward.begin(), outward.end(), [&](std::size_t first, std::size_t second) {
+          int comparison = orderedCompare(outward_delta(pool[first]), outward_delta(pool[second]));
+          if (!select_min) {
+            comparison = -comparison;
+          }
+          if (comparison != 0) {
+            return comparison < 0;
+          }
+          return lexicographicProxyLess(pool[first], pool[second]);
+        });
+      for (const std::size_t index : outward) {
+        if (append(index)) {
+          break;
+        }
+      }
+    }
+  }
+  if (selected.size() < kP3R3K12CoverageQuota) {
+    select_coverage(kP3R3K12CoverageQuota - selected.size(), [](const auto &) {return true;});
+  }
+  if (profile != nullptr) {
+    profile->coverage_ordering_us += profileElapsedUs(start);
+  }
+  return materializeDeduplicatedShapeOrder(
+    pool, selected, kP3R3K12CoverageQuota, profile);
+}
+
+std::vector<P3R3K12Factor> boundedLexicographicOrder(
+  const std::vector<RankedFactor> & pool, P3R3K12SelectionProfile * profile)
+{
+  const auto start = ProfileClock::now();
+  std::vector<std::size_t> feasible;
+  std::vector<std::size_t> guarded;
+  feasible.reserve(pool.size());
+  guarded.reserve(pool.size());
+  for (std::size_t index = 0U; index < pool.size(); ++index) {
+    (pool[index].construction_guard_proxy ? guarded : feasible).push_back(index);
+  }
+  std::stable_sort(feasible.begin(), feasible.end(),
+    [&pool](std::size_t first, std::size_t second) {
+      return lexicographicProxyLess(pool[first], pool[second]);
+    });
+  std::stable_sort(guarded.begin(), guarded.end(), [&pool](std::size_t first, std::size_t second) {
+      return stableTieLess(pool[first], pool[second]);
+    });
+  feasible.insert(feasible.end(), guarded.begin(), guarded.end());
+  if (profile != nullptr) {
+    profile->lexicographic_ordering_us += profileElapsedUs(start);
+  }
+  return materializeDeduplicatedShapeOrder(
+    pool, feasible, kP3R3K12LexicographicQuota, profile);
+}
+
+P3R3K12Factor materializeBoundedFactor(
+  const RankedFactor & row, const P3R3K12Factor & lateral,
+  const std::string & transition_family)
+{
+  P3R3K12Factor output = lateral;
+  output.entry_scale = row.entry_scale;
+  output.exit_scale = row.exit_scale;
+  output.stations = row.stations;
+  output.transition_index = row.transition_index;
+  output.transition_family = transition_family;
+  output.preconstruction_shape_bits = row.preconstruction_shape_bits;
+  output.construction_guard_proxy = row.construction_guard_proxy;
+  output.exit_conflict_proxy = row.exit_conflict_proxy;
+  output.maximum_corridor_violation_m = row.maximum_corridor_violation_m;
+  output.sum_corridor_violation_m = row.sum_corridor_violation_m;
+  output.slope_excess = row.slope_excess;
+  output.curvature_proxy = row.curvature_proxy;
+  output.center_error = row.center_error;
+  output.minimum_clearance_m = row.minimum_clearance_m;
+  output.shape_energy = row.shape_energy;
+  output.entry_normalized = row.entry_normalized;
+  output.exit_normalized = row.exit_normalized;
+  output.d_target_hex = pythonHex(row.d_target);
+  output.d_mid_hex = pythonHex(row.d_mid);
+  output.configuration_key = configurationKey(
+    row.go_left, output.d_target_hex, output.d_mid_hex, row.entry_scale, row.exit_scale);
+  output.preconstruction_shape_key = shapeKey(
+    row.go_left, output.d_target_hex, output.d_mid_hex, row.stations);
+  return output;
+}
+
+std::vector<P3R3K12Factor> boundedSideLaterals(
+  const P3R3K12SideGeometry & geometry,
+  const std::vector<P3R3K12ProductionCandidate> & production)
+{
+  std::vector<double> raw_targets;
+  for (const auto & row : production) {
+    if (row.go_left == geometry.go_left) {
+      raw_targets.push_back(row.d_target);
+    }
+  }
+  raw_targets = uniqueExact(std::move(raw_targets));
+  std::vector<double> targets;
+  const auto append_unique = [&targets](double value) {
+      if (std::find(targets.begin(), targets.end(), value) == targets.end()) {
+        targets.push_back(value);
+      }
+    };
+  if (!raw_targets.empty()) {
+    append_unique(*std::min_element(
+        raw_targets.begin(), raw_targets.end(), [](double first, double second) {
+          return std::make_tuple(std::abs(first), first) <
+                 std::make_tuple(std::abs(second), second);
+        }));
+    append_unique(*std::min_element(
+        raw_targets.begin(), raw_targets.end(), [&geometry](double first, double second) {
+          return std::make_tuple(
+            std::abs(first - geometry.bottleneck_center), std::abs(first), first) <
+                 std::make_tuple(
+            std::abs(second - geometry.bottleneck_center), std::abs(second), second);
+        }));
+    for (const double value : raw_targets) {
+      append_unique(value);
+    }
+  }
+
+  std::vector<double> centers;
+  for (std::size_t index = 0U; index < std::min<std::size_t>(2U, geometry.center_values.size());
+    ++index)
+  {
+    centers.push_back(geometry.center_values[index]);
+  }
+  if (centers.empty()) {
+    centers.push_back(geometry.bottleneck_center);
+  }
+
+  std::vector<P3R3K12Factor> output;
+  output.reserve(32U);
+  std::set<ExactPairKey> seen;
+  const auto add = [&](double target, double middle, const std::string & target_source,
+    const std::string & mid_source, const std::string & family, int priority,
+    const std::string & proposal_operator) {
+      if (output.size() >= 32U) {
+        return;
+      }
+      target = clamp(target, geometry.domain_lower, geometry.domain_upper);
+      middle = clamp(middle, -kTargetBoundM, kTargetBoundM);
+      if (!seen.emplace(exactBits(target), exactBits(middle)).second) {
+        return;
+      }
+      P3R3K12Factor row;
+      row.go_left = geometry.go_left;
+      row.d_target = target;
+      row.d_mid = middle;
+      row.target_source = target_source;
+      row.mid_source = mid_source;
+      row.lateral_source_family = family;
+      row.source_priority = priority;
+      row.proposal_operator = proposal_operator;
+      output.push_back(std::move(row));
+    };
+
+  for (const double target : targets) {
+    add(target, target, "PRODUCTION_TARGET", "MID_EQUALS_TARGET", "PRODUCTION", 0,
+      "P_TARGET_EQUAL");
+  }
+  for (const double target : targets) {
+    add(target, target - 0.02, "PRODUCTION_TARGET", "TARGET_MINUS_0.02M", "PRODUCTION", 1,
+      "P_TARGET_MID_MINUS_002");
+  }
+
+  if (!geometry.components.empty()) {
+    double near = geometry.components.front().lower;
+    double far = geometry.components.front().upper;
+    if (std::make_tuple(std::abs(far), far) < std::make_tuple(std::abs(near), near)) {
+      std::swap(near, far);
+    }
+    struct Recipe
+    {
+      double fraction;
+      const char * mid_source;
+      const char * proposal_operator;
+      int kind;
+    };
+    constexpr std::array<Recipe, 7> recipes{{
+      {0.0, "TARGET_MINUS_0.04M", "COMPONENT_NEAR_MID_MINUS_004", 0},
+      {0.0, "REFERENCE_INWARD_F0.25", "COMPONENT_NEAR_REFERENCE_INWARD025", 1},
+      {1.0 / 32.0, "MID_EQUALS_TARGET", "COMPONENT_F1_32_EQUAL", 2},
+      {1.0 / 8.0, "TO_CORRIDOR_CENTER_0_F0.750", "COMPONENT_F1_8_CENTER075", 3},
+      {3.0 / 8.0, "TARGET_MINUS_0.05M", "COMPONENT_F3_8_MID_MINUS_005", 4},
+      {0.5, "TARGET_MINUS_0.15M", "COMPONENT_HALF_MID_MINUS_015", 5},
+      {2.0 / 3.0, "TO_CORRIDOR_CENTER_1_F0.125", "COMPONENT_F2_3_CENTER0125", 6},
+    }};
+    for (const auto & recipe : recipes) {
+      const double target = near + recipe.fraction * (far - near);
+      const double center = recipe.kind == 6 ? centers[std::min<std::size_t>(1U,
+            centers.size() - 1U)] :
+        centers.front();
+      double middle = target;
+      switch (recipe.kind) {
+        case 0: middle = target - 0.04; break;
+        case 1: middle = 0.25 * target; break;
+        case 2: break;
+        case 3: middle = target + 0.75 * (center - target); break;
+        case 4: middle = target - 0.05; break;
+        case 5: middle = target - 0.15; break;
+        case 6: middle = target + 0.125 * (center - target); break;
+      }
+      std::ostringstream target_source;
+      target_source << "COMPONENT_C0_NEAR_TO_FAR_F" << std::fixed << std::setprecision(8) <<
+        recipe.fraction;
+      add(target, middle, target_source.str(), recipe.mid_source, "COMPONENT", 2,
+        recipe.proposal_operator);
+    }
+  }
+
+  for (std::size_t target_index = 0U; target_index < std::min<std::size_t>(2U, targets.size());
+    ++target_index)
+  {
+    const double target = targets[target_index];
+    struct OffsetRecipe
+    {
+      double target_delta;
+      double mid_delta;
+      const char * target_source;
+      const char * mid_source;
+      const char * proposal_operator;
+    };
+    constexpr std::array<OffsetRecipe, 7> recipes{{
+      {-0.01, 0.0, "PRODUCTION_TARGET_MINUS_0.01M", "MID_EQUALS_TARGET",
+        "P_TARGET_MINUS_001_EQUAL"},
+      {0.01, -0.01, "PRODUCTION_TARGET_PLUS_0.01M", "TARGET_MINUS_0.01M",
+        "P_TARGET_PLUS_001_MID_MINUS_001"},
+      {0.01, 0.0, "PRODUCTION_TARGET_PLUS_0.01M", "MID_EQUALS_TARGET",
+        "P_TARGET_PLUS_001_EQUAL"},
+      {-0.06, -0.08, "PRODUCTION_TARGET_MINUS_0.06M", "TARGET_MINUS_0.08M",
+        "P_TARGET_MINUS_006_MID_MINUS_008"},
+      {0.06, -0.02, "PRODUCTION_TARGET_PLUS_0.06M", "TARGET_MINUS_0.02M",
+        "P_TARGET_PLUS_006_MID_MINUS_002"},
+      {-0.10, -0.05, "PRODUCTION_TARGET_MINUS_0.10M", "TARGET_MINUS_0.05M",
+        "P_TARGET_MINUS_010_MID_MINUS_005"},
+      {-0.02, 0.15, "PRODUCTION_TARGET_MINUS_0.02M", "TARGET_PLUS_0.15M",
+        "P_TARGET_MINUS_002_MID_PLUS_015"},
+    }};
+    for (const auto & recipe : recipes) {
+      const double shifted = clamp(
+        target + recipe.target_delta, geometry.domain_lower, geometry.domain_upper);
+      add(shifted, shifted + recipe.mid_delta, recipe.target_source, recipe.mid_source,
+        "PRODUCTION_OFFSET", 3, recipe.proposal_operator);
+    }
+    const double shifted = clamp(target + 0.06, geometry.domain_lower, geometry.domain_upper);
+    const double center = centers[std::min<std::size_t>(1U, centers.size() - 1U)];
+    add(shifted, shifted + 0.4375 * (center - shifted), "PRODUCTION_TARGET_PLUS_0.06M",
+      "TO_CORRIDOR_CENTER_1_F0.438", "CORRIDOR_INTERPOLATION", 3,
+      "P_TARGET_PLUS_006_CENTER1_04375");
+    add(target, target - 0.10, "PRODUCTION_TARGET", "TARGET_MINUS_0.10M", "PRODUCTION", 3,
+      "P_TARGET_MID_MINUS_010");
+    add(target, target + 0.05, "PRODUCTION_TARGET", "TARGET_PLUS_0.05M", "PRODUCTION", 3,
+      "P_TARGET_MID_PLUS_005");
+    add(target, target + 0.125 * (centers.front() - target), "PRODUCTION_TARGET",
+      "TO_CORRIDOR_CENTER_0_F0.125", "CORRIDOR_INTERPOLATION", 3,
+      "P_TARGET_CENTER0125");
+    add(target, target + 0.25 * (centers.front() - target), "PRODUCTION_TARGET",
+      "TO_CORRIDOR_CENTER_0_F0.250", "CORRIDOR_INTERPOLATION", 3,
+      "P_TARGET_CENTER025");
+  }
+
+  for (std::size_t index = 0U; index < centers.size(); ++index) {
+    add(centers[index], centers[index], "CORRIDOR_CENTER_SAMPLE_" + std::to_string(index),
+      "MID_EQUALS_TARGET", "CORRIDOR", 4, "CORRIDOR_CENTER_EQUAL");
+  }
+  for (const double target : targets) {
+    const double center = centers.front();
+    add(target, target + 0.125 * (center - target), "PRODUCTION_TARGET",
+      "TO_CORRIDOR_CENTER_0_F0.125", "CORRIDOR_INTERPOLATION", 4,
+      "P_TARGET_CENTER0125");
+    add(target, target + 0.25 * (center - target), "PRODUCTION_TARGET",
+      "TO_CORRIDOR_CENTER_0_F0.250", "CORRIDOR_INTERPOLATION", 4,
+      "P_TARGET_CENTER025");
+    add(target, target - 0.10, "PRODUCTION_TARGET", "TARGET_MINUS_0.10M", "PRODUCTION", 4,
+      "P_TARGET_MID_MINUS_010");
+    add(target, target + 0.05, "PRODUCTION_TARGET", "TARGET_PLUS_0.05M", "PRODUCTION", 4,
+      "P_TARGET_MID_PLUS_005");
+  }
+  return output;
+}
+
+std::vector<P3R3RTTransition> boundedTransitions(
+  const std::vector<P3R3K12ProductionCandidate> & production)
+{
+  const std::array<std::tuple<const char *, double, double>, 7> desires{{
+    {"SHORT_ENTRY_SHORT_EXIT", 0.0, 0.0},
+    {"MEDIUM_ENTRY_SHORT_EXIT", 0.5, 0.0},
+    {"LONG_ENTRY_SHORT_EXIT", 1.0, 0.0},
+    {"LONG_ENTRY_MEDIUM_EXIT", 1.0, 0.5},
+    {"LONG_ENTRY_LONG_EXIT", 1.0, 1.0},
+    {"SHORT_ENTRY_LONG_EXIT", 0.0, 1.0},
+    {"SHORT_ENTRY_MEDIUM_EXIT", 0.0, 0.5},
+  }};
+  std::set<Transition> exact;
+  std::vector<double> entries;
+  std::vector<double> exits;
+  for (const auto & row : production) {
+    exact.emplace(row.entry_scale, row.exit_scale);
+    entries.push_back(row.entry_scale);
+    exits.push_back(row.exit_scale);
+  }
+  entries = uniqueExact(std::move(entries));
+  exits = uniqueExact(std::move(exits));
+  std::vector<P3R3RTTransition> output;
+  std::set<Transition> seen;
+  for (const auto & desire : desires) {
+    const double desired_entry = std::get<1>(desire);
+    const double desired_exit = std::get<2>(desire);
+    const auto selected = std::min_element(
+      exact.begin(), exact.end(), [&](const auto & first, const auto & second) {
+        const auto distance = [&](const auto & value) {
+          const double entry = normalized(value.first, entries) - desired_entry;
+          const double exit = normalized(value.second, exits) - desired_exit;
+          return entry * entry + exit * exit;
+        };
+        return std::make_tuple(distance(first), first) <
+               std::make_tuple(distance(second), second);
+      });
+    if (selected != exact.end() && seen.insert(*selected).second) {
+      output.push_back({selected->first, selected->second, std::get<0>(desire), output.size()});
+    }
+  }
+  return output;
+}
+
+std::vector<P3R3K12Factor> directSideLaterals(
+  const P3R3K12SideGeometry & geometry, bool add_component_half_far002_inward015)
+{
+  std::vector<double> targets;
+  const auto add_target = [&targets](double value) {
+      if (std::find(targets.begin(), targets.end(), value) == targets.end()) {
+        targets.push_back(value);
+      }
+    };
+  // M0's five-point side-domain target, reproduced without constructing an M0 path.
+  std::array<double, 5> domain_grid{};
+  for (std::size_t index = 0U; index < domain_grid.size(); ++index) {
+    domain_grid[index] = geometry.domain_lower + static_cast<double>(index) /
+      static_cast<double>(domain_grid.size() - 1U) *
+      (geometry.domain_upper - geometry.domain_lower);
+  }
+  add_target(*std::min_element(
+      domain_grid.begin(), domain_grid.end(), [](double first, double second) {
+        return std::make_tuple(std::abs(first), first) <
+               std::make_tuple(std::abs(second), second);
+      }));
+
+  const auto domain_boundary_inset = [](double lower, double upper) {
+      double near = lower;
+      double far = upper;
+      if (std::make_tuple(std::abs(far), far) < std::make_tuple(std::abs(near), near)) {
+        std::swap(near, far);
+      }
+      return near + (far - near) / 64.0;
+    };
+  // M0-V2/M1's zero-interface anchor. Component geometry already enters the dedicated component
+  // recipes below, so it is intentionally not expanded into more generic target seeds here.
+  add_target(domain_boundary_inset(geometry.domain_lower, geometry.domain_upper));
+
+  std::vector<P3R3K12ProductionCandidate> geometry_targets;
+  geometry_targets.reserve(targets.size());
+  for (const double target : targets) {
+    P3R3K12ProductionCandidate row;
+    row.go_left = geometry.go_left;
+    row.d_target = target;
+    geometry_targets.push_back(row);
+  }
+  auto output = boundedSideLaterals(geometry, geometry_targets);
+  if (add_component_half_far002_inward015 && !geometry.components.empty()) {
+    const auto replaced = std::find_if(output.begin(), output.end(), [](const auto & row) {
+        return row.proposal_operator == "COMPONENT_HALF_MID_MINUS_015";
+      });
+    if (replaced != output.end()) {
+      double near = geometry.components.front().lower;
+      double far = geometry.components.front().upper;
+      if (std::make_tuple(std::abs(far), far) < std::make_tuple(std::abs(near), near)) {
+        std::swap(near, far);
+      }
+      const double far_direction = std::copysign(1.0, far - near);
+      const double center = near + 0.5 * (far - near);
+      replaced->d_target = clamp(
+        center + 0.02 * far_direction, geometry.domain_lower, geometry.domain_upper);
+      replaced->d_mid = clamp(replaced->d_target - 0.15 * far_direction,
+          -kTargetBoundM, kTargetBoundM);
+      replaced->target_source = "COMPONENT_C0_HALF_PLUS_FAR_0.02M";
+      replaced->mid_source = "TARGET_INWARD_0.15M";
+      replaced->lateral_source_family = "COMPONENT_SIDE_RELATIVE";
+      replaced->proposal_operator = "COMPONENT_HALF_FAR002_INWARD015";
+    }
+  }
+  for (auto & row : output) {
+    const std::string production = "PRODUCTION_TARGET";
+    const auto position = row.target_source.find(production);
+    if (position != std::string::npos) {
+      row.target_source.replace(position, production.size(), "DIRECT_GEOMETRY_TARGET");
+    }
+    if (row.lateral_source_family == "PRODUCTION") {
+      row.lateral_source_family = "DIRECT_GEOMETRY";
+    } else if (row.lateral_source_family == "PRODUCTION_OFFSET") {
+      row.lateral_source_family = "DIRECT_GEOMETRY_OFFSET";
+    }
+  }
+  return output;
+}
+
+std::vector<P3R3RTTransition> directTransitions(
+  const std::vector<P3R3K12SideGeometry> & sides)
+{
+  std::vector<P3R3K12ProductionCandidate> direct_pairs;
+  for (const auto & geometry : sides) {
+    const double entry_short = geometry.entry_scale_min;
+    const double entry_medium = entry_short +
+      0.25 * (geometry.entry_scale_max - entry_short);
+    const double entry_long = geometry.entry_scale_max;
+    const double exit_short = geometry.exit_scale_min;
+    const double exit_near = exit_short +
+      (geometry.exit_scale_max - exit_short) / 64.0;
+    const double exit_medium = exit_short +
+      0.5 * (geometry.exit_scale_max - exit_short);
+    const double exit_long = geometry.exit_scale_max;
+    for (const auto & pair : std::array<std::pair<double, double>, 7>{{
+        {entry_short, exit_short}, {entry_medium, exit_short},
+        {entry_long, exit_near}, {entry_long, exit_medium}, {entry_long, exit_long},
+        {entry_short, exit_long}, {entry_short, exit_medium}}})
+    {
+      P3R3K12ProductionCandidate row;
+      row.go_left = geometry.go_left;
+      row.entry_scale = pair.first;
+      row.exit_scale = pair.second;
+      direct_pairs.push_back(row);
+    }
+  }
+  return boundedTransitions(direct_pairs);
+}
+
+std::pair<double, double> directTransitionForGeometry(
+  const P3R3K12SideGeometry & geometry, const std::string & family)
+{
+  const double entry_short = geometry.entry_scale_min;
+  const double entry_medium = entry_short +
+    0.25 * (geometry.entry_scale_max - entry_short);
+  const double entry_long = geometry.entry_scale_max;
+  const double exit_short = geometry.exit_scale_min;
+  const double exit_near = exit_short +
+    (geometry.exit_scale_max - exit_short) / 64.0;
+  const double exit_medium = exit_short +
+    0.5 * (geometry.exit_scale_max - exit_short);
+  const double exit_long = geometry.exit_scale_max;
+  if (family == "SHORT_ENTRY_SHORT_EXIT") {return {entry_short, exit_short};}
+  if (family == "MEDIUM_ENTRY_SHORT_EXIT") {return {entry_medium, exit_short};}
+  if (family == "LONG_ENTRY_SHORT_EXIT") {return {entry_long, exit_near};}
+  if (family == "LONG_ENTRY_MEDIUM_EXIT") {return {entry_long, exit_medium};}
+  if (family == "LONG_ENTRY_LONG_EXIT") {return {entry_long, exit_long};}
+  if (family == "SHORT_ENTRY_LONG_EXIT") {return {entry_short, exit_long};}
+  if (family == "SHORT_ENTRY_MEDIUM_EXIT") {return {entry_short, exit_medium};}
+  throw std::runtime_error("unknown direct transition family");
+}
+
+std::vector<P3R3RTTransition> orderedBoundedTransitions(
+  const P3R3K12Factor & lateral, const std::vector<P3R3RTTransition> & transitions)
+{
+  std::vector<std::string> preferred;
+  const auto & op = lateral.proposal_operator;
+  if (op == "P_TARGET_EQUAL") {
+    preferred = {"LONG_ENTRY_MEDIUM_EXIT", "LONG_ENTRY_LONG_EXIT", "SHORT_ENTRY_LONG_EXIT",
+      "SHORT_ENTRY_SHORT_EXIT", "MEDIUM_ENTRY_SHORT_EXIT"};
+  } else if (op == "COMPONENT_HALF_FAR002_INWARD015") {
+    preferred = {"LONG_ENTRY_MEDIUM_EXIT", "LONG_ENTRY_SHORT_EXIT", "SHORT_ENTRY_SHORT_EXIT",
+      "MEDIUM_ENTRY_SHORT_EXIT", "LONG_ENTRY_LONG_EXIT"};
+  } else if (op.find("COMPONENT_F1_32") != std::string::npos) {
+    preferred = {"SHORT_ENTRY_LONG_EXIT", "SHORT_ENTRY_SHORT_EXIT", "MEDIUM_ENTRY_SHORT_EXIT"};
+  } else if (op.rfind("COMPONENT", 0U) == 0U) {
+    preferred = {"SHORT_ENTRY_SHORT_EXIT", "MEDIUM_ENTRY_SHORT_EXIT",
+      "LONG_ENTRY_MEDIUM_EXIT", "SHORT_ENTRY_LONG_EXIT"};
+  } else if (op.find("MINUS_006") != std::string::npos) {
+    preferred = {"MEDIUM_ENTRY_SHORT_EXIT", "SHORT_ENTRY_SHORT_EXIT"};
+  } else if (op.find("PLUS_006") != std::string::npos) {
+    preferred = {"MEDIUM_ENTRY_SHORT_EXIT", "SHORT_ENTRY_MEDIUM_EXIT",
+      "SHORT_ENTRY_SHORT_EXIT"};
+  } else if (op.find("PLUS_001") != std::string::npos) {
+    preferred = {"LONG_ENTRY_LONG_EXIT", "SHORT_ENTRY_SHORT_EXIT", "LONG_ENTRY_MEDIUM_EXIT"};
+  } else if (op.find("MINUS_001") != std::string::npos) {
+    preferred = {"LONG_ENTRY_LONG_EXIT", "LONG_ENTRY_MEDIUM_EXIT", "SHORT_ENTRY_SHORT_EXIT"};
+  } else if (op.find("MINUS_002") != std::string::npos) {
+    preferred = {"LONG_ENTRY_MEDIUM_EXIT", "SHORT_ENTRY_SHORT_EXIT"};
+  } else if (op.find("MINUS_010") != std::string::npos) {
+    preferred = {"SHORT_ENTRY_SHORT_EXIT", "LONG_ENTRY_MEDIUM_EXIT"};
+  } else if (op.find("CENTER") != std::string::npos) {
+    preferred = {"SHORT_ENTRY_SHORT_EXIT", "LONG_ENTRY_SHORT_EXIT", "LONG_ENTRY_MEDIUM_EXIT"};
+  } else {
+    preferred = {"SHORT_ENTRY_SHORT_EXIT", "MEDIUM_ENTRY_SHORT_EXIT", "LONG_ENTRY_SHORT_EXIT",
+      "LONG_ENTRY_MEDIUM_EXIT", "LONG_ENTRY_LONG_EXIT", "SHORT_ENTRY_LONG_EXIT",
+      "SHORT_ENTRY_MEDIUM_EXIT"};
+  }
+  auto output = transitions;
+  const auto rank = [&preferred](const P3R3RTTransition & row) {
+      const auto found = std::find(preferred.begin(), preferred.end(), row.transition_family);
+      return found == preferred.end() ? preferred.size() + row.transition_index :
+             static_cast<std::size_t>(std::distance(preferred.begin(), found));
+    };
+  std::sort(output.begin(), output.end(), [&rank](const auto & first, const auto & second) {
+      return std::make_tuple(rank(first), first.transition_index) <
+             std::make_tuple(rank(second), second.transition_index);
+    });
+  return output;
+}
+
 }  // namespace
 
 P3R3K12Selection selectP3R3K12Factors(
@@ -1271,6 +2028,214 @@ P3R3K12Selection selectP3R3K12Factors(
   restore_sources(result.lexicographic);
   restore_sources(result.coverage);
   return result;
+}
+
+P3R3RTSelection selectP3R3RTFactorsImpl(
+  const std::vector<P3R3K12SideGeometry> & sides,
+  const std::vector<P3R3K12ProductionCandidate> & production_candidates,
+  std::size_t budget,
+  P3R3K12SelectionProfile * profile,
+  bool standalone,
+  const P3R3RTStandaloneOptions & standalone_options = {})
+{
+  if (budget != 64U && budget != 96U && budget != 128U) {
+    throw std::invalid_argument("native R3-RT budget must be one of 64, 96, 128");
+  }
+  P3R3RTSelection result;
+  result.budget = budget;
+  const auto transition_start = ProfileClock::now();
+  result.proposed_transitions = standalone ?
+    directTransitions(sides) : boundedTransitions(production_candidates);
+  if (result.proposed_transitions.empty() || result.proposed_transitions.size() > 7U) {
+    throw std::runtime_error("native R3-RT transition bound violated");
+  }
+  if (profile != nullptr) {
+    profile->transition_count = result.proposed_transitions.size();
+    profile->transition_generation_us = profileElapsedUs(transition_start);
+  }
+
+  const auto lateral_start = ProfileClock::now();
+  std::array<std::vector<P3R3K12Factor>, 2> per_side;
+  for (const auto & geometry : sides) {
+    auto rows = standalone ?
+      directSideLaterals(
+      geometry, standalone_options.add_component_half_far002_inward015) :
+      boundedSideLaterals(geometry, production_candidates);
+    result.raw_side_lateral_count += rows.size();
+    per_side[geometry.go_left ? 1U : 0U] = std::move(rows);
+  }
+  for (int priority = 0; priority < 8; ++priority) {
+    std::array<std::vector<P3R3K12Factor *>, 2> groups;
+    for (std::size_t side = 0U; side < per_side.size(); ++side) {
+      for (auto & row : per_side[side]) {
+        if (row.source_priority == priority) {
+          groups[side].push_back(&row);
+        }
+      }
+    }
+    for (std::size_t index = 0U;
+      index < std::max(groups[0].size(), groups[1].size()); ++index)
+    {
+      for (std::size_t side = 0U; side < groups.size(); ++side) {
+        if (index < groups[side].size() && result.proposed_laterals.size() < 64U) {
+          P3R3K12Factor row = *groups[side][index];
+          row.lateral_factor_index = result.proposed_laterals.size();
+          result.proposed_laterals.push_back(std::move(row));
+        }
+      }
+    }
+  }
+  const std::size_t retain_cap = budget == 64U ? 36U : budget == 96U ? 48U : 64U;
+  if (result.proposed_laterals.size() > retain_cap) {
+    result.proposed_laterals.resize(retain_cap);
+  }
+  if (result.proposed_laterals.empty() || result.proposed_laterals.size() > 64U) {
+    throw std::runtime_error("native R3-RT lateral bound violated");
+  }
+  if (profile != nullptr) {
+    profile->lateral_factor_generation_us = profileElapsedUs(lateral_start);
+  }
+
+  std::set<std::array<std::uint64_t, 5>> production_keys;
+  if (!standalone) {
+    for (const auto & row : production_candidates) {
+      production_keys.insert(configurationKeyBits(
+          row.go_left, row.d_target, row.d_mid, row.entry_scale, row.exit_scale));
+    }
+  }
+  std::vector<double> entries;
+  std::vector<double> exits;
+  for (const auto & row : result.proposed_transitions) {
+    entries.push_back(row.entry_scale);
+    exits.push_back(row.exit_scale);
+  }
+  entries = uniqueExact(std::move(entries));
+  exits = uniqueExact(std::move(exits));
+  std::map<bool, const P3R3K12SideGeometry *> geometry_by_side;
+  for (const auto & geometry : sides) {
+    geometry_by_side[geometry.go_left] = &geometry;
+  }
+  std::vector<std::vector<P3R3RTTransition>> transition_orders;
+  transition_orders.reserve(result.proposed_laterals.size());
+  for (const auto & lateral : result.proposed_laterals) {
+    transition_orders.push_back(orderedBoundedTransitions(lateral, result.proposed_transitions));
+  }
+
+  const auto pair_start = ProfileClock::now();
+  std::set<std::array<std::uint64_t, 5>> seen;
+  std::vector<RankedFactor> ranked_pool;
+  std::vector<std::pair<std::string, std::string>> source_catalog;
+  ranked_pool.reserve(budget);
+  source_catalog.reserve(budget);
+  for (std::size_t wave = 0U;
+    wave < result.proposed_transitions.size() && ranked_pool.size() < budget; ++wave)
+  {
+    for (std::size_t lateral_index = 0U;
+      lateral_index < result.proposed_laterals.size() && ranked_pool.size() < budget;
+      ++lateral_index)
+    {
+      const auto & lateral = result.proposed_laterals[lateral_index];
+      const auto & transition = transition_orders[lateral_index][wave];
+      const auto geometry = geometry_by_side.find(lateral.go_left);
+      if (geometry == geometry_by_side.end()) {
+        continue;
+      }
+      const auto effective_transition = standalone ?
+        directTransitionForGeometry(*geometry->second, transition.transition_family) :
+        std::make_pair(transition.entry_scale, transition.exit_scale);
+      const auto key = configurationKeyBits(
+        lateral.go_left, lateral.d_target, lateral.d_mid,
+        effective_transition.first, effective_transition.second);
+      if (production_keys.find(key) != production_keys.end() || !seen.insert(key).second) {
+        if (profile != nullptr && production_keys.find(key) != production_keys.end()) {
+          ++profile->production_excluded_count;
+        }
+        continue;
+      }
+      RankedFactor ranked;
+      ranked.go_left = lateral.go_left;
+      ranked.profile_representative = true;
+      ranked.d_target = lateral.d_target;
+      ranked.d_mid = lateral.d_mid;
+      ranked.entry_scale = effective_transition.first;
+      ranked.exit_scale = effective_transition.second;
+      ranked.source_priority = lateral.source_priority;
+      ranked.source_catalog_index = source_catalog.size();
+      ranked.lateral_factor_index = lateral.lateral_factor_index;
+      ranked.transition_index = transition.transition_index;
+      ranked.entry_normalized = standalone ?
+        (ranked.entry_scale - geometry->second->entry_scale_min) /
+        std::max(kEpsilon,
+        geometry->second->entry_scale_max - geometry->second->entry_scale_min) :
+        normalized(ranked.entry_scale, entries);
+      ranked.exit_normalized = standalone ?
+        (ranked.exit_scale - geometry->second->exit_scale_min) /
+        std::max(kEpsilon,
+        geometry->second->exit_scale_max - geometry->second->exit_scale_min) :
+        normalized(ranked.exit_scale, exits);
+      ranked.stations = boundedStationsFor(
+        *geometry->second, ranked.entry_scale, ranked.exit_scale, ranked.d_target);
+      ranked.preconstruction_shape_bits = shapeKeyBits(
+        ranked.go_left, ranked.d_target, ranked.d_mid, ranked.stations);
+      const auto basis = makeProfileEvaluationBasis(ranked.stations, *geometry->second);
+      populateMetrics(ranked, *geometry->second, basis);
+      source_catalog.emplace_back(lateral.target_source, lateral.mid_source);
+      result.pair_pool.push_back(materializeBoundedFactor(
+          ranked, lateral, transition.transition_family));
+      ranked_pool.push_back(std::move(ranked));
+    }
+  }
+  if (profile != nullptr) {
+    profile->raw_combination_count = ranked_pool.size();
+    profile->factor_pool_count = ranked_pool.size();
+    profile->unique_profile_count = ranked_pool.size();
+    profile->proxy_metric_evaluation_count = ranked_pool.size();
+    profile->pair_priority_computation_us = profileElapsedUs(pair_start);
+  }
+  if (ranked_pool.size() > budget) {
+    throw std::runtime_error("native R3-RT pair-proxy bound violated");
+  }
+  result.lexicographic = boundedLexicographicOrder(ranked_pool, profile);
+  result.coverage = standalone ? standaloneCoverageOrder(
+    ranked_pool, result.lexicographic, sides, standalone_options.diversity_policy, profile) :
+    coverageOrder(ranked_pool, profile);
+  const auto restore_sources = [&source_catalog, &result](auto & factors) {
+      for (auto & factor : factors) {
+        const auto & source = source_catalog.at(factor.source_catalog_index);
+        factor.target_source = source.first;
+        factor.mid_source = source.second;
+        const auto found = std::find_if(
+          result.pair_pool.begin(), result.pair_pool.end(), [&factor](const auto & row) {
+            return row.configuration_key == factor.configuration_key;
+          });
+        if (found != result.pair_pool.end()) {
+          factor.lateral_source_family = found->lateral_source_family;
+          factor.proposal_operator = found->proposal_operator;
+          factor.transition_family = found->transition_family;
+        }
+      }
+    };
+  restore_sources(result.lexicographic);
+  restore_sources(result.coverage);
+  return result;
+}
+
+P3R3RTSelection selectP3R3RTFactors(
+  const std::vector<P3R3K12SideGeometry> & sides,
+  const std::vector<P3R3K12ProductionCandidate> & production_candidates,
+  std::size_t budget,
+  P3R3K12SelectionProfile * profile)
+{
+  return selectP3R3RTFactorsImpl(sides, production_candidates, budget, profile, false);
+}
+
+P3R3RTSelection selectP3R3RTStandaloneFactors(
+  const std::vector<P3R3K12SideGeometry> & sides,
+  std::size_t budget,
+  P3R3K12SelectionProfile * profile,
+  const P3R3RTStandaloneOptions & options)
+{
+  return selectP3R3RTFactorsImpl(sides, {}, budget, profile, true, options);
 }
 
 }  // namespace local_planning

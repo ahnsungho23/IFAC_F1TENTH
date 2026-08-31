@@ -61,7 +61,13 @@ struct P3R3K12SideGeometry
   double cluster_end{0.0};
   double domain_lower{0.0};
   double domain_upper{0.0};
+  // Research-only bounded-proposal anchor.  The exact R3 selector ignores this field.
+  double bottleneck_center{0.0};
   double reference_spacing_m{0.25};
+  double entry_scale_min{0.0};
+  double entry_scale_max{0.0};
+  double exit_scale_min{0.0};
+  double exit_scale_max{0.0};
   std::vector<P3R3K12Interval> components;
   std::vector<double> center_values;
   std::vector<P3R3K12CorridorSample> reference_samples;
@@ -76,6 +82,17 @@ struct P3R3K12ProductionCandidate
   double exit_scale{0.0};
 };
 
+struct P3R3K12ProductionSeedTrace
+{
+  P3R3K12ProductionCandidate factor;
+  std::string generator_stage{"UNKNOWN"};
+  std::string candidate_template{"UNKNOWN"};
+  std::string source_cell{"UNKNOWN"};
+  std::string root_type{"NONE"};
+  std::string probe_location_rule{"NONE"};
+  std::string probe_anchor_rule{"NONE"};
+};
+
 struct P3R3K12Factor
 {
   bool go_left{false};
@@ -86,6 +103,10 @@ struct P3R3K12Factor
   std::array<double, 5> stations{};
   std::string target_source;
   std::string mid_source;
+  // Populated only by the native R3-RT shadow selector.
+  std::string lateral_source_family;
+  std::string proposal_operator;
+  std::string transition_family;
   int source_priority{0};
   std::size_t source_catalog_index{0U};
   std::size_t lateral_factor_index{0U};
@@ -147,6 +168,62 @@ P3R3K12Selection selectP3R3K12Factors(
   const std::vector<P3R3K12SideGeometry> & sides,
   const std::vector<P3R3K12ProductionCandidate> & production_candidates,
   P3R3K12SelectionProfile * profile = nullptr);
+
+struct P3R3RTTransition
+{
+  double entry_scale{0.0};
+  double exit_scale{0.0};
+  std::string transition_family;
+  std::size_t transition_index{0U};
+};
+
+struct P3R3RTSelection
+{
+  std::size_t budget{0U};
+  std::size_t raw_side_lateral_count{0U};
+  std::vector<P3R3K12Factor> proposed_laterals;
+  std::vector<P3R3RTTransition> proposed_transitions;
+  std::vector<P3R3K12Factor> pair_pool;
+  std::vector<P3R3K12Factor> lexicographic;
+  std::vector<P3R3K12Factor> coverage;
+};
+
+// Research-only standalone refinements. The v1 defaults preserve the existing standalone study
+// exactly; production R3-K12 never reads this type.
+enum class P3R3RTStandaloneDiversityPolicy
+{
+  V1_BASELINE,
+  DISJOINT_COVERAGE,
+  SHORT_SHORT_RESERVE,
+  ZERO_INTERFACE_PROXY_SPLIT,
+  ZERO_INTERFACE_EQUAL_MIN_OUTWARD,
+  ZERO_INTERFACE_EQUAL_MAX_OUTWARD,
+  V3_SIDE_BALANCED_DISJOINT,
+  V3_NORMALIZED_MAXIMIN_DISJOINT,
+};
+
+struct P3R3RTStandaloneOptions
+{
+  P3R3RTStandaloneDiversityPolicy diversity_policy{
+    P3R3RTStandaloneDiversityPolicy::V1_BASELINE};
+  bool add_component_half_far002_inward015{false};
+};
+
+// Native C++ port of the seen-only NO_RESERVES_DIAGONAL bounded proposal policy.  It is a
+// research/shadow callable and is not referenced by the production R3-K12 decision path.
+P3R3RTSelection selectP3R3RTFactors(
+  const std::vector<P3R3K12SideGeometry> & sides,
+  const std::vector<P3R3K12ProductionCandidate> & production_candidates,
+  std::size_t budget,
+  P3R3K12SelectionProfile * profile = nullptr);
+
+// Research-only standalone bounded proposal generator. Inputs are restricted to the frozen cheap
+// side geometry; no legacy candidate is built, validated, or harvested by this selector.
+P3R3RTSelection selectP3R3RTStandaloneFactors(
+  const std::vector<P3R3K12SideGeometry> & sides,
+  std::size_t budget,
+  P3R3K12SelectionProfile * profile = nullptr,
+  const P3R3RTStandaloneOptions & options = {});
 
 }  // namespace local_planning
 

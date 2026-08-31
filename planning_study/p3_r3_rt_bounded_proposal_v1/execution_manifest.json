@@ -1,0 +1,34 @@
+{
+  "budgets": [
+    24,
+    32,
+    48,
+    64,
+    96,
+    128
+  ],
+  "dataset_roles_loaded": {
+    "DEVELOPMENT": 40,
+    "PILOT_SEEN_DEVELOPMENT_DATA": 9,
+    "VALIDATION_SEEN_AFTER_V1": 37
+  },
+  "exact_harness_sha256": "8b23f2b6df54c2e93794ee087f3ebd7a14f9921544af4f97eef755535e045e7e",
+  "final_holdout_outcome_rows_loaded": 0,
+  "final_holdout_paths_enumerated": 0,
+  "maximum_observed_lateral_operator_candidates_generated": 64,
+  "maximum_observed_lateral_proposals_retained": 64,
+  "maximum_observed_p3_reconstructions": 12,
+  "maximum_observed_pair_proxy_evaluations": 128,
+  "maximum_observed_raw_validator_executions": 12,
+  "maximum_observed_transition_proposals": 7,
+  "new_method_not_exact_r3_equivalence": true,
+  "planner_algorithm_or_validator_modified": false,
+  "production_local_planning_source_modified_by_study": false,
+  "runtime_not_claimed_as_deployable_cpp_callback": true,
+  "runtime_scope": "OFFLINE_PYTHON_PLUS_CPP_HARNESS_WALL_PROXY",
+  "selected_policy": "NO_RESERVES_DIAGONAL",
+  "study": "R3_RT_BOUNDED_PROPOSAL_DESIGN_STUDY_V1",
+  "teacher_implementation_sha256": "2cd87b4c9faf9e9f84c96295f137b4edeed21fafc9abeccf48298b603f075c03",
+  "teacher_method": "R3_LEXICOGRAPHIC_COVERAGE_RESERVE_K12",
+  "teacher_method_sha256": "7b861e8c7e23ae168413885ea0dc2d09769046ff48a562700b658e084d116fcc"
+}

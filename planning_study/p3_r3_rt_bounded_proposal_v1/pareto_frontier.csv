@@ -1,0 +1,7 @@
+budget_b,combined_seen_usable_recovered,exact_r3_usable_recovered,exact_r3_usable_retention,offline_wall_proxy_p95_ms,meets_25ms_offline_proxy_p95,pareto_nondominated,discrete_normalized_knee_point,runtime_scope_warning
+24,22,32,0.6875,119.77169380115812,False,True,False,Python+subprocess proxy; C++ integration benchmark required
+32,25,32,0.78125,130.2034626074601,False,True,False,Python+subprocess proxy; C++ integration benchmark required
+48,28,32,0.875,160.3666715993313,False,True,False,Python+subprocess proxy; C++ integration benchmark required
+64,30,32,0.9375,202.14728301216383,False,True,True,Python+subprocess proxy; C++ integration benchmark required
+96,31,32,0.96875,295.8148906065617,False,True,False,Python+subprocess proxy; C++ integration benchmark required
+128,32,32,1.0,382.5402726011817,False,True,False,Python+subprocess proxy; C++ integration benchmark required

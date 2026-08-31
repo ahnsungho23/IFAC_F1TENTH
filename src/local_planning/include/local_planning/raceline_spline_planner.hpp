@@ -645,6 +645,38 @@ public:
     const std::string & p0_failure_reason,
     const std::string & research_evaluation_role = "") const;
 
+  // Explicit research-only native bounded-proposal evaluator.  Production plan() never calls
+  // this method; it exists so a warm offline process can measure R3-RT without subprocess cost.
+  P3ShadowResult evaluateP3R3RTShadow(
+    const EgoFrenetState & ego,
+    const std::vector<f110_msgs::msg::Obstacle> & obstacles,
+    std::size_t pair_budget) const;
+
+  // Research-only legacy/GQSC architecture probes. They never enter plan(), lifecycle, ranking,
+  // or publication. The pass adapter exposes strict/relaxed and M0-V1-only stage boundaries;
+  // the forced adapter evaluates native GQSC even when the legacy ladder already succeeds.
+  P3ShadowResult evaluateP3LegacyPassShadow(
+    const EgoFrenetState & ego,
+    const std::vector<f110_msgs::msg::Obstacle> & obstacles,
+    bool relaxed_clearance_gate,
+    bool stop_after_m0_v1) const;
+  P3ShadowResult evaluateP3LegacyOnlyShadow(
+    const EgoFrenetState & ego,
+    const std::vector<f110_msgs::msg::Obstacle> & obstacles) const;
+  P3ShadowResult evaluateP3R3RTForcedShadow(
+    const EgoFrenetState & ego,
+    const std::vector<f110_msgs::msg::Obstacle> & obstacles,
+    std::size_t pair_budget) const;
+  P3ShadowResult evaluateP3R3RTStandaloneShadow(
+    const EgoFrenetState & ego,
+    const std::vector<f110_msgs::msg::Obstacle> & obstacles,
+    std::size_t pair_budget,
+    const P3R3RTStandaloneOptions & options = {}) const;
+  P3ShadowResult evaluateP3R3RTM0V1PrefixShadow(
+    const EgoFrenetState & ego,
+    const std::vector<f110_msgs::msg::Obstacle> & obstacles,
+    std::size_t pair_budget) const;
+
   // 위 함수가 try로 감싸는 실제 구현. 예외를 그대로 던지므로 직접 부르지 말 것.
   P3ShadowResult evaluateP3ShadowUnguarded(
     const EgoFrenetState & ego,
