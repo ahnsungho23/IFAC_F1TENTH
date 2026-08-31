@@ -1,0 +1,27 @@
+gate,scope,expected,actual,status,evidence
+PROFILE_INSTRUMENTATION,seen_failures,86,86,PASS,ordered factors/digests/verdicts/selection exact before optimization
+OPT01_RESERVE_AND_HEX_CACHE,seen_failures,86,86,PASS,/tmp/r3_opt1_parity.csv
+OPT02_INDEX_ORDERING,seen_failures,86,86,PASS,/tmp/r3_opt2_parity.csv
+OPT03_PROFILE_BASIS_CACHE,seen_failures,86,86,PASS,/tmp/r3_opt3_parity.csv
+OPT04_QUOTA_BOUNDED_TOPK,seen_failures,86,86,PASS,/tmp/r3_opt4_parity.csv
+OPT05_SINGLE_PASS_METRICS,seen_failures,86,86,PASS,/tmp/r3_opt5_parity.csv
+OPT06_FAST_EXACT_HEX,seen_failures,86,86,PASS,/tmp/r3_opt6_parity.csv
+OPT07_BINARY_SHAPE_KEY,seen_failures,86,86,PASS,/tmp/r3_opt7_parity.csv
+OPT08_MIN_SELECTION,seen_failures,86,86,PASS,/tmp/r3_opt8_parity.csv
+OPT09_EXACT_HASH_FACTOR_POOL,seen_failures,86,86,PASS,/tmp/r3_opt9_parity.csv
+OPT10_BOUNDED_PARALLEL_METRICS,seen_failures,86,86,PASS,/tmp/r3_opt10_parity.csv
+OPT11_LAZY_CONFIGURATION_KEY,seen_failures,86,86,PASS,/tmp/r3_opt11_parity.csv
+OPT12_INDEXED_LATERAL_SORT,seen_failures,86,86,PASS,/tmp/r3_opt12_parity.csv
+OPT13_SOURCE_CATALOG,seen_failures,86,86,PASS,/tmp/r3_opt13_parity.csv
+OPT14_SOURCE_MOVE,seen_failures,86,86,PASS,/tmp/r3_opt14_parity.csv
+OPT15_SHORT_CIRCUIT_LATERAL_COMPARATOR,seen_failures,86,86,PASS,/tmp/r3_opt15_parity.csv
+FINAL_OFF,seen_failures,86,86,PASS,ordered Top-12/path digest/verdict/final selection exact
+FINAL_ON,seen_failures,86,86,PASS,instrumentation OFF/ON exact against frozen artifact
+PRODUCTION_SUCCESS,success_controls,18,18,PASS,R3 not invoked and production result/sequence exact
+FROZEN_RECOVERY,recovered_seen_events,40,40,PASS,final selected digest exact
+R3_CONSTRUCTION_BOUND,seen_failures,12,12,PASS,maximum constructed candidate count
+R3_VALIDATOR_BOUND,seen_failures,12,12,PASS,maximum exact validator executions
+PACKAGE_TESTS_EXCLUDING_FROZEN_MISMATCHES,local_planning,25,25,PASS,ctest with ROS_LOG_DIR under /tmp
+KNOWN_PARAMETER_MISMATCH,safety_margin_m,0.08,0.05,EXPECTED_FAILURE,explicitly preserved by task
+KNOWN_CONTROL_MISMATCH,right_steering_rad,0.41,0.361,EXPECTED_FAILURE,explicitly preserved by task
+ISOLATED_COLCON_INSTALL,local_planning,success,success,PASS,missing script install failure removed

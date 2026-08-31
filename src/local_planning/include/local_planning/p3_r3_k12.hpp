@@ -17,6 +17,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -86,9 +87,14 @@ struct P3R3K12Factor
   std::string target_source;
   std::string mid_source;
   int source_priority{0};
+  std::size_t source_catalog_index{0U};
   std::size_t lateral_factor_index{0U};
   std::size_t transition_index{0U};
+  // Cached frozen Python float.hex() values avoid rebuilding equivalent strings in hot sorts.
+  std::string d_target_hex;
+  std::string d_mid_hex;
   std::string configuration_key;
+  std::array<std::uint64_t, 8> preconstruction_shape_bits{};
   std::string preconstruction_shape_key;
 
   bool construction_guard_proxy{false};
@@ -112,11 +118,35 @@ struct P3R3K12Selection
   std::vector<P3R3K12Factor> coverage;
 };
 
+// Passive timing/count profile for the frozen selector. The selector never reads these values,
+// so a null profile pointer and a populated profile have identical factor semantics.
+struct P3R3K12SelectionProfile
+{
+  std::size_t transition_count{0U};
+  std::size_t raw_combination_count{0U};
+  std::size_t production_excluded_count{0U};
+  std::size_t factor_pool_count{0U};
+  std::size_t unique_profile_count{0U};
+  std::size_t proxy_metric_evaluation_count{0U};
+  std::size_t proxy_metric_cache_hit_count{0U};
+  std::size_t profile_basis_build_count{0U};
+  std::size_t profile_basis_cache_hit_count{0U};
+  std::size_t profile_sample_basis_count{0U};
+  std::size_t pair_metric_worker_count{0U};
+  double transition_generation_us{0.0};
+  double lateral_factor_generation_us{0.0};
+  double pair_priority_computation_us{0.0};
+  double lexicographic_ordering_us{0.0};
+  double coverage_ordering_us{0.0};
+  double shape_deduplication_us{0.0};
+};
+
 // Exact C++ port of the frozen online-generatable factor pool and the two preconstruction rank
 // streams. No path, exact-validator result, or oracle label is an input to this function.
 P3R3K12Selection selectP3R3K12Factors(
   const std::vector<P3R3K12SideGeometry> & sides,
-  const std::vector<P3R3K12ProductionCandidate> & production_candidates);
+  const std::vector<P3R3K12ProductionCandidate> & production_candidates,
+  P3R3K12SelectionProfile * profile = nullptr);
 
 }  // namespace local_planning
 

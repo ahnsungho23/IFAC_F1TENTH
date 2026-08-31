@@ -183,10 +183,34 @@ struct P3ResearchEvaluationRecord
   std::size_t r3_validator_call_count{0U};
   std::size_t r3_hard_valid_count{0U};
   std::size_t r3_usable_valid_count{0U};
+  std::size_t r3_transition_count{0U};
+  std::size_t r3_raw_combination_count{0U};
+  std::size_t r3_production_excluded_count{0U};
+  std::size_t r3_factor_pool_count{0U};
+  std::size_t r3_unique_profile_count{0U};
+  std::size_t r3_proxy_metric_evaluation_count{0U};
+  std::size_t r3_proxy_metric_cache_hit_count{0U};
+  std::size_t r3_corridor_sample_evaluation_count{0U};
+  std::size_t r3_reference_spacing_scan_count{0U};
+  std::size_t r3_reference_sample_count{0U};
+  std::size_t r3_profile_basis_build_count{0U};
+  std::size_t r3_profile_basis_cache_hit_count{0U};
+  std::size_t r3_profile_sample_basis_count{0U};
+  std::size_t r3_pair_metric_worker_count{0U};
   std::string r3_fallback_after_failure{"NOT_INVOKED"};
+  double r3_runtime_context_preparation_us{0.0};
+  double r3_runtime_geometry_preparation_us{0.0};
+  double r3_runtime_transition_generation_us{0.0};
+  double r3_runtime_lateral_factor_generation_us{0.0};
+  double r3_runtime_pair_priority_computation_us{0.0};
+  double r3_runtime_lexicographic_ordering_us{0.0};
+  double r3_runtime_coverage_ordering_us{0.0};
+  double r3_runtime_shape_deduplication_us{0.0};
+  double r3_runtime_candidate_deduplication_us{0.0};
   double r3_runtime_factor_generation_us{0.0};
   double r3_runtime_reconstruction_us{0.0};
   double r3_runtime_validation_us{0.0};
+  double r3_runtime_final_ranking_us{0.0};
   double r3_runtime_total_us{0.0};
   std::vector<P3R3SelectedFactorTrace> r3_selected_factors;
   double runtime_total_us{0.0};
@@ -278,6 +302,8 @@ struct PlanningResearchCycle
   double runtime_ranking_us{0.0};
   double runtime_lifecycle_revalidation_us{0.0};
   double runtime_r3_total_us{0.0};
+  double runtime_research_lineage_us{0.0};
+  double runtime_research_capture_us{0.0};
 
   std::vector<P3ResearchEvaluationRecord> evaluations;
 };
@@ -315,6 +341,19 @@ private:
   class Impl;
   std::unique_ptr<Impl> impl_;
 };
+
+struct PlanningResearchSerializationProfile
+{
+  std::size_t event_count{0U};
+  std::size_t serialized_byte_count{0U};
+  double runtime_us{0.0};
+};
+
+// Executes the same JSON string construction as the asynchronous writer without touching disk.
+// This is an explicit research/profile call and is never reached by default-OFF production.
+PlanningResearchSerializationProfile profilePlanningResearchSerialization(
+  const PlanningResearchCycle & cycle,
+  const PlanningResearchConfig & config);
 
 void captureP3ResearchEvaluation(
   PlanningResearchCycle & cycle,

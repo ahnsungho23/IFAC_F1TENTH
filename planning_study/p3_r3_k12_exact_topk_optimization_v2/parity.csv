@@ -1,0 +1,13 @@
+gate,scope,passed,total,status,evidence
+V2_BASELINE,seen_failures,86,86,PASS,/tmp/r3_v2_baseline_parity.csv
+OPT01_EXACT_STATION_AND_PROFILE_REUSE,seen_failures,86,86,PASS,/tmp/r3_v2_opt1_parity.csv
+OPT02_EXACT_SHAPE_PARTIAL_TOPK,seen_failures,86,86,PASS,/tmp/r3_v2_opt2_parity.csv
+OPT03_COMPACT_NUMERIC_POOL,seen_failures,86,86,PASS,/tmp/r3_v2_opt3_parity.csv
+EXPERIMENT_8_WORKERS,seen_failures,86,86,REJECTED_PERFORMANCE,/tmp/r3_v2_opt4_parity.csv
+EXPERIMENT_BASIS_GROUPING,seen_failures,86,86,REJECTED_PERFORMANCE,/tmp/r3_v2_opt5_parity.csv
+OPT04_SAMPLE_INVARIANT_CACHE,seen_failures,86,86,PASS,/tmp/r3_v2_opt6_parity.csv
+FINAL_INSTRUMENTATION_OFF,seen_failures,86,86,PASS,/tmp/r3_v2_final_parity.csv
+FINAL_INSTRUMENTATION_ON,seen_failures,86,86,PASS,/tmp/r3_v2_final_on_parity.csv
+FINAL_SUCCESS_NONINTERFERENCE,production_success_controls,18,18,PASS,/tmp/r3_v2_success_noninterference.csv
+FINAL_CONSTRUCTION_CAP,seen_failures,86,86,PASS,maximum constructed candidates 12
+FINAL_VALIDATOR_CAP,seen_failures,86,86,PASS,maximum exact validator calls 12

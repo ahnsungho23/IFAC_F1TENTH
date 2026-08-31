@@ -143,6 +143,16 @@ candidate event의 factor index/source를 함께 사용하면 동결 selector의
 `research_instrumentation_enable=false` gate 안에만 있으므로 기본 OFF 동작에는 logger나 JSON
 직렬화 비용이 추가되지 않습니다.
 
+R3 runtime profile은 context/geometry, transition/lateral factor, pair proxy, lexicographic/coverage
+Top-K, shape/path dedup, reconstruction, exact validation, final rank를 분리합니다. 또한 전체 factor
+pool과 raw Cartesian/production-excluded 수, exact unique profile/full proxy/cache-hit 수,
+profile-basis build/cache hit/sample 수, corridor/reference 반복 수, pair-metric worker 수를
+기록합니다. 동일 `(side,d_target,d_mid,stations[0..4])` profile은 proxy metric을 정확히 한 번
+계산하지만 coverage distance용 entry/exit normalization과 configuration row는 그대로 유지합니다.
+worker는 후보별 독립 proxy 계산만 최대 4개 고정 chunk로 나누며 pool index와 최종 순서는 바꾸지
+않습니다. JSON/hash/string 직렬화 비용은 research cycle의 lineage/capture와 별도 pure
+serialization profile로 측정하므로 instrumentation OFF의 배포 지연과 혼동하지 않습니다.
+
 production verdict는 기존 `validateCandidate()`의 첫 failure와 early-return 순서 그대로입니다.
 전체 위반 audit를 켜면 그 verdict를 얻은 뒤 별도 pass가 동일 path/visible obstacle을 읽어
 `all_observed_violation_flags`를 수집합니다. 이 pass는 validator count, hard-valid, rank,

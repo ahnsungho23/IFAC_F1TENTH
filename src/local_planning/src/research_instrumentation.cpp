@@ -15,6 +15,7 @@
 #include "local_planning/research_instrumentation.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <condition_variable>
 #include <deque>
@@ -251,7 +252,9 @@ std::string planningJson(
          << ",\"ranking\":" << jsonNumber(cycle.runtime_ranking_us)
          << ",\"lifecycle_revalidation\":"
          << jsonNumber(cycle.runtime_lifecycle_revalidation_us)
-         << ",\"r3_total\":" << jsonNumber(cycle.runtime_r3_total_us) << '}'
+         << ",\"r3_total\":" << jsonNumber(cycle.runtime_r3_total_us)
+         << ",\"research_lineage\":" << jsonNumber(cycle.runtime_research_lineage_us)
+         << ",\"research_capture\":" << jsonNumber(cycle.runtime_research_capture_us) << '}'
          << ",\"evaluation_count\":" << cycle.evaluations.size()
          << ",\"dropped_log_count\":" << dropped_log_count << '}';
   return output.str();
@@ -466,14 +469,54 @@ std::string evaluationJson(
          << ",\"validator_call_count\":" << evaluation.r3_validator_call_count
          << ",\"hard_valid_count\":" << evaluation.r3_hard_valid_count
          << ",\"usable_valid_count\":" << evaluation.r3_usable_valid_count
+         << ",\"transition_count\":" << evaluation.r3_transition_count
+         << ",\"raw_combination_count\":" << evaluation.r3_raw_combination_count
+         << ",\"production_excluded_count\":" << evaluation.r3_production_excluded_count
+         << ",\"factor_pool_count\":" << evaluation.r3_factor_pool_count
+         << ",\"unique_profile_count\":" << evaluation.r3_unique_profile_count
+         << ",\"proxy_metric_evaluation_count\":"
+         << evaluation.r3_proxy_metric_evaluation_count
+         << ",\"proxy_metric_cache_hit_count\":"
+         << evaluation.r3_proxy_metric_cache_hit_count
+         << ",\"corridor_sample_evaluation_count\":"
+         << evaluation.r3_corridor_sample_evaluation_count
+         << ",\"reference_spacing_scan_count\":"
+         << evaluation.r3_reference_spacing_scan_count
+         << ",\"reference_sample_count\":" << evaluation.r3_reference_sample_count
+         << ",\"profile_basis_build_count\":" << evaluation.r3_profile_basis_build_count
+         << ",\"profile_basis_cache_hit_count\":"
+         << evaluation.r3_profile_basis_cache_hit_count
+         << ",\"profile_sample_basis_count\":"
+         << evaluation.r3_profile_sample_basis_count
+         << ",\"pair_metric_worker_count\":" << evaluation.r3_pair_metric_worker_count
          << ",\"fallback_after_failure\":\""
          << jsonEscape(evaluation.r3_fallback_after_failure) << "\""
+         << ",\"runtime_context_preparation_us\":"
+         << jsonNumber(evaluation.r3_runtime_context_preparation_us)
+         << ",\"runtime_geometry_preparation_us\":"
+         << jsonNumber(evaluation.r3_runtime_geometry_preparation_us)
+         << ",\"runtime_transition_generation_us\":"
+         << jsonNumber(evaluation.r3_runtime_transition_generation_us)
+         << ",\"runtime_lateral_factor_generation_us\":"
+         << jsonNumber(evaluation.r3_runtime_lateral_factor_generation_us)
+         << ",\"runtime_pair_priority_computation_us\":"
+         << jsonNumber(evaluation.r3_runtime_pair_priority_computation_us)
+         << ",\"runtime_lexicographic_ordering_us\":"
+         << jsonNumber(evaluation.r3_runtime_lexicographic_ordering_us)
+         << ",\"runtime_coverage_ordering_us\":"
+         << jsonNumber(evaluation.r3_runtime_coverage_ordering_us)
+         << ",\"runtime_shape_deduplication_us\":"
+         << jsonNumber(evaluation.r3_runtime_shape_deduplication_us)
+         << ",\"runtime_candidate_deduplication_us\":"
+         << jsonNumber(evaluation.r3_runtime_candidate_deduplication_us)
          << ",\"runtime_factor_generation_us\":"
          << jsonNumber(evaluation.r3_runtime_factor_generation_us)
          << ",\"runtime_reconstruction_us\":"
          << jsonNumber(evaluation.r3_runtime_reconstruction_us)
          << ",\"runtime_validation_us\":"
          << jsonNumber(evaluation.r3_runtime_validation_us)
+         << ",\"runtime_final_ranking_us\":"
+         << jsonNumber(evaluation.r3_runtime_final_ranking_us)
          << ",\"runtime_total_us\":" << jsonNumber(evaluation.r3_runtime_total_us)
          << ",\"selected_factors\":"
          << r3SelectedFactorsJson(evaluation.r3_selected_factors) << '}'
@@ -633,6 +676,27 @@ const std::string & PlanningResearchLogger::runDirectory() const
   return impl_->run_directory_;
 }
 
+PlanningResearchSerializationProfile profilePlanningResearchSerialization(
+  const PlanningResearchCycle & cycle,
+  const PlanningResearchConfig & config)
+{
+  const auto start = std::chrono::steady_clock::now();
+  PlanningResearchSerializationProfile profile;
+  profile.serialized_byte_count += planningJson(cycle, config, 0U).size();
+  ++profile.event_count;
+  for (const auto & evaluation : cycle.evaluations) {
+    profile.serialized_byte_count += evaluationJson(cycle, evaluation).size();
+    ++profile.event_count;
+    for (const auto & candidate : evaluation.candidates) {
+      profile.serialized_byte_count += candidateJson(cycle, evaluation, candidate).size();
+      ++profile.event_count;
+    }
+  }
+  profile.runtime_us = std::chrono::duration<double, std::micro>(
+    std::chrono::steady_clock::now() - start).count();
+  return profile;
+}
+
 void captureP3ResearchEvaluation(
   PlanningResearchCycle & cycle,
   const std::string & clearance_pass,
@@ -668,10 +732,40 @@ void captureP3ResearchEvaluation(
   evaluation.r3_validator_call_count = result.r3_validator_call_count;
   evaluation.r3_hard_valid_count = result.r3_hard_valid_count;
   evaluation.r3_usable_valid_count = result.r3_usable_valid_count;
+  evaluation.r3_transition_count = result.r3_transition_count;
+  evaluation.r3_raw_combination_count = result.r3_raw_combination_count;
+  evaluation.r3_production_excluded_count = result.r3_production_excluded_count;
+  evaluation.r3_factor_pool_count = result.r3_factor_pool_count;
+  evaluation.r3_unique_profile_count = result.r3_unique_profile_count;
+  evaluation.r3_proxy_metric_evaluation_count = result.r3_proxy_metric_evaluation_count;
+  evaluation.r3_proxy_metric_cache_hit_count = result.r3_proxy_metric_cache_hit_count;
+  evaluation.r3_corridor_sample_evaluation_count =
+    result.r3_corridor_sample_evaluation_count;
+  evaluation.r3_reference_spacing_scan_count = result.r3_reference_spacing_scan_count;
+  evaluation.r3_reference_sample_count = result.r3_reference_sample_count;
+  evaluation.r3_profile_basis_build_count = result.r3_profile_basis_build_count;
+  evaluation.r3_profile_basis_cache_hit_count = result.r3_profile_basis_cache_hit_count;
+  evaluation.r3_profile_sample_basis_count = result.r3_profile_sample_basis_count;
+  evaluation.r3_pair_metric_worker_count = result.r3_pair_metric_worker_count;
   evaluation.r3_fallback_after_failure = result.r3_fallback_after_failure;
+  evaluation.r3_runtime_context_preparation_us = result.r3_runtime_context_preparation_us;
+  evaluation.r3_runtime_geometry_preparation_us = result.r3_runtime_geometry_preparation_us;
+  evaluation.r3_runtime_transition_generation_us = result.r3_runtime_transition_generation_us;
+  evaluation.r3_runtime_lateral_factor_generation_us =
+    result.r3_runtime_lateral_factor_generation_us;
+  evaluation.r3_runtime_pair_priority_computation_us =
+    result.r3_runtime_pair_priority_computation_us;
+  evaluation.r3_runtime_lexicographic_ordering_us =
+    result.r3_runtime_lexicographic_ordering_us;
+  evaluation.r3_runtime_coverage_ordering_us = result.r3_runtime_coverage_ordering_us;
+  evaluation.r3_runtime_shape_deduplication_us =
+    result.r3_runtime_shape_deduplication_us;
+  evaluation.r3_runtime_candidate_deduplication_us =
+    result.r3_runtime_candidate_deduplication_us;
   evaluation.r3_runtime_factor_generation_us = result.r3_runtime_factor_generation_us;
   evaluation.r3_runtime_reconstruction_us = result.r3_runtime_reconstruction_us;
   evaluation.r3_runtime_validation_us = result.r3_runtime_validation_us;
+  evaluation.r3_runtime_final_ranking_us = result.r3_runtime_final_ranking_us;
   evaluation.r3_runtime_total_us = result.r3_runtime_total_us;
   evaluation.r3_selected_factors = result.r3_selected_factors;
   evaluation.runtime_total_us = result.runtime_total_us;

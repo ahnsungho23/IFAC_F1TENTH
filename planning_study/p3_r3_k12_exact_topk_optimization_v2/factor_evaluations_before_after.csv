@@ -1,0 +1,7 @@
+measure,version,event_count,total,p50,p90,p95,p99,max,reduction_vs_before
+configuration_pool,V1_BEFORE,86,776193,3677.5,31606.5,35783.25,52987.05,71506,0.0000
+configuration_pool,V2_AFTER,86,776193,3677.5,31606.5,35783.25,52987.05,71506,0.0000
+full_proxy_evaluations,V1_BEFORE,86,776193,3677.5,31606.5,35783.25,52987.05,71506,0.0000
+full_proxy_evaluations,V2_AFTER,86,498506,2054.5,9052.0,27518.25,45631.15,71506,0.3578
+exact_profile_cache_hits,V2_AFTER,86,277687,1202.0,5134.0,14373.5,26852.5,28000,NA
+station_basis_builds,V2_AFTER,86,NA,41.0,138.5,168.75,441.55,524,NA

@@ -16,6 +16,7 @@
 // production evaluator; no Oracle coordinates or outcomes enter the planner.
 
 #include <cmath>
+#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
@@ -207,19 +208,33 @@ RacelineSplineParameters frozenParameters()
   return parameters;
 }
 
-void emit(const Event & event)
+void emit(const Event & event, double event_read_us)
 {
+  using Clock = std::chrono::steady_clock;
   RacelineSplinePlanner planner(frozenParameters());
   std::string error;
+  const auto reference_start = Clock::now();
   if (!planner.setReference(event.reference, &error)) {
     throw std::runtime_error(error);
   }
+  const double reference_setup_us = std::chrono::duration<double, std::micro>(
+    Clock::now() - reference_start).count();
   PlanningResearchCycle cycle;
-  if (std::getenv("LOCAL_PLANNING_RESEARCH_PARITY") != nullptr) {
+  const bool instrumentation_enabled =
+    std::getenv("LOCAL_PLANNING_RESEARCH_PARITY") != nullptr;
+  if (instrumentation_enabled) {
     planner.setActiveResearchCycle(&cycle);
   }
+  const auto evaluation_start = Clock::now();
   const auto result = planner.evaluateP3Shadow(event.ego, event.obstacles, 0, 0U, 1U, "R3_PARITY");
+  const double evaluation_wall_us = std::chrono::duration<double, std::micro>(
+    Clock::now() - evaluation_start).count();
   planner.setActiveResearchCycle(nullptr);
+  local_planning::PlanningResearchSerializationProfile serialization;
+  if (instrumentation_enabled && std::getenv("R3_PROFILE_SERIALIZE") != nullptr) {
+    local_planning::PlanningResearchConfig config;
+    serialization = local_planning::profilePlanningResearchSerialization(cycle, config);
+  }
   std::cout << "SUMMARY\t" << event.id << '\t' << result.r3_invoked << '\t' <<
     result.would_recover << '\t' << result.r3_lateral_factor_count << '\t' <<
     result.r3_pair_priority_count << '\t' << result.r3_constructed_candidate_count << '\t' <<
@@ -228,6 +243,49 @@ void emit(const Event & event)
     result.selected_d_target << '\t' << result.selected_d_mid << '\t' <<
     result.selected_candidate_identity << '\t' << result.selected_path_digest << '\t' <<
     result.failure_classification << '\t' << result.r3_runtime_total_us << '\n';
+  std::cout << "PROFILE\t" << event.id <<
+    "\tinstrumentation_enabled=" << instrumentation_enabled <<
+    "\tevent_read_us=" << event_read_us <<
+    "\treference_setup_us=" << reference_setup_us <<
+    "\tevaluation_wall_us=" << evaluation_wall_us <<
+    "\tr3_total_us=" << result.r3_runtime_total_us <<
+    "\tcontext_preparation_us=" << result.r3_runtime_context_preparation_us <<
+    "\tgeometry_preparation_us=" << result.r3_runtime_geometry_preparation_us <<
+    "\ttransition_generation_us=" << result.r3_runtime_transition_generation_us <<
+    "\tlateral_factor_generation_us=" << result.r3_runtime_lateral_factor_generation_us <<
+    "\tpair_priority_computation_us=" << result.r3_runtime_pair_priority_computation_us <<
+    "\tlexicographic_ordering_us=" << result.r3_runtime_lexicographic_ordering_us <<
+    "\tcoverage_ordering_us=" << result.r3_runtime_coverage_ordering_us <<
+    "\tshape_deduplication_us=" << result.r3_runtime_shape_deduplication_us <<
+    "\tcandidate_deduplication_us=" << result.r3_runtime_candidate_deduplication_us <<
+    "\treconstruction_us=" << result.r3_runtime_reconstruction_us <<
+    "\texact_validation_us=" << result.r3_runtime_validation_us <<
+    "\tfinal_ranking_us=" << result.r3_runtime_final_ranking_us <<
+    "\tresearch_lineage_us=" << cycle.runtime_research_lineage_us <<
+    "\tresearch_capture_us=" << cycle.runtime_research_capture_us <<
+    "\tresearch_serialization_us=" << serialization.runtime_us <<
+    "\tresearch_serialized_bytes=" << serialization.serialized_byte_count <<
+    "\ttransition_count=" << result.r3_transition_count <<
+    "\tlateral_factor_count=" << result.r3_lateral_factor_count <<
+    "\traw_combination_count=" << result.r3_raw_combination_count <<
+    "\tproduction_excluded_count=" << result.r3_production_excluded_count <<
+    "\tfactor_pool_count=" << result.r3_factor_pool_count <<
+    "\tunique_profile_count=" << result.r3_unique_profile_count <<
+    "\tproxy_metric_evaluation_count=" << result.r3_proxy_metric_evaluation_count <<
+    "\tproxy_metric_cache_hit_count=" << result.r3_proxy_metric_cache_hit_count <<
+    "\tpair_priority_count=" << result.r3_pair_priority_count <<
+    "\tcorridor_sample_evaluation_count=" << result.r3_corridor_sample_evaluation_count <<
+    "\treference_spacing_scan_count=" << result.r3_reference_spacing_scan_count <<
+    "\treference_sample_count=" << result.r3_reference_sample_count <<
+    "\tprofile_basis_build_count=" << result.r3_profile_basis_build_count <<
+    "\tprofile_basis_cache_hit_count=" << result.r3_profile_basis_cache_hit_count <<
+    "\tprofile_sample_basis_count=" << result.r3_profile_sample_basis_count <<
+    "\tpair_metric_worker_count=" << result.r3_pair_metric_worker_count <<
+    "\tconstructed_candidate_count=" << result.r3_constructed_candidate_count <<
+    "\tvalidator_call_count=" << result.r3_validator_call_count << '\n';
+  if (std::getenv("R3_PROFILE_ONLY") != nullptr) {
+    return;
+  }
   std::cout << "INTEGRATED_SELECTED\t" << event.id << '\t' << result.would_recover << '\t' <<
     result.candidate_count << '\t' << result.hard_validator_call_count << '\t' <<
     result.hard_valid_count << '\t' << result.selected_path_digest << '\t' <<
@@ -269,7 +327,11 @@ int main(int argc, char ** argv)
   try {
     std::cout << std::setprecision(17);
     for (int index = 1; index < argc; ++index) {
-      emit(readEvent(argv[index]));
+      const auto read_start = std::chrono::steady_clock::now();
+      const Event event = readEvent(argv[index]);
+      const double read_us = std::chrono::duration<double, std::micro>(
+        std::chrono::steady_clock::now() - read_start).count();
+      emit(event, read_us);
     }
     return 0;
   } catch (const std::exception & error) {

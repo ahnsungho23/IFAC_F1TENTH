@@ -233,6 +233,13 @@ public:
   }
 
 private:
+  struct R3GeometryProfile
+  {
+    std::size_t corridor_sample_evaluation_count{0U};
+    std::size_t reference_spacing_scan_count{0U};
+    std::size_t reference_sample_count{0U};
+  };
+
   // 이 사이클이 책임지는 클러스터. buildCandidate가 검증 지평을 구할 때 필요한데 호출
   // 경로가 셋(M0/M0확장/M1)이라 인자로 흘리면 시그니처 셋이 다 바뀐다. 평가기는
   // evaluateP3Shadow 호출마다 새로 생성되므로(p3_shadow.cpp 하단) 사이클 상태로 두는 것이
@@ -659,8 +666,10 @@ public:
     result.selected_validation_available = false;
     result.selected_path.wpnts.clear();
 
+    const auto context_start = Clock::now();
     const P3ShadowPlanningContext context = planner_.buildP3ShadowPlanningContext(
       ego, obstacles, false);
+    result.r3_runtime_context_preparation_us = elapsedUs(context_start);
     if (!context.valid) {
       result.r3_runtime_total_us = elapsedUs(total_start);
       result.runtime_total_us = result.r3_runtime_total_us;
@@ -669,13 +678,43 @@ public:
     cycle_cluster_ids_ = context.cluster_ids;
 
     const auto factor_start = Clock::now();
+    const auto geometry_start = Clock::now();
+    R3GeometryProfile geometry_profile;
     const std::vector<P3R3K12SideGeometry> geometries = buildR3K12Geometry(
-      ego, obstacles, context);
+      ego, obstacles, context, &geometry_profile);
+    result.r3_runtime_geometry_preparation_us = elapsedUs(geometry_start);
+    result.r3_corridor_sample_evaluation_count =
+      geometry_profile.corridor_sample_evaluation_count;
+    result.r3_reference_spacing_scan_count = geometry_profile.reference_spacing_scan_count;
+    result.r3_reference_sample_count = geometry_profile.reference_sample_count;
+    P3R3K12SelectionProfile selection_profile;
     const P3R3K12Selection selection = selectP3R3K12Factors(
-      geometries, production_candidates);
+      geometries, production_candidates, &selection_profile);
     result.r3_runtime_factor_generation_us = elapsedUs(factor_start);
     result.r3_lateral_factor_count = selection.lateral_factor_count;
     result.r3_pair_priority_count = selection.pair_priority_count;
+    result.r3_transition_count = selection_profile.transition_count;
+    result.r3_raw_combination_count = selection_profile.raw_combination_count;
+    result.r3_production_excluded_count = selection_profile.production_excluded_count;
+    result.r3_factor_pool_count = selection_profile.factor_pool_count;
+    result.r3_unique_profile_count = selection_profile.unique_profile_count;
+    result.r3_proxy_metric_evaluation_count =
+      selection_profile.proxy_metric_evaluation_count;
+    result.r3_proxy_metric_cache_hit_count = selection_profile.proxy_metric_cache_hit_count;
+    result.r3_profile_basis_build_count = selection_profile.profile_basis_build_count;
+    result.r3_profile_basis_cache_hit_count = selection_profile.profile_basis_cache_hit_count;
+    result.r3_profile_sample_basis_count = selection_profile.profile_sample_basis_count;
+    result.r3_pair_metric_worker_count = selection_profile.pair_metric_worker_count;
+    result.r3_runtime_transition_generation_us =
+      selection_profile.transition_generation_us;
+    result.r3_runtime_lateral_factor_generation_us =
+      selection_profile.lateral_factor_generation_us;
+    result.r3_runtime_pair_priority_computation_us =
+      selection_profile.pair_priority_computation_us;
+    result.r3_runtime_lexicographic_ordering_us =
+      selection_profile.lexicographic_ordering_us;
+    result.r3_runtime_coverage_ordering_us = selection_profile.coverage_ordering_us;
+    result.r3_runtime_shape_deduplication_us = selection_profile.shape_deduplication_us;
 
     std::set<std::string> validated_path_digests;
     std::optional<std::size_t> best_index;
@@ -738,6 +777,7 @@ public:
           factor_trace.constructed = true;
           factor_trace.path_digest = trace.path_digest;
 
+          const auto deduplication_start = Clock::now();
           if (!validated_path_digests.insert(trace.path_digest).second) {
             factor_trace.path_digest_duplicate = true;
             const auto original = std::find_if(
@@ -751,10 +791,12 @@ public:
                 original->ego_braking_distance_deficit_m <= kCandidateRankEpsilon;
               factor_trace.candidate_identity = original->candidate_identity;
             }
+            result.r3_runtime_candidate_deduplication_us += elapsedUs(deduplication_start);
             ++result.r3_path_digest_duplicate_count;
             result.r3_selected_factors.push_back(std::move(factor_trace));
             continue;  // duplicate consumes K but not the logical exact-validator budget
           }
+          result.r3_runtime_candidate_deduplication_us += elapsedUs(deduplication_start);
 
           const auto validation_start = Clock::now();
           validateReconstructedCandidate(ego, obstacles, trace, validation_us);
@@ -811,6 +853,7 @@ public:
     result.hard_validator_call_count = result.r3_validator_call_count;
     result.hard_valid_count = result.r3_hard_valid_count;
 
+    const auto final_ranking_start = Clock::now();
     std::vector<std::size_t> feasible_order;
     for (std::size_t index = 0U; index < result.candidates.size(); ++index) {
       if (result.candidates[index].hard_valid) {
@@ -864,6 +907,7 @@ public:
       result.failure_classification = "NONE";
       result.r3_fallback_after_failure = "NONE";
     }
+    result.r3_runtime_final_ranking_us = elapsedUs(final_ranking_start);
 
     if (planner_.activeResearchCycle() != nullptr) {
       result.research_all_candidates = result.candidates;
@@ -890,9 +934,42 @@ public:
     destination.r3_validator_call_count = source.r3_validator_call_count;
     destination.r3_hard_valid_count = source.r3_hard_valid_count;
     destination.r3_usable_valid_count = source.r3_usable_valid_count;
+    destination.r3_transition_count = source.r3_transition_count;
+    destination.r3_raw_combination_count = source.r3_raw_combination_count;
+    destination.r3_production_excluded_count = source.r3_production_excluded_count;
+    destination.r3_factor_pool_count = source.r3_factor_pool_count;
+    destination.r3_unique_profile_count = source.r3_unique_profile_count;
+    destination.r3_proxy_metric_evaluation_count = source.r3_proxy_metric_evaluation_count;
+    destination.r3_proxy_metric_cache_hit_count = source.r3_proxy_metric_cache_hit_count;
+    destination.r3_corridor_sample_evaluation_count =
+      source.r3_corridor_sample_evaluation_count;
+    destination.r3_reference_spacing_scan_count = source.r3_reference_spacing_scan_count;
+    destination.r3_reference_sample_count = source.r3_reference_sample_count;
+    destination.r3_profile_basis_build_count = source.r3_profile_basis_build_count;
+    destination.r3_profile_basis_cache_hit_count = source.r3_profile_basis_cache_hit_count;
+    destination.r3_profile_sample_basis_count = source.r3_profile_sample_basis_count;
+    destination.r3_pair_metric_worker_count = source.r3_pair_metric_worker_count;
+    destination.r3_runtime_context_preparation_us =
+      source.r3_runtime_context_preparation_us;
+    destination.r3_runtime_geometry_preparation_us =
+      source.r3_runtime_geometry_preparation_us;
+    destination.r3_runtime_transition_generation_us =
+      source.r3_runtime_transition_generation_us;
+    destination.r3_runtime_lateral_factor_generation_us =
+      source.r3_runtime_lateral_factor_generation_us;
+    destination.r3_runtime_pair_priority_computation_us =
+      source.r3_runtime_pair_priority_computation_us;
+    destination.r3_runtime_lexicographic_ordering_us =
+      source.r3_runtime_lexicographic_ordering_us;
+    destination.r3_runtime_coverage_ordering_us = source.r3_runtime_coverage_ordering_us;
+    destination.r3_runtime_shape_deduplication_us =
+      source.r3_runtime_shape_deduplication_us;
+    destination.r3_runtime_candidate_deduplication_us =
+      source.r3_runtime_candidate_deduplication_us;
     destination.r3_runtime_factor_generation_us = source.r3_runtime_factor_generation_us;
     destination.r3_runtime_reconstruction_us = source.r3_runtime_reconstruction_us;
     destination.r3_runtime_validation_us = source.r3_runtime_validation_us;
+    destination.r3_runtime_final_ranking_us = source.r3_runtime_final_ranking_us;
     destination.r3_runtime_total_us = source.r3_runtime_total_us;
     destination.r3_fallback_after_failure = source.r3_fallback_after_failure;
     destination.r3_selected_factors = source.r3_selected_factors;
@@ -1098,8 +1175,12 @@ private:
   CorridorSample frozenR3CorridorSample(
     const EgoFrenetState & ego,
     const std::vector<P3ShadowObstacleEnvelope> & visible,
-    double station) const
+    double station,
+    R3GeometryProfile * profile) const
   {
+    if (profile != nullptr) {
+      ++profile->corridor_sample_evaluation_count;
+    }
     constexpr double kFrozenVehicleHalfWidthM = 0.15;
     constexpr double kFrozenWallSafetyMarginM = 0.04;
     constexpr double kFrozenFallbackTrackHalfWidthM = 1.5;
@@ -1137,7 +1218,8 @@ private:
     double cluster_start,
     double cluster_end,
     bool go_left,
-    bool outside_is_left) const
+    bool outside_is_left,
+    R3GeometryProfile * profile) const
   {
     constexpr double kFrozenPostApexFarM = 6.178529850015357;
     constexpr double kFrozenMaximumExitScale = 3.698773101198193;
@@ -1157,6 +1239,9 @@ private:
     }
     const std::size_t first = planner_.nextReferenceIndex(ego.s);
     for (std::size_t count = 0U; count < planner_.reference_.wpnts.size(); ++count) {
+      if (profile != nullptr) {
+        ++profile->reference_sample_count;
+      }
       const auto & waypoint =
         planner_.reference_.wpnts[(first + count) % planner_.reference_.wpnts.size()];
       const double station = planner_.forwardDistance(ego.s, waypoint.s_m);
@@ -1173,7 +1258,7 @@ private:
     Interval previous{};
     bool have_previous = false;
     for (const double station : stations) {
-      CorridorSample sample = frozenR3CorridorSample(ego, visible, station);
+      CorridorSample sample = frozenR3CorridorSample(ego, visible, station, profile);
       result.branch_count = std::max(result.branch_count, sample.feasible.size());
       if (sample.feasible.empty()) {
         result.connected = false;
@@ -1195,10 +1280,13 @@ private:
     return result;
   }
 
-  double frozenR3ReferenceSpacing() const
+  double frozenR3ReferenceSpacing(R3GeometryProfile * profile) const
   {
     std::vector<double> spacing;
     for (std::size_t index = 1U; index < planner_.reference_.wpnts.size(); ++index) {
+      if (profile != nullptr) {
+        ++profile->reference_spacing_scan_count;
+      }
       spacing.push_back(
         planner_.reference_.wpnts[index].s_m - planner_.reference_.wpnts[index - 1U].s_m);
     }
@@ -1214,7 +1302,8 @@ private:
   std::vector<P3R3K12SideGeometry> buildR3K12Geometry(
     const EgoFrenetState & ego,
     const std::vector<f110_msgs::msg::Obstacle> & obstacles,
-    const P3ShadowPlanningContext & context) const
+    const P3ShadowPlanningContext & context,
+    R3GeometryProfile * profile) const
   {
     constexpr double kFrozenFeatureHorizonM = 32.0;
     const auto visible = frozenR3Visible(ego, obstacles);
@@ -1227,7 +1316,7 @@ private:
       }
       const Corridor corridor = makeFrozenR3Corridor(
         ego, visible, domain.cluster_start, domain.cluster_end,
-        go_left, context.outside_is_left);
+        go_left, context.outside_is_left, profile);
       if (corridor.branch.empty()) {
         continue;
       }
@@ -1250,7 +1339,7 @@ private:
                  std::tie(second->width, second->station);
         });
       const CorridorSample midpoint_sample = frozenR3CorridorSample(
-        ego, visible, 0.5 * (domain.cluster_start + domain.cluster_end));
+        ego, visible, 0.5 * (domain.cluster_start + domain.cluster_end), profile);
       if (midpoint_sample.feasible.empty()) {
         continue;
       }
@@ -1263,6 +1352,9 @@ private:
       std::vector<double> reference_stations;
       const std::size_t first = planner_.nextReferenceIndex(ego.s);
       for (std::size_t count = 0U; count < planner_.reference_.wpnts.size(); ++count) {
+        if (profile != nullptr) {
+          ++profile->reference_sample_count;
+        }
         const auto & waypoint =
           planner_.reference_.wpnts[(first + count) % planner_.reference_.wpnts.size()];
         const double station = planner_.forwardDistance(ego.s, waypoint.s_m);
@@ -1289,14 +1381,14 @@ private:
       geometry.cluster_end = domain.cluster_end;
       geometry.domain_lower = std::min(domain.minimum_target, domain.maximum_target);
       geometry.domain_upper = std::max(domain.minimum_target, domain.maximum_target);
-      geometry.reference_spacing_m = frozenR3ReferenceSpacing();
+      geometry.reference_spacing_m = frozenR3ReferenceSpacing(profile);
       for (const auto & range : ranges) {
         geometry.components.push_back({range.lower, range.upper});
       }
       std::vector<double> center_values{
         bottleneck->center, 0.5 * (midpoint_interval.lower + midpoint_interval.upper)};
       for (const double station : sample_stations) {
-        const CorridorSample sample = frozenR3CorridorSample(ego, visible, station);
+        const CorridorSample sample = frozenR3CorridorSample(ego, visible, station, profile);
         if (sample.feasible.empty()) {
           continue;
         }
@@ -1312,7 +1404,7 @@ private:
         std::unique(center_values.begin(), center_values.end()), center_values.end());
       geometry.center_values = std::move(center_values);
       for (const double station : reference_stations) {
-        const CorridorSample sample = frozenR3CorridorSample(ego, visible, station);
+        const CorridorSample sample = frozenR3CorridorSample(ego, visible, station, profile);
         P3R3K12CorridorSample row;
         row.station = station;
         if (!sample.feasible.empty()) {
@@ -3189,11 +3281,15 @@ P3ShadowResult RacelineSplinePlanner::evaluateP3Shadow(
 {
   PlanningResearchCycle * research_cycle = activeResearchCycle();
   if (research_cycle != nullptr) {
+    const auto lineage_start = std::chrono::steady_clock::now();
     const std::string & evaluation_role = research_evaluation_role.empty() ?
       p0_failure_reason : research_evaluation_role;
     research_cycle->active_evaluation_lineage = makeEvaluationLineage(
       *research_cycle, ego, obstacles, reference_, snapshot_source_stamp_ns,
       snapshot_epoch, global_reference_generation, evaluation_role);
+    research_cycle->runtime_research_lineage_us +=
+      std::chrono::duration<double, std::micro>(
+      std::chrono::steady_clock::now() - lineage_start).count();
   }
   // 🔴 2026-08-17: 내부 불변식 위반이 **노드를 죽이지 않게** 한다.
   //
@@ -3225,7 +3321,11 @@ P3ShadowResult RacelineSplinePlanner::evaluateP3Shadow(
     failed.failure_classification =
       std::string("EVALUATOR_INVARIANT_VIOLATION: ") + error.what();
     if (research_cycle != nullptr) {
+      const auto capture_start = std::chrono::steady_clock::now();
       captureP3ResearchEvaluation(*research_cycle, "INVARIANT", failed);
+      research_cycle->runtime_research_capture_us +=
+        std::chrono::duration<double, std::micro>(
+        std::chrono::steady_clock::now() - capture_start).count();
       research_cycle->active_evaluation_lineage.reset();
     }
     return failed;
@@ -3241,14 +3341,22 @@ P3ShadowResult RacelineSplinePlanner::evaluateP3ShadowUnguarded(
   const std::string & p0_failure_reason) const
 {
   const P3ShadowEvaluator evaluator(*this);
+  const auto capture_research = [this](const std::string & pass, const P3ShadowResult & result) {
+      PlanningResearchCycle * cycle = activeResearchCycle();
+      if (cycle == nullptr) {
+        return;
+      }
+      const auto start = std::chrono::steady_clock::now();
+      captureP3ResearchEvaluation(*cycle, pass, result);
+      cycle->runtime_research_capture_us += std::chrono::duration<double, std::micro>(
+        std::chrono::steady_clock::now() - start).count();
+    };
   std::vector<P3R3K12ProductionCandidate> strict_production_factors;
   P3ShadowResult strict = evaluator.run(
     ego, obstacles, snapshot_source_stamp_ns, snapshot_epoch,
     global_reference_generation, p0_failure_reason, false,
     &strict_production_factors);
-  if (activeResearchCycle() != nullptr) {
-    captureP3ResearchEvaluation(*activeResearchCycle(), "STRICT", strict);
-  }
+  capture_research("STRICT", strict);
   if (strict.would_recover || !strict.invoked || strict.cluster_obstacle_ids.empty()) {
     return strict;
   }
@@ -3261,9 +3369,7 @@ P3ShadowResult RacelineSplinePlanner::evaluateP3ShadowUnguarded(
   P3ShadowResult relaxed = evaluator.run(
     ego, obstacles, snapshot_source_stamp_ns, snapshot_epoch,
     global_reference_generation, p0_failure_reason, true);
-  if (activeResearchCycle() != nullptr) {
-    captureP3ResearchEvaluation(*activeResearchCycle(), "RELAXED", relaxed);
-  }
+  capture_research("RELAXED", relaxed);
   if (std::getenv("P3_DEBUG_RELAXED") != nullptr) {
     std::fprintf(stderr, "[RELAXED] recover=%d fail=%s candidates=%zu\n",
       relaxed.would_recover ? 1 : 0, relaxed.failure_classification.c_str(),
@@ -3280,9 +3386,7 @@ P3ShadowResult RacelineSplinePlanner::evaluateP3ShadowUnguarded(
   }
   P3ShadowResult r3 = evaluator.runR3K12(
     ego, obstacles, relaxed, strict_production_factors);
-  if (activeResearchCycle() != nullptr) {
-    captureP3ResearchEvaluation(*activeResearchCycle(), "R3_RECOVERY", r3);
-  }
+  capture_research("R3_RECOVERY", r3);
   if (r3.would_recover) {
     return r3;
   }
