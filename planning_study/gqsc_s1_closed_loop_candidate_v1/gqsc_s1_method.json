@@ -1,0 +1,68 @@
+{
+  "schema": "GQSC_S1_COMPOSED_METHOD_V1",
+  "method_name": "LEX8_GLOBAL_DISJOINT_COVERAGE4",
+  "status": "FROZEN_CLOSED_LOOP_CANDIDATE",
+  "base_method": {
+    "method_name": "V3_SIDE_BALANCED_DISJOINT",
+    "serialization": "planning_study/gqsc_v3_geometry_normalized/gqsc_v3_geometry_general_method.json",
+    "sha256": "965f6ce65b7ce5b1c6426a0975c1dfafe779e89eb20308bb09a11a1b4a22e780",
+    "inheritance": "Every lateral operator, transition operator, pair materialization rule, proxy metric, ranking field, stable tie break, exact dedup rule, P3 reconstruction rule, final candidate rank, and exact validator contract is byte-defined by the base serialization and inherited unchanged unless explicitly overridden below."
+  },
+  "only_method_override": {
+    "selection_policy": "LEX8_GLOBAL_DISJOINT_COVERAGE4",
+    "lexicographic_quota": 8,
+    "coverage_reserve": 4,
+    "coverage_rule": "Run the existing global DISJOINT_COVERAGE selector once for four shapes, with all eight lexicographic shapes pre-excluded and the four reserve choices accumulated in one diversity state.",
+    "ordered_output": "eight lexicographic factors followed by four global disjoint-coverage factors",
+    "coverage_proxy_and_ties": "Inherited without change from base standaloneCoverageOrder DISJOINT_COVERAGE."
+  },
+  "integration_geometry_binding": {
+    "classification": "INTERFACE_CONTRACT_REPAIR_NOT_METHOD_TUNING",
+    "rule": "Cheap GQSC corridor construction reads the same effective RacelineSplineParameters instance as planning-context construction and exact validation.",
+    "bound_fields": [
+      "detection_lookahead_m",
+      "obstacle_longitudinal_padding_m",
+      "vehicle_half_width_m",
+      "safety_margin_m",
+      "obstacle_reserve_from_lut and its effective tracking-error reserve",
+      "wall_safety_margin_m",
+      "fallback_track_half_width_m",
+      "pre/post-apex and transition scale parameters"
+    ],
+    "relaxed_context_rule": "When obstacle_reserve_from_lut is enabled and the strict cheap corridor is closed at the obstacle midpoint, rebuild only that side's cheap geometry with the existing operational minimum-speed clearance envelope before declaring no geometry; exact validation remains unchanged and authoritative.",
+    "canonical_seen_profile_parity": "The frozen seen corpus uses 0.15 m vehicle half-width, 0.08 m obstacle safety margin, 0.04 m wall margin, zero LUT reserve, and zero longitudinal padding, so this binding reproduces the base geometry exactly there."
+  },
+  "computational_contract": {
+    "pair_proxy_budget": 128,
+    "p3_reconstruction_cap_per_evaluation": 12,
+    "exact_validator_cap_per_evaluation": 12,
+    "lexicographic_quota": 8,
+    "coverage_reserve": 4,
+    "ordered_candidate_budget": 12
+  },
+  "explicit_exclusions": [
+    "B1/B2 pair materialization changes",
+    "legacy validator-steered transition bisection",
+    "new transition operators",
+    "new lateral operators",
+    "COMPONENT_HALF_FAR002_INWARD015",
+    "event-specific constants",
+    "legacy M0/M1 or exact-R3 seed execution",
+    "FINAL_HOLDOUT-derived information"
+  ],
+  "evidence_lock": {
+    "source": "planning_study/gqsc_v4_predesign_v1/selection_policy_ablation.csv",
+    "allowed_seen_hard_usable": "62/54",
+    "production_parity_hard_usable": "4/3",
+    "exact_top12_displacement_recovered": "3/10",
+    "hard_regressions": 0,
+    "usable_regressions": 0,
+    "native_p95_ms": 19.945731,
+    "native_p99_ms": 20.920591
+  },
+  "protocol": {
+    "final_holdout_access": "PROHIBITED",
+    "large_closed_loop_benchmark": "NOT_PART_OF_FREEZE_OR_INTEGRATION_GATE",
+    "method_tuning_after_freeze": "PROHIBITED"
+  }
+}

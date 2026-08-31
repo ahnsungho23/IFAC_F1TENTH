@@ -30,6 +30,7 @@
 #include <geometry_msgs/msg/pose_stamped.hpp>
 
 #include "local_planning/hold_recovery_gate.hpp"
+#include "local_planning/gqsc_s1_frozen_contract.hpp"
 #include "local_planning/handoff_latch_gate.hpp"
 #include "local_planning/maneuver_memory.hpp"
 #include "local_planning/path_digest.hpp"
@@ -296,6 +297,12 @@ LocalPlannerNode::LocalPlannerNode(const rclcpp::NodeOptions & options)
     guard_parameters_.minimum_lateral_inflation_m,
     guard_parameters_.maximum_lateral_inflation_m,
     p3RuntimeModeName(p3_mode_));
+  RCLCPP_INFO(
+    get_logger(),
+    "Frozen GQSC main generator verified: method=%s sha256=%s reference_v3_sha=%s "
+    "pair_proxy<=%zu reconstruction<=%zu validator<=%zu",
+    kGqscS1MethodName, kGqscS1MethodSha256, kGqscS1ReferenceV3Sha256,
+    kGqscS1PairProxyBudget, kGqscS1ReconstructionBudget, kGqscS1ValidatorBudget);
 }
 
 void LocalPlannerNode::initializeParameters()
@@ -4000,12 +4007,14 @@ void LocalPlannerNode::onPlanningTimer()
       lifecycle.reason.empty() ? evaluation.failure_classification.c_str() :
       lifecycle.reason.c_str());
   }
-  runSafetyPlanningCycle(&snapshot);
+  runSafetyPlanningCycle(&snapshot, &evaluation);
   publishP3CycleDiagnostic(
     active_snapshot, evaluation, lifecycle, "P0_BACKUP_ONLY", true);
 }
 
-void LocalPlannerNode::runSafetyPlanningCycle(const P3CallbackSnapshot * snapshot)
+void LocalPlannerNode::runSafetyPlanningCycle(
+  const P3CallbackSnapshot * snapshot,
+  const P3ShadowResult * same_input_p3)
 {
   nav_msgs::msg::Odometry odometry;
   rclcpp::Time odometry_time(0, 0, RCL_ROS_TIME);
@@ -4164,7 +4173,8 @@ void LocalPlannerNode::runSafetyPlanningCycle(const P3CallbackSnapshot * snapsho
           const auto stabilizing_obstacles =
             buildGuardedObstacles(buildInitialStabilizationInput());
           if (!stabilizing_obstacles.empty()) {
-            auto early_avoidance = planner_.plan(ego, stabilizing_obstacles);
+            auto early_avoidance = planner_.plan(
+              ego, stabilizing_obstacles, std::nullopt, true, same_input_p3);
             if (early_avoidance.kind == SplinePlanKind::kAvoidance) {
               initial_prepare_published_ = false;
               publishResult(early_avoidance);
@@ -4281,7 +4291,7 @@ void LocalPlannerNode::runSafetyPlanningCycle(const P3CallbackSnapshot * snapsho
     !preferred_side.has_value() ||
     (!commitmentSideLocked(ego) && !pre_engagement_side_switched_);
   RacelineSplineResult result = planner_.plan(
-    ego, planning_obstacles, preferred_side, allow_side_switch);
+    ego, planning_obstacles, preferred_side, allow_side_switch, same_input_p3);
 
   if (result.kind == SplinePlanKind::kAvoidance) {
     commitAvoidance(std::move(result), ego, planning_obstacles);

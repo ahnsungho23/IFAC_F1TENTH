@@ -1,0 +1,5 @@
+policy,status,quota,property_hard_538,property_usable_538,pilot_hard_9,pilot_usable_9,development_hard_40,development_usable_40,validation_seen_hard_37,validation_seen_usable_37,success_control_hard_18,success_control_usable_18,production_parity_hard_4,production_parity_usable_4,top12_exact_recovered_10,hard_losses_vs_p0,usable_losses_vs_p0,decision
+P0_V3_FROZEN_LEX10_SIDE2,REFERENCE,10+2,338,302,4,4,20,17,20,18,17,15,3,2,0,0,0,REFERENCE
+S1_LEX8_GLOBAL_DISJOINT_COVERAGE4,CANDIDATE,8+4,340,306,4,4,20,17,20,18,18,15,4,3,3,0,0,PREFERRED_SELECTION_ONLY_CANDIDATE
+S2_LEX8_TRANSITION_STRATIFIED_COVERAGE4,REJECTED,8+4,344,309,4,4,21,17,20,18,18,14,3,2,7,1,2,REJECT_NONREGRESSION
+S3_LEX6_GLOBAL_DISJOINT_COVERAGE6,CONTROL,6+6,340,305,4,4,20,17,20,18,18,15,4,3,3,0,0,NO_GAIN_OVER_S1_AND_LOWER_PROPERTY_USABLE

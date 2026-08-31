@@ -22,6 +22,7 @@
 #include <string>
 #include <vector>
 
+#include <f110_msgs/msg/obstacle.hpp>
 #include <f110_msgs/msg/wpnt_array.hpp>
 
 #include "local_planning/p3_r3_k12.hpp"
@@ -125,6 +126,9 @@ struct P3ShadowCandidateTrace
     std::numeric_limits<double>::quiet_NaN(),
     std::numeric_limits<double>::quiet_NaN()};
   std::size_t point_count{0U};
+  // Exact obstacle-collision responsibility horizon used by the validator that produced
+  // `validation`. Track/footprint/curvature checks still cover the complete path.
+  double obstacle_collision_horizon_forward_m{std::numeric_limits<double>::quiet_NaN()};
   // Research-only observation of the first generated path sample. This is deliberately separate
   // from the validator's minimum-over-path margin: waypoint 0 is the next ordered reference
   // sample, not the physical ego pose, and its heading is recomputed from the generated path.
@@ -239,6 +243,16 @@ struct P3ShadowResult
   std::string p0_failure_reason;
   std::string mapping_semantics{"M1_BRANCH_COMPLETE_ACTIVE_SET_CLOSURE"};
 
+  // Exact production-input witness for behavior-preserving same-callback reuse. This is not a
+  // hash: the planner compares every ego scalar, the complete ordered obstacle messages, and its
+  // own parameter/reference revision before skipping a duplicate evaluator invocation.
+  bool reuse_input_available{false};
+  double reuse_ego_s{std::numeric_limits<double>::quiet_NaN()};
+  double reuse_ego_d{std::numeric_limits<double>::quiet_NaN()};
+  double reuse_ego_speed{std::numeric_limits<double>::quiet_NaN()};
+  std::uint64_t reuse_planner_revision{0U};
+  std::vector<f110_msgs::msg::Obstacle> reuse_obstacles;
+
   std::size_t raw_root_count{0U};
   std::size_t finite_root_count{0U};
   std::size_t branch_root_count{0U};
@@ -334,6 +348,10 @@ struct P3ShadowResult
   double selected_cluster_start_forward_m{std::numeric_limits<double>::quiet_NaN()};
   double selected_cluster_end_forward_m{std::numeric_limits<double>::quiet_NaN()};
   double selected_cluster_end_s{std::numeric_limits<double>::quiet_NaN()};
+  // Frozen from the selected candidate's exact validation certificate so fresh ownership cannot
+  // silently widen the obstacle interval merely by re-deriving it with a different rule.
+  double selected_obstacle_collision_horizon_forward_m{
+    std::numeric_limits<double>::quiet_NaN()};
   std::string selected_source{"NONE"};
   std::string selected_generator_stage{"NONE"};
   std::string selected_candidate_template{"NONE"};

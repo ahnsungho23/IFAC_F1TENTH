@@ -227,6 +227,8 @@ std::string planningJson(
          << ",\"safe_stop_escape_evaluator_count\":"
          << cycle.safe_stop_escape_evaluator_count
          << ",\"r3_invocation_count\":" << cycle.r3_invocation_count
+         << ",\"gqsc_s1_evaluation_count\":" << cycle.gqsc_s1_evaluation_count
+         << ",\"r3_cached_result_reuse_count\":" << cycle.r3_cached_result_reuse_count
          << ",\"r3_constructed_candidate_count\":"
          << cycle.r3_constructed_candidate_count
          << ",\"r3_path_digest_duplicate_count\":"
@@ -877,6 +879,8 @@ void captureP3ResearchEvaluation(
   // authority again in the same callback, and summing both paths would double count P3 calls.
   cycle.returned_candidate_count += evaluation.returned_candidate_count;
   cycle.r3_invocation_count += evaluation.r3_invoked ? 1U : 0U;
+  cycle.gqsc_s1_evaluation_count +=
+    evaluation.r3_method_name == "LEX8_GLOBAL_DISJOINT_COVERAGE4" ? 1U : 0U;
   cycle.r3_constructed_candidate_count += evaluation.r3_constructed_candidate_count;
   cycle.r3_path_digest_duplicate_count += evaluation.r3_path_digest_duplicate_count;
   cycle.r3_validator_call_count += evaluation.r3_validator_call_count;

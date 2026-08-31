@@ -1108,9 +1108,12 @@ std::vector<P3R3K12Factor> standaloneCoverageOrder(
   const std::vector<P3R3K12Factor> & lexicographic,
   const std::vector<P3R3K12SideGeometry> & sides,
   P3R3RTStandaloneDiversityPolicy policy,
+  std::size_t coverage_quota,
   P3R3K12SelectionProfile * profile)
 {
-  if (policy == P3R3RTStandaloneDiversityPolicy::V1_BASELINE) {
+  if (policy == P3R3RTStandaloneDiversityPolicy::V1_BASELINE &&
+    coverage_quota == kP3R3K12CoverageQuota)
+  {
     return coverageOrder(pool, profile);
   }
   const auto start = ProfileClock::now();
@@ -1255,17 +1258,21 @@ std::vector<P3R3K12Factor> standaloneCoverageOrder(
              fraction <= 1.0 / 32.0 + kEpsilon;
     };
   if (policy == P3R3RTStandaloneDiversityPolicy::DISJOINT_COVERAGE) {
-    select_coverage(kP3R3K12CoverageQuota, [](const auto &) {return true;});
+    select_coverage(coverage_quota, [](const auto &) {return true;});
   } else if (policy == P3R3RTStandaloneDiversityPolicy::V3_SIDE_BALANCED_DISJOINT) {
-    select_coverage(1U, [](const auto & row) {return !row.go_left;});
-    select_coverage(1U, [](const auto & row) {return row.go_left;});
-    if (selected.size() < kP3R3K12CoverageQuota) {
+    if (coverage_quota > 0U) {
+      select_coverage(1U, [](const auto & row) {return !row.go_left;});
+    }
+    if (coverage_quota > 1U) {
+      select_coverage(1U, [](const auto & row) {return row.go_left;});
+    }
+    if (selected.size() < coverage_quota) {
       select_coverage(
-        kP3R3K12CoverageQuota - selected.size(), [](const auto &) {return true;});
+        coverage_quota - selected.size(), [](const auto &) {return true;});
     }
   } else if (policy == P3R3RTStandaloneDiversityPolicy::V3_NORMALIZED_MAXIMIN_DISJOINT) {
     std::vector<std::array<double, 5>> reference_coordinates;
-    reference_coordinates.reserve(lexicographic.size() + kP3R3K12CoverageQuota);
+    reference_coordinates.reserve(lexicographic.size() + coverage_quota);
     for (const auto & row : lexicographic) {
       reference_coordinates.push_back(normalized_coordinate(row));
     }
@@ -1283,7 +1290,7 @@ std::vector<P3R3K12Factor> standaloneCoverageOrder(
         }
         return minimum;
       };
-    while (selected.size() < kP3R3K12CoverageQuota) {
+    while (selected.size() < coverage_quota) {
       std::optional<std::size_t> best;
       double best_distance = -std::numeric_limits<double>::infinity();
       for (std::size_t index = 0U; index < pool.size(); ++index) {
@@ -1306,7 +1313,7 @@ std::vector<P3R3K12Factor> standaloneCoverageOrder(
       reference_coordinates.push_back(normalized_coordinate(pool[*best]));
     }
   } else if (policy == P3R3RTStandaloneDiversityPolicy::SHORT_SHORT_RESERVE) {
-    select_coverage(kP3R3K12CoverageQuota, [](const auto & row) {
+    select_coverage(coverage_quota, [](const auto & row) {
         return row.transition_index == 0U;
       });
   } else {
@@ -1346,18 +1353,19 @@ std::vector<P3R3K12Factor> standaloneCoverageOrder(
       }
     }
   }
-  if (selected.size() < kP3R3K12CoverageQuota) {
-    select_coverage(kP3R3K12CoverageQuota - selected.size(), [](const auto &) {return true;});
+  if (selected.size() < coverage_quota) {
+    select_coverage(coverage_quota - selected.size(), [](const auto &) {return true;});
   }
   if (profile != nullptr) {
     profile->coverage_ordering_us += profileElapsedUs(start);
   }
   return materializeDeduplicatedShapeOrder(
-    pool, selected, kP3R3K12CoverageQuota, profile);
+    pool, selected, coverage_quota, profile);
 }
 
 std::vector<P3R3K12Factor> boundedLexicographicOrder(
-  const std::vector<RankedFactor> & pool, P3R3K12SelectionProfile * profile)
+  const std::vector<RankedFactor> & pool, std::size_t quota,
+  P3R3K12SelectionProfile * profile)
 {
   const auto start = ProfileClock::now();
   std::vector<std::size_t> feasible;
@@ -1379,7 +1387,7 @@ std::vector<P3R3K12Factor> boundedLexicographicOrder(
     profile->lexicographic_ordering_us += profileElapsedUs(start);
   }
   return materializeDeduplicatedShapeOrder(
-    pool, feasible, kP3R3K12LexicographicQuota, profile);
+    pool, feasible, quota, profile);
 }
 
 P3R3K12Factor materializeBoundedFactor(
@@ -1698,7 +1706,7 @@ std::vector<P3R3K12Factor> directSideLaterals(
   auto output = boundedSideLaterals(geometry, geometry_targets);
   if (add_component_half_far002_inward015 && !geometry.components.empty()) {
     const auto replaced = std::find_if(output.begin(), output.end(), [](const auto & row) {
-        return row.proposal_operator == "COMPONENT_HALF_MID_MINUS_015";
+          return row.proposal_operator == "COMPONENT_HALF_MID_MINUS_015";
       });
     if (replaced != output.end()) {
       double near = geometry.components.front().lower;
@@ -2195,9 +2203,18 @@ P3R3RTSelection selectP3R3RTFactorsImpl(
   if (ranked_pool.size() > budget) {
     throw std::runtime_error("native R3-RT pair-proxy bound violated");
   }
-  result.lexicographic = boundedLexicographicOrder(ranked_pool, profile);
+  const std::size_t lexicographic_quota = standalone ?
+    standalone_options.lexicographic_quota : kP3R3K12LexicographicQuota;
+  const std::size_t coverage_quota = standalone ?
+    standalone_options.coverage_quota : kP3R3K12CoverageQuota;
+  if (lexicographic_quota + coverage_quota > kP3R3K12CandidateBudget) {
+    throw std::runtime_error("standalone R3-RT stream quotas exceed K12");
+  }
+  result.lexicographic = boundedLexicographicOrder(
+    ranked_pool, lexicographic_quota, profile);
   result.coverage = standalone ? standaloneCoverageOrder(
-    ranked_pool, result.lexicographic, sides, standalone_options.diversity_policy, profile) :
+    ranked_pool, result.lexicographic, sides, standalone_options.diversity_policy,
+    coverage_quota, profile) :
     coverageOrder(ranked_pool, profile);
   const auto restore_sources = [&source_catalog, &result](auto & factors) {
       for (auto & factor : factors) {

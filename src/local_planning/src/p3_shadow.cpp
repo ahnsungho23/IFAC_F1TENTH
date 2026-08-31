@@ -33,6 +33,7 @@
 #include <vector>
 
 #include "local_planning/candidate_rank.hpp"
+#include "local_planning/gqsc_s1_frozen_contract.hpp"
 #include "local_planning/p3_analytic_solver.hpp"
 #include "local_planning/p3_r3_k12.hpp"
 #include "local_planning/path_digest.hpp"
@@ -557,6 +558,8 @@ public:
       result.selected_cluster_start_forward_m = selected_domain.cluster_start;
       result.selected_cluster_end_forward_m = selected_domain.cluster_end;
       result.selected_cluster_end_s = planner_.wrapS(ego.s + selected_domain.cluster_end);
+      result.selected_obstacle_collision_horizon_forward_m =
+        selected->obstacle_collision_horizon_forward_m;
       result.selected_source = selected->mapping_source;
       result.selected_generator_stage = selected->generator_stage;
       result.selected_candidate_template = selected->candidate_template;
@@ -737,6 +740,8 @@ public:
     result.selected_path_digest = "NONE";
     result.selected_d_target = std::numeric_limits<double>::quiet_NaN();
     result.selected_d_mid = std::numeric_limits<double>::quiet_NaN();
+    result.selected_obstacle_collision_horizon_forward_m =
+      std::numeric_limits<double>::quiet_NaN();
     result.selected_min_track_margin_m = std::numeric_limits<double>::quiet_NaN();
     result.selected_min_obstacle_margin_m = std::numeric_limits<double>::quiet_NaN();
     result.selected_curvature_margin = std::numeric_limits<double>::quiet_NaN();
@@ -748,10 +753,17 @@ public:
     result.selected_path.wpnts.clear();
 
     const auto context_start = Clock::now();
-    const P3ShadowPlanningContext context = planner_.buildP3ShadowPlanningContext(
+    P3ShadowPlanningContext context = planner_.buildP3ShadowPlanningContext(
       ego, obstacles, false);
+    if (standalone && context.valid && !context.left.valid && !context.right.valid &&
+      parameters_.obstacle_reserve_from_lut)
+    {
+      context = planner_.buildP3ShadowPlanningContext(ego, obstacles, true);
+    }
     result.r3_runtime_context_preparation_us = elapsedUs(context_start);
     if (!context.valid) {
+      result.failure_classification = context.reason.empty() ?
+        "GQSC_CONTEXT_NOT_AVAILABLE" : context.reason;
       result.r3_runtime_total_us = elapsedUs(total_start);
       result.runtime_total_us = result.r3_runtime_total_us;
       return result;
@@ -768,8 +780,9 @@ public:
     const auto factor_start = Clock::now();
     const auto geometry_start = Clock::now();
     R3GeometryProfile geometry_profile;
+    const bool allow_relaxed_geometry = standalone && parameters_.obstacle_reserve_from_lut;
     const std::vector<P3R3K12SideGeometry> geometries = buildR3K12Geometry(
-      ego, obstacles, context, &geometry_profile);
+      ego, obstacles, context, allow_relaxed_geometry, &geometry_profile);
     if (bounded) {
       result.r3_side_geometry_trace = geometries;
     }
@@ -950,8 +963,12 @@ public:
         }
       };
 
-    consume_stream("LEXICOGRAPHIC", selection.lexicographic, kP3R3K12LexicographicQuota);
-    consume_stream("COVERAGE", selection.coverage, kP3R3K12CoverageQuota);
+    const std::size_t lexicographic_quota = standalone ?
+      standalone_options.lexicographic_quota : kP3R3K12LexicographicQuota;
+    const std::size_t coverage_quota = standalone ?
+      standalone_options.coverage_quota : kP3R3K12CoverageQuota;
+    consume_stream("LEXICOGRAPHIC", selection.lexicographic, lexicographic_quota);
+    consume_stream("COVERAGE", selection.coverage, coverage_quota);
 
     if (result.r3_constructed_candidate_count > kP3R3K12CandidateBudget ||
       result.r3_validator_call_count > kP3R3K12CandidateBudget)
@@ -991,6 +1008,8 @@ public:
       result.selected_cluster_start_forward_m = selected_domain.cluster_start;
       result.selected_cluster_end_forward_m = selected_domain.cluster_end;
       result.selected_cluster_end_s = planner_.wrapS(ego.s + selected_domain.cluster_end);
+      result.selected_obstacle_collision_horizon_forward_m =
+        selected.obstacle_collision_horizon_forward_m;
       result.selected_source = method_name;
       result.selected_generator_stage = selected.generator_stage;
       result.selected_candidate_template = selected.candidate_template;
@@ -1244,15 +1263,11 @@ private:
     double runtime_hard_validation_us{0.0};
   };
 
-  std::vector<P3ShadowObstacleEnvelope> frozenR3Visible(
+  std::vector<P3ShadowObstacleEnvelope> effectiveGqscVisible(
     const EgoFrenetState & ego,
-    const std::vector<f110_msgs::msg::Obstacle> & obstacles) const
+    const std::vector<f110_msgs::msg::Obstacle> & obstacles,
+    bool relaxed_clearance_gate) const
   {
-    constexpr double kFrozenVehicleHalfWidthM = 0.15;
-    constexpr double kFrozenSafetyMarginM = 0.08;
-    constexpr double kFrozenLookaheadM = 15.0;
-    constexpr double kFrozenObstacleProjectionM =
-      kFrozenVehicleHalfWidthM + kFrozenSafetyMarginM;
     std::vector<P3ShadowObstacleEnvelope> visible;
     for (const auto & obstacle : obstacles) {
       const double center = planner_.forwardDistance(ego.s, obstacle.s_center);
@@ -1262,17 +1277,26 @@ private:
       if (!(span > kEpsilon)) {
         span = std::max(0.05, std::abs(obstacle.size));
       }
-      const double half = 0.5 * span;
+      const double half = 0.5 * span + parameters_.obstacle_longitudinal_padding_m;
+      const double start = center - half;
+      const double end = center + half;
+      const double reserve = relaxed_clearance_gate ?
+        planner_.maximumReferenceTrackingErrorReserve(
+        ego, start, end, parameters_.avoidance_minimum_speed_mps) :
+        planner_.maximumReferenceTrackingErrorReserve(ego, start, end);
+      const double obstacle_projection = parameters_.obstacleBaseClearance() + reserve;
       P3ShadowObstacleEnvelope expanded;
       expanded.id = obstacle.id;
-      expanded.start = center - half;
-      expanded.end = center + half;
+      expanded.start = start;
+      expanded.end = end;
       expanded.center = center;
       expanded.d_right =
-        std::min(obstacle.d_right, obstacle.d_left) - kFrozenObstacleProjectionM;
+        std::min(obstacle.d_right, obstacle.d_left) - obstacle_projection;
       expanded.d_left =
-        std::max(obstacle.d_right, obstacle.d_left) + kFrozenObstacleProjectionM;
-      if (expanded.end >= 0.0 && expanded.start <= kFrozenLookaheadM) {
+        std::max(obstacle.d_right, obstacle.d_left) + obstacle_projection;
+      if (expanded.end >= 0.0 &&
+        expanded.start <= parameters_.detection_lookahead_m)
+      {
         visible.push_back(expanded);
       }
     }
@@ -1282,7 +1306,7 @@ private:
     return visible;
   }
 
-  CorridorSample frozenR3CorridorSample(
+  CorridorSample effectiveGqscCorridorSample(
     const EgoFrenetState & ego,
     const std::vector<P3ShadowObstacleEnvelope> & visible,
     double station,
@@ -1291,23 +1315,20 @@ private:
     if (profile != nullptr) {
       ++profile->corridor_sample_evaluation_count;
     }
-    constexpr double kFrozenVehicleHalfWidthM = 0.15;
-    constexpr double kFrozenWallSafetyMarginM = 0.04;
-    constexpr double kFrozenFallbackTrackHalfWidthM = 1.5;
     const auto & reference = planner_.reference_.wpnts[
       planner_.nearestReferenceIndex(planner_.wrapS(ego.s + station))];
     const double left = reference.d_left > 0.05 ?
-      reference.d_left : kFrozenFallbackTrackHalfWidthM;
+      reference.d_left : parameters_.fallback_track_half_width_m;
     const double right = reference.d_right > 0.05 ?
-      reference.d_right : kFrozenFallbackTrackHalfWidthM;
+      reference.d_right : parameters_.fallback_track_half_width_m;
     CorridorSample sample;
     sample.station = station;
     sample.curvature = reference.kappa_radpm;
-    // Preserve the frozen Python expression order exactly. Grouping the two margins changes
-    // some binary64 corridor endpoints by one ulp and therefore changes exact factor dedup.
+    // Keep expression order identical to the frozen canonical profile while reading the active
+    // evaluator contract. Grouping the two margins changes some binary64 endpoints by one ulp.
     sample.track = {
-      -right + kFrozenVehicleHalfWidthM + kFrozenWallSafetyMarginM,
-      left - kFrozenVehicleHalfWidthM - kFrozenWallSafetyMarginM};
+      -right + parameters_.vehicle_half_width_m + parameters_.wall_safety_margin_m,
+      left - parameters_.vehicle_half_width_m - parameters_.wall_safety_margin_m};
     if (sample.track.upper > sample.track.lower + kEpsilon) {
       sample.feasible.push_back(sample.track);
     }
@@ -1322,7 +1343,7 @@ private:
     return sample;
   }
 
-  Corridor makeFrozenR3Corridor(
+  Corridor makeEffectiveGqscCorridor(
     const EgoFrenetState & ego,
     const std::vector<P3ShadowObstacleEnvelope> & visible,
     double cluster_start,
@@ -1331,12 +1352,14 @@ private:
     bool outside_is_left,
     R3GeometryProfile * profile) const
   {
-    constexpr double kFrozenPostApexFarM = 6.178529850015357;
-    constexpr double kFrozenMaximumExitScale = 3.698773101198193;
-    constexpr double kFrozenOutsideMultiplier = 0.4060036444074003;
-    const double multiplier = go_left == outside_is_left ? kFrozenOutsideMultiplier : 1.0;
+    const double maximum_exit_scale = *std::max_element(
+      parameters_.transition_distance_scales.begin(),
+      parameters_.transition_distance_scales.end());
+    const double multiplier = go_left == outside_is_left ?
+      parameters_.outside_line_transition_scale : 1.0;
     const double horizon = cluster_end +
-      kFrozenPostApexFarM * kFrozenMaximumExitScale * multiplier;
+      parameters_.post_apex_distances_m.back() *
+      parameters_.cappedCombinedExitScale(maximum_exit_scale * multiplier);
     std::vector<double> stations{
       0.0, cluster_start, cluster_end, 0.5 * (cluster_start + cluster_end)};
     for (const auto & obstacle : visible) {
@@ -1368,7 +1391,7 @@ private:
     Interval previous{};
     bool have_previous = false;
     for (const double station : stations) {
-      CorridorSample sample = frozenR3CorridorSample(ego, visible, station, profile);
+      CorridorSample sample = effectiveGqscCorridorSample(ego, visible, station, profile);
       result.branch_count = std::max(result.branch_count, sample.feasible.size());
       if (sample.feasible.empty()) {
         result.connected = false;
@@ -1413,10 +1436,13 @@ private:
     const EgoFrenetState & ego,
     const std::vector<f110_msgs::msg::Obstacle> & obstacles,
     const P3ShadowPlanningContext & context,
+    bool allow_relaxed_geometry,
     R3GeometryProfile * profile) const
   {
     constexpr double kFrozenFeatureHorizonM = 32.0;
-    const auto visible = frozenR3Visible(ego, obstacles);
+    const auto strict_visible = effectiveGqscVisible(ego, obstacles, false);
+    const auto relaxed_visible = allow_relaxed_geometry ?
+      effectiveGqscVisible(ego, obstacles, true) : strict_visible;
     const std::set<int> cluster_ids(context.cluster_ids.begin(), context.cluster_ids.end());
     std::vector<P3R3K12SideGeometry> output;
     for (const bool go_left : {false, true}) {
@@ -1424,9 +1450,20 @@ private:
       if (!domain.valid) {
         continue;
       }
-      const Corridor corridor = makeFrozenR3Corridor(
-        ego, visible, domain.cluster_start, domain.cluster_end,
+      const auto * visible = &strict_visible;
+      Corridor corridor = makeEffectiveGqscCorridor(
+        ego, *visible, domain.cluster_start, domain.cluster_end,
         go_left, context.outside_is_left, profile);
+      CorridorSample midpoint_sample = effectiveGqscCorridorSample(
+        ego, *visible, 0.5 * (domain.cluster_start + domain.cluster_end), profile);
+      if (midpoint_sample.feasible.empty() && allow_relaxed_geometry) {
+        visible = &relaxed_visible;
+        corridor = makeEffectiveGqscCorridor(
+          ego, *visible, domain.cluster_start, domain.cluster_end,
+          go_left, context.outside_is_left, profile);
+        midpoint_sample = effectiveGqscCorridorSample(
+          ego, *visible, 0.5 * (domain.cluster_start + domain.cluster_end), profile);
+      }
       if (corridor.branch.empty()) {
         continue;
       }
@@ -1448,8 +1485,6 @@ private:
           return std::tie(first->width, first->station) <
                  std::tie(second->width, second->station);
         });
-      const CorridorSample midpoint_sample = frozenR3CorridorSample(
-        ego, visible, 0.5 * (domain.cluster_start + domain.cluster_end), profile);
       if (midpoint_sample.feasible.empty()) {
         continue;
       }
@@ -1474,7 +1509,7 @@ private:
         sample_stations.insert(station);
         reference_stations.push_back(station);
       }
-      for (const auto & obstacle : visible) {
+      for (const auto & obstacle : *visible) {
         for (const double station : {obstacle.start, obstacle.center, obstacle.end}) {
           if (station >= -kEpsilon && station <= kFrozenFeatureHorizonM + kEpsilon) {
             sample_stations.insert(std::max(0.0, station));
@@ -1508,7 +1543,8 @@ private:
       std::vector<double> center_values{
         bottleneck->center, 0.5 * (midpoint_interval.lower + midpoint_interval.upper)};
       for (const double station : sample_stations) {
-        const CorridorSample sample = frozenR3CorridorSample(ego, visible, station, profile);
+        const CorridorSample sample = effectiveGqscCorridorSample(
+          ego, *visible, station, profile);
         if (sample.feasible.empty()) {
           continue;
         }
@@ -1524,7 +1560,8 @@ private:
         std::unique(center_values.begin(), center_values.end()), center_values.end());
       geometry.center_values = std::move(center_values);
       for (const double station : reference_stations) {
-        const CorridorSample sample = frozenR3CorridorSample(ego, visible, station, profile);
+        const CorridorSample sample = effectiveGqscCorridorSample(
+          ego, *visible, station, profile);
         P3R3K12CorridorSample row;
         row.station = station;
         if (!sample.feasible.empty()) {
@@ -2206,6 +2243,7 @@ private:
     reconstruction_us += elapsedUs(reconstruction_start);
 
     P3ShadowPathEvaluation evaluation;
+    double obstacle_collision_horizon_forward_m = std::numeric_limits<double>::quiet_NaN();
     if (run_exact_validation &&
       path.wpnts.size() >= static_cast<std::size_t>(parameters_.minimum_path_points))
     {
@@ -2220,6 +2258,7 @@ private:
       // 다음 클러스터 앞에서 자른다 — 근거는 RacelineSplinePlanner::maneuverScopeEnd 주석.
       const std::optional<double> collision_horizon(
         planner_.maneuverScopeEnd(ego, obstacles, cycle_cluster_ids_, stations[3]));
+      obstacle_collision_horizon_forward_m = collision_horizon.value();
       evaluation = planner_.validateP3ShadowPath(ego, path, obstacles, 1.0, collision_horizon);
       hard_validation_us += elapsedUs(validation_start);
     } else if (path.wpnts.size() < static_cast<std::size_t>(parameters_.minimum_path_points)) {
@@ -2235,6 +2274,7 @@ private:
     trace.d_mid = middle;
     trace.knot_stations = stations;
     trace.point_count = path.wpnts.size();
+    trace.obstacle_collision_horizon_forward_m = obstacle_collision_horizon_forward_m;
     if (waypoint0_sample.has_value()) {
       trace.waypoint0_s_m = waypoint0_sample->waypoint_s_m;
       trace.waypoint0_d_m = path.wpnts.front().d_m;
@@ -2306,6 +2346,7 @@ private:
       const std::optional<double> collision_horizon(
         planner_.maneuverScopeEnd(
           ego, obstacles, cycle_cluster_ids_, trace.knot_stations[3]));
+      trace.obstacle_collision_horizon_forward_m = collision_horizon.value();
       evaluation = planner_.validateP3ShadowPath(
         ego, trace.path, obstacles, 1.0, collision_horizon);
       hard_validation_us += elapsedUs(validation_start);
@@ -3427,6 +3468,12 @@ P3ShadowResult RacelineSplinePlanner::evaluateP3Shadow(
     P3ShadowResult result = evaluateP3ShadowUnguarded(
       ego, obstacles, snapshot_source_stamp_ns, snapshot_epoch,
       global_reference_generation, p0_failure_reason);
+    result.reuse_input_available = true;
+    result.reuse_ego_s = ego.s;
+    result.reuse_ego_d = ego.d;
+    result.reuse_ego_speed = ego.speed;
+    result.reuse_planner_revision = planning_input_revision_;
+    result.reuse_obstacles = obstacles;
     if (research_cycle != nullptr) {
       research_cycle->active_evaluation_lineage.reset();
     }
@@ -3461,57 +3508,57 @@ P3ShadowResult RacelineSplinePlanner::evaluateP3ShadowUnguarded(
   const std::string & p0_failure_reason) const
 {
   const P3ShadowEvaluator evaluator(*this);
-  const auto capture_research = [this](const std::string & pass, const P3ShadowResult & result) {
-      PlanningResearchCycle * cycle = activeResearchCycle();
-      if (cycle == nullptr) {
-        return;
-      }
-      const auto start = std::chrono::steady_clock::now();
-      captureP3ResearchEvaluation(*cycle, pass, result);
-      cycle->runtime_research_capture_us += std::chrono::duration<double, std::micro>(
-        std::chrono::steady_clock::now() - start).count();
-    };
-  std::vector<P3R3K12ProductionCandidate> strict_production_factors;
-  P3ShadowResult strict = evaluator.run(
-    ego, obstacles, snapshot_source_stamp_ns, snapshot_epoch,
-    global_reference_generation, p0_failure_reason, false,
-    &strict_production_factors);
-  capture_research("STRICT", strict);
-  if (strict.would_recover || !strict.invoked || strict.cluster_obstacle_ids.empty()) {
-    return strict;
+  P3ShadowResult base;
+  base.enabled = true;
+  base.invoked = true;
+  base.snapshot_source_stamp_ns = snapshot_source_stamp_ns;
+  base.snapshot_epoch = snapshot_epoch;
+  base.global_reference_generation = global_reference_generation;
+  base.p0_failure_reason = p0_failure_reason;
+  base.failure_classification = "GQSC_S1_FROZEN_ENTRY";
+
+  // Production fresh generation is the frozen S1 selection-only refinement. It receives no
+  // M0/M1 or exact-R3 seed candidates; lateral/transition operators and B128 materialization are
+  // inherited unchanged from v3. The exact validator remains the sole acceptance authority.
+  P3ShadowResult result = evaluator.runR3RTStandalone(
+    ego, obstacles, base, kGqscS1PairProxyBudget, frozenGqscS1Options());
+  if (result.r3_pair_priority_count > kGqscS1PairProxyBudget ||
+    result.r3_constructed_candidate_count > kGqscS1ReconstructionBudget ||
+    result.r3_validator_call_count > kGqscS1ValidatorBudget)
+  {
+    throw std::runtime_error("frozen GQSC S1 B128/K12 bound violated");
   }
-  // strict(레이스 속도 예약) 게이트가 후보를 하나도 통과시키지 못했다. localization_reserve
-  // 인상(0.06→0.12, 2026-08-15) 이후 strict 최소 target이 벽 캡 바로 앞까지 밀려 후보 전체가
-  // footprint 검사에서 죽는 구간이 실측됐다(map s=16.5: 우측 여유 0.945 m에서 전멸). 기존
-  // 감속-게이트 재시도는 "strict가 트랙에 안 들어갈 때"만 발동해 이 경우를 놓친다. 여기서
-  // avoidance_minimum_speed_mps 게이트로 고려 범위만 넓혀 한 번 더 돈다 — 수용 기준(정확
-  // 검증, gap 기반 속도 상한)은 동일하므로 "느리지만 가능한" 통로만 추가로 살아난다.
-  P3ShadowResult relaxed = evaluator.run(
-    ego, obstacles, snapshot_source_stamp_ns, snapshot_epoch,
-    global_reference_generation, p0_failure_reason, true);
-  capture_research("RELAXED", relaxed);
-  if (std::getenv("P3_DEBUG_RELAXED") != nullptr) {
-    std::fprintf(stderr, "[RELAXED] recover=%d fail=%s candidates=%zu\n",
-      relaxed.would_recover ? 1 : 0, relaxed.failure_classification.c_str(),
-      relaxed.candidates.size());
-    for (const auto & trace : relaxed.candidates) {
-      std::fprintf(stderr, "[RELAXED]  gen=%zu left=%d target=%.3f hard=%d rej=%s\n",
-        trace.generation_index, trace.go_left ? 1 : 0, trace.d_target,
-        trace.hard_valid ? 1 : 0, trace.rejection_reason.c_str());
+
+  result.r3_method_name = kGqscS1MethodName;
+  result.r3_method_sha256 = kGqscS1MethodSha256;
+  result.mapping_semantics = kGqscS1MethodName;
+  for (auto & trace : result.candidates) {
+    trace.mapping_source = kGqscS1MethodName;
+    trace.generator_stage = "GQSC_S1_MAIN";
+    const std::string side = trace.go_left ? "LEFT" : "RIGHT";
+    trace.candidate_identity =
+      std::string("GQSC_S1_MAIN_") + trace.r3_rank_stream + "_" + side + "_" +
+      trace.path_digest;
+    trace.logical_identity =
+      std::string("GQSC_S1_MAIN_") + trace.r3_rank_stream + "_" + side + "_" +
+      std::to_string(trace.generation_index);
+    if (trace.selected) {
+      result.selected_candidate_identity = trace.candidate_identity;
+      result.selected_logical_identity = trace.logical_identity;
     }
   }
-  if (relaxed.would_recover) {
-    relaxed.selected_source += "+RELAXED_CLEARANCE_GATE";
-    return relaxed;
+  if (result.would_recover) {
+    result.selected_source = kGqscS1MethodName;
+    result.selected_generator_stage = "GQSC_S1_MAIN";
   }
-  P3ShadowResult r3 = evaluator.runR3K12(
-    ego, obstacles, relaxed, strict_production_factors);
-  capture_research("R3_RECOVERY", r3);
-  if (r3.would_recover) {
-    return r3;
+
+  if (PlanningResearchCycle * cycle = activeResearchCycle(); cycle != nullptr) {
+    const auto start = std::chrono::steady_clock::now();
+    captureP3ResearchEvaluation(*cycle, "GQSC_S1_MAIN", result);
+    cycle->runtime_research_capture_us += std::chrono::duration<double, std::micro>(
+      std::chrono::steady_clock::now() - start).count();
   }
-  P3ShadowEvaluator::copyR3Audit(relaxed, r3);
-  return relaxed;
+  return result;
 }
 
 P3ShadowResult RacelineSplinePlanner::evaluateP3R3RTShadow(

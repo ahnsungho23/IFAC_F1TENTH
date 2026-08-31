@@ -18,6 +18,7 @@
 #include <string>
 #include <vector>
 
+#include "local_planning/gqsc_s1_frozen_contract.hpp"
 #include "local_planning/p3_r3_k12.hpp"
 
 namespace local_planning
@@ -84,7 +85,6 @@ TEST(P3R3K12, GeometryOnlySelectionIsDeterministic)
   EXPECT_EQ(first.pair_priority_count, second.pair_priority_count);
   EXPECT_EQ(keys(first.lexicographic), keys(second.lexicographic));
   EXPECT_EQ(keys(first.coverage), keys(second.coverage));
-
 }
 
 TEST(P3R3K12, StandaloneDirectSeedSelectionIsDeterministicAndBounded)
@@ -157,8 +157,8 @@ TEST(P3R3K12, StandaloneDirectSeedSelectionIsDeterministicAndBounded)
       }));
 
   for (const auto policy : {
-      P3R3RTStandaloneDiversityPolicy::V3_SIDE_BALANCED_DISJOINT,
-      P3R3RTStandaloneDiversityPolicy::V3_NORMALIZED_MAXIMIN_DISJOINT})
+        P3R3RTStandaloneDiversityPolicy::V3_SIDE_BALANCED_DISJOINT,
+        P3R3RTStandaloneDiversityPolicy::V3_NORMALIZED_MAXIMIN_DISJOINT})
   {
     P3R3RTStandaloneOptions v3;
     v3.diversity_policy = policy;
@@ -177,8 +177,23 @@ TEST(P3R3K12, StandaloneDirectSeedSelectionIsDeterministicAndBounded)
         v3_first.proposed_laterals.begin(), v3_first.proposed_laterals.end(),
         [](const auto & row) {
           return row.proposal_operator == "COMPONENT_HALF_FAR002_INWARD015";
-        }));
+      }));
   }
+
+  const auto s1_first = selectP3R3RTStandaloneFactors(
+    {geometry}, kGqscS1PairProxyBudget, nullptr, frozenGqscS1Options());
+  const auto s1_second = selectP3R3RTStandaloneFactors(
+    {geometry}, kGqscS1PairProxyBudget, nullptr, frozenGqscS1Options());
+  EXPECT_LE(s1_first.pair_pool.size(), kGqscS1PairProxyBudget);
+  EXPECT_EQ(s1_first.lexicographic.size(), kGqscS1LexicographicQuota);
+  EXPECT_EQ(s1_first.coverage.size(), kGqscS1CoverageQuota);
+  EXPECT_EQ(keys(s1_first.lexicographic), keys(s1_second.lexicographic));
+  EXPECT_EQ(keys(s1_first.coverage), keys(s1_second.coverage));
+  EXPECT_FALSE(std::any_of(
+      s1_first.proposed_laterals.begin(), s1_first.proposed_laterals.end(),
+      [](const auto & row) {
+        return row.proposal_operator == "COMPONENT_HALF_FAR002_INWARD015";
+      }));
 }
 
 }  // namespace

@@ -112,8 +112,9 @@ YAML/C++/하니스를 같이 맞추십시오. control의 `base_max_accel`/`prebr
   measures map-boundary error and actual-versus-planned footprint deviation.
 - **One maneuver-scope collision horizon, used by every site that judges the same path**
   (2026-08-16). The obstacle check of a maneuver's geometry stops at
-  `expanded cluster end + post_merge_lookahead_m`; track-bound and geometry checks always cover the
-  whole path. That horizon must be identical at candidate validation (`buildCandidate`), fresh
+  `expanded cluster end + post_merge_lookahead_m`, capped at the nearest following expanded
+  obstacle front; track-bound and geometry checks always cover the whole path. That horizon must
+  be identical at candidate validation (`buildCandidate`), fresh
   selection (`P3ManeuverLifecycle::selectFresh`), continuation revalidation
   (`continueCurrent`), and the P0 re-validation in `generateP3Candidates`. Two sites judging one
   path against different ranges is not a stricter safety check, it is an unbreakable loop: the
@@ -123,6 +124,11 @@ YAML/C++/하니스를 같이 맞추십시오. control의 `base_max_accel`/`prebr
   the 2026-08-16 sim bag that single asymmetry produced `NO_HARD_VALID_M1_CANDIDATE` on 245/245
   cycles within 3 m of an obstacle the P0 path was planning around successfully, plus a full stop
   at the same place on every lap. Do not add a horizon to one site alone.
+  Freeze the selected certificate's absolute obstacle boundary in the lifecycle record and subtract
+  only monotonic ego progress for suffix validation. Do NOT recompute the boundary from each live
+  obstacle snapshot: a newly appearing blocker inside the already-owned interval would otherwise
+  cut the horizon in front of itself and escape validation. The following obstacle that defined the
+  original cap belongs to chained planning; a new blocker before that cap invalidates immediately.
 - **An exit ramp that still reaches the next obstacle is ranked last, never rejected**
   (2026-08-16, `exit_reaches_next_obstacle`). Measured on the post-cluster ramp only — up to the
   merge station, NOT into the post-merge global tail, which is at `d=0` and would mark every
@@ -142,6 +148,16 @@ YAML/C++/하니스를 같이 맞추십시오. control의 `base_max_accel`/`prebr
   after continuation fails to produce output or completion. Passing an already-computed
   evaluation would silently pay for up to 24 candidate constructions and their hard validations
   on every 25 ms callback while a frozen suffix is holding perfectly well.
+- Reuse a same-callback GQSC result in fallback `plan()` only after exact ego scalar equality, full
+  ordered obstacle-message equality, and planner parameter/reference revision equality. This cache
+  removes a duplicate primary evaluation, not downstream side filtering, ranking, speed shaping, or
+  fallback. Apply the same exact key to safe-stop escape: a probe at the same `(s,d,v)` reuses the
+  evaluator certificate, while a distinct hypothetical stop state must evaluate anew. Escape asks
+  only whether a hard-valid Top-K path exists, so consume the S1 exact-validator certificate instead
+  of validating those same paths a second time; the separately built braking path still requires its
+  own exact validation. There is no small callback-global GQSC cap: the structural TEST_ACTIVE bound
+  is `2 + 2*(2 + min(safe_stop_escape_max_retreats, 12))`, so never describe B128/K12 as a
+  callback-global bound when nested safe-stop probes are active.
 - Committed-path retention band (`commitment_retention_reserve_fraction`, default 0.5): when
   re-validating an ALREADY COMMITTED path (P3 continuation raw fallback, P0 commitment hard
   check), the tracking-error reserve portion of the obstacle clearance is scaled by this
@@ -185,30 +201,23 @@ YAML/C++/하니스를 같이 맞추십시오. control의 `base_max_accel`/`prebr
   inside or just after a maximum-curvature corner is unavoidable on both sides (the shifted
   line must exceed full lock), and safe-stop there is the correct verdict. Do not "fix" such a
   scenario by raising this limit.
-- Candidates come from the P3 analytic ladder (M0-V1 → M0-V2 → M1) over the side's valid target
-  domain — the minimum obstacle-clearance offset to the maximum track-bound /
-  `maximum_target_offset_m` offset. Rank feasible candidates lexicographically by maximum minimum
-  normalized wall/obstacle/curvature/curvature-rate slack, then minimum speed loss, then minimum
-  global-line deviation. Do not replace this with a weighted sum, and never return the first
-  valid candidate when a full ladder generation is available. NOTE the ranking consequence: P3
-  picks the slack-maximizing plateau, not the minimum-clearance point, so on a wide track the
-  selected `target_d` sits well beyond the clearance minimum. Tests that pin margins must narrow
-  the track so the valid window pins the plateau (see the margin tests in
-  `test/test_raceline_spline.cpp`).
-- The frozen post-ladder recovery is `R3_LEXICOGRAPHIC_COVERAGE_RESERVE_K12`, method SHA-256
-  `7b861e8c7e23ae168413885ea0dc2d09769046ff48a562700b658e084d116fcc`. Invoke it only after
-  both strict and relaxed production ladders return no hard-valid candidate. A production success
-  must return before R3, with zero R3 reconstruction and validator calls. R3 reconstructs at most
-  12 existing P3-family paths: ten lexicographically ranked factor tuples plus two coverage-reserve
-  tuples. Preserve the frozen lateral-factor generation, transition order, Python-3.12-compatible
-  floating-point ordering, quotas, digest deduplication, and exact post-validation rank. A digest
-  duplicate consumes its selected-factor slot but not a validator call. Every unique reconstructed
-  path receives the existing exact validator once; never widen the validator or usable-path
-  contract. A recovered hard-valid result enters the existing downstream rank/lifecycle flow, and
-  total R3 construction and validation counts must each remain `<= 12`. If R3 also fails, preserve
-  the pre-R3 fallback/safe-stop result exactly. This is a frozen method, not a new parameter or a
-  tuning surface.
-- Reject a side before spline fitting when even its minimum-clearance target cannot fit the waypoint
+- The primary fresh-candidate generator is frozen S1
+  `LEX8_GLOBAL_DISJOINT_COVERAGE4`, method SHA-256
+  `670f39a23479bcdcc1db0829a895257443fec8ee2f78f186bc1beb224090b776`. Its canonical composition
+  is `planning_study/gqsc_s1_closed_loop_candidate_v1/gqsc_s1_method.json` and inherits frozen v3
+  SHA `965f6ce65b7ce5b1c6426a0975c1dfafe779e89eb20308bb09a11a1b4a22e780`. Preserve the inherited
+  lateral/transition operators, proposal order, B128 materialization, lexicographic 8 + one global
+  disjoint coverage reserve of 4, K12,
+  exact floating-point ordering, tie-breaks, configuration/shape/path deduplication, and exact
+  post-validation rank. At most 128 pair proxies, 12 P3 reconstructions, and 12 exact-validator
+  calls are allowed per evaluation. A digest duplicate consumes its selected slot but reuses the
+  first verdict. The legacy M0-V1/M0-V2/M1 ladder and exact R3 enumeration remain callable only by
+  explicit research adapters; they must never seed or precede the primary generator. This is a
+  frozen method, not a new parameter or tuning surface. Cheap GQSC geometry must read the same
+  effective evaluator parameters; when the strict LUT envelope closes the midpoint, only the
+  already-existing minimum-speed envelope may repair that interface before exact validation.
+- The following strict/relaxed domain rule documents the legacy analytic-ladder research adapter;
+  S1 uses only the parameter-interface fallback stated above. Reject a side before spline fitting when even its minimum-clearance target cannot fit the waypoint
   track widths across the expanded obstacle-cluster span. Use the remaining track-bound interval as
   the target sampling range; full sampled-path validation still applies before and after the span.
   That track-bound interval is for the vehicle CENTRE, so subtract `vehicle_half_width_m` alongside
@@ -341,7 +350,8 @@ YAML/C++/하니스를 같이 맞추십시오. control의 `base_max_accel`/`prebr
   validating the current commitment against obstacles that lie before its merge until a validated
   chained path replaces it. A post-merge controller-tail obstacle must not make the current
   maneuver fail. Hand off to GLOBAL only after no unfinished blocking cluster remains.
-- **`plan()`'s only avoidance candidate generator is P3 (`generateP3Candidates`), 2026-08-15.**
+- **`plan()`'s only avoidance candidate generator is frozen GQSC-v3 over the P3 family
+  (`generateP3Candidates`), 2026-08-31.**
   The P0 quintic grid (`generateSideCandidates`/`buildCandidate`) and its
   `p0_avoidance_candidates_enable` toggle were DELETED after on-track testing showed P3 passed
   everywhere P0 did. Every "can I plan from here?" question — safe-stop release condition B,
@@ -349,7 +359,7 @@ YAML/C++/하니스를 같이 맞추십시오. control의 `base_max_accel`/`prebr
   (`anyFeasibleCandidateFrom`) — now flows through that single generator, so "an escape exists"
   and "plan() returns an avoidance" can no longer disagree. Do NOT reintroduce a second candidate
   generator; the 2026-08-15 permanent safe-stop deadlock was exactly plan()-vs-escape-check
-  divergence. P3 candidates are still re-measured (`measureCandidate`) and exact-validated
+  divergence. GQSC-v3 candidates are still re-measured (`measureCandidate`) and exact-validated
   (`validateCandidate`) by the same safety layer P0 used; P3 trace metrics are never trusted for
   ranking or audit.
 - **A value the launch file re-declares overrides the YAML silently.** The launch parameter dict
@@ -656,8 +666,9 @@ C is left and it waited 22.67 s.
 - Keep `timing_diagnostics_enable=false` in the operational YAML.
 - Keep `replay_diagnostics_enable=false` in the operational YAML.
 - Keep `lockstep_mode=false` in the operational YAML.
-- `p3_mode=TEST_ACTIVE` is the operational default (2026-08-12, user decision: P3 is the primary
-  driving mode with P0 as backup). `SHADOW` must never publish a P3 path or mutate the P0
+- `p3_mode=TEST_ACTIVE` is the operational default. Frozen GQSC-v3 supplies the fresh P3-family
+  candidates while the historical ownership labels remain interface-compatible. `SHADOW` must
+  never publish a P3 path or mutate the P0
   commitment/safe-stop state. Every callback must identify `P3_M1`, `P3_COMMITTED_SUFFIX`, or
   `P0_BACKUP_ONLY` ownership.
 - Safe-stop escalation is graded; do not collapse the ladder: (1) a margin-only blocking cluster
@@ -700,9 +711,9 @@ C is left and it waited 22.67 s.
   speed. A flat step saturates the service brake, slips past the friction limit and cost us
   steering authority on the real car (run_0814_111210 wall crash). Obstacle-span speeds
   themselves are reserve-backed — never raise them.
-- P3/M1 is production-owned C++ in this package. External CMA/evaluator executables are parity
+- GQSC-v3/P3 is production-owned C++ in this package. External CMA/evaluator executables are parity
   oracles only and must never supply runtime local paths.
-- Run P3/M1 candidate generation immediately for every authoritative non-empty snapshot that
+- Run frozen GQSC-v3 candidate generation immediately for every authoritative non-empty snapshot that
   actually needs a path -- that is, whenever no active maneuver continues on that callback. Never
   gate it behind an additional readiness wait. Guard
   readiness is diagnostic provenance, not a standalone ownership veto: before the observation

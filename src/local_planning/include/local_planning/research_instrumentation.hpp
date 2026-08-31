@@ -283,6 +283,8 @@ struct PlanningResearchCycle
   std::size_t lifecycle_revalidation_count{0U};
   std::size_t safe_stop_escape_evaluator_count{0U};
   std::size_t r3_invocation_count{0U};
+  std::size_t gqsc_s1_evaluation_count{0U};
+  std::size_t r3_cached_result_reuse_count{0U};
   std::size_t r3_constructed_candidate_count{0U};
   std::size_t r3_path_digest_duplicate_count{0U};
   std::size_t r3_validator_call_count{0U};

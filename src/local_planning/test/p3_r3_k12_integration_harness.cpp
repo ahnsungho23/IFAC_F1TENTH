@@ -30,7 +30,9 @@
 #include <string>
 #include <vector>
 
+#include "local_planning/gqsc_s1_frozen_contract.hpp"
 #include "local_planning/path_digest.hpp"
+#include "local_planning/p3_maneuver_lifecycle.hpp"
 #include "local_planning/p3_r3_k12.hpp"
 #include "local_planning/raceline_spline_planner.hpp"
 #include "local_planning/research_instrumentation.hpp"
@@ -233,6 +235,140 @@ bool anyUsable(const local_planning::P3ShadowResult & result)
   return std::any_of(result.candidates.begin(), result.candidates.end(), usable);
 }
 
+std::string factorFingerprint(const local_planning::P3R3K12Factor & factor)
+{
+  std::ostringstream output;
+  output << std::hexfloat << factor.go_left << '|' << factor.d_target << '|' << factor.d_mid <<
+    '|' << factor.entry_scale << '|' << factor.exit_scale;
+  for (const double station : factor.stations) {
+    output << '|' << station;
+  }
+  output << '|' << factor.target_source << '|' << factor.mid_source << '|' <<
+    factor.lateral_source_family << '|' << factor.proposal_operator << '|' <<
+    factor.transition_family << '|' << factor.source_priority << '|' <<
+    factor.source_catalog_index << '|' << factor.lateral_factor_index << '|' <<
+    factor.transition_index << '|' << factor.configuration_key << '|' <<
+    factor.preconstruction_shape_key << '|' << factor.construction_guard_proxy << '|' <<
+    factor.exit_conflict_proxy << '|' << factor.maximum_corridor_violation_m << '|' <<
+    factor.sum_corridor_violation_m << '|' << factor.slope_excess << '|' <<
+    factor.curvature_proxy << '|' << factor.center_error << '|' <<
+    factor.minimum_clearance_m << '|' << factor.shape_energy << '|' <<
+    factor.entry_normalized << '|' << factor.exit_normalized;
+  return output.str();
+}
+
+bool sameFactors(
+  const std::vector<local_planning::P3R3K12Factor> & first,
+  const std::vector<local_planning::P3R3K12Factor> & second)
+{
+  if (first.size() != second.size()) {
+    return false;
+  }
+  for (std::size_t index = 0U; index < first.size(); ++index) {
+    if (factorFingerprint(first[index]) != factorFingerprint(second[index])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool sameTransitions(
+  const std::vector<local_planning::P3R3RTTransition> & first,
+  const std::vector<local_planning::P3R3RTTransition> & second)
+{
+  if (first.size() != second.size()) {
+    return false;
+  }
+  for (std::size_t index = 0U; index < first.size(); ++index) {
+    const auto & lhs = first[index];
+    const auto & rhs = second[index];
+    if (lhs.entry_scale != rhs.entry_scale || lhs.exit_scale != rhs.exit_scale ||
+      lhs.transition_family != rhs.transition_family ||
+      lhs.transition_index != rhs.transition_index)
+    {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool sameCandidateOutputs(
+  const local_planning::P3ShadowResult & first,
+  const local_planning::P3ShadowResult & second)
+{
+  if (first.candidates.size() != second.candidates.size()) {
+    return false;
+  }
+  for (std::size_t index = 0U; index < first.candidates.size(); ++index) {
+    const auto & lhs = first.candidates[index];
+    const auto & rhs = second.candidates[index];
+    if (lhs.path_digest != rhs.path_digest || lhs.hard_valid != rhs.hard_valid ||
+      lhs.validator_executed != rhs.validator_executed || lhs.final_rank != rhs.final_rank ||
+      lhs.selected != rhs.selected || lhs.d_target != rhs.d_target || lhs.d_mid != rhs.d_mid ||
+      lhs.entry_scale != rhs.entry_scale || lhs.exit_scale != rhs.exit_scale)
+    {
+      return false;
+    }
+  }
+  return true;
+}
+
+local_planning::P3ManeuverSnapshot maneuverSnapshot(
+  const Event & event, std::int64_t stamp_ns, std::uint64_t obstacle_sequence)
+{
+  local_planning::P3ManeuverSnapshot snapshot;
+  snapshot.ego = event.ego;
+  snapshot.obstacles = event.obstacles;
+  snapshot.raw_obstacles = event.obstacles;
+  snapshot.selection_envelope_obstacles = event.obstacles;
+  snapshot.source_stamp_ns = stamp_ns;
+  snapshot.source_epoch = 1U;
+  snapshot.global_reference_generation = 1U;
+  snapshot.obstacle_sequence = obstacle_sequence;
+  snapshot.selection_guard_ready = true;
+  return snapshot;
+}
+
+const char * planKindName(local_planning::SplinePlanKind kind)
+{
+  switch (kind) {
+    case local_planning::SplinePlanKind::kNoObstacle: return "NO_OBSTACLE";
+    case local_planning::SplinePlanKind::kPreparation: return "PREPARATION";
+    case local_planning::SplinePlanKind::kAvoidance: return "AVOIDANCE";
+    case local_planning::SplinePlanKind::kSafeStop: return "SAFE_STOP";
+    case local_planning::SplinePlanKind::kNoSafePath: return "NO_SAFE_PATH";
+  }
+  return "UNKNOWN";
+}
+
+double wrapStation(double station, double track_length)
+{
+  double wrapped = std::fmod(station, track_length);
+  if (wrapped < 0.0) {
+    wrapped += track_length;
+  }
+  return wrapped;
+}
+
+void emitSequenceRow(
+  const Event & event, const std::string & scenario, const std::string & step,
+  const local_planning::P3ManeuverLifecycleDecision & decision,
+  const std::string & fallback_kind = "NONE",
+  double evaluator_collision_horizon_m = std::numeric_limits<double>::quiet_NaN(),
+  double lifecycle_collision_horizon_m = std::numeric_limits<double>::quiet_NaN())
+{
+  std::cout << "GQSC_SEQUENCE\t" << event.id << '\t' << scenario << '\t' << step << '\t' <<
+    local_planning::p3ManeuverLifecycleStateName(decision.state) << '\t' <<
+    decision.has_output << '\t' << decision.fresh_selected << '\t' << decision.invalidated <<
+    '\t' << decision.complete << '\t' << decision.suffix_revalidated << '\t' <<
+    decision.suffix_hard_valid << '\t' << decision.guard_raw_revalidated << '\t' <<
+    decision.raw_validation_attempted << '\t' << decision.original_candidate_identity << '\t' <<
+    decision.original_path_digest << '\t' << decision.output_path_digest << '\t' <<
+    decision.suffix_point_count << '\t' << fallback_kind << '\t' <<
+    evaluator_collision_horizon_m << '\t' << lifecycle_collision_horizon_m << '\t' <<
+    decision.reason << '\n';
+}
+
 void emitStudyResult(
   const Event & event, const std::string & label,
   const local_planning::P3ShadowResult & result)
@@ -383,6 +519,436 @@ void emit(const Event & event, double event_read_us)
     std::getenv("LOCAL_PLANNING_RESEARCH_PARITY") != nullptr;
   if (instrumentation_enabled) {
     planner.setActiveResearchCycle(&cycle);
+  }
+  if (std::getenv("GQSC_V3_HORIZON_DIAGNOSIS") != nullptr) {
+    const auto evaluation = planner.evaluateP3Shadow(
+      event.ego, event.obstacles, 401, 1U, 1U, "GQSC_V3_HORIZON_DIAGNOSIS");
+    if (!evaluation.would_recover) {
+      std::cout << "GQSC_HORIZON_SKIP\t" << event.id << "\t" <<
+        evaluation.failure_classification << '\n';
+      planner.setActiveResearchCycle(nullptr);
+      return;
+    }
+    const auto * selected = selectedTrace(evaluation);
+    if (selected == nullptr) {
+      throw std::runtime_error("selected GQSC trace missing for " + event.id);
+    }
+    const double evaluator_horizon =
+      evaluation.selected_obstacle_collision_horizon_forward_m;
+    const double legacy_horizon =
+      evaluation.selected_cluster_end_forward_m + planner.postMergeLookaheadM();
+    local_planning::PathValidationFailure evaluator_failure;
+    local_planning::PathValidationFailure legacy_failure;
+    const bool evaluator_valid = planner.validatePath(
+      event.ego, evaluation.selected_path, event.obstacles, nullptr, &evaluator_failure,
+      evaluator_horizon);
+    const bool legacy_valid = planner.validatePath(
+      event.ego, evaluation.selected_path, event.obstacles, nullptr, &legacy_failure,
+      legacy_horizon);
+    const auto contains_id = [&evaluation](int id) {
+        return std::find(
+          evaluation.selected_obstacle_ids.begin(), evaluation.selected_obstacle_ids.end(), id) !=
+               evaluation.selected_obstacle_ids.end();
+      };
+    std::ostringstream intervals;
+    std::ostringstream evaluator_intervals;
+    std::ostringstream legacy_intervals;
+    int next_obstacle_id = -1;
+    double next_obstacle_start = std::numeric_limits<double>::quiet_NaN();
+    double next_obstacle_end = std::numeric_limits<double>::quiet_NaN();
+    for (const auto & obstacle : event.obstacles) {
+      const double center = planner.forwardDistance(event.ego.s, obstacle.s_center);
+      const double span_forward = planner.forwardDistance(obstacle.s_start, obstacle.s_end);
+      const double span_reverse = planner.forwardDistance(obstacle.s_end, obstacle.s_start);
+      double span = std::min(span_forward, span_reverse);
+      if (!(span > 1.0e-9)) {
+        span = std::max(0.05, std::abs(obstacle.size));
+      }
+      const double obstacle_start = center - 0.5 * span;
+      const double obstacle_end = center + 0.5 * span;
+      if (obstacle_end < 0.0 || obstacle_start > frozenParameters().detection_lookahead_m) {
+        continue;
+      }
+      if (intervals.tellp() > 0) {intervals << ';';}
+      intervals << obstacle.id << ':' << obstacle_start << ':' << obstacle_end << ':' <<
+        obstacle.d_right << ':' << obstacle.d_left << ':' <<
+        (contains_id(obstacle.id) ? "CURRENT" : "OTHER");
+      if (obstacle_end >= 0.0 && obstacle_start <= evaluator_horizon + 1.0e-9) {
+        if (evaluator_intervals.tellp() > 0) {evaluator_intervals << ';';}
+        evaluator_intervals << obstacle.id << ':' << obstacle_start << ':' << obstacle_end;
+      }
+      if (obstacle_end >= 0.0 && obstacle_start <= legacy_horizon + 1.0e-9) {
+        if (legacy_intervals.tellp() > 0) {legacy_intervals << ';';}
+        legacy_intervals << obstacle.id << ':' << obstacle_start << ':' << obstacle_end;
+      }
+      if (!contains_id(obstacle.id) &&
+        obstacle_start > evaluation.selected_cluster_end_forward_m + 1.0e-9 &&
+        (!std::isfinite(next_obstacle_start) || obstacle_start < next_obstacle_start))
+      {
+        next_obstacle_id = obstacle.id;
+        next_obstacle_start = obstacle_start;
+        next_obstacle_end = obstacle_end;
+      }
+    }
+    const auto sample_count = [&](double horizon) {
+        return static_cast<std::size_t>(std::count_if(
+          evaluation.selected_path.wpnts.begin(), evaluation.selected_path.wpnts.end(),
+                 [&](const auto & waypoint) {
+                   return planner.forwardDistance(event.ego.s, waypoint.s_m) <= horizon + 1.0e-9;
+          }));
+      };
+    const double path_last_forward = evaluation.selected_path.wpnts.empty() ?
+      std::numeric_limits<double>::quiet_NaN() : planner.forwardDistance(
+      event.ego.s, evaluation.selected_path.wpnts.back().s_m);
+    std::cout << "GQSC_HORIZON\t" << event.id << '\t' << event.ego.s << '\t' << event.ego.d <<
+      '\t' << event.ego.speed << '\t' << selected->path_digest << '\t' <<
+      selected->knot_stations[0] << '\t' << selected->knot_stations[1] << '\t' <<
+      selected->knot_stations[2] << '\t' << selected->knot_stations[3] << '\t' <<
+      selected->knot_stations[4] << '\t' << evaluation.selected_cluster_start_forward_m << '\t' <<
+      evaluation.selected_cluster_end_forward_m << '\t' << evaluator_horizon << '\t' <<
+      legacy_horizon << '\t' << evaluation.selected_path.wpnts.size() << '\t' <<
+      sample_count(evaluator_horizon) << '\t' << sample_count(legacy_horizon) << '\t' <<
+      path_last_forward << '\t' << next_obstacle_id << '\t' << next_obstacle_start << '\t' <<
+      next_obstacle_end << '\t' << evaluator_valid << '\t' << legacy_valid << '\t' <<
+      legacy_failure.obstacle_id << '\t' << legacy_failure.waypoint_index << '\t' <<
+      legacy_failure.waypoint_s << '\t' << legacy_failure.waypoint_d << '\t' <<
+      legacy_failure.obstacle_s_start << '\t' << legacy_failure.obstacle_s_end << '\t' <<
+      intervals.str() << '\t' << evaluator_intervals.str() << '\t' << legacy_intervals.str() <<
+      '\n';
+    planner.setActiveResearchCycle(nullptr);
+    return;
+  }
+  if (std::getenv("GQSC_S1_INVOCATION_AUDIT") != nullptr) {
+    planner.setActiveResearchCycle(&cycle);
+    const std::size_t before_primary = cycle.r3_invocation_count;
+    const auto evaluation = planner.evaluateP3Shadow(
+      event.ego, event.obstacles, 501, 1U, 1U, "GQSC_S1_INVOCATION_PRIMARY");
+    const std::size_t primary_calls = cycle.r3_invocation_count - before_primary;
+    std::size_t fallback_calls = 0U;
+    std::size_t fallback_escape_calls = 0U;
+    std::size_t cached_reuse_calls = 0U;
+    std::string outcome = "FRESH_SELECTED";
+    if (evaluation.would_recover) {
+      local_planning::P3ManeuverLifecycle lifecycle;
+      const auto decision = lifecycle.selectFresh(
+        maneuverSnapshot(event, 501, 1U), evaluation, planner);
+      outcome = decision.has_output ? "FRESH_SELECTED" : decision.reason;
+    } else {
+      const std::size_t before_fallback = cycle.r3_invocation_count;
+      const std::size_t before_escape = cycle.safe_stop_escape_evaluator_count;
+      const std::size_t before_reuse = cycle.r3_cached_result_reuse_count;
+      const auto fallback = planner.plan(
+        event.ego, event.obstacles, std::nullopt, true, &evaluation);
+      fallback_calls = cycle.r3_invocation_count - before_fallback;
+      fallback_escape_calls = cycle.safe_stop_escape_evaluator_count - before_escape;
+      cached_reuse_calls = cycle.r3_cached_result_reuse_count - before_reuse;
+      outcome = planKindName(fallback.kind);
+    }
+    std::cout << "GQSC_INVOCATION\t" << event.id << '\t' << primary_calls << '\t' <<
+      fallback_calls << '\t' << fallback_escape_calls << '\t' <<
+      cached_reuse_calls << '\t' << cycle.r3_invocation_count << '\t' <<
+      cycle.gqsc_s1_evaluation_count << '\t' <<
+      (fallback_calls - fallback_escape_calls) << '\t' << outcome << '\n';
+    planner.setActiveResearchCycle(nullptr);
+    return;
+  }
+  if (std::getenv("GQSC_S1_CALLBACK_ARCHITECTURE_AUDIT") != nullptr) {
+    planner.setActiveResearchCycle(&cycle);
+    const auto primary = planner.evaluateP3Shadow(
+      event.ego, event.obstacles, 601, 1U, 1U, "GQSC_S1_CALLBACK_PRIMARY");
+    local_planning::RacelineSplineResult final_result;
+    std::string outcome = "FRESH_SELECTED";
+    if (primary.would_recover) {
+      local_planning::P3ManeuverLifecycle lifecycle;
+      const auto decision = lifecycle.selectFresh(
+        maneuverSnapshot(event, 601, 1U), primary, planner);
+      outcome = decision.has_output ? "FRESH_SELECTED" : decision.reason;
+      if (decision.has_output) {
+        final_result.kind = local_planning::SplinePlanKind::kAvoidance;
+        final_result.path = decision.output_path;
+      }
+    } else {
+      final_result = planner.plan(
+        event.ego, event.obstacles, std::nullopt, true, &primary);
+      outcome = planKindName(final_result.kind);
+    }
+    std::cout << "GQSC_CALLBACK_ARCHITECTURE\t" << event.id << '\t' <<
+      cycle.gqsc_s1_evaluation_count << '\t' << cycle.r3_cached_result_reuse_count << '\t' <<
+      cycle.safe_stop_escape_evaluator_count << '\t' <<
+      cycle.validate_candidate_executed_total_actual << '\t' <<
+      cycle.r3_constructed_candidate_count << '\t' << cycle.r3_validator_call_count << '\t' <<
+      outcome << '\t' << final_result.safe_stop_escape_verified << '\t' <<
+      final_result.safe_stop_forward_m << '\t' <<
+      (final_result.path.wpnts.empty() ? std::string("NONE") :
+    local_planning::pathDigest(final_result.path)) << '\t' << final_result.reason << '\n';
+    for (const auto & recorded : cycle.evaluations) {
+      std::ostringstream obstacle_ids;
+      for (std::size_t index = 0U; index < recorded.lineage.obstacles.size(); ++index) {
+        if (index != 0U) {
+          obstacle_ids << ';';
+        }
+        obstacle_ids << recorded.lineage.obstacles[index].id;
+      }
+      std::cout << "GQSC_CALLBACK_EVALUATION\t" << event.id << '\t' <<
+        recorded.lineage.evaluation_sequence << '\t' << recorded.lineage.evaluation_role << '\t' <<
+        recorded.lineage.input_snapshot_id << '\t' << recorded.lineage.ego_snapshot_id << '\t' <<
+        recorded.lineage.obstacle_snapshot_id << '\t' << recorded.lineage.reference_snapshot_id <<
+        '\t' << recorded.lineage.ego_s << '\t' << recorded.lineage.ego_d << '\t' <<
+        recorded.lineage.ego_speed_mps << '\t' << obstacle_ids.str() << '\t' <<
+        recorded.selected << '\t' << recorded.r3_pair_priority_count << '\t' <<
+        recorded.r3_constructed_candidate_count << '\t' << recorded.r3_validator_call_count <<
+        '\t' << recorded.r3_hard_valid_count << '\t' << recorded.r3_runtime_total_us << '\t' <<
+        recorded.failure_classification << '\n';
+    }
+    planner.setActiveResearchCycle(nullptr);
+    return;
+  }
+  if (std::getenv("GQSC_S1_MAIN_PARITY") != nullptr) {
+    const auto main = planner.evaluateP3Shadow(
+      event.ego, event.obstacles, 101, 1U, 1U, "GQSC_S1_MAIN_PARITY");
+    const auto frozen = planner.evaluateP3R3RTStandaloneShadow(
+      event.ego, event.obstacles, local_planning::kGqscS1PairProxyBudget,
+      local_planning::frozenGqscS1Options());
+    const bool lateral_order = sameFactors(
+      main.r3_rt_selection.proposed_laterals, frozen.r3_rt_selection.proposed_laterals);
+    const bool transition_order = sameTransitions(
+      main.r3_rt_selection.proposed_transitions, frozen.r3_rt_selection.proposed_transitions);
+    const bool pair_order = sameFactors(
+      main.r3_rt_selection.pair_pool, frozen.r3_rt_selection.pair_pool);
+    const bool top12 = sameFactors(
+      main.r3_rt_selection.lexicographic, frozen.r3_rt_selection.lexicographic) &&
+      sameFactors(main.r3_rt_selection.coverage, frozen.r3_rt_selection.coverage);
+    const bool candidates = sameCandidateOutputs(main, frozen);
+    const bool selected = main.would_recover == frozen.would_recover &&
+      main.selected_path_digest == frozen.selected_path_digest;
+    const auto downstream = planner.plan(event.ego, event.obstacles, std::nullopt, true, &main);
+    const bool downstream_selected = !main.would_recover ||
+      (downstream.kind == local_planning::SplinePlanKind::kAvoidance &&
+      local_planning::pathDigest(downstream.path) == main.selected_path_digest);
+    const std::size_t legacy_seed_count = main.r3_production_seed_trace.size() +
+      main.m0_v1_candidate_count_actual + main.m0_v2_candidate_count + main.m1_candidate_count;
+    const bool no_hidden_legacy_seed = legacy_seed_count == 0U;
+    const bool lineage = main.snapshot_source_stamp_ns == 101 && main.snapshot_epoch == 1U &&
+      main.global_reference_generation == 1U;
+    const bool method_sha = main.r3_method_sha256 == local_planning::kGqscS1MethodSha256;
+    const bool bounds =
+      main.r3_pair_priority_count <= local_planning::kGqscS1PairProxyBudget &&
+      main.r3_constructed_candidate_count <= local_planning::kGqscS1ReconstructionBudget &&
+      main.r3_validator_call_count <= local_planning::kGqscS1ValidatorBudget;
+    std::cout << "GQSC_MAIN_PARITY\t" << event.id << '\t' << lateral_order << '\t' <<
+      transition_order << '\t' << pair_order << '\t' << top12 << '\t' << candidates << '\t' <<
+      selected << '\t' << downstream_selected << '\t' << no_hidden_legacy_seed << '\t' <<
+      lineage << '\t' << method_sha << '\t' << bounds << '\t' <<
+      main.r3_pair_priority_count << '\t' << main.r3_constructed_candidate_count << '\t' <<
+      main.r3_validator_call_count << '\t' << legacy_seed_count << '\t' <<
+      main.hard_valid_count << '\t' << main.r3_usable_valid_count << '\t' <<
+      main.selected_path_digest << '\t' << main.failure_classification << '\n';
+    planner.setActiveResearchCycle(nullptr);
+    return;
+  }
+  if (std::getenv("GQSC_S1_SEQUENTIAL_REPLAY") != nullptr) {
+    const auto evaluation = planner.evaluateP3Shadow(
+      event.ego, event.obstacles, 100, 1U, 1U, "GQSC_S1_SEQUENCE_FRESH");
+    if (!evaluation.would_recover) {
+      std::cout << "GQSC_SEQUENCE_SKIP\t" << event.id << "\tNO_FROZEN_HARD_VALID\t" <<
+        evaluation.failure_classification << '\n';
+      planner.setActiveResearchCycle(nullptr);
+      return;
+    }
+
+    // Scenario A: fresh ownership, immutable continuation, uncertainty-guard/raw fallback,
+    // detector dropout, forward suffix trimming, and completion. Candidate generation is not
+    // called again in any continuation step.
+    local_planning::P3ManeuverLifecycle lifecycle;
+    auto snapshot = maneuverSnapshot(event, 100, 1U);
+    auto fresh = lifecycle.selectFresh(snapshot, evaluation, planner);
+    const auto * selected = selectedTrace(evaluation);
+    const double evaluator_horizon = selected == nullptr ?
+      std::numeric_limits<double>::quiet_NaN() : planner.maneuverScopeEnd(
+      event.ego, event.obstacles, evaluation.selected_obstacle_ids,
+      selected->knot_stations[3]);
+    const double lifecycle_horizon = fresh.obstacle_collision_horizon_forward_m;
+    emitSequenceRow(
+      event, "CONTINUATION", "FRESH", fresh, "NONE", evaluator_horizon, lifecycle_horizon);
+    if (!fresh.has_output) {
+      planner.setActiveResearchCycle(nullptr);
+      return;
+    }
+    auto held = lifecycle.continueCurrent(snapshot, planner, 3);
+    emitSequenceRow(event, "CONTINUATION", "HELD_SAME_INPUT", held);
+
+    auto guard_growth = snapshot;
+    guard_growth.source_stamp_ns = 101;
+    guard_growth.obstacle_sequence = 2U;
+    for (auto & obstacle : guard_growth.obstacles) {
+      obstacle.d_right = -10.0;
+      obstacle.d_left = 10.0;
+      obstacle.d_center = 0.0;
+    }
+    const auto guard_raw = lifecycle.continueCurrent(guard_growth, planner, 3);
+    emitSequenceRow(event, "CONTINUATION", "GUARD_FAIL_RAW_PASS", guard_raw);
+
+    auto dropout = snapshot;
+    dropout.source_stamp_ns = 102;
+    dropout.obstacle_sequence = 3U;
+    dropout.obstacles.clear();
+    dropout.raw_obstacles.clear();
+    dropout.selection_envelope_obstacles.clear();
+    const auto disappeared = lifecycle.continueCurrent(dropout, planner, 3);
+    emitSequenceRow(event, "CONTINUATION", "OBSTACLE_DISAPPEARANCE", disappeared);
+
+    auto progressed = snapshot;
+    progressed.source_stamp_ns = 103;
+    progressed.obstacle_sequence = 4U;
+    std::size_t progress_index = 0U;
+    for (std::size_t index = 1U; index + 8U < evaluation.selected_path.wpnts.size(); ++index) {
+      const double forward = planner.forwardDistance(
+        event.ego.s, evaluation.selected_path.wpnts[index].s_m);
+      if (forward > 0.05 &&
+        forward + 0.1 < evaluation.selected_cluster_end_forward_m)
+      {
+        progress_index = index;
+        break;
+      }
+    }
+    if (progress_index > 0U) {
+      progressed.ego.s = evaluation.selected_path.wpnts[progress_index].s_m;
+      progressed.ego.d = evaluation.selected_path.wpnts[progress_index].d_m;
+    }
+    const auto trimmed = lifecycle.continueCurrent(progressed, planner, 3);
+    emitSequenceRow(event, "CONTINUATION", "FORWARD_TRIM", trimmed);
+
+    auto completed = progressed;
+    completed.source_stamp_ns = 104;
+    completed.obstacle_sequence = 5U;
+    completed.ego.s = wrapStation(
+      event.ego.s + evaluation.selected_cluster_end_forward_m + 1.0e-6,
+      planner.trackLength());
+    const auto complete = lifecycle.continueCurrent(completed, planner, 3);
+    emitSequenceRow(event, "CONTINUATION", "COMPLETE", complete);
+
+    // Scenario B: a new full-width obstacle invalidates the immutable path; the unchanged planner
+    // fallback then returns its ordinary avoidance/stop/no-safe-path result.
+    local_planning::P3ManeuverLifecycle blocked_lifecycle;
+    auto blocked_snapshot = maneuverSnapshot(event, 200, 1U);
+    const auto blocked_evaluation = planner.evaluateP3Shadow(
+      event.ego, event.obstacles, 200, 1U, 1U, "GQSC_S1_SEQUENCE_BLOCKED_FRESH");
+    const auto blocked_fresh = blocked_lifecycle.selectFresh(
+      blocked_snapshot, blocked_evaluation, planner);
+    const auto * blocked_selected = selectedTrace(blocked_evaluation);
+    const double blocked_evaluator_horizon = blocked_selected == nullptr ?
+      std::numeric_limits<double>::quiet_NaN() : planner.maneuverScopeEnd(
+      event.ego, event.obstacles, blocked_evaluation.selected_obstacle_ids,
+      blocked_selected->knot_stations[3]);
+    const double blocked_lifecycle_horizon =
+      blocked_fresh.obstacle_collision_horizon_forward_m;
+    emitSequenceRow(
+      event, "NEW_OBSTACLE", "FRESH", blocked_fresh, "NONE", blocked_evaluator_horizon,
+      blocked_lifecycle_horizon);
+    auto blocker = event.obstacles.front();
+    blocker.id = 900000;
+    const std::size_t collision_index = std::min<std::size_t>(
+      4U, evaluation.selected_path.wpnts.size() - 1U);
+    blocker.s_center = evaluation.selected_path.wpnts[collision_index].s_m;
+    blocker.s_start = wrapStation(blocker.s_center - 0.25, planner.trackLength());
+    blocker.s_end = wrapStation(blocker.s_center + 0.25, planner.trackLength());
+    blocker.d_right = -10.0;
+    blocker.d_left = 10.0;
+    blocker.d_center = 0.0;
+    blocker.size = 20.0;
+    blocked_snapshot.source_stamp_ns = 201;
+    blocked_snapshot.obstacle_sequence = 2U;
+    blocked_snapshot.obstacles.push_back(blocker);
+    blocked_snapshot.raw_obstacles.push_back(blocker);
+    blocked_snapshot.selection_envelope_obstacles.push_back(blocker);
+    const auto invalidated = blocked_lifecycle.continueCurrent(blocked_snapshot, planner, 3);
+    const auto fallback = planner.plan(blocked_snapshot.ego, blocked_snapshot.raw_obstacles);
+    emitSequenceRow(
+      event, "NEW_OBSTACLE", "INVALIDATE_AND_FALLBACK", invalidated,
+      planKindName(fallback.kind));
+    planner.setActiveResearchCycle(nullptr);
+    return;
+  }
+  if (std::getenv("GQSC_S1_MAIN_TIMING") != nullptr) {
+    const int warmup = std::getenv("GQSC_S1_TIMING_WARMUP") == nullptr ? 2 :
+      static_cast<int>(integer(std::getenv("GQSC_S1_TIMING_WARMUP")));
+    const int repeats = std::getenv("GQSC_S1_TIMING_REPEATS") == nullptr ? 5 :
+      static_cast<int>(integer(std::getenv("GQSC_S1_TIMING_REPEATS")));
+    for (int repeat = -warmup; repeat < repeats; ++repeat) {
+      const auto callback_start = Clock::now();
+      const auto generation_start = Clock::now();
+      const auto evaluation = planner.evaluateP3Shadow(
+        event.ego, event.obstacles, 300 + repeat, 1U, 1U, "GQSC_S1_TIMING");
+      const double evaluation_wall_us = std::chrono::duration<double, std::micro>(
+        Clock::now() - generation_start).count();
+      double lifecycle_wall_us = 0.0;
+      double fallback_wall_us = 0.0;
+      std::string outcome;
+      if (evaluation.would_recover) {
+        local_planning::P3ManeuverLifecycle lifecycle;
+        const auto lifecycle_start = Clock::now();
+        const auto decision = lifecycle.selectFresh(
+          maneuverSnapshot(event, 300 + repeat, 1U), evaluation, planner);
+        lifecycle_wall_us = std::chrono::duration<double, std::micro>(
+          Clock::now() - lifecycle_start).count();
+        outcome = decision.has_output ? "FRESH_SELECTED" : decision.reason;
+      } else {
+        const auto fallback_start = Clock::now();
+        const auto fallback = planner.plan(
+          event.ego, event.obstacles, std::nullopt, true, &evaluation);
+        fallback_wall_us = std::chrono::duration<double, std::micro>(
+          Clock::now() - fallback_start).count();
+        outcome = planKindName(fallback.kind);
+      }
+      const double callback_wall_us = std::chrono::duration<double, std::micro>(
+        Clock::now() - callback_start).count();
+      if (repeat >= 0) {
+        const double generation_without_validation_or_rank_us = std::max(
+          0.0, evaluation.r3_runtime_total_us - evaluation.r3_runtime_validation_us -
+          evaluation.r3_runtime_final_ranking_us);
+        std::cout << "GQSC_MAIN_TIMING\t" << event.id << '\t' << repeat << '\t' <<
+          evaluation_wall_us << '\t' << generation_without_validation_or_rank_us << '\t' <<
+          evaluation.r3_runtime_validation_us << '\t' <<
+          evaluation.r3_runtime_final_ranking_us << '\t' << lifecycle_wall_us << '\t' <<
+          fallback_wall_us << '\t' << callback_wall_us << '\t' <<
+          evaluation.r3_pair_priority_count << '\t' <<
+          evaluation.r3_constructed_candidate_count << '\t' <<
+          evaluation.r3_validator_call_count << '\t' << outcome << '\n';
+      }
+    }
+    planner.setActiveResearchCycle(nullptr);
+    return;
+  }
+  if (std::getenv("GQSC_S1_CONTINUATION_TIMING") != nullptr) {
+    const int warmup = std::getenv("GQSC_S1_TIMING_WARMUP") == nullptr ? 2 :
+      static_cast<int>(integer(std::getenv("GQSC_S1_TIMING_WARMUP")));
+    const int repeats = std::getenv("GQSC_S1_TIMING_REPEATS") == nullptr ? 5 :
+      static_cast<int>(integer(std::getenv("GQSC_S1_TIMING_REPEATS")));
+    const auto evaluation = planner.evaluateP3Shadow(
+      event.ego, event.obstacles, 700, 1U, 1U, "GQSC_S1_CONTINUATION_TIMING");
+    if (!evaluation.would_recover) {
+      planner.setActiveResearchCycle(nullptr);
+      return;
+    }
+    for (int repeat = -warmup; repeat < repeats; ++repeat) {
+      local_planning::P3ManeuverLifecycle lifecycle;
+      auto snapshot = maneuverSnapshot(event, 700, 1U);
+      const auto fresh = lifecycle.selectFresh(snapshot, evaluation, planner);
+      if (!fresh.has_output) {
+        throw std::runtime_error("continuation timing fresh selection failed for " + event.id);
+      }
+      const auto start = Clock::now();
+      const auto continued = lifecycle.continueCurrent(snapshot, planner, 3);
+      const double wall_us = std::chrono::duration<double, std::micro>(
+        Clock::now() - start).count();
+      if (repeat >= 0) {
+        std::cout << "GQSC_CONTINUATION_TIMING\t" << event.id << '\t' << repeat << '\t' <<
+          wall_us << '\t' << continued.has_output << '\t' << continued.suffix_hard_valid << '\t' <<
+          continued.reason << '\n';
+      }
+    }
+    planner.setActiveResearchCycle(nullptr);
+    return;
   }
   if (std::getenv("GQSC_STANDALONE_STUDY") != nullptr) {
     const int warmup = std::getenv("GQSC_STANDALONE_WARMUP") == nullptr ? 0 :
@@ -711,12 +1277,12 @@ void emit(const Event & event, double event_read_us)
       factor.curvature_proxy << '\t' << factor.center_error << '\t' <<
       factor.minimum_clearance_m << '\t' << factor.shape_energy << '\n';
   }
-  const auto downstream = planner.plan(event.ego, event.obstacles);
+  const auto downstream = planner.plan(event.ego, event.obstacles, std::nullopt, true, &result);
   const std::string downstream_digest = downstream.path.wpnts.empty() ?
     "NONE" : local_planning::pathDigest(downstream.path);
   std::cout << "DOWNSTREAM_SELECTED\t" << event.id << '\t' <<
     static_cast<int>(downstream.kind) << '\t' << downstream_digest << '\n';
-}
+}  // NOLINT(readability/fn_size): one env-selected audit dispatcher shares one loaded snapshot.
 
 }  // namespace
 

@@ -575,12 +575,14 @@ double RacelineSplineParameters::trackBoundaryReserve(
 void RacelineSplinePlanner::setParameters(const RacelineSplineParameters & parameters)
 {
   parameters_ = parameters;
+  ++planning_input_revision_;
 }
 
 bool RacelineSplinePlanner::setReference(
   const f110_msgs::msg::WpntArray & reference,
   std::string * error)
 {
+  ++planning_input_revision_;
   auto reject = [&](const std::string & why) {
       reference_.wpnts.clear();
       track_length_ = 0.0;
@@ -3283,13 +3285,24 @@ std::size_t RacelineSplinePlanner::generateP3Candidates(
   bool stop_on_first_feasible,
   std::vector<Candidate> & candidates,
   std::string & reason,
-  const std::string & evaluation_role) const
+  const std::string & evaluation_role,
+  const P3ShadowResult * same_input_p3) const
 {
-  // 이 패키지의 유일한 회피 후보 생성기. 후보 생성은 여기 한 곳에만 두어야 한다 —
-  // 안전정지 탈출 검증(anyFeasibleCandidateFrom)이 같은 함수를 쓰므로 "정지점에서 회피
-  // 가능"이라는 판정과 실제 재계획이 어긋날 수 없다. 두 번째 사본이 생기면 그 덫이 돌아온다.
-  const P3ShadowResult p3 = evaluateP3Shadow(
-    ego, obstacles, 0, 0U, 0U, "PLAN", evaluation_role);
+  // 이 패키지의 유일한 회피 후보 생성기. 안전정지 탈출 검증도 별도 생성기를 두지 않고
+  // 이 함수가 소비하는 동일 evaluateP3Shadow() exact-validator 인증서를 사용한다.
+  const bool reuse = same_input_p3 != nullptr && same_input_p3->reuse_input_available &&
+    same_input_p3->invoked && same_input_p3->r3_invoked &&
+    same_input_p3->reuse_ego_s == ego.s && same_input_p3->reuse_ego_d == ego.d &&
+    same_input_p3->reuse_ego_speed == ego.speed &&
+    same_input_p3->reuse_planner_revision == planning_input_revision_ &&
+    same_input_p3->reuse_obstacles == obstacles;
+  P3ShadowResult evaluated;
+  if (!reuse) {
+    evaluated = evaluateP3Shadow(ego, obstacles, 0, 0U, 0U, "PLAN", evaluation_role);
+  } else if (active_research_cycle_ != nullptr) {
+    ++active_research_cycle_->r3_cached_result_reuse_count;
+  }
+  const P3ShadowResult & p3 = reuse ? *same_input_p3 : evaluated;
   if (!p3.invoked) {
     reason = p3.failure_classification.empty() ? "P3 not invoked" : p3.failure_classification;
     return 0U;
@@ -3311,10 +3324,14 @@ std::size_t RacelineSplinePlanner::generateP3Candidates(
     candidate.go_left = trace.go_left;
     candidate.target_d = trace.d_target;
     candidate.path = trace.path;
-    // R3's frozen post-validation tuple is exact (no epsilon collapse). Reuse the existing
-    // production comparator downstream while preserving that frozen tie order. M0/M1 keep their
-    // historical generation-index tiebreak unchanged.
-    candidate.audit_index = trace.generator_stage == "R3_K12" && trace.final_rank > 0 ?
+    // The frozen post-validation tuple is exact (no epsilon collapse). Reuse the existing
+    // production comparator downstream while preserving the frozen order for both the retired R3
+    // research adapter and the primary GQSC-v3 adapter. Legacy M0/M1 keep their historical
+    // generation-index tiebreak unchanged.
+    const bool frozen_ranked_generator =
+      trace.generator_stage == "R3_K12" || trace.generator_stage == "GQSC_V3_MAIN" ||
+      trace.generator_stage == "GQSC_S1_MAIN";
+    candidate.audit_index = frozen_ranked_generator && trace.final_rank > 0 ?
       static_cast<std::size_t>(trace.final_rank - 1) : trace.generation_index;
     candidate.exit_reaches_next_obstacle = trace.exit_reaches_next_obstacle;
     candidate.entry_transition_scale = trace.entry_scale;
@@ -3357,10 +3374,21 @@ std::size_t RacelineSplinePlanner::generateP3Candidates(
       std::optional<double>(
       maneuverScopeEnd(ego, obstacles, p3.cluster_obstacle_ids, p3.cluster_end_forward_m)) :
       std::nullopt;
-    candidate.valid = validateCandidate(
-      ego, candidate.path, visible, validation_reason, 0U, 0U, nullptr, collision_horizon);
-    candidate.reason = candidate.valid ? std::string() :
-      (validation_reason.empty() ? trace.rejection_reason : validation_reason);
+    // A failed evaluator result is an exact certificate for this same path/ego/obstacle/horizon:
+    // every returned trace already executed validateCandidate(), and would_recover=false proves
+    // none passed. Repeating the identical rejection here cannot create a feasible candidate.
+    // Keep measureCandidate() above so downstream audit metrics remain bit-for-bit sourced from
+    // the production Candidate representation; only the redundant validator call is removed.
+    if (!p3.would_recover) {
+      candidate.valid = false;
+      candidate.reason = trace.rejection_reason.empty() ?
+        "P3 exact-validator failure certificate" : trace.rejection_reason;
+    } else {
+      candidate.valid = validateCandidate(
+        ego, candidate.path, visible, validation_reason, 0U, 0U, nullptr, collision_horizon);
+      candidate.reason = candidate.valid ? std::string() :
+        (validation_reason.empty() ? trace.rejection_reason : validation_reason);
+    }
     if (candidate.valid) {
       ++feasible;
     }
@@ -3386,17 +3414,31 @@ bool RacelineSplinePlanner::anyFeasibleCandidateFrom(
   const EgoFrenetState & ego,
   const std::vector<f110_msgs::msg::Obstacle> & obstacles,
   const std::vector<ExpandedObstacle> & visible,
-  const std::vector<ExpandedObstacle> & cluster) const
+  const std::vector<ExpandedObstacle> & cluster,
+  const P3ShadowResult * same_input_p3) const
 {
+  (void)visible;
   if (cluster.empty()) {
     return true;   // 막는 것이 없으면 굳이 정지할 이유도 없다
   }
-  std::vector<Candidate> candidates;
-  std::string reason;
-  // plan()과 반드시 같은 생성기를 쓴다(위 generateP3Candidates 주석 참고).
-  return generateP3Candidates(
-    ego, obstacles, visible, std::nullopt, true, true, candidates, reason,
-    "SAFE_STOP_ESCAPE") > 0U;
+  // 이것은 후보 선택이 아니라 존재성 질의다. evaluateP3Shadow()는 frozen S1 Top-K의 각
+  // 경로를 바로 아래 plan()과 동일한 exact validator로 이미 판정하고, would_recover는 그중
+  // 하나라도 hard-valid일 때만 true다. 종전 generateP3Candidates() 경유는 같은 경로를
+  // measureCandidate()+validateCandidate()로 한 번 더 심판했을 뿐이며 결과를 소비하지 않았다.
+  const bool reuse = same_input_p3 != nullptr && same_input_p3->reuse_input_available &&
+    same_input_p3->invoked && same_input_p3->r3_invoked &&
+    same_input_p3->reuse_ego_s == ego.s && same_input_p3->reuse_ego_d == ego.d &&
+    same_input_p3->reuse_ego_speed == ego.speed &&
+    same_input_p3->reuse_planner_revision == planning_input_revision_ &&
+    same_input_p3->reuse_obstacles == obstacles;
+  P3ShadowResult evaluated;
+  if (!reuse) {
+    evaluated = evaluateP3Shadow(ego, obstacles, 0, 0U, 0U, "PLAN", "SAFE_STOP_ESCAPE");
+  } else if (active_research_cycle_ != nullptr) {
+    ++active_research_cycle_->r3_cached_result_reuse_count;
+  }
+  const P3ShadowResult & p3 = reuse ? *same_input_p3 : evaluated;
+  return p3.invoked && p3.would_recover;
 }
 
 void RacelineSplinePlanner::densifyPath(
@@ -3446,7 +3488,8 @@ RacelineSplineResult RacelineSplinePlanner::buildSafeStop(
   const std::vector<ExpandedObstacle> & visible,
   const std::vector<ExpandedObstacle> & cluster,
   const std::vector<f110_msgs::msg::Obstacle> & raw_obstacles,
-  const ExpandedObstacle & blocking) const
+  const ExpandedObstacle & blocking,
+  const P3ShadowResult * same_input_p3) const
 {
   (void)cluster;   // 탈출 검증은 정지점 기준으로 다시 확장한 cluster를 쓴다(아래 참고)
   RacelineSplineResult result;
@@ -3479,7 +3522,7 @@ RacelineSplineResult RacelineSplinePlanner::buildSafeStop(
         const auto at_stop_visible = expandVisibleObstacles(at_stop, raw_obstacles);
         const auto at_stop_cluster = nearestCluster(at_stop_visible);
         return anyFeasibleCandidateFrom(
-          at_stop, raw_obstacles, at_stop_visible, at_stop_cluster);
+          at_stop, raw_obstacles, at_stop_visible, at_stop_cluster, same_input_p3);
       };
 
     // 탈출 가능성은 정지점을 **뒤로 물릴수록**(=forward가 작을수록) 단조 증가한다:
@@ -3635,7 +3678,8 @@ RacelineSplineResult RacelineSplinePlanner::plan(
   const EgoFrenetState & ego,
   const std::vector<f110_msgs::msg::Obstacle> & obstacles,
   const std::optional<bool> & preferred_left,
-  bool allow_side_switch) const
+  bool allow_side_switch,
+  const P3ShadowResult * same_input_p3) const
 {
   RacelineSplineResult result;
   if (!ready()) {
@@ -3674,7 +3718,7 @@ RacelineSplineResult RacelineSplinePlanner::plan(
   std::string p3_reason;
   (void)generateP3Candidates(
     ego, obstacles, visible, preferred_left, allow_side_switch, false,
-    candidates, p3_reason, "PLAN_PRIMARY");
+    candidates, p3_reason, "PLAN_PRIMARY", same_input_p3);
 
   std::vector<std::size_t> feasible_order;
   feasible_order.reserve(candidates.size());
@@ -3800,7 +3844,8 @@ RacelineSplineResult RacelineSplinePlanner::plan(
         return slow_pass;
       }
     }
-    auto safe_stop = buildSafeStop(ego, visible, cluster, obstacles, cluster.front());
+    auto safe_stop = buildSafeStop(
+      ego, visible, cluster, obstacles, cluster.front(), same_input_p3);
     safe_stop.obstacle_ids.reserve(cluster.size());
     for (const auto & obstacle : cluster) {
       safe_stop.obstacle_ids.push_back(obstacle.id);

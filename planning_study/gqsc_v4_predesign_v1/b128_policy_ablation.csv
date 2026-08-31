@@ -1,0 +1,4 @@
+pair_policy,selection_policy,status,b128_exact_pool_recovered_2,b128_exact_selected_recovered_2,top12_exact_selected_recovered_10,property_hard_538,property_usable_538,pilot_hard_9,pilot_usable_9,development_hard_40,development_usable_40,validation_seen_hard_37,validation_seen_usable_37,success_control_hard_18,success_control_usable_18,production_parity_hard_4,production_parity_usable_4,hard_losses_vs_frozen_v3,usable_losses_vs_frozen_v3,loss_cases,decision
+B0_FROZEN_OPERATOR_PREFERRED_WAVES_B128,S1_LEX8_GLOBAL_DISJOINT_COVERAGE4,REFERENCE_FOR_SELECTION,0,0,3,340,306,4,4,20,17,20,18,18,15,4,3,0,0,NONE,KEEP_SELECTION_ONLY
+B1_PRIMARY_THEN_LONG_SHORT_STRIPE_B128,S1_LEX8_GLOBAL_DISJOINT_COVERAGE4,CANDIDATE,2,2,2,342,307,4,4,21,19,19,17,18,15,3,2,1,1,VUE025,REJECT_NONREGRESSION
+B2_SHORT_SHORT_THEN_LONG_SHORT_STRIPES_B128,S1_LEX8_GLOBAL_DISJOINT_COVERAGE4,CANDIDATE,2,2,2,342,307,4,4,20,18,20,17,18,15,3,2,2,2,DVE028|VUE025,REJECT_NONREGRESSION

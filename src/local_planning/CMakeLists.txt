@@ -16,6 +16,36 @@ find_package(nav_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(f110_msgs REQUIRED)
 
+# Keep the immutable v3 base pinned because the S1 serialization composes it by SHA rather than
+# copying its operators. S1 is the production fresh-generator contract below.
+set(GQSC_V3_METHOD_SHA256
+  "965f6ce65b7ce5b1c6426a0975c1dfafe779e89eb20308bb09a11a1b4a22e780")
+set(GQSC_V3_METHOD_FILE
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../planning_study/gqsc_v3_geometry_normalized/gqsc_v3_geometry_general_method.json")
+if(NOT EXISTS "${GQSC_V3_METHOD_FILE}")
+  message(FATAL_ERROR "Frozen GQSC v3 method serialization is missing: ${GQSC_V3_METHOD_FILE}")
+endif()
+
+set(GQSC_S1_METHOD_SHA256
+  "670f39a23479bcdcc1db0829a895257443fec8ee2f78f186bc1beb224090b776")
+set(GQSC_S1_METHOD_FILE
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../planning_study/gqsc_s1_closed_loop_candidate_v1/gqsc_s1_method.json")
+if(NOT EXISTS "${GQSC_S1_METHOD_FILE}")
+  message(FATAL_ERROR "Frozen GQSC S1 method serialization is missing: ${GQSC_S1_METHOD_FILE}")
+endif()
+file(SHA256 "${GQSC_S1_METHOD_FILE}" GQSC_S1_METHOD_OBSERVED_SHA256)
+if(NOT GQSC_S1_METHOD_OBSERVED_SHA256 STREQUAL GQSC_S1_METHOD_SHA256)
+  message(FATAL_ERROR
+    "Frozen GQSC S1 method SHA mismatch: expected=${GQSC_S1_METHOD_SHA256} "
+    "observed=${GQSC_S1_METHOD_OBSERVED_SHA256}")
+endif()
+file(SHA256 "${GQSC_V3_METHOD_FILE}" GQSC_V3_METHOD_OBSERVED_SHA256)
+if(NOT GQSC_V3_METHOD_OBSERVED_SHA256 STREQUAL GQSC_V3_METHOD_SHA256)
+  message(FATAL_ERROR
+    "Frozen GQSC v3 method SHA mismatch: expected=${GQSC_V3_METHOD_SHA256} "
+    "observed=${GQSC_V3_METHOD_OBSERVED_SHA256}")
+endif()
+
 include_directories(
   include
 )
@@ -72,6 +102,12 @@ if(BUILD_TESTING)
   ament_add_pytest_test(velocity_limits_match_csv test/test_velocity_limits_match_csv.py)
   # control의 조향/횡가속 계약을 바꾸고 planner mirror를 안 바꾸는 통합을 금지한다.
   ament_add_pytest_test(control_contract_match test/test_control_contract_match.py)
+  ament_add_pytest_test(
+    gqsc_v3_frozen_contract
+    test/test_gqsc_v3_frozen_contract.py)
+  ament_add_pytest_test(
+    gqsc_s1_frozen_contract
+    test/test_gqsc_s1_frozen_contract.py)
 
   # Node-level: covers the subscription callbacks themselves (which arrays/references the node
   # accepts as authoritative). The algorithm gtests cannot reach that wiring.

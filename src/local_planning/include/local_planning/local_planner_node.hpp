@@ -108,7 +108,9 @@ private:
   void onFrenetOdometry(const nav_msgs::msg::Odometry::SharedPtr message);
   void onState(const f110_msgs::msg::StateMachine::SharedPtr message);
   void onPlanningTimer();
-  void runSafetyPlanningCycle(const P3CallbackSnapshot * snapshot = nullptr);
+  void runSafetyPlanningCycle(
+    const P3CallbackSnapshot * snapshot = nullptr,
+    const P3ShadowResult * same_input_p3 = nullptr);
   void tryRunLockstepCycle();
   rclcpp::Time eventNow() const;
 

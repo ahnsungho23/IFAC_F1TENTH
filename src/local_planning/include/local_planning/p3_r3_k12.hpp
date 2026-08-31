@@ -207,6 +207,8 @@ struct P3R3RTStandaloneOptions
   P3R3RTStandaloneDiversityPolicy diversity_policy{
     P3R3RTStandaloneDiversityPolicy::V1_BASELINE};
   bool add_component_half_far002_inward015{false};
+  std::size_t lexicographic_quota{kP3R3K12LexicographicQuota};
+  std::size_t coverage_quota{kP3R3K12CoverageQuota};
 };
 
 // Native C++ port of the seen-only NO_RESERVES_DIAGONAL bounded proposal policy.  It is a

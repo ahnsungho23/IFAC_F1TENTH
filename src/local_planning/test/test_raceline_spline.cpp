@@ -158,9 +158,14 @@ TEST(RacelineSplinePlanner, P3NonpositiveEntryBoundaryFailsClosedWithoutThrowing
       100, 1U, 1U, "NONPOSITIVE_BOUNDARY_TEST"));
   EXPECT_TRUE(result.invoked);
   EXPECT_FALSE(result.would_recover);
-  EXPECT_TRUE(result.m1_invoked);
+  EXPECT_FALSE(result.m1_invoked);
   EXPECT_EQ(result.m0_candidate_count, 0U);
-  EXPECT_LE(result.candidate_count, 24U);
+  EXPECT_EQ(result.m0_v1_candidate_count_actual, 0U);
+  EXPECT_EQ(result.m0_v2_candidate_count, 0U);
+  EXPECT_EQ(result.m1_candidate_count, 0U);
+  EXPECT_LE(result.r3_pair_priority_count, 128U);
+  EXPECT_LE(result.r3_constructed_candidate_count, 12U);
+  EXPECT_LE(result.r3_validator_call_count, 12U);
   ASSERT_EQ(result.cluster_obstacle_ids.size(), 1U);
   EXPECT_EQ(result.cluster_obstacle_ids.front(), 41);
   EXPECT_TRUE(std::isfinite(result.cluster_start_forward_m));
@@ -2029,6 +2034,13 @@ TEST(RacelineSplinePlanner, IgnoresObstacleWithEnoughRawRacelineClearance)
 {
   RacelineSplinePlanner planner(testParameters());
   ASSERT_TRUE(planner.setReference(makeStraightReference()));
+  const auto evaluation = planner.evaluateP3Shadow(
+    EgoFrenetState{0.0, 0.0, 2.0}, {},
+    0, 0U, 1U, "TEST_NONBLOCKING");
+  EXPECT_FALSE(evaluation.would_recover);
+  EXPECT_EQ(
+    evaluation.failure_classification,
+    "no static obstacle blocks the global race line");
   const auto result = planner.plan(
     EgoFrenetState{0.0, 0.0, 2.0}, {makeObstacle(4, 7.0, 0.35, 0.55)});
   EXPECT_EQ(result.kind, SplinePlanKind::kNoObstacle) << result.reason;

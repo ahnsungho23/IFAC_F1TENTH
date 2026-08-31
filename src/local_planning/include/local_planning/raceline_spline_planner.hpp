@@ -632,10 +632,11 @@ public:
     const EgoFrenetState & ego,
     const std::vector<f110_msgs::msg::Obstacle> & obstacles,
     const std::optional<bool> & preferred_left = std::nullopt,
-    bool allow_side_switch = true) const;
+    bool allow_side_switch = true,
+    const P3ShadowResult * same_input_p3 = nullptr) const;
 
-  // Production-owned analytic P3/M1 path-family evaluation. Runtime ownership is decided by
-  // LocalPlannerNode's explicit mode; this const adapter cannot alter P0 planner state.
+  // Production-owned frozen GQSC-v3 P3-family evaluation. Runtime ownership is decided by
+  // LocalPlannerNode's explicit mode; this const adapter cannot alter lifecycle/planner state.
   P3ShadowResult evaluateP3Shadow(
     const EgoFrenetState & ego,
     const std::vector<f110_msgs::msg::Obstacle> & obstacles,
@@ -645,8 +646,9 @@ public:
     const std::string & p0_failure_reason,
     const std::string & research_evaluation_role = "") const;
 
-  // Explicit research-only native bounded-proposal evaluator.  Production plan() never calls
-  // this method; it exists so a warm offline process can measure R3-RT without subprocess cost.
+  // Explicit research-only legacy/native architecture evaluators. Production uses the frozen
+  // frozen LEX8_GLOBAL_DISJOINT_COVERAGE4 policy through evaluateP3Shadow(); adapters remain
+  // only for rollback baselines and study reconstruction.
   P3ShadowResult evaluateP3R3RTShadow(
     const EgoFrenetState & ego,
     const std::vector<f110_msgs::msg::Obstacle> & obstacles,
@@ -834,11 +836,11 @@ private:
     std::size_t waypoint_index) const;
   // 이 패키지의 유일한 회피 후보 생성기 — P0 quintic 격자는 2026-08-15에 제거됐다
   // (실차 시험에서 P0가 통과 가능한 모든 곳을 P3도 통과함이 확인됨). P3(analytic
-  // corridor)가 이 상태에서 만들어 낸 후보들을 Candidate로 변환해 append한다. plan()과
-  // 안전정지 탈출 검증이 **같은 코드**로 후보를 만들어야 "정지점에서 회피 가능"이라는
-  // 판정이 실제 재계획과 일치한다. 두 벌로 나뉘면 조용히 어긋난다. 안전 계층
+  // corridor)가 이 상태에서 만들어 낸 후보들을 Candidate로 변환해 append한다. 안전정지
+  // 탈출 검증도 이 함수가 소비하는 것과 같은 evaluateP3Shadow()의 exact-validator 인증서를
+  // 사용해야 "정지점에서 회피 가능" 판정이 실제 재계획과 일치한다. 안전 계층
   // (expandVisibleObstacles / measureCandidate / validateCandidate)과 안전정지 사다리는
-  // 그대로이며, 여기서 만든 후보도 동일한 measureCandidate로 재측정한다.
+  // 그대로이며, 실제 plan 후보는 동일한 measureCandidate로 재측정한다.
   // 반환값은 이번 호출에서 생성된 feasible 후보 수.
   // stop_on_first_feasible=true면 첫 통과 후보에서 즉시 멈춘다(탈출 가능성만 물을 때).
   std::size_t generateP3Candidates(
@@ -850,13 +852,17 @@ private:
     bool stop_on_first_feasible,
     std::vector<Candidate> & candidates,
     std::string & reason,
-    const std::string & evaluation_role) const;
-  // 주어진 자차 상태에서 회피 경로가 하나라도 생성되는가. 경로는 만들지 않고 가능성만 본다.
+    const std::string & evaluation_role,
+    const P3ShadowResult * same_input_p3 = nullptr) const;
+  // 주어진 자차 상태에서 회피 경로가 하나라도 생성되는가. S1 평가기가 이미 동일한 exact
+  // validator로 모든 Top-K를 판정했으므로 그 존재성 인증서를 사용하고, 입력이 완전히 같으면
+  // same-callback 결과도 재사용한다. 경로를 선택하거나 발행하지 않는다.
   bool anyFeasibleCandidateFrom(
     const EgoFrenetState & ego,
     const std::vector<f110_msgs::msg::Obstacle> & obstacles,
     const std::vector<ExpandedObstacle> & visible,
-    const std::vector<ExpandedObstacle> & cluster) const;
+    const std::vector<ExpandedObstacle> & cluster,
+    const P3ShadowResult * same_input_p3 = nullptr) const;
   // 경로 점 수가 minimum_path_points에 못 미치면 최장 구간을 반복 이등분해 채운다.
   void densifyPath(f110_msgs::msg::WpntArray & path, std::size_t minimum_points) const;
   // raw_obstacles는 **절대 s**를 담은 원본이다. ExpandedObstacle은 자차 상대거리를
@@ -868,7 +874,8 @@ private:
     const std::vector<ExpandedObstacle> & visible,
     const std::vector<ExpandedObstacle> & cluster,
     const std::vector<f110_msgs::msg::Obstacle> & raw_obstacles,
-    const ExpandedObstacle & blocking) const;
+    const ExpandedObstacle & blocking,
+    const P3ShadowResult * same_input_p3 = nullptr) const;
   RacelineSplineResult buildMarginSlowPass(
     const EgoFrenetState & ego,
     const std::vector<ExpandedObstacle> & cluster) const;
@@ -932,6 +939,7 @@ private:
   RacelineSplineParameters parameters_;
   f110_msgs::msg::WpntArray reference_;
   double track_length_{0.0};
+  std::uint64_t planning_input_revision_{0U};
   mutable PlanningResearchCycle * active_research_cycle_{nullptr};
 };
 

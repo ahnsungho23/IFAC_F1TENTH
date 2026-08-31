@@ -1,0 +1,9 @@
+gate,scope,result,detail
+canonical_method_sha,planning_study/gqsc_s1_closed_loop_candidate_v1/gqsc_s1_method.json,PASS,670f39a23479bcdcc1db0829a895257443fec8ee2f78f186bc1beb224090b776; reference_v3=965f6ce65b7ce5b1c6426a0975c1dfafe779e89eb20308bb09a11a1b4a22e780
+frozen_stateless_parity,104 allowed-seen snapshots,PASS,104/104 proposal Top-12 path verdict selection exact
+determinism,two complete parity runs,PASS,raw_output_exact=1
+hard_usable_regression,104 allowed-seen snapshots,PASS,hard=62/104 usable=54/104
+lifecycle_sequential_replay,62 hard-valid snapshots,PASS,62/62 ownership continuation trim completion blocker invalidation
+evaluation_local_bounds,104 allowed-seen snapshots,PASS,max=128/12/12
+raceline_regression,test_raceline_spline,PASS,88/88
+production_scenarios,test_p3_production_parity,KNOWN_METHOD_COVERAGE_LIMIT,10/12; unchanged LayoutBReplanRecovers and SamePinchGeometryAtTwoDistances

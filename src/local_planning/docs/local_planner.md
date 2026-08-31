@@ -6,9 +6,9 @@
 동적 상대 차량 정보는 `obstacle_detector`의 `/opp_obs`로 분리되며, 이 노드는 정적 장애물용
 `/confirmed_static_obs`만 구독하고 `/avoid_waypoints`를 발행합니다.
 
-검증된 analytic P3와 M1 active-set closure도 동일 패키지와 동일 planning callback 안에서 실행할
-수 있습니다. 외부 evaluator는 frozen parity 회귀에만 사용하며 runtime 경로를 공급하지 않습니다.
-운영 기본값은 `p3_mode=OFF`이므로 기존 P0 동작이 그대로 유지됩니다.
+동결된 GQSC S1 `LEX8_GLOBAL_DISJOINT_COVERAGE4`가 같은 P3 경로군의 fresh candidate를 동일 패키지와 planning
+callback 안에서 생성합니다. 외부 evaluator는 frozen parity 회귀에만 사용하며 runtime 경로를
+공급하지 않습니다. 운영 기본값은 `p3_mode=TEST_ACTIVE`입니다.
 
 ### P3/M1 runtime mode
 
@@ -31,7 +31,7 @@ P0(`RacelineSplinePlanner`)는 한 덩어리가 아니라 세 층이고, P3는 �
 |---|---|---|
 | ① 안전 계층 | `expandVisibleObstacles`(추종오차 LUT + `localization_reserve_m`), `validateCandidate`(회전 footprint + `wall_safety_margin_m`), `applyAvoidanceVelocityLimit`(gap 기반 속도 제한), `measureCandidate` | **P3가 직접 호출**. 없으면 P3가 동작하지 않음 |
 | ② 안전정지 | `buildSafeStop`(+정지점 탈출 검증), safe-stop 래치/lifecycle, margin slow pass, last-path brake, emergency hold | **P3에 대응물 없음**. 어느 모드에서나 P0 몫 |
-| ③ 회피 후보 생성 | `generateP3Candidates` — `plan()` 내부에서 P3 analytic ladder를 호출 | **P3 자체** (2026-08-15부터 유일한 생성기) |
+| ③ 회피 후보 생성 | `generateP3Candidates` — `plan()` 내부에서 frozen GQSC S1을 호출 | **P3 family 자체** (유일한 production 생성기) |
 
 2026-08-15부터 ③은 P3 하나뿐입니다. 과거의 P0 quintic 격자(target_d 5 × entry 4 × exit 3 ×
 2측 = 120후보 전수 대입)와 `p0_avoidance_candidates_enable` 토글은 삭제됐습니다 — 실차/시뮬
@@ -40,11 +40,11 @@ P0(`RacelineSplinePlanner`)는 한 덩어리가 아니라 세 층이고, P3는 �
 추종오차 LUT·`localization_reserve_m`·`wall_safety_margin_m`·`safe_stop_buffer_m`·탈출 검증
 튜닝은 전부 그대로 유효합니다.
 
-**탐색 방식**: P3는 스테이션별 통과 가능 d 구간을 교집합해 장애물 구간 전체에 걸쳐
-연결된 통로를 먼저 구하고(`connectedConstantRanges`) 그 안으로 해를 닫힌 형태로 풉니다 —
-통로가 존재하면 찾아냅니다. 통로 교집합이 비면 후보가 0이고 곧바로 폴백 사다리(margin slow
-pass → safe stop)로 갑니다. 순위 기준(`minimum_normalized_safety_slack` 사전식)은 P0 시절과
-동일합니다.
+**현재 탐색 방식**: `LEX8_GLOBAL_DISJOINT_COVERAGE4`가 frozen v3와 동일한 corridor/component
+geometry, lateral/transition operator와 B128 pair pool을 사용하고, lexicographic 8개와 그 8개에
+겹치지 않는 global coverage reserve 4개를 고릅니다. 선택 slot은 최대 12개이며 P3 reconstruction과
+기존 exact validator 호출도 각각 최대 12회입니다. legacy M0-V1/M0-V2/M1 ladder와 exact R3
+enumeration은 명시적 연구 adapter로만 남고 production GQSC의 seed로 쓰이지 않습니다.
 
 P3/M1은 authoritative nonempty `/confirmed_static_obs` snapshot이 들어오면 즉시 candidate generation을
 수행합니다. P0가 이미 사용하던 `initial_observation_count`,
@@ -61,6 +61,14 @@ Frenet progress로 이미 지난 prefix만 제거하고, 남은 geometry를 현�
 current exact validation을 계속합니다. 반면 source epoch/reference generation, non-empty conflicting
 identity, stale/hard-invalid/safe-stop 변화는 즉시 무효화합니다. 확대된 장애물 종방향 영역을 완전히
 지나면 짧은 tail을 validator에 넣기 전에 `COMPLETE`로 종료합니다.
+
+이때 obstacle collision 책임 범위는 선택 시 exact validator가 쓴
+`maneuverScopeEnd = min(expanded cluster end + post_merge_lookahead_m, nearest following expanded
+obstacle front)`를 certificate에 저장해 사용합니다(자기 cluster rear보다 앞에서는 끝나지 않음).
+active suffix에서는 선택 당시의 absolute boundary를 고정하고 ego progress만 뺍니다. 다음 obstacle은
+chained maneuver가 맡지만, 선택 뒤 이 frozen 구간 안에 새 blocker가 나타나면 raw revalidation이
+즉시 현재 path를 무효화합니다. track/회전 footprint/곡률 검사는 collision horizon과 무관하게 전체
+path를 계속 검사합니다.
 
 P3 commit 시에는 선택에 사용한 exact-ID obstacle Guard를 immutable path identity와 함께
 저장합니다. 이후 같은 ID의 live envelope가 저장된 Guard 안에 포함되면 원래 Guard와 suffix를
@@ -762,8 +770,10 @@ margin-pass 커밋은 의도적으로 마진 밴드 안을 지나므로 마진 �
 `safe_stop_escape_check_enable`이 켜져 있으면 정지점을 확정하기 전에 그 지점에서 `v=0`으로
 회피 경로가 생성되는지 확인합니다. 안 되면 **탈출 가능한 가장 늦은 지점**까지 물립니다.
 탈출 가능성은 정지점을 뒤로 물릴수록 단조 증가하므로(진입 거리가 길어짐) 선형 후퇴가 아니라
-이분탐색을 씁니다. 판정에는 `plan()`과 **같은 후보 생성 함수**(`generateP3Candidates`)를
-쓰므로 "정지점에서 회피 가능"이라는 판정과 실제 재계획이 어긋날 수 없습니다.
+이분탐색을 씁니다. 판정에는 `plan()`이 소비하는 것과 같은 frozen S1 evaluator와 exact
+validator 인증서(`would_recover`)를 쓰므로 "정지점에서 회피 가능"이라는 판정과 실제
+재계획이 어긋날 수 없습니다. 동일 경로를 `generateP3Candidates()`에서 두 번째로
+`measure+validate`하던 중복은 제거됐고, 별도로 만든 제동 prefix의 exact 검증은 그대로입니다.
 
 어느 지점에서도 불가능하면 원래 정지점을 유지하고(후퇴가 아무것도 사지 못하므로),
 `RacelineSplineResult::safe_stop_escape_verified=false`와 reason 경고를 남기며 노드가
@@ -1523,7 +1533,8 @@ wall timer를 만들지 않고, 동일 header timestamp를 가진 `/confirmed_st
 **해결(2026-08-15)**: P0 격자(`generateSideCandidates`/`buildCandidate`)와 토글을 삭제하고,
 `plan()`의 후보 생성기를 P3(`generateP3Candidates`)로 교체했다. 이제 회피 후보 생성기는
 **하나뿐**이고, `plan()`을 묻는 모든 경로 — 조건 B, 연쇄 기동, 안전정지 탈출 검증
-(`anyFeasibleCandidateFrom`) — 가 같은 생성기를 공유하므로 위 사각 자체가 성립하지 않는다.
+(`anyFeasibleCandidateFrom`) — 가 같은 frozen evaluator/validator 인증서를 공유하므로 위 사각
+자체가 성립하지 않는다.
 과거의 임시 배선(`probeP3SafeStopEscape()` 탐침)은 불필요해져 함께 제거됐다.
 
 조건 B의 "래치 장애물이 현재 스냅샷에 없으면 대상 일치를 요구하지 않는다" 완화는 생성기
@@ -1537,25 +1548,32 @@ P3 후보는 발행 전 P0 시절과 동일한 안전 계층으로 재측정(`me
 안에서 safety-slack 최대 지점을 고른다. 넓은 트랙에서는 선택된 `target_d`가 최소 clearance
 보다 훨씬 클 수 있다(성능·안전 트레이드오프는 순위 규칙이 동일하므로 변화 없음).
 
-### Frozen R3-K12 post-ladder recovery (2026-08-31)
+### Frozen GQSC S1 primary generator (2026-09-01)
 
-strict와 relaxed production ladder가 모두 hard-valid 후보를 찾지 못한 경우에만 동결된
-`R3_LEXICOGRAPHIC_COVERAGE_RESERVE_K12`를 한 번 실행한다. 동결 method SHA-256은
-`7b861e8c7e23ae168413885ea0dc2d09769046ff48a562700b658e084d116fcc`이다. production이 성공하면
-R3는 호출되지 않으며 R3 경로 구성과 validator 호출은 모두 0이다.
+fresh planning은 legacy ladder나 exact R3 앞뒤에 붙는 recovery가 아니라 동결된
+`LEX8_GLOBAL_DISJOINT_COVERAGE4`를 직접 실행합니다. canonical S1 SHA-256은
+`670f39a23479bcdcc1db0829a895257443fec8ee2f78f186bc1beb224090b776`, 상속하는 v3 SHA는
+`965f6ce65b7ce5b1c6426a0975c1dfafe779e89eb20308bb09a11a1b4a22e780`입니다. CMake configure와
+단위 테스트가 두 canonical JSON의 SHA를 확인하고 노드는 시작 때 두 SHA와 B128/K12/validator-12
+상한을 로그에 남깁니다.
 
-R3는 새 경로군을 만들지 않는다. 같은 5-knot P3 family 안에서 production이 만든 lateral
-factor와 동결 transition factor를 조합하고, geometry-conditioned lexicographic stream 10개와
-coverage-reserve stream 2개를 순서대로 선택한다. 선택된 factor slot은 최대 12개이며 construction
-guard를 통과한 경로만 구성된다. 같은 path digest가 다시 나오면 그 slot은 소비하지만 exact
-validator는 재호출하지 않는다. 따라서 한 evaluator의 R3 reconstructed candidate와 exact
-validator 호출은 각각 최대 12회이다.
+GQSC는 같은 5-knot P3 family와 frozen v3 lateral/transition factor를 유지하고 pair proxy 최대
+128개에서 lexicographic 8개 + single global disjoint coverage reserve 4개를 고릅니다.
+선택 slot은 최대 12개이고 construction과 exact validator도 각각 최대 12회입니다. exact path
+digest 중복은 slot을 소비하되 최초 verdict를 재사용합니다. hard-valid 후보의 최종 순서는
+canonical 7-key exact tuple이며, 그 뒤의 lifecycle, speed shaping, fallback/safe-stop, publication은
+기존 흐름을 그대로 사용합니다. legacy ladder와 R3는 연구 baseline/rollback을 위한 명시적 API로만
+남아 있고 GQSC 후보의 hidden seed가 아닙니다.
 
-각 unique 경로는 기존 `validateCandidate()`를 정확히 한 번 통과한다. hard-valid 후보의 최종
-순서는 동결된 7-key rank tuple의 exact lexicographic 비교로 정하고, 이후에는 기존 candidate
-선택·lifecycle·publication 흐름으로 넘긴다. R3도 실패하면 R3 진입 전 production failure가 택한
-fallback/safe-stop 의미를 그대로 유지한다. 차량 치수, corridor, clearance, validator, usable-path
-계약, speed shaping, lifecycle parameter는 이 통합에서 바뀌지 않았다.
+TEST_ACTIVE outer evaluator와 fallback `plan()`의 ego/ordered obstacle/reference revision이 exact하게
+같으면 frozen GQSC result만 재사용합니다. 실제 hard-valid path selection에서는 side lock filtering,
+final rank와 speed shaping을 그대로 수행합니다. failed evaluator의 exact rejection과 safe-stop의
+존재성 질의는 이미 같은 exact validator가 만든 인증서를 재사용하며, 별도 braking path 검증은
+유지합니다. safe-stop 탈출 probe라도 `(s,d,v)`가 primary와 같으면 재사용하고, 다른 정지점이나
+`speed=0` 상태이면 새 평가가 필요합니다. B128/K12는 **GQSC 한 번당** 상한입니다. 현재
+TEST_ACTIVE 구조 상한은 `2 + 2*(2 + min(safe_stop_escape_max_retreats, 12))` fresh 평가/콜백이며,
+operational 값 8에서는 22입니다. research instrumentation이 ON이면
+`gqsc_s1_evaluation_count`로 callback별 실제 fresh 평가 횟수를 별도 기록합니다.
 
 ### P3 콜백 비용 정리 (2026-08-15)
 

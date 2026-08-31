@@ -17,6 +17,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <string>
 #include <vector>
@@ -106,6 +107,9 @@ struct P3ManeuverLifecycleDecision
   int guard_soft_violation_count{0};
   double progress_m{0.0};
   double expanded_cluster_end_forward_m{0.0};
+  // Obstacle-only interval used for this decision's exact revalidation, relative to the current
+  // ego. Geometry, footprint, track, and curvature validation remain full-path.
+  double obstacle_collision_horizon_forward_m{std::numeric_limits<double>::quiet_NaN()};
   std::string reason{"IDLE"};
   std::string original_candidate_identity{"NONE"};
   std::string original_logical_identity{"NONE"};
@@ -168,6 +172,10 @@ private:
     const double creation_ego_s;
     const double expanded_cluster_end_forward_m;
     const double expanded_cluster_end_s;
+    // Selected evaluator certificate's obstacle-only boundary relative to the creation ego.
+    // Subtracting monotonic maneuver progress keeps that spatial boundary fixed for this immutable
+    // path without any wrap ambiguity.
+    const double obstacle_collision_horizon_forward_m_at_creation;
     const std::uint64_t source_epoch;
     const std::uint64_t global_reference_generation;
     const std::int64_t creation_source_stamp_ns;
@@ -190,6 +198,7 @@ private:
       double ego_s,
       double cluster_end_forward_m,
       double cluster_end_s,
+      double collision_horizon_forward_m,
       std::uint64_t epoch,
       std::uint64_t reference_generation,
       std::int64_t source_stamp_ns,

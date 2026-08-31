@@ -1,0 +1,7 @@
+mechanism,property_miss_count,property_share_of_200,property_exact_same_p3_count,production_raceline_regression_frame_count,combined_exact_regression_snapshot_count,combined_share_of_20_exact_regression_snapshots
+B128_PAIR_TRUNCATION,2,0.01,2,0,2,0.1
+LATERAL_OPERATOR_COVERAGE_MISS,2,0.01,2,0,2,0.1
+OTHER,187,0.935,0,0,0,0.0
+TOP12_RANKING_DISPLACEMENT,9,0.045,9,1,10,0.5
+TRANSITION_OPERATOR_COVERAGE_MISS,0,0.0,0,5,5,0.25
+VALIDATOR_INPUT_MISMATCH,0,0.0,0,1,1,0.05

@@ -1,0 +1,6 @@
+dataset_role,event_count,method_sha,pair_proxy_cap,observed_pair_proxy_max,reconstruction_cap,observed_reconstruction_max,validator_cap,observed_validator_max,all_bounds_pass,legacy_seed_count
+PILOT_SEEN_DEVELOPMENT_DATA,9,965f6ce65b7ce5b1c6426a0975c1dfafe779e89eb20308bb09a11a1b4a22e780,128,128,12,12,12,12,1,0
+DEVELOPMENT,40,965f6ce65b7ce5b1c6426a0975c1dfafe779e89eb20308bb09a11a1b4a22e780,128,128,12,12,12,12,1,0
+VALIDATION_SEEN_AFTER_V1,37,965f6ce65b7ce5b1c6426a0975c1dfafe779e89eb20308bb09a11a1b4a22e780,128,128,12,12,12,12,1,0
+SUCCESS_CONTROL_SEEN,18,965f6ce65b7ce5b1c6426a0975c1dfafe779e89eb20308bb09a11a1b4a22e780,128,128,12,12,12,12,1,0
+ALL_SEEN,104,965f6ce65b7ce5b1c6426a0975c1dfafe779e89eb20308bb09a11a1b4a22e780,128,128,12,12,12,12,1,0

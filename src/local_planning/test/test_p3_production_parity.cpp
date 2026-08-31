@@ -117,7 +117,7 @@ TEST(P3ProductionParity, CoupledOppositeSideObstaclesRecover)
   }
 }
 
-TEST(P3ProductionParity, ResearchTracePreservesDiscardedSidesAndM1ProbeRoots)
+TEST(P3ProductionParity, ExplicitLegacyResearchAdapterPreservesDiscardedSidesAndM1ProbeRoots)
 {
   bool saw_discarded_side = false;
   bool saw_m1_analytic_probe = false;
@@ -131,21 +131,10 @@ TEST(P3ProductionParity, ResearchTracePreservesDiscardedSidesAndM1ProbeRoots)
     for (const auto & frame : stream.frames) {
       PlanningResearchCycle cycle;
       planner.setActiveResearchCycle(&cycle);
-      const auto result = planner.evaluateP3Shadow(
-        frame.ego, frame.obstacles, 0, 0U, 1U, "RESEARCH_PROVENANCE_TEST");
+      const auto result = planner.evaluateP3LegacyOnlyShadow(frame.ego, frame.obstacles);
       planner.setActiveResearchCycle(nullptr);
       EXPECT_EQ(result.research_constructed_total_actual, result.research_all_candidates.size());
       EXPECT_GE(result.research_constructed_total_actual, result.candidate_count);
-      EXPECT_FALSE(cycle.evaluations.empty());
-      for (const auto & evaluation : cycle.evaluations) {
-        EXPECT_EQ(evaluation.lineage.evaluation_sequence, 1U);
-        EXPECT_EQ(evaluation.lineage.evaluation_role, "RESEARCH_PROVENANCE_TEST");
-        EXPECT_FALSE(evaluation.lineage.input_snapshot_id.empty());
-        EXPECT_FALSE(evaluation.lineage.ego_snapshot_id.empty());
-        EXPECT_FALSE(evaluation.lineage.obstacle_snapshot_id.empty());
-        EXPECT_FALSE(evaluation.lineage.reference_snapshot_id.empty());
-        EXPECT_EQ(evaluation.lineage.reference_generation, 1U);
-      }
       for (const auto & trace : result.research_all_candidates) {
         if (!trace.path.wpnts.empty()) {
           EXPECT_TRUE(std::isfinite(trace.waypoint0_s_m));
@@ -187,8 +176,7 @@ TEST(P3ProductionParity, ResearchTracePreservesDiscardedSidesAndM1ProbeRoots)
     obstacle.is_visible = true;
     PlanningResearchCycle cycle;
     planner.setActiveResearchCycle(&cycle);
-    const auto result = planner.evaluateP3Shadow(
-      ego, {obstacle}, 0, 0U, 1U, "RESEARCH_DISCARDED_SIDE_TEST");
+    const auto result = planner.evaluateP3LegacyOnlyShadow(ego, {obstacle});
     planner.setActiveResearchCycle(nullptr);
     EXPECT_GT(result.research_m0_v1_constructed_right, 0U);
     EXPECT_GT(result.research_m0_v1_constructed_left, 0U);

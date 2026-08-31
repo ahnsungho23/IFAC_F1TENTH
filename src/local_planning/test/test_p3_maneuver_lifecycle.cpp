@@ -76,6 +76,16 @@ f110_msgs::msg::Obstacle intrudingObstacle()
   return obstacle;
 }
 
+f110_msgs::msg::Obstacle intrudingObstacleAt(int id, double center)
+{
+  auto obstacle = intrudingObstacle();
+  obstacle.id = id;
+  obstacle.s_center = center;
+  obstacle.s_start = center - 0.2;
+  obstacle.s_end = center + 0.2;
+  return obstacle;
+}
+
 f110_msgs::msg::WpntArray forwardPath(
   const RacelineSplinePlanner & planner,
   std::size_t count = 24U)
@@ -227,6 +237,47 @@ TEST(P3ManeuverLifecycle, EvaluatorCertificateReplacesRedundantGuardedValidation
   EXPECT_TRUE(reused.raw_validation_attempted);
   EXPECT_TRUE(revalidated.raw_validation_attempted);
   EXPECT_EQ(reused.raw_validation_hard_valid, revalidated.raw_validation_hard_valid);
+}
+
+TEST(P3ManeuverLifecycle, FrozenOwnershipBoundaryExcludesExistingNextClusterButCatchesNewBlocker)
+{
+  auto planner = plannerWithReference();
+  auto snapshot = initialSnapshot();
+  const auto existing_next = intrudingObstacleAt(8, 8.0);
+  snapshot.obstacles.push_back(existing_next);
+  snapshot.raw_obstacles = snapshot.obstacles;
+
+  auto candidate = freshResult(planner, snapshot, 5.55);
+  candidate.selected_obstacle_collision_horizon_forward_m = 7.45;
+  candidate.selected_validation = planner.evaluateP3PathCurrent(
+    snapshot.ego, candidate.selected_path, snapshot.obstacles, 1.0, 7.45);
+  candidate.selected_validation_available = true;
+  ASSERT_TRUE(candidate.selected_validation.hard_valid) <<
+    candidate.selected_validation.rejection_reason << " obstacle=" <<
+    candidate.selected_validation.failure_obstacle_id << " waypoint_s=" <<
+    candidate.selected_validation.failure_waypoint_s;
+
+  P3ManeuverLifecycle lifecycle;
+  const auto fresh = lifecycle.selectFresh(snapshot, candidate, planner);
+  ASSERT_TRUE(fresh.has_output) << fresh.reason;
+  EXPECT_DOUBLE_EQ(fresh.obstacle_collision_horizon_forward_m, 7.45);
+
+  snapshot.source_stamp_ns = 101;
+  const auto existing_next_held = lifecycle.continueCurrent(snapshot, planner, 3);
+  ASSERT_TRUE(existing_next_held.has_output) << existing_next_held.reason;
+  EXPECT_TRUE(existing_next_held.suffix_hard_valid);
+  EXPECT_DOUBLE_EQ(existing_next_held.obstacle_collision_horizon_forward_m, 7.45);
+
+  // This obstacle did not define the selected next-cluster boundary. It appears later but lies
+  // inside the already owned interval, so continuation must not re-cut the horizon in front of it.
+  const auto new_blocker = intrudingObstacleAt(9, 6.0);
+  snapshot.obstacles.push_back(new_blocker);
+  snapshot.raw_obstacles.push_back(new_blocker);
+  snapshot.source_stamp_ns = 102;
+  const auto invalidated = lifecycle.continueCurrent(snapshot, planner, 3);
+  EXPECT_TRUE(invalidated.invalidated);
+  EXPECT_FALSE(invalidated.has_output);
+  EXPECT_NE(invalidated.reason.find("CURRENT_RAW_OBSTACLE_COLLISION:"), std::string::npos);
 }
 
 TEST(P3ManeuverLifecycle, CertifiedCandidateStillRejectedWhenRawGeometryCollides)

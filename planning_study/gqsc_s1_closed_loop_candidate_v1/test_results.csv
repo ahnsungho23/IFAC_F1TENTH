@@ -1,0 +1,13 @@
+gate,scope,result,detail
+release_build,local_planning,PASS,colcon Release build completed
+canonical_sha,v3 base and S1 composition,PASS,965f6ce... and 670f39a... verified by CMake and pytest
+selector_unit,test_p3_r3_k12,PASS,S1 deterministic 8+4 and no v2 operator
+parameter_contract,test_raceline_spline,PASS,88/88 including tight-gap and nonblocking reason
+instrumentation,test_research_instrumentation,PASS,default-OFF schema path remains passive
+lifecycle,test_p3_maneuver_lifecycle,PASS,20/20 ownership tests
+stateless_seen_parity,104 allowed-seen snapshots,PASS,104/104 proposal Top-12 digest verdict and selection exact
+sequential_seen_replay,62 S1 hard-valid snapshots,PASS,62/62 ownership continuation trim completion and blocker invalidation
+bounded_contract,104 allowed-seen snapshots,PASS,max pair/reconstruction/validator 128/12/12 and legacy seeds 0
+production_legacy_scenario,test_p3_production_parity,KNOWN_METHOD_COVERAGE_LIMIT,10/12 tests pass; LayoutBReplanRecovers and SamePinchGeometryAtTwoDistances remain frozen coverage misses
+closed_loop_smoke,known-map low-speed,NOT_RUN,full callback p95 43.208 ms fails the runtime prerequisite
+final_holdout_access,task protocol,PASS,0 content accesses
