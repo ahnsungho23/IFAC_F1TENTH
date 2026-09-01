@@ -1,5 +1,17 @@
 # Local planner research instrumentation
 
+## Live fresh-generation runtime profile
+
+`live_runtime_profiling_enable` is a separate, default-OFF research gate. When enabled it publishes
+one `std_msgs/msg/String` record on `/local_planning/live_runtime_profile` for each callback that
+actually invokes fresh GQSC-S1 generation. The `gqsc_s1_live_fresh_runtime/1` payload separates
+snapshot/obstacle preparation, frozen proposal selection, reconstruction, exact validation,
+lifecycle/ranking, message construction, DDS publication, lock wait, residual work, and total
+callback time. It also records the bounded work counts. JSON construction and diagnostic
+publication occur after `O_total` is stopped, so they are not charged to the measured hot path.
+
+This profiler is observational only. Leave it disabled outside an explicitly recorded timing run.
+
 ## 목적과 비개입 계약
 
 이 기능은 P3 후보 생성·검증·순위·lifecycle을 사후 연구할 수 있도록 event를 복사해

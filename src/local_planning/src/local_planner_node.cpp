@@ -624,6 +624,10 @@ void LocalPlannerNode::initializeParameters()
     declare_parameter<std::string>("research_parameter_snapshot_id", "");
   research_queue_capacity_ =
     declare_parameter<int>("research_queue_capacity", 128);
+  live_runtime_profiling_enable_ =
+    declare_parameter<bool>("live_runtime_profiling_enable", false);
+  live_runtime_profile_topic_ = declare_parameter<std::string>(
+    "live_runtime_profile_topic", "/local_planning/live_runtime_profile");
   lockstep_mode_ = declare_parameter<bool>("lockstep_mode", false);
   // TEST_ACTIVE(P3 주도 + P0 백업)가 기본 주행 모드입니다 (2026-08-12).
   const std::string p3_mode = declare_parameter<std::string>("p3_mode", "TEST_ACTIVE");
@@ -932,6 +936,10 @@ void LocalPlannerNode::initializeInterfaces()
       p3_diagnostics_topic_,
       rclcpp::QoS(rclcpp::KeepLast(
         static_cast<std::size_t>(std::max(1, p3_diagnostics_queue_depth_)))).reliable());
+  }
+  if (live_runtime_profiling_enable_) {
+    live_runtime_profile_pub_ = create_publisher<std_msgs::msg::String>(
+      live_runtime_profile_topic_, rclcpp::QoS(1000).reliable());
   }
 
   if (!lockstep_mode_) {
@@ -3091,7 +3099,13 @@ P3CallbackSnapshot LocalPlannerNode::captureP3CallbackSnapshot()
   P3CallbackSnapshot snapshot;
   ++p3_callback_sequence_;
   {
+    const auto lock_start = std::chrono::steady_clock::now();
     std::lock_guard<std::mutex> lock(odometry_mutex_);
+    if (active_live_runtime_profile_ != nullptr) {
+      active_live_runtime_profile_->stage_m_lock_wait_us +=
+        std::chrono::duration<double, std::micro>(
+        std::chrono::steady_clock::now() - lock_start).count();
+    }
     snapshot.has_odometry = has_odometry_;
     snapshot.odometry = latest_odometry_;
     snapshot.odometry_receipt_time = last_odometry_time_;
@@ -3421,6 +3435,14 @@ void LocalPlannerNode::publishP3CycleDiagnostic(
   const std::string & path_owner,
   bool p0_backup_only)
 {
+  const auto diagnostic_start = std::chrono::steady_clock::now();
+  ScopeExit diagnostic_finish([this, diagnostic_start]() {
+      if (active_live_runtime_profile_ != nullptr) {
+        active_live_runtime_profile_->research_diagnostic_serialization_us +=
+        std::chrono::duration<double, std::micro>(
+          std::chrono::steady_clock::now() - diagnostic_start).count();
+      }
+    });
   captureResearchLifecycle(evaluation, lifecycle);
   if (active_research_cycle_ != nullptr) {
     active_research_cycle_->lifecycle_owner = path_owner;
@@ -3667,10 +3689,130 @@ void LocalPlannerNode::publishP3CycleDiagnostic(
   previous_p3_cycle_json_ = message.data;
 }
 
+void LocalPlannerNode::publishLiveFreshRuntimeProfile(
+  const LiveFreshRuntimeProfile & profile)
+{
+  if (live_runtime_profile_pub_ == nullptr) {
+    return;
+  }
+  std_msgs::msg::String message;
+  std::ostringstream json;
+  json << std::setprecision(17)
+       << "{\"schema\":\"gqsc_s1_live_fresh_runtime/1\""
+       << ",\"callback_sequence\":" << profile.callback_sequence
+       << ",\"fresh_evaluation_count\":" << profile.fresh_evaluation_count
+       << ",\"stage_us\":{\"A_snapshot_preparation\":"
+       << profile.stage_a_snapshot_preparation_us
+       << ",\"B_obstacle_conversion\":" << profile.stage_b_obstacle_conversion_us
+       << ",\"C_corridor_free_geometry\":" << profile.stage_c_corridor_geometry_us
+       << ",\"D_lateral_proposal\":" << profile.stage_d_lateral_proposal_us
+       << ",\"E_transition_proposal\":" << profile.stage_e_transition_proposal_us
+       << ",\"F_B128_pair_proxy\":" << profile.stage_f_pair_proxy_us
+       << ",\"G_top12_selection\":" << profile.stage_g_top_k_selection_us
+       << ",\"H_reconstruction\":" << profile.stage_h_reconstruction_us
+       << ",\"I_exact_validation\":" << profile.stage_i_validation_us
+       << ",\"J_final_rank_lifecycle\":" << profile.stage_j_rank_lifecycle_us
+       << ",\"K_message_construction\":" << profile.stage_k_message_construction_us
+       << ",\"L_publication\":" << profile.stage_l_publication_us
+       << ",\"M_lock_wait\":" << profile.stage_m_lock_wait_us
+       << ",\"N_other\":" << profile.stage_n_other_us
+       << ",\"O_total\":" << profile.stage_o_total_us << '}'
+       << ",\"evaluator_wall_us\":" << profile.evaluator_wall_us
+       << ",\"research_us\":{\"capture\":" << profile.research_capture_us
+       << ",\"diagnostic_serialization\":"
+       << profile.research_diagnostic_serialization_us << '}'
+       << ",\"complexity\":{\"obstacles\":" << profile.obstacle_count
+       << ",\"stations\":" << profile.station_count
+       << ",\"lateral_factors\":" << profile.lateral_factor_count
+       << ",\"transitions\":" << profile.transition_count
+       << ",\"pair_proxies\":" << profile.pair_proxy_count
+       << ",\"reconstructions\":" << profile.reconstruction_count
+       << ",\"validator_calls\":" << profile.validator_count
+       << ",\"reconstructed_path_points\":"
+       << profile.reconstructed_path_point_count
+       << ",\"selected_path_points\":" << profile.selected_path_point_count << "}}";
+  message.data = json.str();
+  live_runtime_profile_pub_->publish(message);
+}
+
+void LocalPlannerNode::captureLiveFreshEvaluation(const P3ShadowResult & result)
+{
+  if (active_live_runtime_profile_ == nullptr || !result.r3_invoked) {
+    return;
+  }
+  auto & profile = *active_live_runtime_profile_;
+  ++profile.fresh_evaluation_count;
+  profile.stage_c_corridor_geometry_us +=
+    result.r3_runtime_context_preparation_us + result.r3_runtime_geometry_preparation_us;
+  profile.stage_d_lateral_proposal_us += result.r3_runtime_lateral_factor_generation_us;
+  profile.stage_e_transition_proposal_us += result.r3_runtime_transition_generation_us;
+  profile.stage_f_pair_proxy_us += result.r3_runtime_pair_priority_computation_us;
+  profile.stage_g_top_k_selection_us +=
+    result.r3_runtime_lexicographic_ordering_us +
+    result.r3_runtime_coverage_ordering_us +
+    result.r3_runtime_shape_deduplication_us +
+    result.r3_runtime_candidate_deduplication_us;
+  profile.stage_h_reconstruction_us += result.r3_runtime_reconstruction_us;
+  profile.stage_i_validation_us += result.r3_runtime_validation_us;
+  profile.stage_j_rank_lifecycle_us += result.r3_runtime_final_ranking_us;
+  profile.obstacle_count += result.reuse_obstacles.size();
+  profile.station_count += result.r3_reference_sample_count;
+  profile.lateral_factor_count += result.r3_lateral_factor_count;
+  profile.transition_count += result.r3_transition_count;
+  profile.pair_proxy_count += result.r3_pair_priority_count;
+  profile.reconstruction_count += result.r3_constructed_candidate_count;
+  profile.validator_count += result.r3_validator_call_count;
+  for (const auto & candidate : result.candidates) {
+    profile.reconstructed_path_point_count += candidate.point_count;
+  }
+  profile.selected_path_point_count += result.selected_path.wpnts.size();
+}
+
 void LocalPlannerNode::onPlanningTimer()
 {
+  using RuntimeClock = std::chrono::steady_clock;
+  const auto live_callback_start = RuntimeClock::now();
+  std::optional<LiveFreshRuntimeProfile> live_profile;
   std::optional<PlanningResearchCycle> research_cycle;
   std::unique_ptr<ScopeExit> research_finish;
+  std::unique_ptr<ScopeExit> live_profile_finish;
+  if (live_runtime_profiling_enable_) {
+    live_profile.emplace();
+    active_live_runtime_profile_ = &*live_profile;
+    planner_.setLiveRuntimeObserver(
+      [this](const P3ShadowResult & result) {captureLiveFreshEvaluation(result);});
+    live_profile_finish = std::make_unique<ScopeExit>([&, live_callback_start]() {
+          auto & profile = *live_profile;
+          profile.callback_sequence = p3_callback_sequence_;
+          profile.stage_o_total_us = std::chrono::duration<double, std::micro>(
+            RuntimeClock::now() - live_callback_start).count();
+          const double classified_us =
+          profile.stage_a_snapshot_preparation_us +
+          profile.stage_b_obstacle_conversion_us +
+          profile.stage_c_corridor_geometry_us +
+          profile.stage_d_lateral_proposal_us +
+          profile.stage_e_transition_proposal_us +
+          profile.stage_f_pair_proxy_us +
+          profile.stage_g_top_k_selection_us +
+          profile.stage_h_reconstruction_us +
+          profile.stage_i_validation_us +
+          profile.stage_j_rank_lifecycle_us +
+          profile.stage_k_message_construction_us +
+          profile.stage_l_publication_us +
+          profile.stage_m_lock_wait_us;
+          profile.stage_n_other_us = std::max(0.0, profile.stage_o_total_us - classified_us);
+          if (active_research_cycle_ != nullptr) {
+            profile.research_capture_us =
+            active_research_cycle_->runtime_research_lineage_us +
+            active_research_cycle_->runtime_research_capture_us;
+          }
+          planner_.setLiveRuntimeObserver({});
+          active_live_runtime_profile_ = nullptr;
+          if (profile.fresh_evaluation_count > 0U) {
+            publishLiveFreshRuntimeProfile(profile);
+          }
+        });
+  }
   std::chrono::steady_clock::time_point research_callback_start;
   if (research_logger_ != nullptr) {
     research_callback_start = std::chrono::steady_clock::now();
@@ -3737,7 +3879,13 @@ void LocalPlannerNode::onPlanningTimer()
   }
 
   if (!lockstep_mode_) {
+    const auto obstacle_start = RuntimeClock::now();
     drainLatestObstacleIngress();
+    if (active_live_runtime_profile_ != nullptr) {
+      active_live_runtime_profile_->stage_b_obstacle_conversion_us +=
+        std::chrono::duration<double, std::micro>(
+        RuntimeClock::now() - obstacle_start).count();
+    }
   }
 
   // Freeze callback-source lineage before any evaluator invocation. The completion hook keeps the
@@ -3757,7 +3905,16 @@ void LocalPlannerNode::onPlanningTimer()
     return;
   }
 
+  const auto snapshot_start = RuntimeClock::now();
+  const double snapshot_lock_before = active_live_runtime_profile_ == nullptr ? 0.0 :
+    active_live_runtime_profile_->stage_m_lock_wait_us;
   const P3CallbackSnapshot snapshot = captureP3CallbackSnapshot();
+  if (active_live_runtime_profile_ != nullptr) {
+    active_live_runtime_profile_->stage_a_snapshot_preparation_us += std::max(
+      0.0, std::chrono::duration<double, std::micro>(
+        RuntimeClock::now() - snapshot_start).count() -
+      (active_live_runtime_profile_->stage_m_lock_wait_us - snapshot_lock_before));
+  }
   if (snapshot.source_stamp_regressed) {
     // 역행 샘플로는 계획하지 않는다(스냅샷 구조체 주석 참고). 상태 리셋은 capture에서 이미
     // 끝났고, 다음 콜백(25 ms 뒤)이 일관된 샘플로 신선하게 재선택한다.
@@ -3776,30 +3933,70 @@ void LocalPlannerNode::onPlanningTimer()
       shadow_snapshot.ready = true;
       shadow_snapshot.not_ready_reason.clear();
     }
+    const auto shadow_preparation_start = RuntimeClock::now();
     (void)prepareP3InitialSelectionSnapshot(shadow_snapshot);
+    if (active_live_runtime_profile_ != nullptr) {
+      active_live_runtime_profile_->stage_a_snapshot_preparation_us +=
+        std::chrono::duration<double, std::micro>(
+        RuntimeClock::now() - shadow_preparation_start).count();
+    }
     // SHADOW is observational: it always evaluates, so the lazy hook is satisfied eagerly here.
+    const auto shadow_evaluation_start = RuntimeClock::now();
     const P3ShadowResult evaluation = evaluateP3Snapshot(
       shadow_snapshot, "SHADOW_PRODUCTION_" + last_selected_path_family_);
+    if (active_live_runtime_profile_ != nullptr) {
+      active_live_runtime_profile_->evaluator_wall_us +=
+        std::chrono::duration<double, std::micro>(
+        RuntimeClock::now() - shadow_evaluation_start).count();
+    }
+    const auto shadow_lifecycle_start = RuntimeClock::now();
     const auto lifecycle = advanceP3Lifecycle(
       shadow_snapshot, [&evaluation]() -> const P3ShadowResult & {return evaluation;});
+    if (active_live_runtime_profile_ != nullptr) {
+      active_live_runtime_profile_->stage_j_rank_lifecycle_us +=
+        std::chrono::duration<double, std::micro>(
+        RuntimeClock::now() - shadow_lifecycle_start).count();
+    }
     publishP3CycleDiagnostic(
       shadow_snapshot, evaluation, lifecycle, "P0_SHADOW_UNCHANGED", false);
     return;
   }
 
   P3CallbackSnapshot active_snapshot = snapshot;
+  const auto preparation_start = RuntimeClock::now();
   (void)prepareP3InitialSelectionSnapshot(active_snapshot);
+  if (active_live_runtime_profile_ != nullptr) {
+    active_live_runtime_profile_->stage_a_snapshot_preparation_us +=
+      std::chrono::duration<double, std::micro>(
+      RuntimeClock::now() - preparation_start).count();
+  }
   // Lazy by contract: advanceP3Lifecycle pulls this only after continuation fails to produce
   // output. While a frozen suffix keeps hard-validating, no candidate is constructed and no hard
   // validation runs on this callback.
   std::optional<P3ShadowResult> evaluation_storage;
   const auto evaluate = [&]() -> const P3ShadowResult & {
       if (!evaluation_storage.has_value()) {
+        const auto evaluation_start = RuntimeClock::now();
         evaluation_storage = evaluateP3Snapshot(active_snapshot, "TEST_ACTIVE_PRIMARY");
+        if (active_live_runtime_profile_ != nullptr) {
+          active_live_runtime_profile_->evaluator_wall_us +=
+            std::chrono::duration<double, std::micro>(
+            RuntimeClock::now() - evaluation_start).count();
+        }
       }
       return *evaluation_storage;
     };
+  const auto lifecycle_start = RuntimeClock::now();
+  const double evaluator_wall_before = active_live_runtime_profile_ == nullptr ? 0.0 :
+    active_live_runtime_profile_->evaluator_wall_us;
   const auto lifecycle = advanceP3Lifecycle(active_snapshot, evaluate);
+  if (active_live_runtime_profile_ != nullptr) {
+    const double evaluation_inside_lifecycle_us =
+      active_live_runtime_profile_->evaluator_wall_us - evaluator_wall_before;
+    active_live_runtime_profile_->stage_j_rank_lifecycle_us += std::max(
+      0.0, std::chrono::duration<double, std::micro>(
+        RuntimeClock::now() - lifecycle_start).count() - evaluation_inside_lifecycle_us);
+  }
   // The previous same-callback replan branch lived here. It was unreachable by construction: the
   // lifecycle only surfaces CURRENT_RAW_OBSTACLE_COLLISION when the evaluation did NOT recover,
   // and re-running the evaluator on the same immutable snapshot cannot change that verdict, so the
@@ -4424,6 +4621,9 @@ nav_msgs::msg::Path LocalPlannerNode::makePath(
 
 void LocalPlannerNode::publishResult(const RacelineSplineResult & result)
 {
+  const auto message_start = std::chrono::steady_clock::now();
+  const double message_lock_before = active_live_runtime_profile_ == nullptr ? 0.0 :
+    active_live_runtime_profile_->stage_m_lock_wait_us;
   if (p3_mode_ != P3RuntimeMode::kOff) {
     if (current_path_owner_.rfind("P3_", 0U) == 0U) {
       last_selected_path_family_ = current_path_owner_;
@@ -4454,7 +4654,13 @@ void LocalPlannerNode::publishResult(const RacelineSplineResult & result)
     nav_msgs::msg::Odometry odometry;
     bool has_odometry = false;
     {
+      const auto lock_start = std::chrono::steady_clock::now();
       std::lock_guard<std::mutex> lock(odometry_mutex_);
+      if (active_live_runtime_profile_ != nullptr) {
+        active_live_runtime_profile_->stage_m_lock_wait_us +=
+          std::chrono::duration<double, std::micro>(
+          std::chrono::steady_clock::now() - lock_start).count();
+      }
       has_odometry = has_odometry_;
       if (has_odometry) {
         odometry = latest_odometry_;
@@ -4600,7 +4806,19 @@ void LocalPlannerNode::publishResult(const RacelineSplineResult & result)
   last_published_side_ = current_side;
   const std::int64_t publish_steady_ns = steadyNowNs();
   last_publication_non_empty_ = !output.wpnts.empty();
+  if (active_live_runtime_profile_ != nullptr) {
+    active_live_runtime_profile_->stage_k_message_construction_us += std::max(
+      0.0, std::chrono::duration<double, std::micro>(
+        std::chrono::steady_clock::now() - message_start).count() -
+      (active_live_runtime_profile_->stage_m_lock_wait_us - message_lock_before));
+  }
+  const auto publication_start = std::chrono::steady_clock::now();
   avoid_waypoints_pub_->publish(output);
+  if (active_live_runtime_profile_ != nullptr) {
+    active_live_runtime_profile_->stage_l_publication_us +=
+      std::chrono::duration<double, std::micro>(
+      std::chrono::steady_clock::now() - publication_start).count();
+  }
 
   if (timing_diagnostics_enable_ && !timing_t1_published_ && !output.wpnts.empty()) {
     nav_msgs::msg::Odometry odometry;
@@ -4630,7 +4848,20 @@ void LocalPlannerNode::publishResult(const RacelineSplineResult & result)
   }
 
   if (localPathVisualizationDue()) {
-    local_path_pub_->publish(makePath(result.path.wpnts, output.header));
+    const auto visualization_start = std::chrono::steady_clock::now();
+    auto visualization = makePath(result.path.wpnts, output.header);
+    if (active_live_runtime_profile_ != nullptr) {
+      active_live_runtime_profile_->stage_k_message_construction_us +=
+        std::chrono::duration<double, std::micro>(
+        std::chrono::steady_clock::now() - visualization_start).count();
+    }
+    const auto visualization_publish_start = std::chrono::steady_clock::now();
+    local_path_pub_->publish(visualization);
+    if (active_live_runtime_profile_ != nullptr) {
+      active_live_runtime_profile_->stage_l_publication_us +=
+        std::chrono::duration<double, std::micro>(
+        std::chrono::steady_clock::now() - visualization_publish_start).count();
+    }
   }
 }
 
@@ -4789,6 +5020,7 @@ void LocalPlannerNode::publishCandidateAudit(
 
 void LocalPlannerNode::publishEmpty(const std::string & reason)
 {
+  const auto message_start = std::chrono::steady_clock::now();
   if (p3_mode_ != P3RuntimeMode::kOff) {
     last_selected_path_family_ = "P0_EMPTY";
     last_selected_path_digest_ = "NONE";
@@ -4799,12 +5031,35 @@ void LocalPlannerNode::publishEmpty(const std::string & reason)
   output.last_switch_time = last_side_switch_time_;
   output.ot_line = reason;
   last_publication_non_empty_ = false;
+  if (active_live_runtime_profile_ != nullptr) {
+    active_live_runtime_profile_->stage_k_message_construction_us +=
+      std::chrono::duration<double, std::micro>(
+      std::chrono::steady_clock::now() - message_start).count();
+  }
+  const auto publication_start = std::chrono::steady_clock::now();
   avoid_waypoints_pub_->publish(output);
+  if (active_live_runtime_profile_ != nullptr) {
+    active_live_runtime_profile_->stage_l_publication_us +=
+      std::chrono::duration<double, std::micro>(
+      std::chrono::steady_clock::now() - publication_start).count();
+  }
 
   if (localPathVisualizationDue()) {
+    const auto visualization_start = std::chrono::steady_clock::now();
     nav_msgs::msg::Path empty_path;
     empty_path.header = output.header;
+    if (active_live_runtime_profile_ != nullptr) {
+      active_live_runtime_profile_->stage_k_message_construction_us +=
+        std::chrono::duration<double, std::micro>(
+        std::chrono::steady_clock::now() - visualization_start).count();
+    }
+    const auto visualization_publish_start = std::chrono::steady_clock::now();
     local_path_pub_->publish(empty_path);
+    if (active_live_runtime_profile_ != nullptr) {
+      active_live_runtime_profile_->stage_l_publication_us +=
+        std::chrono::duration<double, std::micro>(
+        std::chrono::steady_clock::now() - visualization_publish_start).count();
+    }
   }
   RCLCPP_DEBUG_THROTTLE(get_logger(), *get_clock(), 2000, "%s", reason.c_str());
 }

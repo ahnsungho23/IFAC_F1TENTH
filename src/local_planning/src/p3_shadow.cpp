@@ -3477,6 +3477,9 @@ P3ShadowResult RacelineSplinePlanner::evaluateP3Shadow(
     if (research_cycle != nullptr) {
       research_cycle->active_evaluation_lineage.reset();
     }
+    if (live_runtime_observer_) {
+      live_runtime_observer_(result);
+    }
     return result;
   } catch (const std::exception & error) {
     P3ShadowResult failed;
@@ -3494,6 +3497,9 @@ P3ShadowResult RacelineSplinePlanner::evaluateP3Shadow(
         std::chrono::duration<double, std::micro>(
         std::chrono::steady_clock::now() - capture_start).count();
       research_cycle->active_evaluation_lineage.reset();
+    }
+    if (live_runtime_observer_) {
+      live_runtime_observer_(failed);
     }
     return failed;
   }

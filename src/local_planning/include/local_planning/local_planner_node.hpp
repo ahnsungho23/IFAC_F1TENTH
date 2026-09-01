@@ -85,6 +85,43 @@ struct P3CallbackSnapshot
   bool source_stamp_regressed{false};
 };
 
+// Research-only, default-OFF callback profiler. All fields are passive counters/timings; the
+// planner never reads them for generation, validation, ranking, lifecycle, or publication.
+// A fresh sample is serialized only after stage O has stopped, so JSON/string work is outside the
+// measured callback hot path.
+struct LiveFreshRuntimeProfile
+{
+  std::uint64_t callback_sequence{0U};
+  std::size_t fresh_evaluation_count{0U};
+  double stage_a_snapshot_preparation_us{0.0};
+  double stage_b_obstacle_conversion_us{0.0};
+  double stage_c_corridor_geometry_us{0.0};
+  double stage_d_lateral_proposal_us{0.0};
+  double stage_e_transition_proposal_us{0.0};
+  double stage_f_pair_proxy_us{0.0};
+  double stage_g_top_k_selection_us{0.0};
+  double stage_h_reconstruction_us{0.0};
+  double stage_i_validation_us{0.0};
+  double stage_j_rank_lifecycle_us{0.0};
+  double stage_k_message_construction_us{0.0};
+  double stage_l_publication_us{0.0};
+  double stage_m_lock_wait_us{0.0};
+  double stage_n_other_us{0.0};
+  double stage_o_total_us{0.0};
+  double evaluator_wall_us{0.0};
+  double research_capture_us{0.0};
+  double research_diagnostic_serialization_us{0.0};
+  std::size_t obstacle_count{0U};
+  std::size_t station_count{0U};
+  std::size_t lateral_factor_count{0U};
+  std::size_t transition_count{0U};
+  std::size_t pair_proxy_count{0U};
+  std::size_t reconstruction_count{0U};
+  std::size_t validator_count{0U};
+  std::size_t reconstructed_path_point_count{0U};
+  std::size_t selected_path_point_count{0U};
+};
+
 class LocalPlannerNode : public rclcpp::Node
 {
 public:
@@ -134,6 +171,8 @@ private:
     const P3ManeuverLifecycleDecision & lifecycle,
     const std::string & path_owner,
     bool p0_backup_only);
+  void publishLiveFreshRuntimeProfile(const LiveFreshRuntimeProfile & profile);
+  void captureLiveFreshEvaluation(const P3ShadowResult & result);
 
   bool sameReference(const f110_msgs::msg::WpntArray & message) const;
   void clearCommitment();
@@ -270,6 +309,7 @@ private:
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr timing_diagnostics_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr replay_diagnostics_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr p3_diagnostics_pub_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr live_runtime_profile_pub_;
   rclcpp::TimerBase::SharedPtr planning_timer_;
 
   RacelineSplineParameters planner_parameters_;
@@ -539,6 +579,10 @@ private:
   std::unique_ptr<PlanningResearchLogger> research_logger_;
   PlanningResearchCycle * active_research_cycle_{nullptr};
   std::uint64_t research_callback_sequence_{0U};
+
+  bool live_runtime_profiling_enable_{false};
+  std::string live_runtime_profile_topic_{"/local_planning/live_runtime_profile"};
+  LiveFreshRuntimeProfile * active_live_runtime_profile_{nullptr};
 
   P3RuntimeMode p3_mode_{P3RuntimeMode::kOff};
   std::string p3_diagnostics_topic_{"/local_planning/p3_shadow"};

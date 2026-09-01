@@ -18,6 +18,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <optional>
 #include <string>
@@ -517,6 +518,10 @@ public:
   // production/default path and causes no research trace collection.
   void setActiveResearchCycle(PlanningResearchCycle * cycle) const;
   PlanningResearchCycle * activeResearchCycle() const;
+  // Default-empty, research-only observer for per-evaluator runtime accounting. It receives a
+  // completed result and is never read by candidate generation or any downstream decision.
+  void setLiveRuntimeObserver(
+    std::function<void(const P3ShadowResult &)> observer) const;
   double trackLength() const;
   double forwardDistance(double from_s, double to_s) const;
   std::vector<int> blockingClusterIds(
@@ -941,6 +946,7 @@ private:
   double track_length_{0.0};
   std::uint64_t planning_input_revision_{0U};
   mutable PlanningResearchCycle * active_research_cycle_{nullptr};
+  mutable std::function<void(const P3ShadowResult &)> live_runtime_observer_;
 };
 
 }  // namespace local_planning

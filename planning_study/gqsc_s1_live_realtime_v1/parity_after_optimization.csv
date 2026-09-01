@@ -1,0 +1,15 @@
+gate,expected,observed,result,note
+frozen_s1_sha,670f39a23479bcdcc1db0829a895257443fec8ee2f78f186bc1beb224090b776,670f39a23479bcdcc1db0829a895257443fec8ee2f78f186bc1beb224090b776,PASS,canonical serialization unchanged
+allowed_seen_exact_parity,104/104,104/104,PASS,lateral transition pair Top12 path verdict selection lineage and bounds exact
+hard_valid_events,62,62,PASS,unchanged
+usable_valid_events,54,54,PASS,unchanged
+lifecycle_replay,62/62,62/62,PASS,ownership continuation trim completion and invalidation
+raceline_parameterized,88/88,88/88,PASS,test_raceline_spline
+production_scenarios,at_least_10/12,10/12,KNOWN_METHOD_COVERAGE_LIMIT,unchanged LayoutBReplanRecovers and SamePinchGeometryAtTwoDistances
+pair_proxy_max,128,128,PASS,per evaluation
+reconstruction_max,12,12,PASS,per evaluation
+validator_max,12,12,PASS,per evaluation
+hidden_legacy_seed_max,0,0,PASS,no hidden ladder execution
+deterministic_repeat_hash,equal,equal,PASS,17510e5fe76583251218b6d2ffba998a7c0a53ba2d750c338c0d056693922415 both runs
+default_off_profile_behavior,no decision change,exact parity,PASS,profiler publisher and observer disabled by default
+

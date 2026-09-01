@@ -1,0 +1,9 @@
+environment,query,sample_count,obstacle_count,station_count,lateral_proposal_count,transition_proposal_count,pair_proxy_count,reconstruction_count,validator_count,reconstructed_path_points,selected_path_size,aggregation,runtime_driver_interpretation
+STANDALONE_ALLOWED_SEEN,104 frozen seen queries x10,1040,5,458,64,7,128,12,12,1847,185,MAX_OVER_SET,complexity varies by geometry but every bound remains fixed
+STANDALONE_SCE018_P_CORE,SCE018,100,2,458,63,7,128,12,12,1847,185,CONSTANT_QUERY,same work as E-core diagnostic
+STANDALONE_SCE018_E_CORE,SCE018,100,2,458,63,7,128,12,12,1847,185,CONSTANT_QUERY,same counts but approximately 31 ms tail
+ROS_NODE_ISOLATED,SCE018,40,2,NOT_RETAINED,NOT_RETAINED,7,128,12,12,1642,185,STABLE_FULL_BOUND_SET,operational node guard changes point count; core placement dominates tail
+PREVIOUS_LIVE_FULL_TRACE,LIVE221808,1,1,444,62,7,128,12,12,1398,123,EXACT_CALLBACK,selected digest d18331e97cdba596
+PREVIOUS_LIVE_SMOKE,all callbacks constructing 12 paths,16,NOT_RETAINED,NOT_RETAINED,NOT_RETAINED,7,128,12,12,NOT_RETAINED,NOT_RETAINED,MAXIMA_AND_SAMPLE_COUNT,all 16 saturated 128/12/12 yet callback p95 was 33.421 ms
+LIVE_CLOSED_LOOP_REQUAL,STRAIGHT_201 callback 1955,1,1,480,62,7,128,12,12,1571,141,EXACT_CALLBACK,callback 22.387 ms with the same bounded counts
+

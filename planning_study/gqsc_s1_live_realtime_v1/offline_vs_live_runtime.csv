@@ -1,0 +1,14 @@
+environment,query,same_query_as_reference,selected_digest_exact,sample_count,metric,p50_ms,p90_ms,p95_ms,p99_ms,max_ms,interpretation
+STANDALONE_WARM_UNPINNED,LIVE221808,true,true,100,evaluator_wall,16.856,16.934,17.006,17.073,17.113,reconstructed prior-live geometry and output digest
+PREVIOUS_LIVE_CLOSED_LOOP,LIVE221808,true,true,1,evaluator_wall,27.802,27.802,27.802,27.802,27.802,actual prior live callback
+PREVIOUS_LIVE_CLOSED_LOOP,LIVE221808,true,true,1,callback_total,30.904,30.904,30.904,30.904,30.904,actual prior live planning event
+STANDALONE_UNPINNED,SCE018,true,true,100,evaluator_wall,21.241,21.953,22.228,23.339,23.549,controlled identical query
+STANDALONE_P_CORE_CPU8,SCE018,true,true,100,evaluator_wall,21.288,21.888,22.008,22.418,22.769,diagnostic affinity only
+STANDALONE_E_CORE_CPU22,SCE018,true,true,100,evaluator_wall,30.635,30.800,30.952,31.089,31.233,diagnostic affinity only
+ROS_NODE_ISOLATED,SCE018,true,true,40,evaluator_wall,21.767,25.575,28.893,30.733,31.292,node observed on logical CPU22
+ROS_NODE_ISOLATED,SCE018,true,true,40,callback_total,23.467,27.516,30.824,32.928,33.644,SHADOW total includes unchanged P0 residual
+PREVIOUS_LIVE_SMOKE,16 full-bound live queries,false,true,16,evaluator_wall,22.896,29.103,29.939,30.020,30.040,different live geometries; same 128/12/12 bounds
+PREVIOUS_LIVE_SMOKE,16 full-bound live queries,false,true,16,callback_total,25.690,32.276,33.421,33.476,33.489,different live geometries; same 128/12/12 bounds
+LIVE_CLOSED_LOOP_REQUAL,STRAIGHT_201,false,true,1,evaluator_wall,20.829,20.829,20.829,20.829,20.829,new small live requalification
+LIVE_CLOSED_LOOP_REQUAL,STRAIGHT_201,false,true,1,callback_total,22.387,22.387,22.387,22.387,22.387,new small live requalification
+

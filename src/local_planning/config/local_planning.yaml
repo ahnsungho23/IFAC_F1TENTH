@@ -850,6 +850,9 @@ local_planner_node:
     research_config_sha256: ""
     research_parameter_snapshot_id: ""
     research_queue_capacity: 128
+    # GQSC-S1 live fresh-callback A-O profiler. Research only; serialization begins after O_total.
+    live_runtime_profiling_enable: false
+    live_runtime_profile_topic: "/local_planning/live_runtime_profile"
     # CMA 전용 exact-stamp obstacle/Frenet/state event mode.
     lockstep_mode: false
 

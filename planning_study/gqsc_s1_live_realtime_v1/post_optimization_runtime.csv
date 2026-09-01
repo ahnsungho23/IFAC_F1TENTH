@@ -1,0 +1,10 @@
+dataset,scope,sample_count,p50_ms,p90_ms,p95_ms,p99_ms,max_ms,target_interpretation
+PREVIOUS_LIVE_SMOKE,all active callbacks,4300,0.431,1.276,1.492,1.562,30.854,continuation-dominated reference; no method optimization applied
+PREVIOUS_LIVE_SMOKE,fresh callbacks constructing 12 paths evaluator,16,22.896,29.103,29.939,30.020,30.040,p95 and p99 exceed 25 ms
+PREVIOUS_LIVE_SMOKE,fresh callbacks constructing 12 paths total callback,16,25.690,32.276,33.421,33.476,33.489,p95 and p99 exceed 25 ms
+LIVE_CLOSED_LOOP_REQUAL,one full fresh evaluator,1,20.829,20.829,20.829,20.829,20.829,one sample below 25 ms does not qualify a percentile
+LIVE_CLOSED_LOOP_REQUAL,one full fresh total callback,1,22.387,22.387,22.387,22.387,22.387,one sample below 25 ms does not qualify a percentile
+LIVE_CLOSED_LOOP_REQUAL,profiler-emitted evaluator-invoking callbacks,25,0.467,0.567,0.635,17.169,22.387,not all active callbacks; contains one full generation and 24 lightweight evaluations
+STANDALONE_ALLOWED_SEEN,instrumentation OFF evaluator,1040,11.149,17.558,20.023,20.980,21.284,native p95 and p99 satisfy 25 ms
+STANDALONE_ALLOWED_SEEN,instrumentation ON evaluator,1040,11.298,17.641,20.125,21.053,21.195,research overhead is not the live gap
+

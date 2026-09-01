@@ -636,6 +636,12 @@ PlanningResearchCycle * RacelineSplinePlanner::activeResearchCycle() const
   return active_research_cycle_;
 }
 
+void RacelineSplinePlanner::setLiveRuntimeObserver(
+  std::function<void(const P3ShadowResult &)> observer) const
+{
+  live_runtime_observer_ = std::move(observer);
+}
+
 double RacelineSplinePlanner::trackLength() const
 {
   return track_length_;

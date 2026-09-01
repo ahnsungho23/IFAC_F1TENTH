@@ -919,6 +919,48 @@ void emit(const Event & event, double event_read_us)
     planner.setActiveResearchCycle(nullptr);
     return;
   }
+  if (std::getenv("GQSC_S1_STAGE_TIMING") != nullptr) {
+    const int warmup = std::getenv("GQSC_S1_TIMING_WARMUP") == nullptr ? 2 :
+      static_cast<int>(integer(std::getenv("GQSC_S1_TIMING_WARMUP")));
+    const int repeats = std::getenv("GQSC_S1_TIMING_REPEATS") == nullptr ? 5 :
+      static_cast<int>(integer(std::getenv("GQSC_S1_TIMING_REPEATS")));
+    for (int repeat = -warmup; repeat < repeats; ++repeat) {
+      const auto wall_start = Clock::now();
+      const auto evaluation = planner.evaluateP3Shadow(
+        event.ego, event.obstacles, 800 + repeat, 1U, 1U, "GQSC_S1_STAGE_TIMING");
+      const double wall_us = std::chrono::duration<double, std::micro>(
+        Clock::now() - wall_start).count();
+      if (repeat >= 0) {
+        std::size_t path_points = 0U;
+        for (const auto & candidate : evaluation.candidates) {
+          path_points += candidate.point_count;
+        }
+        std::cout << "GQSC_STAGE_TIMING\t" << event.id << '\t' << repeat << '\t' <<
+          wall_us << '\t' << evaluation.r3_runtime_context_preparation_us << '\t' <<
+          evaluation.r3_runtime_geometry_preparation_us << '\t' <<
+          evaluation.r3_runtime_lateral_factor_generation_us << '\t' <<
+          evaluation.r3_runtime_transition_generation_us << '\t' <<
+          evaluation.r3_runtime_pair_priority_computation_us << '\t' <<
+          evaluation.r3_runtime_lexicographic_ordering_us +
+          evaluation.r3_runtime_coverage_ordering_us +
+          evaluation.r3_runtime_shape_deduplication_us +
+          evaluation.r3_runtime_candidate_deduplication_us << '\t' <<
+          evaluation.r3_runtime_reconstruction_us << '\t' <<
+          evaluation.r3_runtime_validation_us << '\t' <<
+          evaluation.r3_runtime_final_ranking_us << '\t' <<
+          evaluation.r3_runtime_total_us << '\t' << event.obstacles.size() << '\t' <<
+          evaluation.r3_reference_sample_count << '\t' <<
+          evaluation.r3_lateral_factor_count << '\t' << evaluation.r3_transition_count << '\t' <<
+          evaluation.r3_pair_priority_count << '\t' <<
+          evaluation.r3_constructed_candidate_count << '\t' <<
+          evaluation.r3_validator_call_count << '\t' << path_points << '\t' <<
+          evaluation.selected_path.wpnts.size() << '\t' << evaluation.failure_classification <<
+          '\n';
+      }
+    }
+    planner.setActiveResearchCycle(nullptr);
+    return;
+  }
   if (std::getenv("GQSC_S1_CONTINUATION_TIMING") != nullptr) {
     const int warmup = std::getenv("GQSC_S1_TIMING_WARMUP") == nullptr ? 2 :
       static_cast<int>(integer(std::getenv("GQSC_S1_TIMING_WARMUP")));

@@ -560,6 +560,9 @@ C is left and it waited 22.67 s.
 
 - Keep `research_instrumentation_enable=false` and
   `research_all_violation_audit_enable=false` in operational/simulation YAML.
+- Keep `live_runtime_profiling_enable=false` in operational/simulation YAML. It is a passive
+  GQSC-S1 A-O callback profiler; profile JSON is assembled only after the measured callback total
+  stops and must never feed generation, validation, ranking, lifecycle, or publication.
 - Research fields are write-only observations. Never feed them into P3 generation, validation,
   ranking, lifecycle, safe-stop, or publication.
 - Preserve both M0-V1 sides and M1 probe/root provenance in research traces without changing the
