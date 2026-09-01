@@ -54,6 +54,11 @@ def _as_str(_name, raw):
 # 인자 이름 -> 값 변환기. 여기 등록된 것만 YAML 을 덮어쓸 수 있다.
 OVERRIDABLE = {
     'map_name': _as_str,
+    'odom_topic': _as_str,
+    'base_frame': _as_str,
+    'map_frame': _as_str,
+    'map_topic': _as_str,
+    'auto_init_from_waypoints': _as_bool,
     'slam_mode': _as_bool,
     'map_output_file': _as_str,
     'use_sim_time': _as_bool,
@@ -112,6 +117,27 @@ def _localization_node(context, *_args, **_kwargs):
 def generate_launch_description():
     keep = f'기본 {KEEP_YAML} = YAML 값을 그대로 쓴다.'
     return LaunchDescription([
+        DeclareLaunchArgument(
+            'odom_topic',
+            default_value=KEEP_YAML,
+            description='Odometry input topic. ' + keep),
+        DeclareLaunchArgument(
+            'base_frame',
+            default_value=KEEP_YAML,
+            description='Vehicle base TF frame. ' + keep),
+        DeclareLaunchArgument(
+            'map_frame',
+            default_value=KEEP_YAML,
+            description='Global map TF frame. ' + keep),
+        DeclareLaunchArgument(
+            'map_topic',
+            default_value=KEEP_YAML,
+            description='Rasterized KISSMAP occupancy output topic. ' + keep),
+        DeclareLaunchArgument(
+            'auto_init_from_waypoints',
+            default_value=KEEP_YAML,
+            description='Initialize from the first global waypoint. Disable for gym, whose '
+                        'spawn is not the waypoint start pose. ' + keep),
         DeclareLaunchArgument(
             'map_name',
             default_value=KEEP_YAML,

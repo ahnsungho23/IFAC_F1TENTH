@@ -242,6 +242,9 @@ selected with the `map_name` parameter (an absolute path is used as-is).
 
 - Localization: `ros2 launch kinematic_localization kinematic_localization.launch.py map_name:=<name>`
   then publish `/initialpose` once (RViz 2D Pose Estimate or `ros2 topic pub --once`).
+- The gym spawn pose is not the first IFAC waypoint. The simulation role must override
+  `auto_init_from_waypoints:=false` and initialize explicitly through `/initialpose`; the real-car
+  YAML default remains unchanged.
 - Mapping: `ros2 launch kinematic_localization mapping.launch.py bag_path:=<bag> output_path:=<file>`
 
 ## Documentation

@@ -44,6 +44,9 @@ The package name, C++ namespace (`namespace global_planning`), include prefix
 - Reads `global_waypoints.json` and republishes waypoints on latched topics.
 - Resolve the source once at startup: explicit `map_path`, otherwise
   `<output_base_dir>/<map_name>`. The node must not switch the active source while running.
+- The default `output_base_dir` is the installed `share/global_planning/data` directory. Keep
+  `data/<map_name>/global_waypoints.json` installed so normal launch never depends on the cwd or
+  an offline-generator output symlink.
 - Selecting another pre-generated line requires a node restart with another `map_name`,
   `F1_MAP`, or `map_path`. Do not reintroduce a reload service or lap-triggered switch without
   an explicit system-level design decision covering every Frenet consumer.

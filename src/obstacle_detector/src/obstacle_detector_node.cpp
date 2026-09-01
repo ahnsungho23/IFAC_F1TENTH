@@ -1458,7 +1458,26 @@ void ObstacleDetectorNode::updateDiagnostics(const ScanProcessingStats &scan_sta
     // IDs, envelopes, and non-monotonic stamps on the same topic, which invalidates the local
     // planner's committed paths every few callbacks (2026-08-12 22:34 run: 2079 source-stamp
     // regressions in 35 s). This check runs regardless of the diagnostics switch.
-    const std::size_t static_obs_publishers = this->count_publishers(static_obs_topic_);
+    // SIGINT can invalidate the rcl context while an in-flight scan callback is here. The graph
+    // query then throws instead of letting launch shut the node down cleanly. Never hide a live
+    // graph error, but skip this passive diagnostic once shutdown has started.
+    if (!rclcpp::ok())
+    {
+        return;
+    }
+    std::size_t static_obs_publishers = 0U;
+    try
+    {
+        static_obs_publishers = this->count_publishers(static_obs_topic_);
+    }
+    catch (const std::runtime_error &)
+    {
+        if (!rclcpp::ok())
+        {
+            return;
+        }
+        throw;
+    }
     if (static_obs_publishers > 1U)
     {
         RCLCPP_ERROR_THROTTLE(

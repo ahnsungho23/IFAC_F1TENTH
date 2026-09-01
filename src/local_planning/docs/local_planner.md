@@ -1315,7 +1315,7 @@ ros2 launch local_planning local_planning.launch.py \
 
 ```zsh
 cd ~/2026_IFAC
-source /opt/ros/jazzy/setup.zsh
+source /opt/ros/humble/setup.zsh
 cb --packages-select local_planning
 source install/setup.zsh
 colcon test --packages-select local_planning --event-handlers console_direct+
@@ -1397,22 +1397,30 @@ handoff가 완료되는지, 센서가 계속 끊긴 다음 랩에도 마지막 �
 
 기본 launch는 `obstacle_detector`를 함께 실행합니다. local planning 전용 reference-map 서버를
 `/local_planning/reference_map`에 올리고 detector의 지도 필터 입력을 그 토픽으로 remap합니다.
-이 지도는 장애물이 미리 그려지지 않은 wall-only 지도여야 합니다.
+이 지도는 장애물이 미리 그려지지 않은 clean occupancy 지도여야 합니다. 기본값은
+`F1_MAP`(또는 `map_name` launch 인자)와 같은 이름의 설치된
+`kinematic_localization/maps/<map_name>.yaml`입니다. detector는 이 occupancy map에서 구조 벽
+성분을 내부적으로 만들므로 별도 파생 포맷은 필요하지 않습니다. SIM `ifac_track`에는 v2
+`ifac_track.yaml`을 사용하며 historical `map_kissmap_render.yaml`을 사용하지 않습니다.
 
 ```zsh
 cd ~/2026_IFAC
-source /opt/ros/jazzy/setup.zsh
+source /opt/ros/humble/setup.zsh
 source install/setup.zsh
-ros2 launch particle_filter_cpp mcl_launch.py mod:=sim map_name:=ifac_track use_rviz:=false
+ros2 launch kinematic_localization kinematic_localization.launch.py \
+  map_name:=ifac_track odom_topic:=/ego_racecar/odom \
+  base_frame:=ego_racecar/base_link map_frame:=map use_sim_time:=false \
+  auto_init_from_waypoints:=false map_topic:=/kinematic_localization/map
 ```
 
 다른 터미널에서 local planning을 실행합니다.
 
 ```zsh
 cd ~/2026_IFAC
-source /opt/ros/jazzy/setup.zsh
+source /opt/ros/humble/setup.zsh
 source install/setup.zsh
-ros2 launch local_planning local_planning.launch.py
+F1_MAP=ifac_track ros2 launch local_planning local_planning.launch.py \
+  simulator:=true map_name:=ifac_track
 ```
 
 기존 P0만 사용하는 운영 기본값은 명시적으로 다음과 같이 실행할 수 있습니다.

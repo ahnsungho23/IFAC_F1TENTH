@@ -5,7 +5,7 @@ Each scan of the scan bag is projected into the map frame with the nearest (in
 time) estimated pose from the pose bag (/pf/pose/odom), then the fraction of
 points within +/-10 cm of an occupied cell is reported per time interval.
 
-Usage (source /opt/ros/jazzy/setup.bash first):
+Usage (source /opt/ros/humble/setup.bash first):
   wall_rate.py --scan-bag run_0803_210100 --pose-bag kicp_out \
       --map map.yaml --intervals 0,11,20,30,45,52
 """

@@ -276,7 +276,7 @@ ros2 launch kinematic_localization mapping.launch.py \
 ### 5.2 localization 실행
 
 ```bash
-source /opt/ros/jazzy/setup.bash
+source /opt/ros/humble/setup.bash
 source install/setup.bash
 ros2 launch kinematic_localization kinematic_localization.launch.py map_name:=<map_name>
 ```

@@ -48,7 +48,7 @@ projection의 순간적인 점프가 짧은 시간 안에 여러 랩으로 계�
 
 ```zsh
 cd ~/2026_IFAC
-source /opt/ros/jazzy/setup.zsh
+source /opt/ros/humble/setup.zsh
 colcon build --packages-select global_planning
 source install/setup.zsh
 ros2 launch global_planning global_planning.launch.py
@@ -65,7 +65,7 @@ ros2 launch global_planning lap_counter.launch.py
 다른 터미널에서 현재 랩 수를 확인한다.
 
 ```zsh
-source /opt/ros/jazzy/setup.zsh
+source /opt/ros/humble/setup.zsh
 source ~/2026_IFAC/install/setup.zsh
 ros2 topic echo /lap_count --qos-durability transient_local
 ```

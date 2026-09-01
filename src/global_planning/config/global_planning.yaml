@@ -6,14 +6,10 @@ global_planning_node:
 
 global_trajectory_publisher_node:
   ros__parameters:
-    # The initial global_waypoints.json is read from <output_base_dir>/<map_name>/.
-    # Relative paths resolve from the
-    # `ros2 launch` working directory, so launch from the workspace root (~/2026_IFAC).
-    # NOTE: global_planning.launch.py overrides the initial map_name with its launch
-    # argument (F1_MAP env or the launch default).
-    output_base_dir: "offline_trajectory_generator/output"
+    # The default output_base_dir is the installed package share's data directory.
+    # global_planning.launch.py overrides map_name from F1_MAP/its launch argument.
+    # Use the launch map_path argument for an explicit pre-generated external bundle.
     map_name: "map"
-    # map_path: ""   # optional source-directory override
     publish_markers: true
     publish_shortest_path: true
     publish_centerline: true

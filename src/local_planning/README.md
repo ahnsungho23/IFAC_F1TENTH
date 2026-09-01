@@ -45,7 +45,7 @@ Guard 밖의 변화가 전체 여유만 침범하면 3 planning cycle을 확인�
 
 ```zsh
 cd ~/2026_IFAC
-source /opt/ros/jazzy/setup.zsh
+source /opt/ros/humble/setup.zsh
 source install/setup.zsh
 ros2 launch local_planning local_planning.launch.py
 ```

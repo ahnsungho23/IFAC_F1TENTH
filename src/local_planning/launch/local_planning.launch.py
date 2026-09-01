@@ -29,28 +29,22 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node, SetRemap
 
 
 def generate_launch_description():
     pkg_dir = get_package_share_directory('local_planning')
     default_config = os.path.join(pkg_dir, 'config', 'local_planning.yaml')
-    # 🔴 검출기 벽 필터의 기준맵은 **런타임 /map 과 같은 kissmap 렌더**여야 한다 (2026-08-20).
-    # 종전에는 particle_filter_cpp(구 MCL)의 map.yaml(165x385, origin -0.741,-1.626)을 서빙했는데,
-    # 실차 포즈·스캔은 kinematic_localization 의 kissmap 좌표계(438x190, origin -19.934,-2.016)에
-    # 있다. 두 맵은 같은 트랙의 다른 매핑 세션 산출물이라 좌표계가 다르고 변환도 없다.
-    # 실측(run_080532 자율 구간): 스캔 점 391,947개 중 옛 기준맵 격자 안은 13.4%뿐 — 나머지
-    # 86.6%는 distanceToWall()=-1 로 벽 필터를 통과해, 벽+장애물이 한 클러스터(대각 1~12 m)로
-    # 붙어 max_obs_size 0.8 에서 기각됐다. 오늘 자율 첫충돌 23건 중 14건(61%)이 이 미검출이다.
-    # ⚠️ map.kissmap 을 다시 뜨면 map_kissmap_render.{pgm,yaml} 도 함께 다시 만들어야 한다
-    #    (kinematic_localization/maps/ 의 렌더 yaml 주석 참고). F1_MAP 환경변수는 이 파일에는
-    #    더 이상 적용되지 않는다 — 렌더는 map.kissmap 하나에서만 나온다.
-    default_reference_map = os.path.join(
+    # obstacle_detector consumes a clean occupancy map directly and builds its structural
+    # wall components internally. Select the same installed v2 PNG/YAML generation as gym and
+    # localization; never fall back to the historical map_kissmap_render asset in simulation.
+    localization_maps = os.path.join(
         get_package_share_directory('kinematic_localization'),
         'maps',
-        'map_kissmap_render.yaml',
     )
+    default_reference_map = PathJoinSubstitution([
+        localization_maps, [LaunchConfiguration('map_name'), '.yaml']])
     local_planner_only_launch = os.path.join(pkg_dir, 'launch', 'local_planner_only.launch.py')
     obstacle_detector_launch = os.path.join(
         get_package_share_directory('obstacle_detector'),
@@ -62,6 +56,14 @@ def generate_launch_description():
         'params_file',
         default_value=default_config,
         description='Full path to the local_planning YAML parameter file'
+    )
+    map_name_arg = DeclareLaunchArgument(
+        'map_name',
+        default_value=os.environ.get('F1_MAP', 'map'),
+        description=(
+            'Installed kinematic_localization map generation used by perception. '
+            'Defaults to F1_MAP or the real-car map name.'
+        ),
     )
     simulator_arg = DeclareLaunchArgument(
         'simulator',
@@ -101,14 +103,17 @@ def generate_launch_description():
         'planning_map_topic',
         default_value='/local_planning/reference_map',
         description=(
-            'Wall-only reference map used by perception and local planning. '
+            'Clean occupancy reference map used by perception and local planning. '
             'In gym, /map may be the obstacle-baked physics map.'
         ),
     )
     reference_map_arg = DeclareLaunchArgument(
         'reference_map',
         default_value=default_reference_map,
-        description='Wall-only reference-map YAML loaded for local planning',
+        description=(
+            'Clean occupancy-map YAML used by obstacle_detector Layer 1. The default is the '
+            'installed maps/<map_name>.yaml.'
+        ),
     )
     timing_diagnostics_enable_arg = DeclareLaunchArgument(
         'timing_diagnostics_enable',
@@ -232,6 +237,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         params_file_arg,
+        map_name_arg,
         simulator_arg,
         use_sim_time_arg,
         start_detector_arg,

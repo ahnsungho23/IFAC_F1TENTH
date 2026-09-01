@@ -3289,8 +3289,11 @@ P3ShadowResult LocalPlannerNode::evaluateP3Snapshot(
   // 평가기는 내부 불변식 위반을 예외 대신 이 분류로 돌려준다(evaluateP3Shadow의 가드 참고).
   // 조용히 지나가면 안 되는 버그이므로 여기서 크게 남긴다.
   if (result.failure_classification.rfind("EVALUATOR_INVARIANT_VIOLATION", 0) == 0) {
+    // Humble's rclcpp::Clock::now() is non-const, while this evaluator is const.
+    // Use a steady clock only for log throttling; planning still uses the node's ROS time.
+    static rclcpp::Clock throttle_clock(RCL_STEADY_TIME);
     RCLCPP_ERROR_THROTTLE(
-      get_logger(), *get_clock(), 1000,
+      get_logger(), throttle_clock, 1000,
       "P3 평가기 내부 불변식 위반 — 이번 콜백은 평가 실패로 처리된다(노드는 유지). "
       "%s | ego s=%.2f d=%+.2f 장애물 %zu개",
       result.failure_classification.c_str(), snapshot.maneuver.ego.s,

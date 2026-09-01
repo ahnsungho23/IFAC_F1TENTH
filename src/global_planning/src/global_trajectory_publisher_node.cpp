@@ -3,6 +3,7 @@
 #include <memory>
 #include <string>
 
+#include "ament_index_cpp/get_package_share_directory.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "f110_msgs/msg/wpnt_array.hpp"
 #include "std_msgs/msg/float32.hpp"
@@ -25,9 +26,11 @@ public:
     declare_parameter("publish_shortest_path", true); ///최단경로 트래젝토리를 퍼블리시할지 결정합니다. 
     declare_parameter("publish_centerline", false); ////////publish_centerline센터라인 웨이포인트를 퍼블리시할지 결정. true면 /centerline_waypoints(및 마커 옵션 시 /centerline_waypoints/markers) 보냄
     declare_parameter("publish_lattice", false); ///lattice 시각화 토픽을 쓸지 결정합니다. true면 /lattice_viz 퍼블리셔를 활성화합니다
-    // Source: <output_base_dir>/<map_name>/global_waypoints.json, with map_path
-    // as an optional override. It is loaded once at startup and never switched at runtime.
-    declare_parameter("output_base_dir", "offline_trajectory_generator/output");
+    // Canonical source: installed share/global_planning/data/<map_name>/global_waypoints.json,
+    // with map_path as an optional explicit override. It is loaded once at startup.
+    const auto installed_data_dir =
+      ament_index_cpp::get_package_share_directory("global_planning") + "/data";
+    declare_parameter("output_base_dir", installed_data_dir);
     declare_parameter("map_name", "");
     declare_parameter("map_path", "");
     declare_parameter("publish_period_sec", 2.0);
@@ -83,7 +86,12 @@ public:
         RCLCPP_WARN(get_logger(), "%s", error_msg.c_str());
       } else {
         has_bundle_ = true;
-        RCLCPP_INFO(get_logger(), "loaded global waypoints from %s", map_dir_.c_str());
+        const auto & waypoints = bundle_.global_traj_wpnts_iqp.wpnts;
+        const double lap_length = waypoints.empty() ? 0.0 : waypoints.back().s_m;
+        RCLCPP_INFO(
+          get_logger(), "Loaded global waypoints JSON '%s/global_waypoints.json': %zu waypoints, "
+          "last s=%.6f m",
+          map_dir_.c_str(), waypoints.size(), lap_length);
       }
     }
 

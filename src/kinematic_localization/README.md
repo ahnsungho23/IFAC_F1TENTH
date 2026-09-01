@@ -14,7 +14,7 @@ Kinematic-ICP 기반 맵 localization 패키지. MCL(`particle_filter_cpp`)과 �
 
 ```bash
 # 빌드
-source /opt/ros/jazzy/setup.bash
+source /opt/ros/humble/setup.bash
 colcon build --packages-up-to kinematic_localization
 
 # occupancy 맵 -> 동결 맵 변환 (최초 1회)

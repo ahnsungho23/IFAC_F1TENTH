@@ -34,8 +34,16 @@ MAP_NAME="${SIM_MAP_NAME:-ifac_track}"
 # real-car map "map"), so export it here to keep MCL/global/local on the same track in sim.
 export F1_MAP="$MAP_NAME"
 
-# ROS 2 Jazzy underlay first, then the overlay this role needs.
-source /opt/ros/jazzy/setup.zsh 2>/dev/null
+# ROS 2 underlay first, then the overlay this role needs.
+# Use the currently selected ROS distro; this PC runs Humble.
+if [[ -n "${ROS_DISTRO:-}" && -f "/opt/ros/${ROS_DISTRO}/setup.zsh" ]]; then
+  source "/opt/ros/${ROS_DISTRO}/setup.zsh"
+elif [[ -f /opt/ros/humble/setup.zsh ]]; then
+  source /opt/ros/humble/setup.zsh
+else
+  print -P "%F{red}[run.sh] ROS 2 underlay not found%f"
+  return 1
+fi
 
 # f1tenth_gym_ros lives in a separate workspace whose path differs per machine.
 # $F1SIM_WS overrides the candidates.
@@ -123,24 +131,29 @@ case "$role" in
     # EVERY downstream node depends on /pf/pose/odom — without localization the whole stack stalls.
     # 2026-08-20: particle_filter_cpp (MCL) -> kinematic_localization (KICP). The frozen map is
     # maps/<map>.kissmap, NOT the <map>.yaml occupancy grid the other nodes read, and the node
-    # ships no RViz of its own (MCL_RVIZ no longer applies) — it publishes /map itself so the
-    # f1sim RViz "2D Pose Estimate" still initializes it.
+    # ships no RViz of its own (MCL_RVIZ no longer applies). In SIM its raster map is remapped to
+    # /kinematic_localization/map so the gym/Nav2 occupancy map remains the sole /map authority.
     cmd=(ros2 launch kinematic_localization kinematic_localization.launch.py
-         map_name:="$MAP_NAME" use_sim_time:=true)
+         map_name:="$MAP_NAME"
+         use_sim_time:=false
+         map_frame:=map
+         base_frame:=ego_racecar/base_link
+         odom_topic:=/ego_racecar/odom
+         map_topic:=/kinematic_localization/map
+         auto_init_from_waypoints:=false)
     delay=3
     ;;
   global|frenet)                           # Terminal 3 — /global_waypoints + /car_state/frenet/odom
     source "$IFAC/install/setup.zsh" 2>/dev/null
     kill_pattern "${PAT_GLOBAL[@]}"
-    # global_planning config may use RELATIVE paths, so run from the workspace root
-    # (the `cd "$IFAC"` below guarantees that).
     cmd=(ros2 launch global_planning global_planning.launch.py)
     delay=6
     ;;
   local|avoid)                             # Terminal 4 — local planner (obstacle avoidance)
     source "$IFAC/install/setup.zsh" 2>/dev/null
     kill_pattern "${PAT_LOCAL[@]}"
-    cmd=(ros2 launch local_planning local_planning.launch.py simulator:=true)
+    cmd=(ros2 launch local_planning local_planning.launch.py
+         simulator:=true map_name:="$MAP_NAME")
     delay=8
     ;;
   state)                                   # Terminal 5 — state machine -> /state + /local_waypoints

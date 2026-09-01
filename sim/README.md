@@ -22,7 +22,7 @@ Terminator가 없으면 먼저 설치합니다: `sudo apt install terminator`
 | 파일 | 역할 |
 |---|---|
 | `open_sim.sh` | Terminator를 전용 설정으로 실행하는 런처. `--opp`로 8분할 선택 |
-| `run.sh <role>` | 패인 하나가 실행하는 스크립트. Jazzy + 워크스페이스 소싱 → 이전 잔류 프로세스 정리 → 상류 노드 대기 → launch 실행. Ctrl-C 시 셸로 전환 |
+| `run.sh <role>` | 패인 하나가 실행하는 스크립트. 현재 ROS 배포판(이 복구 환경은 Humble) + 워크스페이스 소싱 → 이전 잔류 프로세스 정리 → 상류 노드 대기 → launch 실행. Ctrl-C 시 셸로 전환 |
 | `f1sim.terminator` | 6분할 레이아웃 (기본 주행) |
 | `f1sim_opp.terminator` | 8분할 레이아웃 (상대차 포함) |
 
@@ -31,9 +31,9 @@ Terminator가 없으면 먼저 설치합니다: `sudo apt install terminator`
 | # | role | 실행 내용 | 대기(초) |
 |---|---|---|---|
 | 1 | `f1sim` | `ros2 launch f1tenth_gym_ros gym_bridge_launch.py` (f1sim_C) | 0 |
-| 2 | `mcl` | `ros2 launch kinematic_localization kinematic_localization.launch.py map_name:=<맵> use_sim_time:=true` | 3 |
+| 2 | `mcl` | KICP: gym odom/base frame, wall clock, waypoint 자동 초기화 끔 | 3 |
 | 3 | `global` | `ros2 launch global_planning global_planning.launch.py` | 6 |
-| 4 | `local` | `ros2 launch local_planning local_planning.launch.py` | 8 |
+| 4 | `local` | v2 `<맵>.yaml` reference map + obstacle detector + local planner | 8 |
 | 5 | `state` | `ros2 launch state_machine state_machine.launch.py` (`/state` + `/local_waypoints`) | 9 |
 | 6 | `control` | `ros2 launch f1tenth_control control_sim.launch.py` | 10 |
 | 7 | `opp` | `ros2 launch new_map_con opponent_simulator.launch.py` (`--opp` 전용) | 12 |
@@ -62,9 +62,30 @@ KEEP_SIM=1 ~/2026_IFAC/sim/run.sh stop   # gym 브리지는 남기고 나머지�
 
 예: `SIM_MAP_NAME=<map> ./sim/open_sim.sh`
 
+## Humble 시뮬레이터 위치추정 계약
+
+`run.sh mcl`은 SIM 역할에만 다음 값을 명시합니다. 실차 YAML 기본값은 바꾸지 않습니다.
+
+- `odom_topic=/ego_racecar/odom`
+- `base_frame=ego_racecar/base_link`
+- `map_frame=map`
+- `use_sim_time=false` (현재 gym bridge는 `/clock`을 발행하지 않음)
+- `auto_init_from_waypoints=false`
+- KICP가 래스터화한 진단 지도는 `/kinematic_localization/map`으로 분리하고, gym의 정확한
+  PNG/YAML occupancy map만 `/map` 권한을 갖습니다.
+
+gym 기본 스폰은 `(0, 0, 0)` 부근이고 첫 글로벌 waypoint는 약 18 m 떨어져 있으므로,
+GLOBAL 시작 순서는 `f1sim -> mcl -> /initialpose -> global -> state -> control`입니다.
+RViz의 2D Pose Estimate를 사용하거나, 헤드리스에서는 `/ego_racecar/odom`의 현재 포즈를 읽어
+같은 위치·방향을 `PoseWithCovarianceStamped`로 `/initialpose`에 한 번 발행합니다.
+
+local 역할은 `SIM_MAP_NAME`/`F1_MAP`과 같은 이름의 설치된
+`kinematic_localization/maps/<맵>.yaml`을 `/local_planning/reference_map`에 올립니다.
+`ifac_track`에서는 v2 PNG/YAML(0.025 m/cell, 880×320, origin `[-20.3043, -1.4273]`)입니다.
+
 ## 상대차 시나리오(`--opp`) 전제 조건
 
-1. gym 브리지를 **`num_agent: 2`**(`~/f1sim_C/f1tenth_gym_ros/config/sim.yaml`)로 띄워야 상대차가 스폰됩니다.
+1. gym 브리지를 **`num_agent: 2`**(`~/sim_ws/src/f1tenth_gym_ros/config/sim.yaml`)로 띄워야 상대차가 스폰됩니다.
    sim.yaml 수정 후에는 패인 1에서 Ctrl-C → 재실행으로 브리지를 다시 띄우세요.
 2. 2-agent 브리지는 에고·상대 **둘 다** drive를 발행해야 물리 스텝을 돕니다.
    패인 6(에고 제어)을 끄지 말고 유지해야 합니다.

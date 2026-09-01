@@ -2,21 +2,21 @@
 
 F1TENTH 자율주행 스택입니다. 위치추정(MCL), 글로벌 플래닝, 로컬 플래닝(장애물 회피), 제어를 포함합니다.
 
-**대상 배포판: ROS 2 Jazzy** (Ubuntu 24.04). Jazzy 포팅 및 검증 내역은 [§6. ROS 2 Jazzy 포트 검증](#6-ros-2-jazzy-포트-검증)을 참고하세요.
+**현재 복구 대상: ROS 2 Humble** (Ubuntu 22.04.5). 이전 Jazzy 포팅 기록은 [§6. ROS 2 Jazzy 포트 검증](#6-ros-2-jazzy-포트-검증)에 역사적 참고로 남겨 둡니다.
 
-시뮬레이터는 별도 워크스페이스(`~/f1sim_C`)의 `f1tenth_gym_ros`를 사용합니다.
+시뮬레이터는 별도 워크스페이스(`~/sim_ws`)의 Humble 빌드 `f1tenth_gym_ros`를 사용합니다.
 시뮬레이터 맵(`f1tenth_gym_ros/config/sim.yaml`의 `map_path`)과 MCL 맵, 글로벌 웨이포인트 생성 맵 **세 곳은 반드시 같은 맵**이어야 합니다.
 
 
 slam launch방법 로컬에서
 cd ~/slam_toolbox
-source /opt/ros/jazzy/setup.zsh
+source /opt/ros/humble/setup.zsh
 source install/setup.zsh
 ros2 launch slam_toolbox online_async_launch.py use_sim_time:=false
 
 slam 저장방법 로컬에서
 cd ~/slam_toolbox
-source /opt/ros/jazzy/setup.zsh
+source /opt/ros/humble/setup.zsh
 source install/setup.zsh
 ros2 run nav2_map_server map_saver_cli \
     -f ~/slam_toolbox/map
@@ -32,31 +32,31 @@ scp -r ~/2026_IFAC/offline_trajectory_generator/output/map \
 
 터미널1
 cd ~/2026_IFAC
-source /opt/ros/jazzy/setup.zsh
+source /opt/ros/humble/setup.zsh
 source install/setup.zsh
 ros2 launch kinematic_localization kinematic_localization.launch.py map_name:=ifac_track
 
 터미널2
 cd ~/2026_IFAC
-source /opt/ros/jazzy/setup.zsh
+source /opt/ros/humble/setup.zsh
 source install/setup.zsh
 ros2 launch global_planning global_planning.launch.py
 
 터미널3
 cd ~/2026_IFAC
-source /opt/ros/jazzy/setup.zsh
+source /opt/ros/humble/setup.zsh
 source install/setup.zsh
 ros2 launch local_planning local_planning.launch.py
 
 터미널4
 cd ~/2026_IFAC
-source /opt/ros/jazzy/setup.zsh
+source /opt/ros/humble/setup.zsh
 source install/setup.zsh
 ros2 launch state_machine state_machine.launch.py
 
 터미널5
 cd ~/2026_IFAC
-source /opt/ros/jazzy/setup.zsh
+source /opt/ros/humble/setup.zsh
 source ~/f1tenth_ws/install/setup.zsh
 source install/setup.zsh
 ros2 launch f1tenth_control control_real.launch.py
@@ -66,7 +66,7 @@ ros2 launch f1tenth_control control_real.launch.py
 rosbag
 cd ~/miru/2026_IFAC
 
-source /opt/ros/jazzy/setup.zsh
+source /opt/ros/humble/setup.zsh
 source install/setup.zsh
 
 ros2 bag record \
@@ -87,7 +87,7 @@ ros2 bag record \
 
 ## 프로젝트 구조
 
-ROS 2 Jazzy workspace for the 2026 IFAC F1TENTH stack. ROS packages live under `src/`.
+ROS 2 Humble workspace for the recovered 2026 IFAC F1TENTH stack. ROS packages live under `src/`.
 
 ```text
 2026_IFAC/
@@ -223,8 +223,8 @@ ROS 2 Jazzy workspace for the 2026 IFAC F1TENTH stack. ROS packages live under `
 
 ## 1. 사전 요구사항
 
-- ROS 2 Jazzy (Ubuntu 24.04)
-- 시뮬레이터 워크스페이스 `~/f1sim_C` (`f1tenth_gym_ros` Jazzy 빌드 완료)
+- ROS 2 Humble (Ubuntu 22.04.5)
+- 시뮬레이터 워크스페이스 `~/sim_ws` (`f1tenth_gym_ros` Humble 빌드 완료)
 - 이 저장소가 `~/2026_IFAC`에 위치
 - 글로벌 웨이포인트 생성 완료 (§4.2 참고 — 없으면 스택 전체가 대기 상태에 머뭅니다)
 
@@ -234,7 +234,7 @@ ROS 2 Jazzy workspace for the 2026 IFAC F1TENTH stack. ROS packages live under `
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/jazzy/setup.zsh
+source /opt/ros/humble/setup.zsh
 colcon build --symlink-install
 ```
 
@@ -262,18 +262,18 @@ colcon build --symlink-install
 각 터미널 공통 준비:
 
 ```bash
-source /opt/ros/jazzy/setup.zsh
+source /opt/ros/humble/setup.zsh
 source install/setup.zsh   # bash 사용 시 setup.bash
 ```
 
 ### 터미널 1 — 시뮬레이터 (gym bridge)
 
-먼저 `~/f1sim_C/f1tenth_gym_ros/config/sim.yaml`의 `map_path`가 스택과 같은 맵을 가리키는지 확인하세요
+먼저 `~/sim_ws/src/f1tenth_gym_ros/config/sim.yaml`의 `map_path`가 스택과 같은 맵을 가리키는지 확인하세요
 (확장자 없는 절대경로, 예: `$HOME/2026_IFAC/src/kinematic_localization/maps/ifac_track` — gym의 YAML은 `$HOME`을 펼치지 않으므로 실제 값은 펼쳐서 적습니다).
 
 ```bash
-cd ~/f1sim_C
-source /opt/ros/jazzy/setup.zsh
+cd ~/sim_ws
+source /opt/ros/humble/setup.zsh
 source install/setup.zsh
 ros2 launch f1tenth_gym_ros gym_bridge_launch.py
 ```
@@ -289,24 +289,28 @@ ros2 launch f1tenth_gym_ros gym_bridge_launch.py
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/jazzy/setup.zsh
+source /opt/ros/humble/setup.zsh
 source install/setup.zsh
-ros2 launch kinematic_localization kinematic_localization.launch.py map_name:=ifac_track use_sim_time:=true
+ros2 launch kinematic_localization kinematic_localization.launch.py \
+  map_name:=ifac_track use_sim_time:=false \
+  odom_topic:=/ego_racecar/odom base_frame:=ego_racecar/base_link \
+  map_frame:=map map_topic:=/kinematic_localization/map \
+  auto_init_from_waypoints:=false
 ```
 
 | 인자 | 값 | 설명 |
 |---|---|---|
 | `map_name` | `ifac_track` | `kinematic_localization/maps/ifac_track.kissmap` (동결 맵). 빈 값 = 순수 오도메트리 |
-| `use_sim_time` | `true` | 시뮬레이션 시간 사용 (실차는 `false`) |
+| `use_sim_time` | `false` | 현재 gym bridge는 `/clock`을 발행하지 않음 |
 | `slam_mode` | `false` | `true`면 동결 맵 없이 주행하며 맵 생성 (초기 포즈 불필요) |
 
-> **초기 위치 지정**: 🟢 2026-08-20 2차(sungho_main 포팅본)부터 `auto_init_from_waypoints: true`가
-> 기본이라 `/global_waypoints` 첫 웨이포인트(스타트라인)로 **자동 초기화**합니다. 양쪽 QoS가
-> transient_local(래치)이라 글로벌 플래너를 나중에 띄워도 받습니다. 자동 초기화는 40프레임
-> `residual_rms` 검증 게이트를 통과해야 발행이 시작됩니다(`PORTING_NOTE.md`).
-> 수동으로 잡으려면 RViz의 **2D Pose Estimate**로 시작 위치를 찍으면 됩니다(자동값을 덮어씀). RViz 없이(헤드리스) 돌릴 때는
+> **SIM 초기 위치 지정**: 실차 YAML의 `auto_init_from_waypoints: true` 기본값은 유지하지만,
+> gym 기본 스폰 `(0,0,0)`은 첫 IFAC waypoint와 약 18 m 떨어져 있으므로 `sim/run.sh mcl`은
+> SIM 역할에서만 이를 `false`로 덮습니다. `f1sim -> mcl -> /initialpose -> global` 순서로
+> 시작하고, RViz의 **2D Pose Estimate**로 현재 위치를 찍습니다. RViz 없이(헤드리스) 돌릴 때는
 > 아래처럼 직접 발행하세요. `/initialpose`는 gym 브리지도 구독하므로 **차량 텔레포트와
-> 위치추정 초기화가 동시에** 일어납니다. (KICP는 자체 RViz가 없고 `/map`을 직접 발행합니다.)
+> 위치추정 초기화가 동시에** 일어납니다. (KICP는 자체 RViz가 없으며 SIM에서는 진단 지도를
+> `/kinematic_localization/map`으로 분리 발행합니다.)
 > (주행 중 재초기화할 때는 차량을 먼저 정지시킨 뒤 두 번 발행하면 확실합니다 — 첫 발행의 텔레포트
 > 순간 odom 점프가 MCL에 반영되는 것을 두 번째 발행이 정리해 줍니다.)
 >
@@ -320,14 +324,14 @@ ros2 launch kinematic_localization kinematic_localization.launch.py map_name:=if
 ### 터미널 3 — 글로벌 플래너
 
 `global_waypoints.json`을 읽어 `/global_waypoints`를 발행하고, `/car_state/frenet/odom`을 계산합니다.
-기동 시 `output/<map_name>/global_waypoints.json`을 한 번 읽고, 주행 중에는 참조 경로를
-바꾸지 않습니다. 기본 경로는 `output/map`이며 `F1_MAP` 또는 `map_name` launch 인자로
-다른 번들을 선택할 수 있습니다. 시뮬에서는 `F1_MAP=ifac_track`으로 시뮬 트랙 번들을
+기동 시 설치된 `share/global_planning/data/<map_name>/global_waypoints.json`을 한 번 읽고,
+주행 중에는 참조 경로를 바꾸지 않습니다. `F1_MAP` 또는 `map_name` launch 인자로
+설치된 번들을 선택할 수 있습니다. 시뮬에서는 `F1_MAP=ifac_track`으로 v2 번들을
 명시해야 합니다 (`./sim/open_sim.sh` 사용 시 자동 설정).
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/jazzy/setup.zsh
+source /opt/ros/humble/setup.zsh
 source install/setup.zsh
 F1_MAP=ifac_track ros2 launch global_planning global_planning.launch.py
 ```
@@ -336,11 +340,11 @@ F1_MAP=ifac_track ros2 launch global_planning global_planning.launch.py
 
 `/static_obs`(obstacle_detector Layer 2의 확정 정적 장애물, `f110_msgs/ObstacleArray`)를 받아
 글로벌 라인의 Frenet `d(s)`만 수정한 회피 경로(`/avoid_waypoints`)를 만듭니다. 이 launch가
-wall-only 레퍼런스 맵 서버와 **obstacle_detector를 기본 포함**(`start_obstacle_detector:=true`)해서 띄웁니다.
+현재 IFAC occupancy 레퍼런스 맵 서버와 **obstacle_detector를 기본 포함**(`start_obstacle_detector:=true`)해서 띄웁니다.
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/jazzy/setup.zsh
+source /opt/ros/humble/setup.zsh
 source install/setup.zsh
 F1_MAP=ifac_track ros2 launch local_planning local_planning.launch.py
 ```
@@ -353,7 +357,7 @@ F1_MAP=ifac_track ros2 launch local_planning local_planning.launch.py
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/jazzy/setup.zsh
+source /opt/ros/humble/setup.zsh
 source install/setup.zsh
 ros2 launch state_machine state_machine.launch.py
 ```
@@ -371,7 +375,7 @@ L1 Guidance + Steering LUT 기반 조향/속도 제어(MAP). 나란히 MPPI 컨�
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/jazzy/setup.zsh
+source /opt/ros/humble/setup.zsh
 source install/setup.zsh
 ros2 launch f1tenth_control control_sim.launch.py
 ```
@@ -383,7 +387,7 @@ ros2 launch f1tenth_control control_sim.launch.py
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/jazzy/setup.zsh
+source /opt/ros/humble/setup.zsh
 source ~/f1tenth_ws/install/setup.zsh
 source install/setup.zsh
 ros2 launch f1tenth_control control_real.launch.py
@@ -405,7 +409,7 @@ ros2 launch f1tenth_control control_real.launch.py
 > 아래 두 터미널은 **상대차 검출/추월을 볼 때만** 추가로 띄웁니다. 기본 주행에는 필요 없습니다.
 >
 > **전제 2가지**
-> 1. 터미널 1의 gym 시뮬을 **`num_agent: 2`** (`~/f1sim_C/f1tenth_gym_ros/config/sim.yaml`)로 띄워야 상대차량이 스폰됩니다. 1-agent면 상대차가 아예 없어 RViz에도 안 보이고 검출도 안 됩니다. (sim.yaml 수정 후 gym 브리지를 **재실행**해야 반영됨)
+> 1. 터미널 1의 gym 시뮬을 **`num_agent: 2`** (`~/sim_ws/src/f1tenth_gym_ros/config/sim.yaml`)로 띄워야 상대차량이 스폰됩니다. 1-agent면 상대차가 아예 없어 RViz에도 안 보이고 검출도 안 됩니다. (sim.yaml 수정 후 gym 브리지를 **재실행**해야 반영됨)
 > 2. 이 2-agent 브리지는 **에고·상대 둘 다 `drive`를 발행해야 물리 스텝**을 돕니다. 따라서 **터미널 6(에고 제어)을 그대로 유지**해야 하며, 7·8은 교체가 아니라 **추가**입니다.
 
 ### 터미널 7 — 상대차 주행 (opponent simulator)
@@ -414,7 +418,7 @@ global 라인을 0.8배속으로 따라가도록 f1sim 상대차량에 `/opp_dri
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/jazzy/setup.zsh
+source /opt/ros/humble/setup.zsh
 source install/setup.zsh
 ros2 launch new_map_con opponent_simulator.launch.py
 ```
@@ -433,7 +437,7 @@ ros2 launch new_map_con opponent_simulator.launch.py
 
 ```bash
 cd ~/2026_IFAC
-source /opt/ros/jazzy/setup.zsh
+source /opt/ros/humble/setup.zsh
 source install/setup.zsh
 ros2 launch obstacle_detector obstacle_detector.launch.py simulator:=true
 ```
@@ -490,28 +494,23 @@ ros2 launch f1tenth_control control_real.launch.py \
 
 ## 4. 주의사항
 
-### 4.1 반드시 `~/2026_IFAC`에서 실행할 것
+### 4.1 글로벌 waypoint는 설치 자산 사용
 
-`src/global_planning/config/global_planning.yaml`의 경로가 **상대경로**입니다.
-
-```yaml
-# global_trajectory_publisher_node: JSON을 <output_base_dir>/<map_name>/global_waypoints.json 에서 읽음
-output_base_dir: "offline_trajectory_generator/output"
-map_name: "map"          # 실차 기본값. F1_MAP 환경변수(launch 인자)가 설정돼 있으면 이를 우선함
-```
-
-따라서 워크스페이스 루트가 아닌 곳에서 터미널 3을 실행하면 파일을 찾지 못합니다.
+`global_planning`은 `data/<map_name>/global_waypoints.json`을 package share에 설치합니다.
+정상 launch는 이 절대 경로를 사용하므로 실행 cwd나 수동 symlink에 의존하지 않습니다.
 
 ### 4.2 `global_waypoints.json`이 먼저 있어야 함
 
 `global_trajectory_publisher_node`는 시작할 때 JSON을 **딱 한 번만** 읽습니다. 파일이 없거나 파싱에 실패하면
 `/global_waypoints`를 아예 발행하지 않고, 그 뒤의 로컬 플래너와 제어가 전부 대기 상태로 멈춥니다.
 
-읽는 위치는 `<output_base_dir>/<map_name>/global_waypoints.json`(기본 `offline_trajectory_generator/output/<F1_MAP>/`)입니다.
-**맵을 바꾸려면** `F1_MAP` 환경변수(또는 yaml의 `map_name`)만 그 맵 이름(= `offline_trajectory_generator/output/` 하위 폴더명)으로 바꾸면 됩니다.
+기본 위치는 설치된 `share/global_planning/data/<F1_MAP>/global_waypoints.json`입니다.
+**맵을 바꾸려면** 해당 번들을 `src/global_planning/data/<map_name>/`에 검토·추적한 뒤 다시
+빌드합니다. 일회성 외부 번들은 `map_path:=/absolute/bundle/directory`로 명시할 수 있습니다.
 새 맵을 생성했거나 파일을 교체했다면 터미널 3을 재시작해야 반영됩니다.
 
-`output/`은 gitignore 대상이라 클린 체크아웃에는 없습니다. 아래처럼 생성하세요:
+아래 생성 명령은 새 경로 후보를 만드는 오프라인 작업일 뿐, 생성 결과를 자동으로 운영 경로로
+승격하지 않습니다. 검토 후 canonical `src/global_planning/data/<map_name>/`에 명시적으로 둡니다.
 
 ```bash
 cd ~/2026_IFAC

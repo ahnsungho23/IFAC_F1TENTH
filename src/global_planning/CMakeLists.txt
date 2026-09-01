@@ -6,6 +6,7 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 endif()
 
 find_package(ament_cmake REQUIRED)
+find_package(ament_index_cpp REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
@@ -43,6 +44,7 @@ target_link_libraries(global_planning_node PUBLIC
 add_executable(global_trajectory_publisher_node src/global_trajectory_publisher_node.cpp)
 target_link_libraries(global_trajectory_publisher_node PUBLIC
   ${PROJECT_NAME}_rw
+  ament_index_cpp::ament_index_cpp
   rclcpp::rclcpp
   ${std_msgs_TARGETS}
   ${visualization_msgs_TARGETS}
@@ -86,7 +88,7 @@ install(TARGETS
   DESTINATION lib/${PROJECT_NAME}
 )
 
-install(DIRECTORY launch config docs
+install(DIRECTORY launch config docs data
   DESTINATION share/${PROJECT_NAME}
 )
 

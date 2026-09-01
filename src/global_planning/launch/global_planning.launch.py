@@ -8,8 +8,9 @@ from launch_ros.actions import Node
 
 
 def generate_launch_description():
+    package_share = get_package_share_directory("global_planning")
     default_param_file = os.path.join(
-        get_package_share_directory("global_planning"),
+        package_share,
         "config",
         "global_planning.yaml",
     )
@@ -25,6 +26,14 @@ def generate_launch_description():
         default_value=os.environ.get("F1_MAP", "map"),
         description="Map name (overrides map_name in yaml). Shared via F1_MAP env var.",
     )
+    map_path_arg = DeclareLaunchArgument(
+        "map_path",
+        default_value="",
+        description=(
+            "Explicit directory containing global_waypoints.json. Empty uses the installed "
+            "global_planning/data/<map_name> bundle."
+        ),
+    )
 
     params = LaunchConfiguration("params_file")
 
@@ -33,7 +42,10 @@ def generate_launch_description():
         executable="global_trajectory_publisher_node",
         name="global_trajectory_publisher_node",
         output="screen",
-        parameters=[params, {"map_name": LaunchConfiguration("map_name")}],
+        parameters=[params, {
+            "map_name": LaunchConfiguration("map_name"),
+            "map_path": LaunchConfiguration("map_path"),
+        }],
     )
 
     frenet_odom = Node(
@@ -49,6 +61,7 @@ def generate_launch_description():
     return LaunchDescription([
         params_arg,
         map_name_arg,
+        map_path_arg,
         global_republisher,
         frenet_odom,
     ])

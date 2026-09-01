@@ -41,7 +41,7 @@ YAML/C++/하니스를 같이 맞추십시오. control의 `base_max_accel`/`prebr
 
 ## Algorithm rules
 
-- Runtime code is C++17 for ROS 2 Jazzy.
+- Runtime code is C++17 for the recovered ROS 2 Humble environment.
 - Use `f110_msgs/msg/ObstacleArray`, `WpntArray`, and `OTWpntArray`; do not create a new message.
 - The obstacle input is `obstacles_topic`, which defaults to `/confirmed_static_obs`
   (2026-08-16). `/confirmed_static_obs` is the detector's confirmed-only Layer-2 view: it carries
@@ -619,6 +619,9 @@ C is left and it waited 22.67 s.
   `src/raceline_spline_planner.cpp`.
 - Runtime parameters: `config/local_planning.yaml`.
 - Launch entrypoint: `launch/local_planning.launch.py`.
+- The integrated launch selects the clean installed occupancy map as
+  `kinematic_localization/maps/<map_name>.yaml`, where `map_name` defaults from `F1_MAP`. In SIM,
+  do not substitute the historical `map_kissmap_render.yaml` generation.
 - Korean node documentation: `docs/local_planner.md`.
 - Algorithm tests: `test/test_raceline_spline.cpp`, including the wrong-branch snake regression.
 - Guard tests: `test/test_obstacle_guard.cpp`, including variance inflation, frozen-envelope
