@@ -1,0 +1,9 @@
+scope,candidate_identity_unique,candidate_identity_changes,path_digest_unique,path_digest_changes,side_switches,prefix_trim_observed,chaining_triggered,interpretation
+S01_STRAIGHT_101,1,0,125,124,0,true,false,stable candidate identity; digest evolution is committed-suffix trimming
+S02_CURVE_102_REPAIR,2,1,71,70,0,true,false,one back-to-back pre-commit replacement; committed motion identity stable
+S03_CLEAR_LATERAL_103,1,0,60,59,0,true,false,stable candidate identity; digest evolution is committed-suffix trimming
+S04_RETURN_104,1,0,59,58,0,true,false,stable candidate identity and clean global handoff
+ALL_ACTIVE_DRIVE,375,374,375,374,3,true,false,aggregate changes include different scenarios and every trimmed suffix; not a chatter count
+LATERAL_PATH_STEP_P99,,,,0.032010,0,false,false,nearest local-path d step p99 in metres
+LATERAL_PATH_STEP_MAX,,,,0.427614,0,false,false,single path-interface or handoff step; no direct lateral-command topic was recorded
+S02_ZERO_SPEED_PREMOTION_ACQUISITION,12,11,,,0,false,false,provisional selections while controller was stopped; excluded from moving chatter metric

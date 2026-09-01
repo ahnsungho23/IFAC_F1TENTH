@@ -1,0 +1,6 @@
+scenario_id,planning_callbacks,evaluation_events,fresh_count,continued_count,complete_count,selected_side,constructed_max,validator_max,safe_stop_count,planner_failure_count,collision_true_count,off_track,footprint_track_margin_min_m,tracking_error_p95_m,tracking_error_max_m,local_waypoint_gap_max_ms,result
+S01_STRAIGHT_101,332,39,1,292,1,RIGHT,12,12,0,0,0,false,0.404062,0.256263,0.272498,8.654118,PASS
+S02_CURVE_102_REPAIR,272,58,2,213,1,LEFT,12,12,0,0,0,false,0.425679,0.435506,0.521327,9.508848,PASS
+S03_CLEAR_LATERAL_103,188,45,1,142,1,LEFT,12,12,0,0,0,false,0.469477,0.295270,0.338252,8.623362,PASS
+S04_RETURN_104,188,51,1,136,1,RIGHT,12,12,0,0,0,false,0.316510,0.454733,0.504457,8.221626,PASS
+ALL_ACTIVE_DRIVE,4300,3417,4,878,5,MIXED,12,12,0,0,0,false,0.297559,0.237082,0.521327,11.393785,PASS

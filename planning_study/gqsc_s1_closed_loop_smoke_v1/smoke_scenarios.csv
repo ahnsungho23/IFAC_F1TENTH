@@ -1,0 +1,6 @@
+scenario_id,counted,description,target_s_m,reference_kappa_radpm,obstacle_s_start_m,obstacle_s_end_m,obstacle_d_right_m,obstacle_d_left_m,selected_side,protocol_status
+S01_STRAIGHT_101,true,simple centered straight obstacle,42.0,0.000,41.78,42.22,-0.15,0.15,RIGHT,COUNTED_PASS
+S02_CURVE_102_REPAIR,true,centered curved-section obstacle,24.0,0.446,23.78,24.22,-0.18,0.18,LEFT,COUNTED_PASS_AFTER_SCHEDULER_REPAIR
+S03_CLEAR_LATERAL_103,true,right-biased obstacle requiring clear left maneuver,17.0,0.000,16.78,17.22,-0.55,0.15,LEFT,COUNTED_PASS
+S04_RETURN_104,true,centered obstacle observed through completion and raceline return,30.0,-0.402,29.78,30.22,-0.13,0.13,RIGHT,COUNTED_PASS
+AUX_102_WRAP_EARLY_CLEAR,false,first curve attempt cleared at lap wrap before target,6.0,0.304,5.78,6.22,-0.18,0.18,RIGHT,PROTOCOL_EXCLUDED

@@ -1,0 +1,6 @@
+scope,gqsc_s1_evaluations_per_callback,callback_count,percent,max_constructed,max_validator
+ACTIVE_DRIVE,0,883,20.534884,0,0
+ACTIVE_DRIVE,1,3417,79.465116,12,12
+ACTIVE_DRIVE,2,0,0.000000,0,0
+ACTIVE_DRIVE,3,0,0.000000,0,0
+CONSTRUCTED_CALLBACKS_ONLY,1,16,100.000000,12,12
