@@ -1,0 +1,12 @@
+accounting_stage,scope,total_episodes,production_success,oracle_label,oracle_feasible,oracle_negative,method,hard_recovered,hard_denominator,usable_recovered,usable_denominator,interpretation,authority
+ORIGINAL_VALIDATION_V1,VALIDATION_SEEN_AFTER_V1,37,0,OLD_ORACLE,24,13,H3,13,24,,,original_reported,planning_study/p3_geometry_conditioned_validation_v1/README.md:54-97
+ORIGINAL_VALIDATION_V1,VALIDATION_SEEN_AFTER_V1,37,0,OLD_ORACLE,24,13,H4-A,13,24,,,original_reported_no_net_gain_over_H3,planning_study/p3_geometry_conditioned_validation_v1/README.md:54-97
+ORIGINAL_VALIDATION_V1,VALIDATION_SEEN_AFTER_V1,37,0,OLD_ORACLE,24,13,H4-B,13,24,,,original_reported,planning_study/p3_geometry_conditioned_validation_v1/README.md:54-97
+KNOWN_VUE036_SENSITIVITY,VALIDATION_SEEN_AFTER_V1,37,0,OLD_ORACLE_PLUS_KNOWN_EXCEPTION,25,12,H3,14,25,,,intermediate_sensitivity_not_final_oracle,planning_study/p3_geometry_conditioned_validation_v1/README.md:75-97
+KNOWN_VUE036_SENSITIVITY,VALIDATION_SEEN_AFTER_V1,37,0,OLD_ORACLE_PLUS_KNOWN_EXCEPTION,25,12,H4-A,14,25,,,intermediate_sensitivity_not_final_oracle,planning_study/p3_geometry_conditioned_validation_v1/README.md:75-97
+DIAGNOSIS_V1_CONSERVATIVE_USABLE,VALIDATION_SEEN_AFTER_V1,37,0,DIAGNOSIS_V1,25,12,H4-A,14,25,10,25,superseded_conservative_usable_definition_and_denominator,planning_study/p3_validation_v1_diagnosis/README.md:95-127
+ORACLE_V2_CORRECTED,VALIDATION_SEEN_AFTER_V1,37,0,ORACLE_V2_HARD,25,12,H3,14,25,10,19,latest_contract,planning_study/p3_reference_oracle_v2/README.md:58-71
+ORACLE_V2_CORRECTED,VALIDATION_SEEN_AFTER_V1,37,0,ORACLE_V2_HARD,25,12,H4-A,14,25,11,19,latest_contract,planning_study/p3_reference_oracle_v2/README.md:58-71
+ORACLE_V2_CORRECTED,VALIDATION_SEEN_AFTER_V1,37,0,ORACLE_V2_HARD,25,12,H4-B,14,25,11,19,latest_contract,planning_study/p3_reference_oracle_v2/README.md:58-71
+POST_DIAGNOSIS_SEEN_EVALUATION,VALIDATION_SEEN_AFTER_V1,37,0,ORACLE_V2_HARD,25,12,R3_K12,19,25,18,19,post_diagnosis_seen_result_not_new_unseen_selection,planning_study/p3_geometry_factor_ranking_v2/recovery_by_budget.csv:35;47
+CURRENT_FROZEN_PARITY,VALIDATION_SEEN_AFTER_V1,37,0,NOT_APPLICABLE_ALL_EPISODE_DENOMINATOR,,,GQSC-S1,20,37,18,37,all_episode_parity_denominator_not_oracle_feasible_denominator,planning_study/gqsc_v3_geometry_normalized/README.md:16-20
