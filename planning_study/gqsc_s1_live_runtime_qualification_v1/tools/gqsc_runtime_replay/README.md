@@ -35,8 +35,17 @@ qualification runner는 `ros2 pkg prefix local_planning`과 frozen installed-nod
 
 Qualification runner는 `target_callbacks:=220`, `warmup_callbacks:=20`을 고정한다. 출력은
 처음 20개를 `phase=WARMUP`, 이어지는 200개를 `phase=MEASUREMENT`로 표시하며 기존 경로를
-덮어쓰지 않는다. `run_w2_qualification.zsh`와 `run_w3_qualification.zsh`는 이번 작업에서
-실행하지 않은 미래 데이터 수집 명령이다.
+덮어쓰지 않는다. `run_w1_qualification.zsh`, `run_w2_qualification.zsh`,
+`run_w3_qualification.zsh`는 protocol revision 2에서도 실행하지 않은 미래 데이터 수집
+명령이다. 세 runner 모두 timing 입력을 시작하기 전에 실제 planner/harness PID와 affinity를
+`affinity.txt`에 기록한다. W3는 experiment-owned background process group도
+`0-7,10-23`인지 검증한다. 모든 runner는 AC 전원과 `powersave` governor를
+`system_context.txt`에 남긴다.
+
+결과 분석은 timing 전에 동결된 `../analyze_qualification.py`만 사용한다. W1의
+`callback_wall_us`와 W2/W3의 `o_total_us`를 raw에서 직접 읽고 nearest-rank p90/p95/p99,
+4/5 repeat gate, 10% strong effect, production decision, 최종 precedence를 적용한다. W1과
+W2/W3 timing 범위는 동일하지 않으므로 W1→W2 차이를 순수 ROS overhead로 해석하지 않는다.
 
 `evaluation_sequence`는 현재 public diagnostic에 노출되지 않는다. 한 qualifying callback에
 `fresh_evaluation_count==1`을 강제한 뒤, joined callback의 증가 순서로

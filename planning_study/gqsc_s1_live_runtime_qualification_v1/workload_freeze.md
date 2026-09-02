@@ -1,4 +1,4 @@
-# Immutable workload freeze — revision 1, binary provenance revision 2
+# Immutable workload freeze — protocol revision 2, binary provenance revision 2
 
 ## Revision lineage
 
@@ -10,6 +10,11 @@ causal comparability and reproducibility, never observed latency.
 Binary provenance revision 2 changes no workload contract. It replaces only the disallowed
 non-Release executables with a clean Release overlay built from source commit
 `dc33b875a938fdb7730d35fe61de43ee863b04c0`.
+
+Execution attempt 0 stopped before timing. Protocol revision 2 changes no workload bytes or
+execution scale; it freezes the previously missing decision/quantile rules and actual-affinity
+evidence. W1/W2 timing scopes were proven non-equivalent, so W1 remains an algorithm-isolated
+diagnostic and cannot be subtracted from W2 as pure ROS overhead.
 
 ## Common production identity
 
@@ -33,10 +38,14 @@ non-Release executables with a clean Release overlay built from source commit
 | replay source SHA-256 | `ab014c1e56fd03189327d418e63c88c3295b150936037c7dc65e6d1905b8251b` |
 | replay Release binary SHA-256 | `49c5fd04c105883c744f470e810fb0811fa7d36cd7094c069b2e264c3ba8cafb` |
 | Release-overlay builder SHA-256 | `75d41200c313060b4df4b56ac461d098d2f4787416dd450166adc3aa5ae94c38` |
-| W2 qualification runner SHA-256 | `3dbcc9130333231f1a21bc446df4ce7a8d0aced5d7c460afb574906ca8ed6830` |
-| W3 qualification runner SHA-256 | `5fd7889b6bf1f58c2d00474a3fd863280f6be8fd0d7ae48f8f36de5dfae0d85b` |
+| revision-1 W2 qualification runner SHA-256 | `3dbcc9130333231f1a21bc446df4ce7a8d0aced5d7c460afb574906ca8ed6830` |
+| revision-1 W3 qualification runner SHA-256 | `5fd7889b6bf1f58c2d00474a3fd863280f6be8fd0d7ae48f8f36de5dfae0d85b` |
+| revision-2 W1 qualification runner SHA-256 | `e25e1d19cda2c32766d91808eec331e88eeae3bc69695738553a36403963f07f` |
+| revision-2 W2 qualification runner SHA-256 | `e2f7c03b9420a66a398b08562f031f63494fb99a1fb213124bd38cbbffd55202` |
+| revision-2 W3 qualification runner SHA-256 | `457fee8b054ae2c765cb5e8d183f5f3a0bcd7d04a138b549ae116356b214e526` |
+| revision-2 analysis SHA-256 | `92321d50542004236de9154a9098e5e0ebc4897d3c61531d7fd4c73160e455db` |
 
-The normal workspace remains untouched. Revision 2 builds only `local_planning` in
+The normal workspace remains untouched. Binary provenance revision 2 builds only `local_planning` in
 `release_overlay/_build`, installs it in `release_overlay/_install`, and records logs in
 `release_overlay/_log`; all three generated directories are ignored. Full compiler evidence,
 absolute paths, Build IDs, and hashes are in `binary_provenance.md`.
@@ -104,4 +113,4 @@ Frozen W3 environment identities include:
   `f4b83044...`, `4a978272...`, `99a775ca...`;
 - initialization pose `(x,y,z,w)=(-0.427,0.456,0.3651,0.9310)` and `use_sim_time=false`.
 
-The old S01 row remains revision-0 history only. It is not a revision-1 workload.
+The old S01 row remains revision-0 history only. It is not a revision-1 or revision-2 workload.

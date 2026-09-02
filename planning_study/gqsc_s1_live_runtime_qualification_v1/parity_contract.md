@@ -1,4 +1,4 @@
-# A/B and cross-layer parity contract — revision 1, binary provenance revision 2
+# A/B and cross-layer parity contract — protocol revision 2, binary provenance revision 2
 
 ## Common invariants
 
@@ -45,6 +45,12 @@ those internal counts is forbidden in this protocol.
 W3 uses the same frozen planner snapshot even while simulator ego/perception topics evolve. Exact
 digest parity is therefore required for every W3 sample, not weakened to a moving-trajectory
 tolerance. A mismatch invalidates the complete A/B pair before latency analysis.
+
+Revision 2 makes the failure action exact: if any otherwise eligible measured callback violates any
+mandatory field above, retain that row, stop the complete experiment, and classify
+`EXPERIMENT_INCONCLUSIVE`. Never delete the callback or continue with a replacement sample. A
+stale, duplicate, continuation-only, or non-fresh callback remains ineligible under
+`fresh_callback_contract.md`; count it separately rather than calling it a parity failure.
 
 ## CPU parity
 

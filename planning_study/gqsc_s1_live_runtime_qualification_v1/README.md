@@ -6,6 +6,12 @@
 
 Binary provenance revision 2: `RUNTIME_BINARY_FROZEN`.
 
+Protocol revision 2 gate: `PROTOCOL_R2_FROZEN`.
+
+Protocol revision 2 freezes the pre-result decision, quantile, validity, affinity-evidence, and
+system-state contract in `decision_contract.md`. Execution attempt 0 correctly stopped before its
+first timing sample; revision 2 still contains no scientific latency observation.
+
 Protocol revision 1 freezes one causal, same-input design before any latency A/B run:
 
 | Workload | Timed runtime layer | Immutable planner input | State |
@@ -33,6 +39,11 @@ not inspected.
   `dc33b875a938fdb7730d35fe61de43ee863b04c0`, rejects the recovered unoptimized normal binaries
   and freezes a separate `-O3 -DNDEBUG` Release overlay for all three workloads. Workload identity,
   callback/sample/retry contracts, A/B order, parity rules, and threshold are unchanged.
+- Execution attempt 0 started no scheduled run and collected zero timing callbacks because the
+  exact final decision mapping and W1/W3 actual-affinity evidence were missing.
+- Protocol revision 2 freezes the exact decision table, nearest-rank quantiles, negative W1/W2
+  timing-scope-equivalence conclusion, run-validity precedence, actual PID/affinity evidence,
+  AC/powersave state, and a synthetic-tested analysis script before timing.
 
 ## Frozen production identity
 

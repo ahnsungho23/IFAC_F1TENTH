@@ -1,8 +1,9 @@
-# Execution protocol — workload revision 1, binary provenance revision 2
+# Execution protocol — protocol revision 2, binary provenance revision 2
 
 ## Authorization and stop rule
 
-This document freezes future commands; revision 1 did not execute them. Do not start a partial A/B
+Revision 1 and execution attempt 0 collected no timing. Revision 2 freezes the final decision and
+run-evidence contract in `decision_contract.md`. Do not start a partial A/B
 run unless the full preflight matches. Any branch, hash, binary, CPU topology, QoS, graph, row
 order, join, or parity mismatch stops the attempt. Do not rebuild production code, edit a parameter,
 substitute an input, or select another CPU during a run.
@@ -45,19 +46,23 @@ sha256sum planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_
 ros2 pkg prefix local_planning
 sha256sum planning_study/gqsc_s1_live_runtime_qualification_v1/tools/gqsc_runtime_replay/src/sce018_replay_driver.cpp
 sha256sum planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install/lib/gqsc_runtime_replay/sce018_replay_driver
+sha256sum planning_study/gqsc_s1_live_runtime_qualification_v1/tools/run_w1_qualification.zsh
 sha256sum planning_study/gqsc_s1_live_runtime_qualification_v1/tools/run_w2_qualification.zsh
 sha256sum planning_study/gqsc_s1_live_runtime_qualification_v1/tools/run_w3_qualification.zsh
+sha256sum planning_study/gqsc_s1_live_runtime_qualification_v1/tools/analyze_qualification.py
 lscpu -e=CPU,CORE,SOCKET,NODE,ONLINE,MAXMHZ,MINMHZ
 taskset -pc $$
 sed -n '1p' /sys/devices/system/cpu/cpu8/topology/thread_siblings_list
 sed -n '1p' /sys/devices/system/cpu/cpu8/cpufreq/scaling_governor
+on_ac_power
 cat /proc/cmdline
 ```
 
 Required identities are in `workload_freeze.md`. The parent mask must be `0-23`; CPU 8 must remain
 online on core 4 with sibling `8-9`. All non-planner experiment processes are assigned
 `0-7,10-23` in both conditions. A leaves only the planner unpinned; B changes only the planner to
-`taskset -c 8`. No affinity command was executed as part of the revision-1 smoke.
+`taskset -c 8`. The governor remains `powersave`, and `on_ac_power` must return 0 (`AC`) before and
+after every run. No affinity command was executed as part of the revision-1 smoke.
 
 ## W1
 
@@ -69,25 +74,20 @@ env -u GQSC_S1_MAIN_TIMING -u GQSC_S1_STAGE_TIMING \
   planning_study/p3_geometry_conditioned_method_v1/success_control_inputs/SCE018.event
 ```
 
-Condition A:
+The exact future timing runner for both conditions is `tools/run_w1_qualification.zsh`. The literal
+first W1 row is:
 
 ```zsh
-env GQSC_S1_MAIN_TIMING=1 GQSC_S1_TIMING_WARMUP=20 GQSC_S1_TIMING_REPEATS=200 \
-  planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_build/local_planning/p3_r3_k12_integration_harness \
-  planning_study/p3_geometry_conditioned_method_v1/success_control_inputs/SCE018.event
+planning_study/gqsc_s1_live_runtime_qualification_v1/tools/run_w1_qualification.zsh \
+  A 1 ATTEMPT0 \
+  /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/raw/W1_SCE018_STANDALONE/R1_A_ATTEMPT0
 ```
 
-Condition B:
-
-```zsh
-taskset -c 8 env GQSC_S1_MAIN_TIMING=1 GQSC_S1_TIMING_WARMUP=20 \
-  GQSC_S1_TIMING_REPEATS=200 \
-  planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_build/local_planning/p3_r3_k12_integration_harness \
-  planning_study/p3_geometry_conditioned_method_v1/success_control_inputs/SCE018.event
-```
-
-The caller stores stdout/stderr under the exact workload/repeat/condition/attempt identity from
-`run_schedule.csv`; the harness must emit exactly 200 measurement rows.
+Every other invocation substitutes only the condition/repeat/attempt binding from `run_schedule.csv`
+and the matching literal output directory. The runner uses the same frozen harness/environment
+arguments as revision 1, adds only a stopped pre-exec PID/affinity gate and AC/system evidence, and
+requires exactly 200 measurement rows. The harness executes 20 warm-ups internally but does not
+emit their timing rows; W2/W3 retain their 20 warm-up join rows explicitly.
 
 ## W2
 
@@ -96,6 +96,9 @@ hashes, confirms the Release package prefix, launches that installed `local_plan
 only profiling enable and diagnostic detail, remaps
 its public inputs/outputs to `/gqsc_runtime/*`, then runs the external collector for exactly 20+200
 unique joined callbacks. No simulator process is launched.
+Before starting replay, the runner resolves the actual installed-node child PID and records/verifies
+its executable and A/B allowed list. It then resolves the replay child and verifies the background
+mask. `affinity.txt` and `system_context.txt` are mandatory.
 
 For example, the literal first W2 row is:
 
@@ -138,6 +141,9 @@ process set are:
 The script validates the simulator launch/config, `ifac_track` map triplet, current global path,
 production node, event, configuration, method file, and complete node set before collection. On
 exit it signals the replay then all process groups and preserves every log and graph file.
+Before replay begins, it records/verifies the actual planner child and every current member of each
+experiment-owned non-planner process group. AC/governor/system context and graph evidence are
+mandatory.
 
 The literal first W3 row is:
 
@@ -177,8 +183,9 @@ interpretation forbidden.
 
 ## Samples, timeout, retries, and order
 
-- Exactly 20 eligible warm-up callbacks are retained with `phase=WARMUP` and discarded from the
-  statistic. Exactly the next 200 are `phase=MEASUREMENT`; an extra eligible row fails the attempt.
+- W1 executes exactly 20 internal warm-ups and emits exactly the next 200 measurement rows. W2/W3
+  retain exactly 20 joined rows with `phase=WARMUP` and exclude them from statistics, then retain
+  exactly 200 `phase=MEASUREMENT` rows; an extra eligible row fails the attempt.
 - Five A/B pairs per workload. Timeouts: W1 600 s, W2 600 s, W3 900 s.
 - Invalid/rejected callbacks are retained as faults and never silently renumbered into samples.
 - One `RERUN1` is allowed only for a recorded infrastructure/protocol failure, never for a latency
@@ -186,3 +193,10 @@ interpretation forbidden.
   the workload.
 - Pair order is fixed independently for each workload: repeat 1 A/B, 2 B/A, 3 A/B, 4 B/A, 5 A/B.
   `run_schedule.csv` is authoritative and was frozen before any A/B output.
+
+## Analysis and decisions
+
+`decision_contract.md` is authoritative for timing-scope interpretation, nearest-rank quantiles,
+six deadline decisions, the W3-B production decision, contrasts, strong effects, final precedence,
+parity/infrastructure handling, affinity evidence, and system state. The frozen analysis entry point
+is `tools/analyze_qualification.py`; only its synthetic `--self-test` is permitted before timing.

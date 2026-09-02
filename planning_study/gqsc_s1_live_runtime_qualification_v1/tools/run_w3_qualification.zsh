@@ -25,16 +25,120 @@ readonly EVENT=$REPO/planning_study/p3_geometry_conditioned_method_v1/success_co
 readonly RESULT=$OUTPUT_DIR/joined_callbacks.jsonl
 readonly GRAPH=$OUTPUT_DIR/ros_graph.txt
 readonly BACKGROUND_CPUS=0-7,10-23
+readonly EXPECTED_PLANNER_CPUS=$([[ $CONDITION == B ]] && print 8 || print 0-23)
+readonly EXPECTED_POWER=AC
+readonly EXPECTED_GOVERNOR=powersave
 export ROS_DOMAIN_ID=83
 
 typeset -a process_groups
+typeset -a background_groups
+typeset -a background_labels
 typeset driver_pid=''
+typeset planner_pid=''
+typeset driver_group_pid=''
+typeset planner_group_pid=''
+
+power_state() {
+  if on_ac_power; then
+    print AC
+    return
+  fi
+  local status=$?
+  if (( status == 1 )); then
+    print BATTERY
+  else
+    print UNKNOWN
+  fi
+}
+
+find_group_executable() {
+  local group_id=$1
+  local expected=$2
+  for _ in {1..500}; do
+    local candidate
+    for candidate in $(ps -eo pid=,pgid= | awk -v group_id=$group_id '$2 == group_id {print $1}'); do
+      if [[ $(readlink -f /proc/$candidate/exe 2>/dev/null || true) == $expected ]]; then
+        print -- $candidate
+        return 0
+      fi
+    done
+    sleep 0.01
+  done
+  return 1
+}
+
+record_pid_evidence() {
+  local role=$1
+  local pid=$2
+  local expected_executable=$3
+  local expected_cpus=$4
+  local actual_executable=$(readlink -f /proc/$pid/exe)
+  local actual_cpus=$(awk '/^Cpus_allowed_list:/{print $2}' /proc/$pid/status)
+  {
+    print -- "role=$role"
+    print -- "pid=$pid"
+    print -- "expected_executable=$expected_executable"
+    print -- "actual_executable=$actual_executable"
+    print -n -- "command_line="
+    tr '\0' ' ' </proc/$pid/cmdline
+    print
+    grep -E '^(Name|Pid|PPid|Cpus_allowed|Cpus_allowed_list):' /proc/$pid/status
+    taskset -pc $pid
+    ps -o pid,psr,comm,args -p $pid
+  } >>$OUTPUT_DIR/affinity.txt
+  [[ $actual_executable == $expected_executable && $actual_cpus == $expected_cpus ]]
+}
+
+record_background_group_evidence() {
+  local label=$1
+  local group_id=$2
+  local -a members
+  members=($(ps -eo pid=,pgid= | awk -v group_id=$group_id '$2 == group_id {print $1}'))
+  (( ${#members} > 0 )) || return 1
+  {
+    print -- "background_group=$label"
+    print -- "pgid=$group_id"
+  } >>$OUTPUT_DIR/affinity.txt
+  local pid
+  for pid in $members; do
+    local actual_cpus=$(awk '/^Cpus_allowed_list:/{print $2}' /proc/$pid/status)
+    {
+      print -- "member_pid=$pid"
+      print -- "member_executable=$(readlink -f /proc/$pid/exe)"
+      print -n -- "member_command_line="
+      tr '\0' ' ' </proc/$pid/cmdline
+      print
+      grep -E '^(Name|Pid|PPid|Cpus_allowed|Cpus_allowed_list):' /proc/$pid/status
+      taskset -pc $pid
+      ps -o pid,psr,comm,args -p $pid
+    } >>$OUTPUT_DIR/affinity.txt
+    [[ $actual_cpus == $BACKGROUND_CPUS ]] || return 1
+  done
+}
+
+record_system_context() {
+  local phase=$1
+  {
+    print -- "phase=$phase"
+    print -- "timestamp_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    print -- "power_source=$(power_state)"
+    print -- "governor=$(sed -n '1p' /sys/devices/system/cpu/cpu8/cpufreq/scaling_governor)"
+    print -- "loadavg=$(</proc/loadavg)"
+    print -- "kernel=$(uname -r)"
+    print -- "relevant_processes_begin"
+    ps -eo pid,ppid,pgid,psr,comm,args | grep -E \
+      'local_planner_node|sce018_replay_driver|gym_bridge|kinematic_localization|global_trajectory|frenet_odom|obstacle_detector|state_machine|control_map|cruise_controller|sim_imu_bridge|drive_source_selector' || true
+    print -- "relevant_processes_end"
+  } >>$OUTPUT_DIR/system_context.txt
+}
 
 start_background() {
   local label=$1
   shift
   setsid taskset -c $BACKGROUND_CPUS "$@" >$OUTPUT_DIR/$label.log 2>&1 &
   process_groups+=($!)
+  background_groups+=($!)
+  background_labels+=($label)
 }
 
 start_planner() {
@@ -43,7 +147,8 @@ start_planner() {
   else
     setsid "$@" >$OUTPUT_DIR/planner.log 2>&1 &
   fi
-  process_groups+=($!)
+  planner_group_pid=$!
+  process_groups+=($planner_group_pid)
 }
 
 stop_group() {
@@ -64,8 +169,8 @@ stop_group() {
 
 cleanup() {
   local pid
-  if [[ -n $driver_pid ]]; then
-    stop_group $driver_pid
+  if [[ -n $driver_group_pid ]]; then
+    stop_group $driver_group_pid
   fi
   for pid in ${(Oa)process_groups}; do
     stop_group $pid
@@ -119,6 +224,8 @@ print -r -- '4a97827241a0334d9c7d1c7eeb0d14167a1e29e5c354a8d357f0c13efa471c19  '
   sha256sum --check --status || exit 65
 print -r -- '99a775ca302ca8baf479d6bcc157c41b401c61ea34f4f9bb2255eeedda02687c  '$REPO/src/f1tenth_control/launch/control_sim.launch.py |
   sha256sum --check --status || exit 65
+[[ $(power_state) == $EXPECTED_POWER ]] || exit 66
+[[ $(sed -n '1p' /sys/devices/system/cpu/cpu8/cpufreq/scaling_governor) == $EXPECTED_GOVERNOR ]] || exit 66
 
 unset SNAP SNAP_ARCH SNAP_COMMON SNAP_CONTEXT SNAP_COOKIE SNAP_DATA SNAP_EUID
 unset SNAP_INSTANCE_NAME SNAP_LAUNCHER_ARCH_TRIPLET SNAP_LIBRARY_PATH SNAP_NAME SNAP_REAL_HOME
@@ -182,6 +289,17 @@ if (( ! ready )); then
   exit 20
 fi
 
+planner_pid=$(find_group_executable $planner_group_pid $RELEASE_NODE) || exit 67
+record_pid_evidence PLANNER $planner_pid $RELEASE_NODE $EXPECTED_PLANNER_CPUS || exit 68
+typeset group_index
+for (( group_index = 1; group_index <= ${#background_groups}; ++group_index )); do
+  record_background_group_evidence \
+    $background_labels[$group_index] $background_groups[$group_index] || exit 68
+done
+[[ $(power_state) == $EXPECTED_POWER ]] || exit 66
+[[ $(sed -n '1p' /sys/devices/system/cpu/cpu8/cpufreq/scaling_governor) == $EXPECTED_GOVERNOR ]] || exit 66
+record_system_context START
+
 setsid taskset -c $BACKGROUND_CPUS ros2 run gqsc_runtime_replay sce018_replay_driver --ros-args \
   -p event_file:=$EVENT \
   -p output_path:=$RESULT \
@@ -196,12 +314,17 @@ setsid taskset -c $BACKGROUND_CPUS ros2 run gqsc_runtime_replay sce018_replay_dr
   -p preflight_hold_sec:=3.0 \
   -p timeout_sec:=900.0 \
   >$OUTPUT_DIR/driver.log 2>&1 &
-driver_pid=$!
+driver_group_pid=$!
 
+driver_pid=$(find_group_executable \
+  $driver_group_pid $TOOLS/_install/lib/gqsc_runtime_replay/sce018_replay_driver) || exit 67
+record_pid_evidence REPLAY_DRIVER $driver_pid \
+  $TOOLS/_install/lib/gqsc_runtime_replay/sce018_replay_driver $BACKGROUND_CPUS || exit 68
 sleep 2
 {
   git -C $REPO status --short --branch
   git -C $REPO rev-parse HEAD
+  taskset -pc $planner_pid
   taskset -pc $driver_pid
   lscpu -e=CPU,CORE,SOCKET,NODE,ONLINE,MAXMHZ,MINMHZ
   sed -n '1p' /sys/devices/system/cpu/cpu8/topology/thread_siblings_list
@@ -218,15 +341,19 @@ sleep 2
 } >$GRAPH
 
 set +e
-wait $driver_pid
+wait $driver_group_pid
 typeset driver_status=$?
 set -e
 driver_pid=''
+driver_group_pid=''
 if (( driver_status != 0 )); then
   print -u2 -- "W3 qualification failed; evidence: $OUTPUT_DIR"
   exit $driver_status
 fi
 
 grep -Fq '"kind":"complete","joined_callbacks":220,"warmup_callbacks":20,"measurement_callbacks":200,"distinct_source_epochs":220,"parity":"PASS"' $RESULT
+[[ $(power_state) == $EXPECTED_POWER ]] || exit 66
+[[ $(sed -n '1p' /sys/devices/system/cpu/cpu8/cpufreq/scaling_governor) == $EXPECTED_GOVERNOR ]] || exit 66
+record_system_context END
 print -- "W3_QUALIFICATION_CAPTURE_COMPLETE_UNINTERPRETED"
 print -- "evidence=$OUTPUT_DIR"
