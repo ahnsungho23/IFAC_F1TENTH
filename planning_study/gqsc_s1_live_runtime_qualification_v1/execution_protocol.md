@@ -1,9 +1,11 @@
-# Execution protocol — protocol revision 2, binary provenance revision 2
+# Execution protocol — operational revision 3, scientific protocol revision 2
 
 ## Authorization and stop rule
 
-Revision 1 and execution attempt 0 collected no timing. Revision 2 freezes the final decision and
-run-evidence contract in `decision_contract.md`. Do not start a partial A/B
+Revision 1, execution attempt 0, and the revision-2 executable-mode failure collected no timing.
+Revision 2 freezes the final decision and run-evidence contract in `decision_contract.md`;
+revision 3 repairs only the pre-run executable contract and freezes a distinct result namespace.
+Do not start a partial A/B
 run unless the full preflight matches. Any branch, hash, binary, CPU topology, QoS, graph, row
 order, join, or parity mismatch stops the attempt. Do not rebuild production code, edit a parameter,
 substitute an input, or select another CPU during a run.
@@ -20,6 +22,14 @@ cd /home/sungho/Documents/GitHub/2026_IFAC
 planning_study/gqsc_s1_live_runtime_qualification_v1/tools/build_tools.zsh
 source planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install/setup.zsh
 source planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/setup.zsh
+```
+
+After the revision-3 tag exists and before any warm-up, verify every directly executed script in
+both the working filesystem and frozen tag tree:
+
+```zsh
+planning_study/gqsc_s1_live_runtime_qualification_v1/tools/preflight_executable_modes.zsh \
+  gqsc_s1_live_runtime_qualification_v1-r3
 ```
 
 `build_tools.zsh` builds only `gqsc_runtime_replay` in the experiment's ignored Release build,
@@ -80,7 +90,7 @@ first W1 row is:
 ```zsh
 planning_study/gqsc_s1_live_runtime_qualification_v1/tools/run_w1_qualification.zsh \
   A 1 ATTEMPT0 \
-  /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/raw/W1_SCE018_STANDALONE/R1_A_ATTEMPT0
+  /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/executions/r3/raw/W1_SCE018_STANDALONE/R1_A_ATTEMPT0
 ```
 
 Every other invocation substitutes only the condition/repeat/attempt binding from `run_schedule.csv`
@@ -105,12 +115,12 @@ For example, the literal first W2 row is:
 ```zsh
 planning_study/gqsc_s1_live_runtime_qualification_v1/tools/run_w2_qualification.zsh \
   A 1 ATTEMPT0 \
-  /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/raw/W2_SCE018_ROS_NODE_TEST_ACTIVE/R1_A_ATTEMPT0
+  /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/executions/r3/raw/W2_SCE018_ROS_NODE_TEST_ACTIVE/R1_A_ATTEMPT0
 ```
 
 Every other invocation substitutes only the condition and repeat values in the binding CSV and
 uses the corresponding literal output directory
-`raw/W2_SCE018_ROS_NODE_TEST_ACTIVE/R<repeat>_<condition>_ATTEMPT0`. The script accepts only A/B,
+`executions/r3/raw/W2_SCE018_ROS_NODE_TEST_ACTIVE/R<repeat>_<condition>_ATTEMPT0`. The script accepts only A/B,
 repeat 1–5, and `ATTEMPT0`/`RERUN1`, and refuses an existing output path. This is deterministic
 argument expansion, not an operator-selected workload or schedule.
 
@@ -150,11 +160,11 @@ The literal first W3 row is:
 ```zsh
 planning_study/gqsc_s1_live_runtime_qualification_v1/tools/run_w3_qualification.zsh \
   A 1 ATTEMPT0 \
-  /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/raw/W3_SCE018_FULL_STACK_CONTENTION/R1_A_ATTEMPT0
+  /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/executions/r3/raw/W3_SCE018_FULL_STACK_CONTENTION/R1_A_ATTEMPT0
 ```
 
 Other rows use the exact condition/repeat from `run_schedule.csv` and the corresponding
-`raw/W3_SCE018_FULL_STACK_CONTENTION/R<repeat>_<condition>_ATTEMPT0` path.
+`executions/r3/raw/W3_SCE018_FULL_STACK_CONTENTION/R<repeat>_<condition>_ATTEMPT0` path.
 
 ## Planner-input isolation
 

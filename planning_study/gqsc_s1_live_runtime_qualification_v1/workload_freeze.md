@@ -1,4 +1,4 @@
-# Immutable workload freeze — protocol revision 2, binary provenance revision 2
+# Immutable workload freeze — operational revision 3, protocol revision 2
 
 ## Revision lineage
 
@@ -15,6 +15,11 @@ Execution attempt 0 stopped before timing. Protocol revision 2 changes no worklo
 execution scale; it freezes the previously missing decision/quantile rules and actual-affinity
 evidence. W1/W2 timing scopes were proven non-equivalent, so W1 remains an algorithm-isolated
 diagnostic and cannot be subtracted from W2 as pure ROS overhead.
+
+The revision-2 execution attempt then stopped before timing because the directly invoked W1 runner
+was stored with Git mode `100644`. Revision 3 is operational only: it records mode `100755`, adds a
+filesystem/frozen-tree executable preflight, and routes future outputs to `executions/r3/`. The
+scientific identities and contracts below are unchanged.
 
 ## Common production identity
 

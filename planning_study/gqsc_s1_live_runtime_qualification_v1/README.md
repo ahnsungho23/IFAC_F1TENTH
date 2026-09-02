@@ -8,9 +8,13 @@ Binary provenance revision 2: `RUNTIME_BINARY_FROZEN`.
 
 Protocol revision 2 gate: `PROTOCOL_R2_FROZEN`.
 
+Operational revision 3 gate: `PRE_RESULT_EXECUTABLE_REPAIR_FROZEN`.
+
 Protocol revision 2 freezes the pre-result decision, quantile, validity, affinity-evidence, and
-system-state contract in `decision_contract.md`. Execution attempt 0 correctly stopped before its
-first timing sample; revision 2 still contains no scientific latency observation.
+system-state contract in `decision_contract.md`. The revision-2 execution attempt correctly stopped
+before its first timing sample because the directly invoked W1 runner had Git mode `100644`.
+Operational revision 3 changes no science: it repairs that mode to `100755`, adds a deterministic
+filesystem/frozen-tree executable preflight, and freezes `executions/r3/` as the result namespace.
 
 Protocol revision 1 freezes one causal, same-input design before any latency A/B run:
 
@@ -44,6 +48,10 @@ not inspected.
 - Protocol revision 2 freezes the exact decision table, nearest-rank quantiles, negative W1/W2
   timing-scope-equivalence conclusion, run-validity precedence, actual PID/affinity evidence,
   AC/powersave state, and a synthetic-tested analysis script before timing.
+- The revision-2 timing attempt stopped as `PRE_RUN_GATE_FAILED_BEFORE_TIMING`: direct W1 runner
+  execution returned `permission denied`; no scheduled run, warm-up callback, measurement callback,
+  or latency statistic occurred. Revision 3 preserves that evidence separately, repairs only the
+  W1 executable mode, adds executable-mode preflight, and reserves the R3 raw/result namespace.
 
 ## Frozen production identity
 
