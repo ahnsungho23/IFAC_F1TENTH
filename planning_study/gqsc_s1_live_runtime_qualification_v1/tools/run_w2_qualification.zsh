@@ -1,5 +1,6 @@
 #!/usr/bin/env zsh
 set -e
+setopt TYPESET_SILENT
 
 if (( $# != 4 )); then
   print -u2 -- "usage: $0 A|B REPEAT_ID ATTEMPT0|RERUN1 OUTPUT_DIR"
@@ -28,12 +29,16 @@ readonly BACKGROUND_CPUS=0-7,10-23
 readonly EXPECTED_PLANNER_CPUS=$([[ $CONDITION == B ]] && print 8 || print 0-23)
 readonly EXPECTED_POWER=AC
 readonly EXPECTED_GOVERNOR=powersave
+readonly PID_PREFLIGHT_ONLY=${GQSC_S1_PID_PREFLIGHT_ONLY:-0}
+[[ $PID_PREFLIGHT_ONLY == 0 || $PID_PREFLIGHT_ONLY == 1 ]] || exit 64
 export ROS_DOMAIN_ID=82
 
 typeset planner_pid=''
 typeset driver_pid=''
 typeset planner_process_pid=''
 typeset driver_process_pid=''
+
+source $TOOLS/pid_evidence.zsh
 
 power_state() {
   if on_ac_power; then
@@ -48,28 +53,12 @@ power_state() {
   fi
 }
 
-find_child_executable() {
-  local parent_pid=$1
-  local expected=$2
-  for _ in {1..500}; do
-    local candidate
-    for candidate in $(pgrep -P $parent_pid 2>/dev/null || true); do
-      if [[ $(readlink -f /proc/$candidate/exe 2>/dev/null || true) == $expected ]]; then
-        print -- $candidate
-        return 0
-      fi
-    done
-    kill -0 $parent_pid 2>/dev/null || return 1
-    sleep 0.01
-  done
-  return 1
-}
-
 record_pid_evidence() {
   local role=$1
   local pid=$2
   local expected_executable=$3
   local expected_cpus=$4
+  verify_resolved_pid $pid $expected_executable || return 1
   local actual_executable=$(readlink -f /proc/$pid/exe)
   local actual_cpus=$(awk '/^Cpus_allowed_list:/{print $2}' /proc/$pid/status)
   {
@@ -169,9 +158,16 @@ $planner_prefix ros2 run local_planning local_planner_node --ros-args \
   >$OUTPUT_DIR/planner.log 2>&1 &
 planner_pid=$!
 
-planner_process_pid=$(find_child_executable $planner_pid $RELEASE_NODE) || exit 67
+planner_process_pid=$(resolve_unique_child_executable $planner_pid $RELEASE_NODE) || exit 67
+[[ $planner_process_pid == <-> ]] || exit 67
 record_pid_evidence PLANNER $planner_process_pid $RELEASE_NODE $EXPECTED_PLANNER_CPUS || exit 68
 record_system_context START
+
+if (( PID_PREFLIGHT_ONLY )); then
+  record_system_context END
+  print -- "W2_PID_AFFINITY_PREFLIGHT_PASS condition=$CONDITION pid=$planner_process_pid cpus=$EXPECTED_PLANNER_CPUS"
+  exit 0
+fi
 
 taskset -c $BACKGROUND_CPUS ros2 run gqsc_runtime_replay sce018_replay_driver --ros-args \
   -p event_file:=$EVENT \
@@ -189,8 +185,9 @@ taskset -c $BACKGROUND_CPUS ros2 run gqsc_runtime_replay sce018_replay_driver --
   >$OUTPUT_DIR/driver.log 2>&1 &
 driver_pid=$!
 
-driver_process_pid=$(find_child_executable \
+driver_process_pid=$(resolve_unique_child_executable \
   $driver_pid $TOOLS/_install/lib/gqsc_runtime_replay/sce018_replay_driver) || exit 67
+[[ $driver_process_pid == <-> ]] || exit 67
 record_pid_evidence REPLAY_DRIVER $driver_process_pid \
   $TOOLS/_install/lib/gqsc_runtime_replay/sce018_replay_driver $BACKGROUND_CPUS || exit 68
 sleep 2

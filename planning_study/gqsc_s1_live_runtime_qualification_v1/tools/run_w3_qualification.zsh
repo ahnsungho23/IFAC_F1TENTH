@@ -1,5 +1,6 @@
 #!/usr/bin/env zsh
 set -e
+setopt TYPESET_SILENT
 
 if (( $# != 4 )); then
   print -u2 -- "usage: $0 A|B REPEAT_ID ATTEMPT0|RERUN1 OUTPUT_DIR"
@@ -28,6 +29,8 @@ readonly BACKGROUND_CPUS=0-7,10-23
 readonly EXPECTED_PLANNER_CPUS=$([[ $CONDITION == B ]] && print 8 || print 0-23)
 readonly EXPECTED_POWER=AC
 readonly EXPECTED_GOVERNOR=powersave
+readonly PID_PREFLIGHT_ONLY=${GQSC_S1_PID_PREFLIGHT_ONLY:-0}
+[[ $PID_PREFLIGHT_ONLY == 0 || $PID_PREFLIGHT_ONLY == 1 ]] || exit 64
 export ROS_DOMAIN_ID=83
 
 typeset -a process_groups
@@ -37,6 +40,8 @@ typeset driver_pid=''
 typeset planner_pid=''
 typeset driver_group_pid=''
 typeset planner_group_pid=''
+
+source $TOOLS/pid_evidence.zsh
 
 power_state() {
   if on_ac_power; then
@@ -51,27 +56,12 @@ power_state() {
   fi
 }
 
-find_group_executable() {
-  local group_id=$1
-  local expected=$2
-  for _ in {1..500}; do
-    local candidate
-    for candidate in $(ps -eo pid=,pgid= | awk -v group_id=$group_id '$2 == group_id {print $1}'); do
-      if [[ $(readlink -f /proc/$candidate/exe 2>/dev/null || true) == $expected ]]; then
-        print -- $candidate
-        return 0
-      fi
-    done
-    sleep 0.01
-  done
-  return 1
-}
-
 record_pid_evidence() {
   local role=$1
   local pid=$2
   local expected_executable=$3
   local expected_cpus=$4
+  verify_resolved_pid $pid $expected_executable || return 1
   local actual_executable=$(readlink -f /proc/$pid/exe)
   local actual_cpus=$(awk '/^Cpus_allowed_list:/{print $2}' /proc/$pid/status)
   {
@@ -289,7 +279,8 @@ if (( ! ready )); then
   exit 20
 fi
 
-planner_pid=$(find_group_executable $planner_group_pid $RELEASE_NODE) || exit 67
+planner_pid=$(resolve_unique_group_executable $planner_group_pid $RELEASE_NODE) || exit 67
+[[ $planner_pid == <-> ]] || exit 67
 record_pid_evidence PLANNER $planner_pid $RELEASE_NODE $EXPECTED_PLANNER_CPUS || exit 68
 typeset group_index
 for (( group_index = 1; group_index <= ${#background_groups}; ++group_index )); do
@@ -299,6 +290,12 @@ done
 [[ $(power_state) == $EXPECTED_POWER ]] || exit 66
 [[ $(sed -n '1p' /sys/devices/system/cpu/cpu8/cpufreq/scaling_governor) == $EXPECTED_GOVERNOR ]] || exit 66
 record_system_context START
+
+if (( PID_PREFLIGHT_ONLY )); then
+  record_system_context END
+  print -- "W3_PID_AFFINITY_PREFLIGHT_PASS condition=$CONDITION pid=$planner_pid cpus=$EXPECTED_PLANNER_CPUS background=$BACKGROUND_CPUS"
+  exit 0
+fi
 
 setsid taskset -c $BACKGROUND_CPUS ros2 run gqsc_runtime_replay sce018_replay_driver --ros-args \
   -p event_file:=$EVENT \
@@ -316,8 +313,9 @@ setsid taskset -c $BACKGROUND_CPUS ros2 run gqsc_runtime_replay sce018_replay_dr
   >$OUTPUT_DIR/driver.log 2>&1 &
 driver_group_pid=$!
 
-driver_pid=$(find_group_executable \
+driver_pid=$(resolve_unique_group_executable \
   $driver_group_pid $TOOLS/_install/lib/gqsc_runtime_replay/sce018_replay_driver) || exit 67
+[[ $driver_pid == <-> ]] || exit 67
 record_pid_evidence REPLAY_DRIVER $driver_pid \
   $TOOLS/_install/lib/gqsc_runtime_replay/sce018_replay_driver $BACKGROUND_CPUS || exit 68
 sleep 2

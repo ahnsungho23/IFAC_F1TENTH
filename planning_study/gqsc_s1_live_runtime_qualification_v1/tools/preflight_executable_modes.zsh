@@ -20,11 +20,13 @@ typeset -a DIRECT_SCRIPTS=(
   tools/build_tools.zsh
   tools/build_release_overlay.zsh
   tools/preflight_executable_modes.zsh
+  tools/preflight_pid_affinity.zsh
   tools/run_w1_qualification.zsh
   tools/run_w2_qualification.zsh
   tools/run_w3_qualification.zsh
   tools/run_w2_smoke.zsh
   tools/run_w3_smoke.zsh
+  tools/test_pid_resolver.zsh
 )
 
 typeset relative_path full_path tree_mode

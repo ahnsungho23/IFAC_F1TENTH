@@ -10,11 +10,16 @@ Protocol revision 2 gate: `PROTOCOL_R2_FROZEN`.
 
 Operational revision 3 gate: `PRE_RESULT_EXECUTABLE_REPAIR_FROZEN`.
 
+Operational revision 4 gate: `PID_EVIDENCE_REPAIR_PRE_RESULT`.
+
 Protocol revision 2 freezes the pre-result decision, quantile, validity, affinity-evidence, and
 system-state contract in `decision_contract.md`. The revision-2 execution attempt correctly stopped
 before its first timing sample because the directly invoked W1 runner had Git mode `100644`.
 Operational revision 3 changes no science: it repairs that mode to `100755`, adds a deterministic
 filesystem/frozen-tree executable preflight, and freezes `executions/r3/` as the result namespace.
+R3 later completed all ten W1 runs but ended `EXPERIMENT_INCONCLUSIVE` when W2 R1-A and its allowed
+retry both failed before replay because resolver diagnostics contaminated the captured PID. R4
+strictly repairs PID evidence and restarts all 30 runs under `executions/r4/`; no R3 sample is reused.
 
 Protocol revision 1 freezes one causal, same-input design before any latency A/B run:
 
@@ -52,6 +57,13 @@ not inspected.
   execution returned `permission denied`; no scheduled run, warm-up callback, measurement callback,
   or latency statistic occurred. Revision 3 preserves that evidence separately, repairs only the
   W1 executable mode, adds executable-mode preflight, and reserves the R3 raw/result namespace.
+- Revision 3 passed its restored-AC pre-timing gate and completed 10 W1 runs/2,000 measured
+  callbacks. W2 R1-A `ATTEMPT0` and `RERUN1` both failed before replay because zsh local-declaration
+  diagnostics were captured with the planner PID. W2/W3 measured counts are zero; no partial R3
+  latency analysis was performed; R3 is permanently `EXPERIMENT_INCONCLUSIVE`.
+- Revision 4 adds strict unique owned-process PID resolution, exact `/proc` executable/command-line
+  and affinity verification, and W1/W2/W3 non-scientific PID preflight. It changes no scientific
+  contract and reserves a new R4 raw/result namespace.
 
 ## Frozen production identity
 

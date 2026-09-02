@@ -1,10 +1,11 @@
-# Execution protocol — operational revision 3, scientific protocol revision 2
+# Execution protocol — operational revision 4, scientific protocol revision 2
 
 ## Authorization and stop rule
 
-Revision 1, execution attempt 0, and the revision-2 executable-mode failure collected no timing.
-Revision 2 freezes the final decision and run-evidence contract in `decision_contract.md`;
-revision 3 repairs only the pre-run executable contract and freezes a distinct result namespace.
+Revision 2 freezes the final decision and run-evidence contract in `decision_contract.md`.
+Revision 3 repaired the W1 executable mode, then ended `EXPERIMENT_INCONCLUSIVE` after 10 W1 runs
+because both W2 R1-A PID-evidence attempts failed before replay. Revision 4 repairs only that
+operational PID resolver and restarts into a distinct result namespace.
 Do not start a partial A/B
 run unless the full preflight matches. Any branch, hash, binary, CPU topology, QoS, graph, row
 order, join, or parity mismatch stops the attempt. Do not rebuild production code, edit a parameter,
@@ -24,12 +25,14 @@ source planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install/setup
 source planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/setup.zsh
 ```
 
-After the revision-3 tag exists and before any warm-up, verify every directly executed script in
+After the revision-4 tag exists and before any warm-up, verify every directly executed script in
 both the working filesystem and frozen tag tree:
 
 ```zsh
 planning_study/gqsc_s1_live_runtime_qualification_v1/tools/preflight_executable_modes.zsh \
-  gqsc_s1_live_runtime_qualification_v1-r3
+  gqsc_s1_live_runtime_qualification_v1-r4
+planning_study/gqsc_s1_live_runtime_qualification_v1/tools/test_pid_resolver.zsh
+planning_study/gqsc_s1_live_runtime_qualification_v1/tools/preflight_pid_affinity.zsh
 ```
 
 `build_tools.zsh` builds only `gqsc_runtime_replay` in the experiment's ignored Release build,
@@ -90,7 +93,7 @@ first W1 row is:
 ```zsh
 planning_study/gqsc_s1_live_runtime_qualification_v1/tools/run_w1_qualification.zsh \
   A 1 ATTEMPT0 \
-  /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/executions/r3/raw/W1_SCE018_STANDALONE/R1_A_ATTEMPT0
+  /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/executions/r4/raw/W1_SCE018_STANDALONE/R1_A_ATTEMPT0
 ```
 
 Every other invocation substitutes only the condition/repeat/attempt binding from `run_schedule.csv`
@@ -110,17 +113,21 @@ Before starting replay, the runner resolves the actual installed-node child PID 
 its executable and A/B allowed list. It then resolves the replay child and verifies the background
 mask. `affinity.txt` and `system_context.txt` are mandatory.
 
+Revision 4 resolves within the owned child relation and accepts exactly one numeric PID whose live
+`/proc` executable and argv[0] match the frozen binary and whose affinity can be queried. Resolver
+success stdout is the PID line only; zero or ambiguous matches fail with stderr diagnostics.
+
 For example, the literal first W2 row is:
 
 ```zsh
 planning_study/gqsc_s1_live_runtime_qualification_v1/tools/run_w2_qualification.zsh \
   A 1 ATTEMPT0 \
-  /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/executions/r3/raw/W2_SCE018_ROS_NODE_TEST_ACTIVE/R1_A_ATTEMPT0
+  /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/executions/r4/raw/W2_SCE018_ROS_NODE_TEST_ACTIVE/R1_A_ATTEMPT0
 ```
 
 Every other invocation substitutes only the condition and repeat values in the binding CSV and
 uses the corresponding literal output directory
-`executions/r3/raw/W2_SCE018_ROS_NODE_TEST_ACTIVE/R<repeat>_<condition>_ATTEMPT0`. The script accepts only A/B,
+`executions/r4/raw/W2_SCE018_ROS_NODE_TEST_ACTIVE/R<repeat>_<condition>_ATTEMPT0`. The script accepts only A/B,
 repeat 1–5, and `ATTEMPT0`/`RERUN1`, and refuses an existing output path. This is deterministic
 argument expansion, not an operator-selected workload or schedule.
 
@@ -155,16 +162,19 @@ Before replay begins, it records/verifies the actual planner child and every cur
 experiment-owned non-planner process group. AC/governor/system context and graph evidence are
 mandatory.
 
+Revision 4 applies the same numeric-only, exact-executable, unique-match contract within the owned
+planner and replay process groups before accepting W3 evidence.
+
 The literal first W3 row is:
 
 ```zsh
 planning_study/gqsc_s1_live_runtime_qualification_v1/tools/run_w3_qualification.zsh \
   A 1 ATTEMPT0 \
-  /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/executions/r3/raw/W3_SCE018_FULL_STACK_CONTENTION/R1_A_ATTEMPT0
+  /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/executions/r4/raw/W3_SCE018_FULL_STACK_CONTENTION/R1_A_ATTEMPT0
 ```
 
 Other rows use the exact condition/repeat from `run_schedule.csv` and the corresponding
-`executions/r3/raw/W3_SCE018_FULL_STACK_CONTENTION/R<repeat>_<condition>_ATTEMPT0` path.
+`executions/r4/raw/W3_SCE018_FULL_STACK_CONTENTION/R<repeat>_<condition>_ATTEMPT0` path.
 
 ## Planner-input isolation
 

@@ -1,4 +1,4 @@
-# Immutable workload freeze — operational revision 3, protocol revision 2
+# Immutable workload freeze — operational revision 4, protocol revision 2
 
 ## Revision lineage
 
@@ -20,6 +20,12 @@ The revision-2 execution attempt then stopped before timing because the directly
 was stored with Git mode `100644`. Revision 3 is operational only: it records mode `100755`, adds a
 filesystem/frozen-tree executable preflight, and routes future outputs to `executions/r3/`. The
 scientific identities and contracts below are unchanged.
+
+Revision 3 then completed W1 but stopped inconclusive before W2 replay because mixed resolver stdout
+prevented planner PID evidence in both allowed W2 attempts. Revision 4 changes only PID evidence:
+strict unique owned-process resolution, exact executable/argv/proc/affinity verification, and
+non-scientific W1/W2/W3 process preflight. It starts a completely new `executions/r4/` dataset and
+does not reuse or analyze R3 timing. The scientific identities and contracts remain unchanged.
 
 ## Common production identity
 
