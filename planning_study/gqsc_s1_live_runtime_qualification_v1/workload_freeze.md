@@ -1,122 +1,95 @@
-# Immutable workload freeze
+# Immutable workload freeze — revision 1
+
+## Revision lineage
+
+Revision 0 froze `W1_SCE018_STANDALONE` and blocked W2/W3. Revision 1 resolves those blockers by
+using SCE018 itself as the immutable W2/W3 planner input. It does not relabel the historical SHADOW
+run as W2 and does not substitute the missing historical S01 path. Workload selection is based on
+causal comparability and reproducibility, never observed latency.
 
 ## Common production identity
 
-All three rows are bound to the following identity. A mismatch is a stop condition, not a reason
-to rebuild or substitute an artifact during a run.
-
 | Item | Frozen value |
 |---|---|
-| repository checkpoint | `55c61e54540fc07d57e6041655e0e59ddb8e17e8` |
+| algorithm checkpoint | `55c61e54540fc07d57e6041655e0e59ddb8e17e8` |
+| revision-1 authoring HEAD | `99dcb24664a43f28bd04f7889071e6b966a76097` |
 | method | `LEX8_GLOBAL_DISJOINT_COVERAGE4` |
 | method SHA-256 | `670f39a23479bcdcc1db0829a895257443fec8ee2f78f186bc1beb224090b776` |
 | reference-v3 SHA-256 | `965f6ce65b7ce5b1c6426a0975c1dfafe779e89eb20308bb09a11a1b4a22e780` |
 | pair/lexicographic/coverage | `128/8/4` |
 | reconstruction/validator maxima | `12/12` |
-| planning period | `25 ms` |
-| production mode | `TEST_ACTIVE` |
-| frozen-contract source SHA-256 | `21e653cf9b063c9c60843c6ebaeb06fda918046bfe6d78a7d4ba6b957bdddd40` |
+| planning period / production mode | `25 ms` / `TEST_ACTIVE` |
+| frozen-contract file SHA-256 | `21e653cf9b063c9c60843c6ebaeb06fda918046bfe6d78a7d4ba6b957bdddd40` |
 | planner configuration SHA-256 | `4fe480351a80135ff2a6e4592f661ff8a5670c032e12554d85065339d16ea960` |
-| path-digest implementation SHA-256 | source `cdd8548969b685a399d0789b0bb8343986cc6f40370ff4e621fac884a6f83f60`; header `60c163ba6e88e3b7e49541dd3e48dc5dfa32d1d899df2ba316f1accae45adafa` |
+| standalone harness SHA-256 | `5428854081403031bd7fd3d037eae11258b0fb9bd6e48d3f9a59ebbfc49a6ede` |
+| production ROS node SHA-256 | `3059d3c51d563fc2f4102289508a0a7578ddc059543d97022d451744f295d595` |
+| replay source SHA-256 | `ab014c1e56fd03189327d418e63c88c3295b150936037c7dc65e6d1905b8251b` |
+| replay Release binary SHA-256 | `49c5fd04c105883c744f470e810fb0811fa7d36cd7094c069b2e264c3ba8cafb` |
+| W2 qualification runner SHA-256 | `d75f74574ee68027615d28b6fd93e543209c3ddb224dbb118a67c0ce503c061b` |
+| W3 qualification runner SHA-256 | `b427b1a3c0b7963abaae5b7234d98900b21806d0b68fc0bfdc7b4528da46d47f` |
 
-The current standalone executable SHA-256 is
-`5428854081403031bd7fd3d037eae11258b0fb9bd6e48d3f9a59ebbfc49a6ede` and its ELF build ID is
-`8d11477a6b1c8e9ffb806b723f6f60f7dfa0a6a9`. The current ROS node SHA-256 is
-`3059d3c51d563fc2f4102289508a0a7578ddc059543d97022d451744f295d595`. These identify the present
-pre-run binaries; the empty `CMAKE_BUILD_TYPE` is recorded rather than silently repaired.
+The source tree and installed production node were not rebuilt or edited in revision 1. The
+external replay package alone is built Release in `tools/_build`, with its generated products
+ignored.
 
-## Candidate audit
+## Canonical SCE018 and ROS projection
 
-No candidate was ranked using a latency column.
+Canonical file:
+`planning_study/p3_geometry_conditioned_method_v1/success_control_inputs/SCE018.event`, SHA-256
+`572adb59ea24f3f06bed7502eb870e57a33a5416e8630106b67bc2b1d0b405bf`. It contains 185
+reference waypoints, ego `(s,d,speed)=(11.801691151003425,0.074708912484302642,0)`, source stamp
+`1787619957628360127`, and obstacle id 231 with
+`s=[20.857921486561061,21.002442409473012]` and
+`d=[-0.39155248802935838,-0.072975715874275343]`.
 
-| Candidate | Original purpose and retained identity | Runtime semantics | Repetition/parity assessment | Decision |
-|---|---|---|---|---|
-| `SCE018` | allowed success-control event from `rosbag2_2026_08_25-09_59_22`; canonical event bytes retained | standalone harness, no simulator/executor in timed region | direct harness creates a new generation and lifecycle per iteration; 128/12/12 and digest retained | selected for W1 |
-| `ROS_NODE_ISOLATED/SCE018` | earlier environment diagnosis; exact publisher command and message-level artifact not retained | actual node/executor, no simulator, but `SHADOW`; callback total includes unchanged P0 work | 40 historical samples; eager SHADOW evaluation is not equivalent to production TEST_ACTIVE | rejected as a frozen W2 procedure; SCE018 geometry remains the sole W2 target |
-| `LIVE221808` | one prior live callback; reconstructed ego/reference/geometry and selected digest documented | prior full live callback plus reconstructed standalone query | only one live sample; compact event did not preserve all ROS obstacle fields and no canonical event file is retained | rejected |
-| `STRAIGHT_201` | one small live requalification callback (`1955`) | simulator plus ROS, production-like | only one full-bound callback; no retained exact scenario driver or replay input | rejected |
-| previous live-smoke cases | closed-loop safety/runtime evidence | simulator plus ROS | raw MCAP and exact launch/scheduler procedure are not retained in the directory | rejected as immutable inputs |
-| `S01`–`S04` | four documented deterministic obstacle geometries; S01 is the simplest straight centered case | historical simulator plus ROS with direct authoritative obstacle publication | geometry and summary retained, but the old path bytes and scheduler/initialization commands are absent | S01 designated for W3 but blocked |
+The external parser performs this complete mapping:
 
-All chosen/designated inputs are pre-existing allowed development or live-smoke research evidence.
-No row depends on the prohibited data split.
+| Event data | Public ROS field | Production state |
+|---|---|---|
+| every `W` row: id, s, d, x, y, d_right, d_left, psi, kappa, vx, ax | `/gqsc_runtime/global_waypoints`, `f110_msgs/WpntArray.wpnts[*]` matching fields; header frame `map`, transient/reliable | validated global reference; generation 1; the exact 185-point path used by the planner |
+| `EVENT` ego s/d/speed | `/gqsc_runtime/frenet_odom`, `nav_msgs/Odometry.pose.position.x/y`, `twist.linear.x`; frame `map`, reliable | `ego_s`, `ego_d`, `ego_speed_mps` in the planning snapshot |
+| every `O` row: id, s_center/start/end, d_right/left, size, s_var, d_var, is_static, is_visible | `/gqsc_runtime/confirmed_static_obs`, matching `f110_msgs/Obstacle` fields; `d_center=(d_right+d_left)/2`; other message fields stay their defined zero/false defaults | accepted static-obstacle snapshot and exact diagnostic geometry |
+| canonical source stamp plus deterministic offsets | obstacle header stamp | `source_stamp_ns`; accepted-message `obstacle_sequence`; source-restart-driven `source_epoch` |
+| fixed `STATE_GLOBAL` | `/gqsc_runtime/state`, transient/reliable | public state-machine dependency without a private planner call |
+| callback publications | existing `/gqsc_runtime/p3_cycle` and `/gqsc_runtime/live_profile` remaps | callback/result join and production evaluator/result state |
+
+The reference and obstacle frames are `map`. No frame conversion or geometry normalization is
+needed, so exact digest parity is valid. Lifecycle identity is not injected: `source_epoch`,
+`obstacle_sequence`, callback sequence, and reference generation remain production-owned values.
 
 ## W1: `W1_SCE018_STANDALONE`
 
-Status: `FROZEN_READY`.
-
-- Canonical source:
-  `planning_study/p3_geometry_conditioned_method_v1/success_control_inputs/SCE018.event`
-- Source SHA-256: `572adb59ea24f3f06bed7502eb870e57a33a5416e8630106b67bc2b1d0b405bf`
-- Format: `P3_ORACLE_EVENT_V1`
-- Provenance: event `SCE018`, bag `rosbag2_2026_08_25-09_59_22`, row/index `14769/1`,
-  purpose `PLAN_PRIMARY`, allowed class
-  `PILOT_SEEN_DEVELOPMENT_DATA_SUCCESS_CONTROL_AUXILIARY`
-- Ego: `s=11.801691151003425`, `d=0.074708912484302642`, `speed=0`
-- Recorded source stamp: `1787619957628360127`
-- Reference: 185 waypoints embedded in the event; no external map is read
-- Obstacle: id `231`, `s_center=20.930181948017037`,
-  `s_start=20.857921486561061`, `s_end=21.002442409473012`,
-  `d_right=-0.39155248802935838`, `d_left=-0.072975715874275343`,
-  size `0.3498248946488427`, static and visible
-- Expected counts: pair proxies/reconstructions/validators `128/12/12`; hard/usable `9/9`
-- Expected selected path digest: `c7b2c19bf2af9350`
-- Expected failure classification: `NONE`; expected timed outcome: `FRESH_SELECTED`
-
-The harness excludes event-file parsing and planner construction from `callback_wall_us`. Each
-timed iteration uses generation `300 + repeat` and a newly constructed lifecycle, so the fixed
-geometry can be evaluated freshly without changing production algorithm semantics.
+Status: `FROZEN_READY`. Runtime is the existing standalone integration harness. Expected values are
+pair/reconstruction/validator `128/12/12`, hard/usable `9/9`, outcome `FRESH_SELECTED`, failure
+`NONE`, and selected digest `c7b2c19bf2af9350`. Event parsing and planner construction are outside
+the primary timed interval. Exact commands are in `execution_protocol.md`.
 
 ## W2: `W2_SCE018_ROS_NODE_TEST_ACTIVE`
 
-Status: `BLOCKED_NO_TEST_ACTIVE_FRESH_REPLAY`.
+Status: `FROZEN_READY`. Runtime is the actual installed `local_planner_node` and executor, with no
+simulator. The only planner inputs are the private remaps in the table above. The external tool
+parses the canonical event, publishes production messages, uses the existing public source-restart
+lifecycle, and joins the two existing production output streams by `callback_sequence`. A
+four-callback redacted smoke passed; the future exact runner fixes 20 warm-up plus 200 measurement
+callbacks but was not executed in this task.
 
-The sole designated geometry is the exact W1 SCE018 event and expected selected digest above. W2
-must run the actual `local_planning` node and executor, with no simulator, using production mode
-`TEST_ACTIVE`. It cannot inherit the historical SHADOW command or describe SHADOW as production
-parity.
+## W3: `W3_SCE018_FULL_STACK_CONTENTION`
 
-The smallest neutral construction required is an external, retained event-to-ROS driver that:
+Status: `FROZEN_READY`. The qualified planner and replay contract are byte/logically identical to
+W2. Concurrent real-project processes are simulator bridge/map/RViz/robot state, kinematic
+localization, global planning/frenet conversion, obstacle detector, state machine, and the control
+stack. The qualification planner is the sole local planner. Its inputs and outputs are private
+remaps; the normal detector output and simulator odometry remain active only as system load.
 
-1. converts all 185 reference waypoints, the exact obstacle fields, and the exact ego state into
-   the production topic types without changing planner source or YAML;
-2. gives every accepted cycle an explicit monotonic source identity and records the emitted bytes;
-3. creates a documented fresh lifecycle between samples without changing `p3_mode` or obstacle
-   geometry;
-4. captures `/local_planning/live_runtime_profile` and the corresponding cycle diagnostic by
-   callback sequence; and
-5. proves 20 discarded warm-ups followed by 200 valid fresh callbacks in a non-performance smoke.
+Frozen W3 environment identities include:
 
-Whether that fresh lifecycle is created by process restart or by a deterministic external state
-sequence is itself a scientific choice and is not resolved by retained evidence. No command is
-claimed until that choice is made and validated.
+- simulator config `49f9e5c1ae2d1d34c7fede4189e98a65f8d2977ae5ace0562735ffd28d9bca2f`
+  and launch `a3f7f679b19d8598feea4a34944b5667a222109c78cc126e4e540f8a26ca0f86`;
+- `ifac_track` PNG/YAML/Kissmap hashes `1f1fee4e...`, `76250116...`, `65620cf4...`;
+- current global path hash
+  `b9cdd21fb7067ebd32b9ce2f4d2ffbd8affc96c5d2193eaba02892a772a16fad`;
+- global/localization/detector/state/control launch hashes `044fa7d6...`, `866bb0c1...`,
+  `f4b83044...`, `4a978272...`, `99a775ca...`;
+- initialization pose `(x,y,z,w)=(-0.427,0.456,0.3651,0.9310)` and `use_sim_time=false`.
 
-## W3: `W3_S01_FULL_SIM_TEST_ACTIVE`
-
-Status: `BLOCKED_MISSING_HISTORICAL_PATH_AND_DRIVER`.
-
-The sole designated scenario is `S01_STRAIGHT_101` from
-`planning_study/gqsc_s1_closed_loop_smoke_v1/smoke_scenarios.csv` (file SHA-256
-`6b970bc319a774904156087a7b76f71ef584df59671d4e9b3927c3e4af082a92`). Its obstacle is centered
-at `s=42.0`, spans `s=[41.78,42.22]`, `d=[-0.15,0.15]`, and historically selected RIGHT.
-
-- Physics-map bytes retained:
-  `src/kinematic_localization/maps/map_kissmap_render.pgm`, SHA-256
-  `60f63b93168b7b3c94e5412355b804ec5c918cae7bc608aa8e8bbc49b7984109`
-- Historical global path: `offline_trajectory_generator/config/output/map/global_waypoints.json`,
-  documented SHA-256
-  `bc2191cd1ddf32c8019bb57b4fcfecc5c04e44b10ff139aa7bc4ef845422f640`
-- Current-state finding: the historical global-path file is not present and is not present in the
-  recovered checkpoint object. Current
-  `src/global_planning/data/ifac_track/global_waypoints.json` has SHA-256
-  `b9cdd21fb7067ebd32b9ce2f4d2ffbd8affc96c5d2193eaba02892a772a16fad` and must not be substituted.
-- Historical seed/noise: `12345/0.01 m`; historical speed cap: `2.0 m/s`
-- Stack launcher identity: `sim/run.sh`, SHA-256
-  `f7b5d1bafb011c30b51e74eb11179ac06d15fb29b090dcb9c4eec2a1a4a06f6d`
-
-The old report records 332 callbacks and 39 fresh evaluations for S01, not 200. Across all four
-smoke scenarios it records many fresh evaluations, but only 16 callbacks saturated 128/12/12.
-Neither fact supplies the missing exact repeat driver. To unblock W3, the historical path bytes or
-an independently authorized replacement lineage, exact simulator configuration/initial pose/TF
-adapter, deterministic obstacle scheduler, collection-start predicate, and 200-fresh feasibility
-smoke must all be retained and hashed before execution.
+The old S01 row remains revision-0 history only. It is not a revision-1 workload.

@@ -1,68 +1,51 @@
-# A/B parity contract
+# A/B and cross-layer parity contract — revision 1
 
 ## Common invariants
 
-Between A and B, and across all five repeats, the following must be identical:
+Between A/B, all five repeats, and W1/W2/W3, hold constant the canonical event bytes, frozen method
+and configuration, `128/8/4/12/12` policy, costs, guards, safety thresholds, `TEST_ACTIVE` mode,
+planning period, warm-up/sample/retry rules, and success/failure classification. Only the runtime
+layer differs W1→W2→W3, and only planner affinity differs A→B within one workload.
 
-- repository checkpoint, frozen contract source, planner configuration, binary, method and
-  method SHA;
-- `128/8/4/12/12` bounds, candidate semantics, validator, safety guards, mode, and planning period;
-- workload input bytes and allowed provenance;
-- environment bootstrap, ROS parameters except the explicitly frozen profiling switch, topic QoS,
-  warm-up/sample counts, timeout, retry rule, and schedule;
-- host, governor, background-service policy, and experiment-owned processes; only planner-process
-  CPU affinity differs;
-- success/failure classification and selected provenance for equivalent deterministic input.
-
-Any parity mismatch invalidates the complete A/B pair before latency comparison. It must not be
-repaired by selecting a nearby run.
-
-## Digest implementation
-
-`local_planning::pathDigest` uses a 64-bit FNV-style byte hash initialized with
-`1469598103934665603`. It hashes waypoint count followed, for every waypoint in order, by raw
-IEEE-754 bytes of `s_m`, `d_m`, `x_m`, `y_m`, `psi_rad`, `kappa_radpm`, `vx_mps`, and `ax_mps2`,
-then emits 16 lower-case hexadecimal digits. The implementation source hashes are frozen in
-`workload_freeze.md`. Cross-architecture/endian reconstruction is not assumed; the host
-architecture is x86_64.
+The host is x86_64. `local_planning::pathDigest` hashes the raw IEEE-754 bytes of the ordered selected
+waypoints and emits 16 lower-case hexadecimal digits. Because the replay creates the exact `map`
+reference/ego/obstacle fields and performs no coordinate conversion, the binding cross-layer digest
+is exactly `c7b2c19bf2af9350`; no tolerance rule is used.
 
 ## W1
 
-For every measured timing row, require pair/reconstruction/validator counts `128/12/12` and
-outcome `FRESH_SELECTED`. Before and after every A/B pair, the untimed parity command must report:
+Every measured row requires `128/12/12` and `FRESH_SELECTED`. Untimed parity before and after each
+A/B pair requires digest `c7b2c19bf2af9350`, hard/usable `9/9`, failure `NONE`, matching integrated
+and downstream digest, and unchanged selected provenance.
 
-- selected path digest `c7b2c19bf2af9350`;
-- hard/usable counts `9/9`;
-- failure classification `NONE`;
-- matching integrated and downstream selected digest; and
-- unchanged selected candidate provenance.
+## W2 and W3
 
-The timed `GQSC_MAIN_TIMING` schema does not carry a digest. Therefore the bracketing parity rows
-are mandatory, and their absence cannot be replaced by assuming digest stability from counts.
+Every qualifying joined callback must match all of:
 
-## W2
+- SCE018 ego and obstacle scalar fields exactly within parser round-trip tolerance `1e-12`, and the
+  same embedded 185-waypoint reference;
+- `TEST_ACTIVE`, `r3_invoked=true`, `fresh_evaluation_count=1`;
+- pair/reconstruction/validator `128/12/12`, candidate count 12;
+- selected candidate `GQSC_S1_MAIN_COVERAGE_LEFT_c7b2c19bf2af9350`, source
+  `LEX8_GLOBAL_DISJOINT_COVERAGE4`, source cell `COVERAGE`;
+- selected digest `c7b2c19bf2af9350`;
+- `fresh_hard_valid=true`, `FRESH_SELECTED`, reason `FRESH_HARD_VALID_P3_M1`, owner `P3_M1`, and
+  `safe_stop_active=false`.
 
-The future replay must produce the exact W1 reference/ego/obstacle fields and bind the live profile
-to a cycle diagnostic with the same callback sequence. A and B must match on the full generation
-identity pattern, complexity counts, selected candidate identity/provenance, selected path digest
-`c7b2c19bf2af9350`, output state, failure classification, and every safety guard. If operational
-node conversion legitimately changes the path from W1, that new ROS-node digest must be established
-by a pre-performance functional validation and frozen here before either A or B is run. The current
-historical note `reference/lateral NOT_RETAINED` is insufficient; W2 remains blocked.
+The public node output exposes hard validity as a boolean rather than W1's internal hard/usable
+counts. The exact public node state above is therefore the frozen ROS-layer equivalent: hard-valid
+and actually selected/usable, not an invented `9/9` claim. Adding instrumentation solely to expose
+those internal counts is forbidden in this protocol.
 
-## W3
+W3 uses the same frozen planner snapshot even while simulator ego/perception topics evolve. Exact
+digest parity is therefore required for every W3 sample, not weakened to a moving-trajectory
+tolerance. A mismatch invalidates the complete A/B pair before latency analysis.
 
-Exact path-digest equality across a moving simulator trajectory is not required between unrelated
-cycle times. The strongest predeclared equivalence for W3 is instead:
+## CPU parity
 
-1. byte-identical simulator/map/path/config/scheduler inputs and seed/noise;
-2. identical initial pose and collection-start state within fixed tolerances established before
-   performance data;
-3. the same ordered scenario phase and source-identity rules;
-4. for A/B cycles matched by scenario phase and source identity, identical selected side,
-   candidate family/provenance, success/failure/lifecycle state, safety-guard state, and bounded
-   counts; and
-5. digest equality where the matched reference, ego, and obstacle snapshots are byte-identical.
-
-The exact initial-state tolerances and deterministic phase join cannot be filled from the retained
-S01 artifacts. They must be validated and frozen before execution; therefore W3 remains blocked.
+CPU 8 is logical thread 8 of physical core 4; CPU 9 is its SMT sibling. All non-planner
+experiment-owned processes use `0-7,10-23` in both A and B. Condition A leaves the planner
+unrestricted on the verified `0-23` parent mask. Condition B alone changes the planner to
+`taskset -c 8`. This common background mask prevents an experiment-owned sibling competitor from
+being introduced only in B. Kernel command line has no `isolcpus`/`nohz_full`, so the contract calls
+this affinity control, not hard OS isolation; normal host services are not silently claimed absent.

@@ -1,73 +1,71 @@
-# Fresh-callback contract
+# Fresh-callback contract — revision 1
 
-## Authoritative definitions
+## Authoritative identity and join
 
-The node schema is `gqsc_s1_live_fresh_runtime/1`. A node callback is eligible only when its
-profile has `fresh_evaluation_count > 0`; the observer increments this count only when the result
-reports `r3_invoked`. The authoritative callback identity is the cycle diagnostic tuple:
+The production schemas are `gqsc_s1_live_fresh_runtime/1` and
+`local_planning_p3_cycle/1`. A ROS callback is eligible only when the profile has
+`fresh_evaluation_count == 1`, which production increments only for `r3_invoked`. The authoritative
+identity fields are:
 
-`(source_epoch, source_stamp_ns, obstacle_sequence, global_reference_generation, evaluation_sequence, callback_sequence)`.
+`(source_epoch, source_stamp_ns, obstacle_sequence, global_reference_generation, callback_sequence)`.
 
-`callback_sequence` joins the cycle diagnostic to the live profile. A profile without a unique
-matching cycle record is invalid. Source identity, not arrival order in a collector file, decides
-duplicate/stale status.
+`callback_sequence` must uniquely join one live-profile record to one cycle diagnostic. The cycle
+diagnostic does not expose the internal evaluation sequence. The external collector therefore emits
+`derived_evaluation_sequence` as the strictly increasing ordinal of uniquely joined callbacks after
+requiring `fresh_evaluation_count == 1`; it is explicitly not represented as an internal node
+counter.
 
-The ROS-node primary latency is `stage_us.O_total`: steady-clock time from entry to
-`onPlanningTimer()` through callback work and publication calls, ending before profiler
-serialization/publication. `evaluator_wall_us` is a secondary compute-only diagnostic and must not
-replace `O_total` in the primary qualification.
+Each joined row also carries `r3_invoked`, `stage_us.O_total` presence/value according to output
+mode, pair/reconstruction/validator counts, candidate count and provenance, selected digest,
+`fresh_hard_valid`, lifecycle state/reason, owner, safe-stop state, and the exact ego/obstacle
+scalars. The existing outputs are sufficient; no planner instrumentation was added.
 
-## New generation, duplicate, and stale rules
+## Production-faithful new generation
 
-- A new generation is an accepted evaluator invocation for a new cycle identity, not merely a new
-  timer tick or a republished message.
-- Exact repeated source stamps are not a new generation. In lockstep mode, obstacle and odometry
-  stamps must match and be greater than the last processed stamp.
-- Regressing/stale source input is rejected and does not count. A callback that only continues a
-  committed hard-valid suffix has no fresh evaluation and does not count.
-- Reusing the same geometry is allowed only when the workload's frozen driver creates a valid new
-  identity and the production lifecycle actually invokes the evaluator.
-- A collector must never turn duplicate/rejected callbacks into retries by renumbering them.
+In `TEST_ACTIVE`, the planner tries `continueCurrent` first. A valid committed suffix can therefore
+produce no fresh evaluation even after another identical obstacle arrives. Revision 1 uses the
+smallest verified public recovery transition already implemented by `acceptObstacles`:
+
+1. publish the exact SCE018 obstacle with a higher source stamp;
+2. publish the same geometry with a stamp 1 second lower;
+3. production recognizes a regression of at least 0.5 second as source restart/bag-loop recovery,
+   advances `source_epoch`, resets the lifecycle/selection envelope, and accepts the message;
+4. the next qualifying planning callback uses the unchanged SCE018 reference, ego, and obstacle.
+
+All generated stamps are unique: for restart index `i`, the high stamp is
+`canonical + (i+1)*2 s`, followed by `high-1 s`. The driver never sets source epoch, obstacle
+sequence, reference generation, callback sequence, selected candidate, or algorithm state. A normal
+small timestamp regression that does not cross the production restart threshold is not eligible.
 
 ## W1
 
-The harness is not a ROS callback, so its equivalent fresh identity is the fixed event hash plus
-the harness generation `300 + repeat`. Each loop creates a fresh evaluation and, on recovery, a
-new lifecycle before `selectFresh`. Warm-up generations are `280` through `299`; measured
-generations are `300` through `499`.
+The standalone harness equivalent identity is fixed event SHA-256 plus harness generation. Exactly
+20 warm-up evaluations precede 200 measurement evaluations. Each iteration constructs the existing
+fresh lifecycle without altering geometry. Expected values are `128/12/12`, hard/usable `9/9`,
+`FRESH_SELECTED`, and digest `c7b2c19bf2af9350`.
 
-The W1 primary interval starts immediately before `evaluateP3Shadow` and ends after the fresh
-lifecycle selection or fallback completes. It is emitted as `callback_wall_us`. Input parsing,
-planner construction, and stdout formatting are outside the interval.
+## W2 and W3
 
-## W2
+The replay collector requires exactly 220 unique joins and 220 distinct observed source epochs:
 
-W2 must use the node definition above in `TEST_ACTIVE`. The historical SHADOW sequence is not an
-eligible substitute because SHADOW eagerly evaluates the snapshot even when production authority
-would continue an existing maneuver. The missing deterministic mechanism for producing 220
-eligible fixed-SCE018 TEST_ACTIVE callbacks per repeat is a blocking gap.
+- joined ordinals 1–20: `phase=WARMUP`, retained but excluded from measurement;
+- joined ordinals 21–220: `phase=MEASUREMENT`, indices 1–200;
+- any additional eligible callback is a protocol violation;
+- profile/diagnostic loss, duplicate join, missing field, parity failure, timeout, or nonzero process
+  exit fails the attempt.
 
-## W3
+W2 and W3 use the same driver, topics, QoS, event bytes, source-stamp schedule, and join. W3 changes
+only the concurrent process environment. Simulator timer callbacks and normal perception messages
+cannot become samples because the qualified planner inputs are private remaps with one driver
+publisher each.
 
-W3 must use the same node definition and tuple. Simulator timer callbacks with
-`fresh_evaluation_count == 0`, startup/not-ready callbacks, and committed-suffix continuation are
-not samples. Because ego state evolves, geometry/digest parity must be joined to the exact cycle
-identity rather than inferred from callback number. The missing exact scheduler and source lineage
-are blocking gaps.
+## Output modes
 
-## Validity and failure inclusion
+- Smoke: `smoke_mode=true`; numeric timing and raw profile/diagnostic JSON are not emitted. The row
+  records only that `O_total` exists and sets `timing_redacted=true`.
+- Future qualification: `smoke_mode=false`; the raw joined record retains `O_total` and both source
+  JSON records. Revision 1 froze but did not execute this mode.
 
-An eligible sample is valid only if all of the following hold:
-
-1. workload/config/method/binary preflight identities match;
-2. the record is uniquely joined to the authoritative generation tuple;
-3. `fresh_evaluation_count == 1` for the selected workload protocol;
-4. primary latency is finite and non-negative;
-5. complexity counters are within `128/12/12` and satisfy the workload-specific expectation;
-6. no duplicate, stale, startup, collector-loss, schema, or timeout fault occurred; and
-7. the complete raw record and success/failure classification are retained.
-
-A planner failure with a valid invoked fresh evaluation is included in latency and separately
-classified. Only instrumentation/input/protocol invalidity excludes a sample. Invalid samples and
-all reruns remain in the audit trail. No outlier rule, latency threshold, or post-hoc trimming rule
-is permitted.
+Only protocol/input/instrumentation invalidity excludes a sample. A valid invoked planner failure
+remains a measured and classified outcome. No latency cutoff, outlier deletion, or post-hoc sample
+selection is allowed.

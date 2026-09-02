@@ -1,0 +1,286 @@
+=== NODES ===
+/bridge
+/control_map_node
+/cruise_controller_node
+/drive_source_selector
+/ego_robot_state_publisher
+/frenet_odom_node
+/global_trajectory_publisher_node
+/kinematic_localization
+/lifecycle_manager_localization
+/local_planner_node
+/map_server
+/obstacle_detector
+/rviz
+/sce018_replay_driver
+/sim_imu_bridge_node
+/state_machine_node
+/transform_listener_impl_59b402fa4b80
+/transform_listener_impl_5cddb6138820
+/transform_listener_impl_613290ee24b0
+=== PRIVATE GLOBAL REFERENCE ===
+Type: f110_msgs/msg/WpntArray
+
+Publisher count: 1
+
+Node name: sce018_replay_driver
+Node namespace: /
+Topic type: f110_msgs/msg/WpntArray
+Endpoint type: PUBLISHER
+GID: 01.0f.e9.44.87.60.34.37.00.00.00.00.00.00.12.03.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: TRANSIENT_LOCAL
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Subscription count: 1
+
+Node name: local_planner_node
+Node namespace: /
+Topic type: f110_msgs/msg/WpntArray
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.e9.44.ce.5f.84.f8.00.00.00.00.00.00.12.04.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: TRANSIENT_LOCAL
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+=== PRIVATE CONFIRMED OBSTACLES ===
+Type: f110_msgs/msg/ObstacleArray
+
+Publisher count: 1
+
+Node name: sce018_replay_driver
+Node namespace: /
+Topic type: f110_msgs/msg/ObstacleArray
+Endpoint type: PUBLISHER
+GID: 01.0f.e9.44.87.60.34.37.00.00.00.00.00.00.13.03.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Subscription count: 1
+
+Node name: local_planner_node
+Node namespace: /
+Topic type: f110_msgs/msg/ObstacleArray
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.e9.44.ce.5f.84.f8.00.00.00.00.00.00.13.04.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+=== PRIVATE FRENET ODOMETRY ===
+Type: nav_msgs/msg/Odometry
+
+Publisher count: 1
+
+Node name: sce018_replay_driver
+Node namespace: /
+Topic type: nav_msgs/msg/Odometry
+Endpoint type: PUBLISHER
+GID: 01.0f.e9.44.87.60.34.37.00.00.00.00.00.00.14.03.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Subscription count: 1
+
+Node name: local_planner_node
+Node namespace: /
+Topic type: nav_msgs/msg/Odometry
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.e9.44.ce.5f.84.f8.00.00.00.00.00.00.15.04.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+=== PRIVATE STATE ===
+Type: f110_msgs/msg/StateMachine
+
+Publisher count: 0
+
+Subscription count: 1
+
+Node name: local_planner_node
+Node namespace: /
+Topic type: f110_msgs/msg/StateMachine
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.e9.44.ce.5f.84.f8.00.00.00.00.00.00.16.04.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: TRANSIENT_LOCAL
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+=== PRIVATE P3 CYCLE ===
+Type: std_msgs/msg/String
+
+Publisher count: 1
+
+Node name: local_planner_node
+Node namespace: /
+Topic type: std_msgs/msg/String
+Endpoint type: PUBLISHER
+GID: 01.0f.e9.44.ce.5f.84.f8.00.00.00.00.00.00.19.03.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Subscription count: 0
+
+=== PRIVATE LIVE PROFILE ===
+Type: std_msgs/msg/String
+
+Publisher count: 1
+
+Node name: local_planner_node
+Node namespace: /
+Topic type: std_msgs/msg/String
+Endpoint type: PUBLISHER
+GID: 01.0f.e9.44.ce.5f.84.f8.00.00.00.00.00.00.1a.03.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Subscription count: 0
+
+=== NORMAL DETECTOR OUTPUT ===
+Type: f110_msgs/msg/ObstacleArray
+
+Publisher count: 1
+
+Node name: obstacle_detector
+Node namespace: /
+Topic type: f110_msgs/msg/ObstacleArray
+Endpoint type: PUBLISHER
+GID: 01.0f.e9.44.dd.5f.af.76.00.00.00.00.00.00.1b.03.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Subscription count: 0
+
+=== NORMAL SIM ODOMETRY ===
+Type: nav_msgs/msg/Odometry
+
+Publisher count: 1
+
+Node name: bridge
+Node namespace: /
+Topic type: nav_msgs/msg/Odometry
+Endpoint type: PUBLISHER
+GID: 01.0f.e9.44.d6.5e.04.3b.00.00.00.00.00.00.13.03.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Subscription count: 4
+
+Node name: kinematic_localization
+Node namespace: /
+Topic type: nav_msgs/msg/Odometry
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.e9.44.7d.5f.1a.0c.00.00.00.00.00.00.1a.04.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: BEST_EFFORT
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Node name: obstacle_detector
+Node namespace: /
+Topic type: nav_msgs/msg/Odometry
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.e9.44.dd.5f.af.76.00.00.00.00.00.00.19.04.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Node name: sim_imu_bridge_node
+Node namespace: /
+Topic type: nav_msgs/msg/Odometry
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.e9.44.f6.5f.18.a8.00.00.00.00.00.00.13.04.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Node name: control_map_node
+Node namespace: /
+Topic type: nav_msgs/msg/Odometry
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.e9.44.fa.5f.03.7b.00.00.00.00.00.00.15.04.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+

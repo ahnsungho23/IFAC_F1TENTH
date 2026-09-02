@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>gqsc_runtime_replay</name>
+  <version>0.1.0</version>
+  <description>External deterministic SCE018 ROS replay and callback join for GQSC-S1.</description>
+  <maintainer email="sungho@example.com">sungho</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>rclcpp</depend>
+  <depend>std_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>f110_msgs</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
