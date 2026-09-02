@@ -4,6 +4,9 @@ set -e
 readonly REPO=/home/sungho/Documents/GitHub/2026_IFAC
 readonly ROOT=$REPO/planning_study/gqsc_s1_live_runtime_qualification_v1
 readonly TOOLS=$ROOT/tools
+readonly RELEASE_INSTALL=$ROOT/release_overlay/_install
+readonly RELEASE_NODE=$RELEASE_INSTALL/local_planning/lib/local_planning/local_planner_node
+readonly RELEASE_NODE_SHA=54019a86e13f4dc25771628f7a3d385be8e2c6ce2a657448b3a5939823ab878a
 readonly EVENT=$REPO/planning_study/p3_geometry_conditioned_method_v1/success_control_inputs/SCE018.event
 readonly OUTPUT_DIR=$(mktemp -d /tmp/gqsc_s1_w2_smoke.XXXXXX)
 readonly RESULT=$OUTPUT_DIR/joined_smoke.jsonl
@@ -39,6 +42,10 @@ source /opt/ros/humble/setup.zsh
 source /home/sungho/sim_ws/install/setup.zsh
 source $REPO/install/setup.zsh
 source $TOOLS/_install/setup.zsh
+source $RELEASE_INSTALL/setup.zsh
+
+[[ $(ros2 pkg prefix local_planning) == $RELEASE_INSTALL/local_planning ]] || exit 65
+print -r -- "$RELEASE_NODE_SHA  $RELEASE_NODE" | sha256sum --check --status || exit 65
 
 ros2 run local_planning local_planner_node --ros-args \
   --params-file $REPO/src/local_planning/config/local_planning.yaml \

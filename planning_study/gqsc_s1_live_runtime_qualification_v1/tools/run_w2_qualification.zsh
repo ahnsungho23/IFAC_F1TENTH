@@ -19,6 +19,8 @@ mkdir -p $OUTPUT_DIR
 readonly REPO=/home/sungho/Documents/GitHub/2026_IFAC
 readonly ROOT=$REPO/planning_study/gqsc_s1_live_runtime_qualification_v1
 readonly TOOLS=$ROOT/tools
+readonly RELEASE_INSTALL=$ROOT/release_overlay/_install
+readonly RELEASE_NODE=$RELEASE_INSTALL/local_planning/lib/local_planning/local_planner_node
 readonly EVENT=$REPO/planning_study/p3_geometry_conditioned_method_v1/success_control_inputs/SCE018.event
 readonly RESULT=$OUTPUT_DIR/joined_callbacks.jsonl
 readonly GRAPH=$OUTPUT_DIR/ros_graph.txt
@@ -48,8 +50,10 @@ source /opt/ros/humble/setup.zsh
 source /home/sungho/sim_ws/install/setup.zsh
 source $REPO/install/setup.zsh
 source $TOOLS/_install/setup.zsh
+source $RELEASE_INSTALL/setup.zsh
 
 [[ $(git -C $REPO branch --show-current) == research ]] || exit 65
+[[ $(ros2 pkg prefix local_planning) == $RELEASE_INSTALL/local_planning ]] || exit 65
 [[ $(taskset -pc $$) == *'0-23' ]] || exit 65
 [[ $(sed -n '1p' /sys/devices/system/cpu/cpu8/topology/thread_siblings_list) == 8-9 ]] || exit 65
 print -r -- '572adb59ea24f3f06bed7502eb870e57a33a5416e8630106b67bc2b1d0b405bf  '$EVENT |
@@ -60,7 +64,7 @@ print -r -- '21e653cf9b063c9c60843c6ebaeb06fda918046bfe6d78a7d4ba6b957bdddd40  '
   sha256sum --check --status || exit 65
 grep -Fq '670f39a23479bcdcc1db0829a895257443fec8ee2f78f186bc1beb224090b776' \
   $REPO/src/local_planning/include/local_planning/gqsc_s1_frozen_contract.hpp || exit 65
-print -r -- '3059d3c51d563fc2f4102289508a0a7578ddc059543d97022d451744f295d595  '$REPO/install/local_planning/lib/local_planning/local_planner_node |
+print -r -- '54019a86e13f4dc25771628f7a3d385be8e2c6ce2a657448b3a5939823ab878a  '$RELEASE_NODE |
   sha256sum --check --status || exit 65
 print -r -- 'ab014c1e56fd03189327d418e63c88c3295b150936037c7dc65e6d1905b8251b  '$TOOLS/gqsc_runtime_replay/src/sce018_replay_driver.cpp |
   sha256sum --check --status || exit 65

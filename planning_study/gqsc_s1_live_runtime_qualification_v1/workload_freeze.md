@@ -1,4 +1,4 @@
-# Immutable workload freeze — revision 1
+# Immutable workload freeze — revision 1, binary provenance revision 2
 
 ## Revision lineage
 
@@ -6,6 +6,10 @@ Revision 0 froze `W1_SCE018_STANDALONE` and blocked W2/W3. Revision 1 resolves t
 using SCE018 itself as the immutable W2/W3 planner input. It does not relabel the historical SHADOW
 run as W2 and does not substitute the missing historical S01 path. Workload selection is based on
 causal comparability and reproducibility, never observed latency.
+
+Binary provenance revision 2 changes no workload contract. It replaces only the disallowed
+non-Release executables with a clean Release overlay built from source commit
+`dc33b875a938fdb7730d35fe61de43ee863b04c0`.
 
 ## Common production identity
 
@@ -21,16 +25,21 @@ causal comparability and reproducibility, never observed latency.
 | planning period / production mode | `25 ms` / `TEST_ACTIVE` |
 | frozen-contract file SHA-256 | `21e653cf9b063c9c60843c6ebaeb06fda918046bfe6d78a7d4ba6b957bdddd40` |
 | planner configuration SHA-256 | `4fe480351a80135ff2a6e4592f661ff8a5670c032e12554d85065339d16ea960` |
-| standalone harness SHA-256 | `5428854081403031bd7fd3d037eae11258b0fb9bd6e48d3f9a59ebbfc49a6ede` |
-| production ROS node SHA-256 | `3059d3c51d563fc2f4102289508a0a7578ddc059543d97022d451744f295d595` |
+| rejected normal harness SHA-256 | `5428854081403031bd7fd3d037eae11258b0fb9bd6e48d3f9a59ebbfc49a6ede` (`NON_RELEASE`) |
+| rejected normal ROS node SHA-256 | `3059d3c51d563fc2f4102289508a0a7578ddc059543d97022d451744f295d595` (`NON_RELEASE`) |
+| frozen W1 Release harness SHA-256 | `49503d48d96cf408ad47691a69b683e5f2a0c02947a73283994f57b2697c0fd2` |
+| frozen W2/W3 installed Release node SHA-256 | `54019a86e13f4dc25771628f7a3d385be8e2c6ce2a657448b3a5939823ab878a` |
+| planner/harness optimization | `-O3 -DNDEBUG` (`RELEASE_EQUIVALENT`) |
 | replay source SHA-256 | `ab014c1e56fd03189327d418e63c88c3295b150936037c7dc65e6d1905b8251b` |
 | replay Release binary SHA-256 | `49c5fd04c105883c744f470e810fb0811fa7d36cd7094c069b2e264c3ba8cafb` |
-| W2 qualification runner SHA-256 | `d75f74574ee68027615d28b6fd93e543209c3ddb224dbb118a67c0ce503c061b` |
-| W3 qualification runner SHA-256 | `b427b1a3c0b7963abaae5b7234d98900b21806d0b68fc0bfdc7b4528da46d47f` |
+| Release-overlay builder SHA-256 | `75d41200c313060b4df4b56ac461d098d2f4787416dd450166adc3aa5ae94c38` |
+| W2 qualification runner SHA-256 | `3dbcc9130333231f1a21bc446df4ce7a8d0aced5d7c460afb574906ca8ed6830` |
+| W3 qualification runner SHA-256 | `5fd7889b6bf1f58c2d00474a3fd863280f6be8fd0d7ae48f8f36de5dfae0d85b` |
 
-The source tree and installed production node were not rebuilt or edited in revision 1. The
-external replay package alone is built Release in `tools/_build`, with its generated products
-ignored.
+The normal workspace remains untouched. Revision 2 builds only `local_planning` in
+`release_overlay/_build`, installs it in `release_overlay/_install`, and records logs in
+`release_overlay/_log`; all three generated directories are ignored. Full compiler evidence,
+absolute paths, Build IDs, and hashes are in `binary_provenance.md`.
 
 ## Canonical SCE018 and ROS projection
 
@@ -59,14 +68,16 @@ needed, so exact digest parity is valid. Lifecycle identity is not injected: `so
 
 ## W1: `W1_SCE018_STANDALONE`
 
-Status: `FROZEN_READY`. Runtime is the existing standalone integration harness. Expected values are
+Status: `FROZEN_READY`. Runtime is the frozen Release-overlay standalone integration harness.
+Expected values are
 pair/reconstruction/validator `128/12/12`, hard/usable `9/9`, outcome `FRESH_SELECTED`, failure
 `NONE`, and selected digest `c7b2c19bf2af9350`. Event parsing and planner construction are outside
 the primary timed interval. Exact commands are in `execution_protocol.md`.
 
 ## W2: `W2_SCE018_ROS_NODE_TEST_ACTIVE`
 
-Status: `FROZEN_READY`. Runtime is the actual installed `local_planner_node` and executor, with no
+Status: `FROZEN_READY`. Runtime is the Release-overlay installed `local_planner_node` and executor,
+with no
 simulator. The only planner inputs are the private remaps in the table above. The external tool
 parses the canonical event, publishes production messages, uses the existing public source-restart
 lifecycle, and joins the two existing production output streams by `callback_sequence`. A
@@ -75,8 +86,9 @@ callbacks but was not executed in this task.
 
 ## W3: `W3_SCE018_FULL_STACK_CONTENTION`
 
-Status: `FROZEN_READY`. The qualified planner and replay contract are byte/logically identical to
-W2. Concurrent real-project processes are simulator bridge/map/RViz/robot state, kinematic
+Status: `FROZEN_READY`. W3 uses the exact same installed Release node as W2. The qualified planner
+and replay contract are byte/logically identical to W2. Concurrent real-project processes are
+simulator bridge/map/RViz/robot state, kinematic
 localization, global planning/frenet conversion, obstacle detector, state machine, and the control
 stack. The qualification planner is the sole local planner. Its inputs and outputs are private
 remaps; the normal detector output and simulator odometry remain active only as system load.

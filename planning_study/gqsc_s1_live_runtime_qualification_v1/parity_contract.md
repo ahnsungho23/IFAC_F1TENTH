@@ -1,4 +1,4 @@
-# A/B and cross-layer parity contract — revision 1
+# A/B and cross-layer parity contract — revision 1, binary provenance revision 2
 
 ## Common invariants
 
@@ -6,6 +6,11 @@ Between A/B, all five repeats, and W1/W2/W3, hold constant the canonical event b
 and configuration, `128/8/4/12/12` policy, costs, guards, safety thresholds, `TEST_ACTIVE` mode,
 planning period, warm-up/sample/retry rules, and success/failure classification. Only the runtime
 layer differs W1→W2→W3, and only planner affinity differs A→B within one workload.
+
+Binary provenance revision 2 binds W1 to Release harness SHA-256 `49503d48...0fd2` and binds both
+W2 and W3 to the same installed Release node SHA-256 `54019a86...878a`. The harness translation
+unit, node main, and shared `local_planner_core` all use `-O3 -DNDEBUG`. This adds build identity
+without changing any functional parity rule.
 
 The host is x86_64. `local_planning::pathDigest` hashes the raw IEEE-754 bytes of the ordered selected
 waypoints and emits 16 lower-case hexadecimal digits. Because the replay creates the exact `map`

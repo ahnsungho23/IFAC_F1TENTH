@@ -1,4 +1,4 @@
-# Execution protocol — revision 1
+# Execution protocol — workload revision 1, binary provenance revision 2
 
 ## Authorization and stop rule
 
@@ -17,10 +17,20 @@ source /home/sungho/sim_ws/install/setup.zsh
 source /home/sungho/Documents/GitHub/2026_IFAC/install/setup.zsh
 cd /home/sungho/Documents/GitHub/2026_IFAC
 planning_study/gqsc_s1_live_runtime_qualification_v1/tools/build_tools.zsh
+source planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install/setup.zsh
+source planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/setup.zsh
 ```
 
 `build_tools.zsh` builds only `gqsc_runtime_replay` in the experiment's ignored Release build,
 install, and log directories. It does not build `local_planning`.
+
+The one-time clean planner build is exactly
+`tools/build_release_overlay.zsh`. It builds only `local_planning` with
+`CMAKE_BUILD_TYPE=Release`, `BUILD_TESTING=ON`, and separate ignored build/install/log paths. It
+refuses to overwrite an existing overlay. The normal workspace is never the planner provider for a
+qualification shell; the Release overlay must be sourced last and
+`ros2 pkg prefix local_planning` must equal
+`.../release_overlay/_install/local_planning`.
 
 Before every attempt, record and verify:
 
@@ -30,7 +40,9 @@ git rev-parse HEAD
 sha256sum planning_study/p3_geometry_conditioned_method_v1/success_control_inputs/SCE018.event
 sha256sum src/local_planning/include/local_planning/gqsc_s1_frozen_contract.hpp
 sha256sum src/local_planning/config/local_planning.yaml
-sha256sum install/local_planning/lib/local_planning/local_planner_node
+sha256sum planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_build/local_planning/p3_r3_k12_integration_harness
+sha256sum planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/lib/local_planning/local_planner_node
+ros2 pkg prefix local_planning
 sha256sum planning_study/gqsc_s1_live_runtime_qualification_v1/tools/gqsc_runtime_replay/src/sce018_replay_driver.cpp
 sha256sum planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install/lib/gqsc_runtime_replay/sce018_replay_driver
 sha256sum planning_study/gqsc_s1_live_runtime_qualification_v1/tools/run_w2_qualification.zsh
@@ -53,7 +65,7 @@ Before and after each A/B pair, retain this untimed parity output:
 
 ```zsh
 env -u GQSC_S1_MAIN_TIMING -u GQSC_S1_STAGE_TIMING \
-  build/local_planning/p3_r3_k12_integration_harness \
+  planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_build/local_planning/p3_r3_k12_integration_harness \
   planning_study/p3_geometry_conditioned_method_v1/success_control_inputs/SCE018.event
 ```
 
@@ -61,7 +73,7 @@ Condition A:
 
 ```zsh
 env GQSC_S1_MAIN_TIMING=1 GQSC_S1_TIMING_WARMUP=20 GQSC_S1_TIMING_REPEATS=200 \
-  build/local_planning/p3_r3_k12_integration_harness \
+  planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_build/local_planning/p3_r3_k12_integration_harness \
   planning_study/p3_geometry_conditioned_method_v1/success_control_inputs/SCE018.event
 ```
 
@@ -70,7 +82,7 @@ Condition B:
 ```zsh
 taskset -c 8 env GQSC_S1_MAIN_TIMING=1 GQSC_S1_TIMING_WARMUP=20 \
   GQSC_S1_TIMING_REPEATS=200 \
-  build/local_planning/p3_r3_k12_integration_harness \
+  planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_build/local_planning/p3_r3_k12_integration_harness \
   planning_study/p3_geometry_conditioned_method_v1/success_control_inputs/SCE018.event
 ```
 
@@ -79,8 +91,9 @@ The caller stores stdout/stderr under the exact workload/repeat/condition/attemp
 
 ## W2
 
-The exact future runner is `tools/run_w2_qualification.zsh`. It verifies core hashes, launches one
-actual installed `local_planner_node`, applies only profiling enable and diagnostic detail, remaps
+The exact future runner is `tools/run_w2_qualification.zsh`. It verifies core and Release binary
+hashes, confirms the Release package prefix, launches that installed `local_planner_node`, applies
+only profiling enable and diagnostic detail, remaps
 its public inputs/outputs to `/gqsc_runtime/*`, then runs the external collector for exactly 20+200
 unique joined callbacks. No simulator process is launched.
 
@@ -115,8 +128,8 @@ process set are:
    map_name:=ifac_track`: global trajectory and Frenet odometry nodes.
 5. `ros2 launch obstacle_detector obstacle_detector.launch.py simulator:=true
    use_sim_time:=false rviz:=false`: the real normal-topic detector.
-6. One qualification `local_planner_node`, with the same private remaps and profiling switches as
-   W2. No second local planner is launched.
+6. The exact same Release-overlay qualification `local_planner_node` binary as W2, with the same
+   private remaps and profiling switches. No second local planner is launched.
 7. `ros2 launch state_machine state_machine.launch.py`.
 8. `ros2 launch f1tenth_control control_sim.launch.py`: control map, cruise controller, simulated
    IMU bridge, and drive-source selector.

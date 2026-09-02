@@ -22,6 +22,10 @@ guard, reference, ego scalar, obstacle scalar를 바꾸지 않는다.
 상위 `build_tools.zsh`를 실행한다. 빌드·install·log는 이 연구 디렉터리의 ignored 경로에만
 생성된다.
 
+Planner는 별도 `release_overlay/_install`을 tools overlay 다음에 source한다. Smoke와
+qualification runner는 `ros2 pkg prefix local_planning`과 frozen installed-node SHA-256을
+검사하므로 normal workspace의 non-Release node로 조용히 되돌아갈 수 없다.
+
 ## 출력 모드
 
 - `smoke_mode:=true`: callback identity, digest, count, outcome과 timing 필드 존재 여부만

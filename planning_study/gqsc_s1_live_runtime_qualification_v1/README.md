@@ -4,6 +4,8 @@
 
 `WORKLOAD_PROTOCOL_FROZEN`
 
+Binary provenance revision 2: `RUNTIME_BINARY_FROZEN`.
+
 Protocol revision 1 freezes one causal, same-input design before any latency A/B run:
 
 | Workload | Timed runtime layer | Immutable planner input | State |
@@ -27,6 +29,10 @@ not inspected.
   replay/collector exercises the production public source-restart lifecycle and joins existing
   profile/diagnostic topics. W3 uses supported remapping so the full stack remains active without
   becoming a competing planner-input source.
+- Binary provenance revision 2, built from clean `research` commit
+  `dc33b875a938fdb7730d35fe61de43ee863b04c0`, rejects the recovered unoptimized normal binaries
+  and freezes a separate `-O3 -DNDEBUG` Release overlay for all three workloads. Workload identity,
+  callback/sample/retry contracts, A/B order, parity rules, and threshold are unchanged.
 
 ## Frozen production identity
 
@@ -41,6 +47,10 @@ not inspected.
 - SCE018 SHA-256:
   `572adb59ea24f3f06bed7502eb870e57a33a5416e8630106b67bc2b1d0b405bf`
 - Expected selected path digest: `c7b2c19bf2af9350`
+- Frozen W1 Release harness SHA-256:
+  `49503d48d96cf408ad47691a69b683e5f2a0c02947a73283994f57b2697c0fd2`
+- Frozen W2/W3 installed Release node SHA-256:
+  `54019a86e13f4dc25771628f7a3d385be8e2c6ce2a657448b3a5939823ab878a`
 
 No planner source, production YAML, algorithm parameter, controller, Oracle, or dataset label was
 modified. Only protocol documents and external tools below this experiment directory changed.
@@ -65,4 +75,8 @@ candidate `GQSC_S1_MAIN_COVERAGE_LEFT_c7b2c19bf2af9350`, digest `c7b2c19bf2af935
 The retained validation files contain identities, counts, outcomes, and graph endpoints only; they
 contain no numeric latency result. Binding details are in `workload_freeze.md`,
 `execution_protocol.md`, `fresh_callback_contract.md`, `parity_contract.md`,
-`workload_manifest.csv`, and `run_schedule.csv`.
+`workload_manifest.csv`, `run_schedule.csv`, and `binary_provenance.md`.
+
+Release-overlay validation additionally passed for W1, W2, and W3. The Release redacted W2/W3 join
+SHA-256 values are `686b1556...02e8b` and `2fd8fe7e...32813`; their graph hashes are
+`27100475...e1a4a` and `e647e3df...4272d`. No scientific latency output was retained.
