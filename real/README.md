@@ -181,3 +181,131 @@ ping은 되는데 `/scan`만 멈추면 **라이다 본체/드라이버**다. 202
 - `rviz` role의 RViz는 ssh X-forward라 소프트웨어 렌더링(`LIBGL_ALWAYS_SOFTWARE=1`)이라 느릴 수 있습니다.
   답답하면 `run_real.sh rvizlocal`로 본체에서 띄우세요 (토픽은 도메인 70로 그대로 보임).
 - RViz를 닫으면 그 창의 rosbag 녹화도 같이 종료됩니다.
+
+---
+
+## 수동 실행 메모 (루트 README에서 이전)
+
+> 원클릭 스크립트(`run_real.sh`) 없이 손으로 실행할 때 쓰는 명령 모음입니다.
+> 루트 `README.md`에 흩어져 있던 실차 전용 내용(SLAM·scp·터미널 명령·rosbag·대시보드·LUT 보정)을 옮겼습니다.
+
+### 1. SLAM으로 맵 만들기 (로컬 PC)
+
+```bash
+cd ~/slam_toolbox
+source /opt/ros/jazzy/setup.zsh
+source install/setup.zsh
+ros2 launch slam_toolbox online_async_launch.py use_sim_time:=false
+```
+
+맵 저장:
+
+```bash
+cd ~/slam_toolbox
+source /opt/ros/jazzy/setup.zsh
+source install/setup.zsh
+ros2 run nav2_map_server map_saver_cli -f ~/slam_toolbox/map
+```
+
+### 2. 로컬 PC → 젯슨 파일 전송 (scp)
+
+맵(점유격자):
+
+```bash
+scp ~/slam_toolbox/map.png ~/slam_toolbox/map.yaml \
+    miru@10.1.1.3:~/2026_IFAC/src/kinematic_localization/maps/
+```
+
+오프라인 궤적 생성기(GUI) 결과:
+
+```bash
+scp -r ~/2026_IFAC/offline_trajectory_generator/output/map \
+    miru@10.1.1.3:~/2026_IFAC/offline_trajectory_generator/output/
+```
+
+### 3. 수동 터미널 실행 순서 (젯슨)
+
+전제: f110 단축어(`f1tenth_stack`)로 라이다·조이스틱·VESC 드라이버가 먼저 떠 있어야 합니다
+(`/scan`, `/joy`, VESC IMU 등). 모든 터미널은 `~/2026_IFAC`에서 실행합니다.
+
+```bash
+# 터미널 1 — 위치추정
+cd ~/2026_IFAC && source /opt/ros/jazzy/setup.zsh && source install/setup.zsh
+ros2 launch kinematic_localization kinematic_localization.launch.py map_name:=ifac_track
+
+# 터미널 2 — 글로벌 플래너
+cd ~/2026_IFAC && source /opt/ros/jazzy/setup.zsh && source install/setup.zsh
+ros2 launch global_planning global_planning.launch.py
+
+# 터미널 3 — 로컬 플래너
+cd ~/2026_IFAC && source /opt/ros/jazzy/setup.zsh && source install/setup.zsh
+ros2 launch local_planning local_planning.launch.py
+
+# 터미널 4 — 상태 머신
+cd ~/2026_IFAC && source /opt/ros/jazzy/setup.zsh && source install/setup.zsh
+ros2 launch state_machine state_machine.launch.py
+
+# 터미널 5 — 제어 (실차용 launch)
+cd ~/2026_IFAC && source /opt/ros/jazzy/setup.zsh
+source ~/f1tenth_ws/install/setup.zsh
+source install/setup.zsh
+ros2 launch f1tenth_control control_real.launch.py
+```
+
+- 실차와 시뮬은 제어 launch가 다릅니다. `control_real.launch.py`에는 `/drive` → VESC 변환
+  (`ackermann_to_vesc_node`)이, `control_sim.launch.py`에는 gym용 IMU 중계 노드가 들어 있습니다.
+  환경을 잘못 골랐을 때 안전 관련 노드가 조용히 빠지는 일을 막으려고 일부러 분리했습니다.
+- `ackermann_to_vesc_node`는 `~/f1tenth_ws`의 `vesc_ackermann` 패키지에 의존하므로
+  `~/f1tenth_ws/install/setup.zsh`를 함께 source하지 않으면 `Package 'vesc_ackermann' not found`로 실패합니다.
+
+### 4. rosbag 녹화
+
+```bash
+cd ~/2026_IFAC
+source /opt/ros/jazzy/setup.zsh
+source install/setup.zsh
+
+ros2 bag record \
+  /tf \
+  /odom \
+  /scan \
+  /pf/pose/odom \
+  /debug/l1_lookahead \
+  /sensors/imu/raw \
+  /estop_lock \
+  /commands/motor/brake \
+  /joy \
+  /drive_autonomous \
+  /drive
+```
+
+### 5. 대시보드 (원격, 선택)
+
+젯슨 연산을 아끼려고 대시보드는 각자 노트북에서 띄웁니다. 무선에서는 DDS 멀티캐스트 디스커버리가
+막히므로 **Fast DDS Discovery Server**로 붙습니다.
+
+```bash
+# (젯슨) 디스커버리 서버 — 상시 1개만
+fastdds discovery -i 0 -l 10.1.1.3 -p 11811
+
+# (노트북) 대시보드
+ROS_DISCOVERY_SERVER="10.1.1.3:11811" ros2 launch f1tenth_control dashboard.launch.py mode:=real
+```
+
+안 뜨면 `ROS_SUPER_CLIENT=true`도 함께 걸어 보세요. 유선(피트)에서는 env 없이 `mode:=real`만으로 붙습니다.
+E-Stop 상태, 주행 모드, 알고리즘(MAP/MPPI), 스로틀·조향, 속도·가속도를 보여 주는 표시 전용 뷰어라
+주행에는 영향이 없습니다.
+
+### 6. 조향 LUT 실측 보정 (트랙 시험 주행 시 필수)
+
+```bash
+ros2 launch f1tenth_control lut_calibration.launch.py
+```
+
+실측 요레이트·속도·조향각으로 Steering LUT를 갱신하는 관찰 전용 노드입니다(`/drive` 미발행).
+결과는 `~/f1tenth_lut_calibration/`에 누적 저장되며, 다음 주행에 반영하려면:
+
+```bash
+ros2 launch f1tenth_control control_real.launch.py \
+  lookup_table_file:=$HOME/f1tenth_lut_calibration/NUC6_glc_pacejka_lookup_table_calibrated.csv
+```
