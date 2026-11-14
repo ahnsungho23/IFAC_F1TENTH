@@ -1,0 +1,13 @@
+[INFO] [launch]: All log files can be found below /home/sungho/.ros/log/2026-09-02-13-31-25-603669-sungho-67333
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [global_trajectory_publisher_node-1]: process started with pid [67335]
+[INFO] [frenet_odom_node-2]: process started with pid [67337]
+[frenet_odom_node-2] [INFO] [1788323485.661467986] [frenet_odom_node]: Monotonic s-window tracking enabled: forward=3.50 m back=0.50 m seed=0.00 m gate=1.50 m reacquire_after=2 misses
+[frenet_odom_node-2] [INFO] [1788323485.661568948] [frenet_odom_node]: CLCS frenet odom started: odom=/pf/pose/odom waypoints=/global_waypoints output=/car_state/frenet/odom closed_loop=true child_frame_id=closest_segment_index velocity_frame=body failure_policy=drop_message
+[frenet_odom_node-2] [WARN] [1788323485.662580182] [frenet_odom_node]: Waiting for a valid CLCS reference path from /global_waypoints.
+[global_trajectory_publisher_node-1] [INFO] [1788323485.700717365] [global_trajectory_publisher_node]: Loaded global waypoints JSON '/home/sungho/Documents/GitHub/2026_IFAC/install/global_planning/share/global_planning/data/ifac_track/global_waypoints.json': 502 waypoints, last s=50.066433 m
+[frenet_odom_node-2] [INFO] [1788323487.712744899] [frenet_odom_node]: Built CLCS path version=1 input=502 reference=503 track_length=50.166 m build_time=11.202 ms removed_duplicates=0 invalid=0
+[global_trajectory_publisher_node-1] [INFO] [1788323642.532912622] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[frenet_odom_node-2] [INFO] [1788323642.532923620] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[INFO] [frenet_odom_node-2]: process has finished cleanly [pid 67337]
+[INFO] [global_trajectory_publisher_node-1]: process has finished cleanly [pid 67335]

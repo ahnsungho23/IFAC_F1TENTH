@@ -43,7 +43,7 @@ src/new_map_con/config/config.yaml
 
 주요 항목:
 
-- `global_waypoints_csv`: 읽을 waypoint CSV 경로이다. 상대 경로이면 패키지 share 디렉터리 기준으로 해석한다. 기본값은 f1sim의 `fuck_f1.yaml` map과 같은 좌표계를 쓰는 `maps/fuck_f1.csv`이다.
+- `global_waypoints_csv`: 읽을 waypoint CSV 경로이다. 상대 경로이면 패키지 share 디렉터리 기준으로 해석한다. 기본값은 f1sim의 `base_track.yaml` map과 같은 좌표계를 쓰는 `maps/base_track.csv`이다.
 - `package_resource_root`: `global_waypoints_csv` 같은 상대 리소스 경로를 먼저 찾을 package root이다. 빈 값이면 install된 package share를 사용한다.
 - `simulator`: simulator topic profile을 사용할지 결정한다.
 - `simulator_pose_topic`, `simulator_speed_topic`, `simulator_imu_topic`, `simulator_drive_topic`: `simulator: true`일 때 쓰는 topic이다.
@@ -88,17 +88,17 @@ launch 파일은 source workspace가 보이면 기본 `params_file`과 `package_
 ros2 launch new_map_con new_map_con.launch.py simulator:=true
 ```
 
-f1sim과 같이 실행할 때는 f1sim의 `sim.yaml`에 설정된 `map_path`와 `global_waypoints_csv`가 같은 map YAML에서 만들어진 파일인지 먼저 확인한다. 현재 기본 설정은 둘 다 `fuck_f1` map 기준이다.
+f1sim과 같이 실행할 때는 f1sim의 `sim.yaml`에 설정된 `map_path`와 `global_waypoints_csv`가 같은 map YAML에서 만들어진 파일인지 먼저 확인한다. 현재 기본 설정은 둘 다 `base_track` map 기준이다.
 
 다른 CSV를 쓰려면 `config/config.yaml`의 `global_waypoints_csv`를 바꾼다. 예를 들어 offline trajectory generator 출력 파일을 직접 쓰려면 홈 기준 경로를 넣는다. 노드가 선행 `~`/`$HOME`을 직접 펼치므로 사용자 이름을 박아 넣을 필요가 없다.
 
 ```yaml
-global_waypoints_csv: $HOME/2026_IFAC/offline_trajectory_generator/output/fuck_f1_1/global_waypoints.csv
+global_waypoints_csv: $HOME/2026_IFAC/offline_trajectory_generator/output/base_track_1/global_waypoints.csv
 ```
 
 ## 7. offline trajectory generator와의 연결
 
-offline trajectory generator의 `global_waypoints.csv`는 `src/new_map_con/maps/fuck_f1.csv`와 같은 8개 컬럼 형식으로 저장된다.
+offline trajectory generator의 `global_waypoints.csv`는 `src/new_map_con/maps/base_track.csv`와 같은 8개 컬럼 형식으로 저장된다.
 
 ```text
 id,s,x_m,y_m,psi_rad,kappa_radpm,vx_mps,ax_mps2

@@ -1,0 +1,1059 @@
+[INFO] [1788323153.733980720] [local_planner_node]: 장애물 추종오차 예약: 사용 안 함(게이트 off) (장애물 clearance = 반폭 0.150 + 마진 0.080)
+[INFO] [1788323153.736562156] [local_planner_node]: 회피 플래너: P3=TEST_ACTIVE (유일한 후보 생성기, P0 격자 없음)
+[INFO] [1788323153.741210604] [local_planner_node]: Race-line-locked static planner started: lookahead=15.0 m, obstacle topic=/confirmed_static_obs, tracking_error_lut=7x5 fallback=0.000 m, avoidance_velocity_limits=10 rows, wall_margin=0.040 m, lateral_guard=[0.000, 0.000] m, P3_MODE=TEST_ACTIVE
+[INFO] [1788323153.741274566] [local_planner_node]: Frozen GQSC main generator verified: method=LEX8_GLOBAL_DISJOINT_COVERAGE4 sha256=670f39a23479bcdcc1db0829a895257443fec8ee2f78f186bc1beb224090b776 reference_v3_sha=965f6ce65b7ce5b1c6426a0975c1dfafe779e89eb20308bb09a11a1b4a22e780 pair_proxy<=128 reconstruction<=12 validator<=12
+[INFO] [1788323153.766361091] [local_planner_node]: P3_PATH_OWNERSHIP callback=1 mode=TEST_ACTIVE owner=P0_BACKUP_ONLY lifecycle=IDLE p0_backup_only=true
+[INFO] [1788323153.791321198] [local_planner_node]: P3_PATH_OWNERSHIP callback=2 mode=TEST_ACTIVE owner=P0_BACKUP_ONLY lifecycle=IDLE p0_backup_only=true (unchanged)
+[INFO] [1788323158.791483887] [local_planner_node]: P3_PATH_OWNERSHIP callback=202 mode=TEST_ACTIVE owner=P0_BACKUP_ONLY lifecycle=IDLE p0_backup_only=true (unchanged)
+[INFO] [1788323163.332673939] [local_planner_node]: Loaded 185 ordered global race-line waypoints (track 46.37 m).
+[INFO] [1788323163.791501942] [local_planner_node]: P3_PATH_OWNERSHIP callback=402 mode=TEST_ACTIVE owner=P0_BACKUP_ONLY lifecycle=IDLE p0_backup_only=true (unchanged)
+[WARN] [1788323163.898450566] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_M1).
+[INFO] [1788323163.898546239] [local_planner_node]: P3_PATH_OWNERSHIP callback=406 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323163.916983038] [local_planner_node]: P3_PATH_OWNERSHIP callback=407 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323163.941799919] [local_planner_node]: P3_PATH_OWNERSHIP callback=408 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323164.191487112] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787619959628360127 -> 1787619958628360127
+[INFO] [1788323164.201413711] [local_planner_node]: P3_PATH_OWNERSHIP callback=418 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323164.216759703] [local_planner_node]: P3_PATH_OWNERSHIP callback=419 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323164.241970525] [local_planner_node]: P3_PATH_OWNERSHIP callback=420 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323164.841502851] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787619961628360127 -> 1787619960628360127
+[INFO] [1788323164.849123404] [local_planner_node]: P3_PATH_OWNERSHIP callback=444 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323164.866934328] [local_planner_node]: P3_PATH_OWNERSHIP callback=445 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323164.891766575] [local_planner_node]: P3_PATH_OWNERSHIP callback=446 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323164.916802219] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323165.491508023] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787619963628360127 -> 1787619962628360127
+[INFO] [1788323165.500289030] [local_planner_node]: P3_PATH_OWNERSHIP callback=470 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323165.516852797] [local_planner_node]: P3_PATH_OWNERSHIP callback=471 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323165.541905697] [local_planner_node]: P3_PATH_OWNERSHIP callback=472 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323165.916895038] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323166.191550530] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787619965628360127 -> 1787619964628360127
+[INFO] [1788323166.200000336] [local_planner_node]: P3_PATH_OWNERSHIP callback=498 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323166.216868111] [local_planner_node]: P3_PATH_OWNERSHIP callback=499 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323166.241814966] [local_planner_node]: P3_PATH_OWNERSHIP callback=500 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323166.841536771] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787619967628360127 -> 1787619966628360127
+[INFO] [1788323166.850955336] [local_planner_node]: P3_PATH_OWNERSHIP callback=524 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323166.867097479] [local_planner_node]: P3_PATH_OWNERSHIP callback=525 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323166.892070950] [local_planner_node]: P3_PATH_OWNERSHIP callback=526 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323166.917108412] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323167.441598365] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787619969628360127 -> 1787619968628360127
+[INFO] [1788323167.452368088] [local_planner_node]: P3_PATH_OWNERSHIP callback=548 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323167.467128027] [local_planner_node]: P3_PATH_OWNERSHIP callback=549 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323167.492041615] [local_planner_node]: P3_PATH_OWNERSHIP callback=550 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323167.941859217] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323168.091658046] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787619971628360127 -> 1787619970628360127
+[INFO] [1788323168.100208428] [local_planner_node]: P3_PATH_OWNERSHIP callback=574 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323168.116913047] [local_planner_node]: P3_PATH_OWNERSHIP callback=575 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323168.142047590] [local_planner_node]: P3_PATH_OWNERSHIP callback=576 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323168.741559054] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787619973628360127 -> 1787619972628360127
+[INFO] [1788323168.748703614] [local_planner_node]: P3_PATH_OWNERSHIP callback=600 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323168.767006359] [local_planner_node]: P3_PATH_OWNERSHIP callback=601 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323168.792108638] [local_planner_node]: P3_PATH_OWNERSHIP callback=602 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[INFO] [1788323168.817001676] [local_planner_node]: P3_PATH_OWNERSHIP callback=603 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false (unchanged)
+[WARN] [1788323168.942042313] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323169.391715788] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787619975628360127 -> 1787619974628360127
+[INFO] [1788323169.398924975] [local_planner_node]: P3_PATH_OWNERSHIP callback=626 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323169.416872788] [local_planner_node]: P3_PATH_OWNERSHIP callback=627 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323169.442177898] [local_planner_node]: P3_PATH_OWNERSHIP callback=628 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323169.967203954] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323170.041629196] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787619977628360127 -> 1787619976628360127
+[INFO] [1788323170.051396090] [local_planner_node]: P3_PATH_OWNERSHIP callback=652 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323170.067007121] [local_planner_node]: P3_PATH_OWNERSHIP callback=653 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323170.091970684] [local_planner_node]: P3_PATH_OWNERSHIP callback=654 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323170.641638861] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787619979628360127 -> 1787619978628360127
+[INFO] [1788323170.649797164] [local_planner_node]: P3_PATH_OWNERSHIP callback=676 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323170.667190686] [local_planner_node]: P3_PATH_OWNERSHIP callback=677 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323170.691934438] [local_planner_node]: P3_PATH_OWNERSHIP callback=678 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323170.992002334] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323171.341747287] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787619981628360127 -> 1787619980628360127
+[INFO] [1788323171.353936713] [local_planner_node]: P3_PATH_OWNERSHIP callback=704 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323171.367160519] [local_planner_node]: P3_PATH_OWNERSHIP callback=705 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323171.392046497] [local_planner_node]: P3_PATH_OWNERSHIP callback=706 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323171.941695583] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787619983628360127 -> 1787619982628360127
+[INFO] [1788323171.955856527] [local_planner_node]: P3_PATH_OWNERSHIP callback=728 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323171.967244273] [local_planner_node]: P3_PATH_OWNERSHIP callback=729 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323171.991997247] [local_planner_node]: P3_PATH_OWNERSHIP callback=730 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323172.016941820] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323172.591657368] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787619985628360127 -> 1787619984628360127
+[INFO] [1788323172.601638646] [local_planner_node]: P3_PATH_OWNERSHIP callback=754 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323172.617300873] [local_planner_node]: P3_PATH_OWNERSHIP callback=755 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323172.642138232] [local_planner_node]: P3_PATH_OWNERSHIP callback=756 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323173.042129967] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323173.241660132] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787619987628360127 -> 1787619986628360127
+[INFO] [1788323173.250272494] [local_planner_node]: P3_PATH_OWNERSHIP callback=780 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323173.267253089] [local_planner_node]: P3_PATH_OWNERSHIP callback=781 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323173.292193731] [local_planner_node]: P3_PATH_OWNERSHIP callback=782 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[INFO] [1788323173.817186971] [local_planner_node]: P3_PATH_OWNERSHIP callback=803 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false (unchanged)
+[WARN] [1788323173.891661874] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787619989628360127 -> 1787619988628360127
+[INFO] [1788323173.900100305] [local_planner_node]: P3_PATH_OWNERSHIP callback=806 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323173.917159347] [local_planner_node]: P3_PATH_OWNERSHIP callback=807 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323173.942090379] [local_planner_node]: P3_PATH_OWNERSHIP callback=808 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323174.067046658] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323174.591690217] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787619991628360127 -> 1787619990628360127
+[INFO] [1788323174.606303038] [local_planner_node]: P3_PATH_OWNERSHIP callback=834 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323174.617229242] [local_planner_node]: P3_PATH_OWNERSHIP callback=835 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323174.642338183] [local_planner_node]: P3_PATH_OWNERSHIP callback=836 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323175.067264307] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323175.241719135] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787619993628360127 -> 1787619992628360127
+[INFO] [1788323175.250395632] [local_planner_node]: P3_PATH_OWNERSHIP callback=860 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323175.267371582] [local_planner_node]: P3_PATH_OWNERSHIP callback=861 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323175.292096114] [local_planner_node]: P3_PATH_OWNERSHIP callback=862 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323175.891721043] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787619995628360127 -> 1787619994628360127
+[INFO] [1788323175.900840762] [local_planner_node]: P3_PATH_OWNERSHIP callback=886 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323175.917185153] [local_planner_node]: P3_PATH_OWNERSHIP callback=887 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323175.942059761] [local_planner_node]: P3_PATH_OWNERSHIP callback=888 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323176.092164934] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323176.591857693] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787619997628360127 -> 1787619996628360127
+[INFO] [1788323176.604980276] [local_planner_node]: P3_PATH_OWNERSHIP callback=914 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323176.617035337] [local_planner_node]: P3_PATH_OWNERSHIP callback=915 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323176.642130486] [local_planner_node]: P3_PATH_OWNERSHIP callback=916 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323177.117283616] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323177.291746456] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787619999628360127 -> 1787619998628360127
+[INFO] [1788323177.304120945] [local_planner_node]: P3_PATH_OWNERSHIP callback=942 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323177.317505479] [local_planner_node]: P3_PATH_OWNERSHIP callback=943 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323177.342120694] [local_planner_node]: P3_PATH_OWNERSHIP callback=944 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323177.991832662] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620001628360127 -> 1787620000628360127
+[INFO] [1788323178.001588953] [local_planner_node]: P3_PATH_OWNERSHIP callback=970 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323178.017304742] [local_planner_node]: P3_PATH_OWNERSHIP callback=971 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323178.042263947] [local_planner_node]: P3_PATH_OWNERSHIP callback=972 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323178.142166319] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323178.641767454] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620003628360127 -> 1787620002628360127
+[INFO] [1788323178.653407116] [local_planner_node]: P3_PATH_OWNERSHIP callback=996 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323178.667349029] [local_planner_node]: P3_PATH_OWNERSHIP callback=997 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323178.692168147] [local_planner_node]: P3_PATH_OWNERSHIP callback=998 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[INFO] [1788323178.842378088] [local_planner_node]: P3_PATH_OWNERSHIP callback=1004 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false (unchanged)
+[WARN] [1788323179.142274930] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323179.291781503] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620005628360127 -> 1787620004628360127
+[INFO] [1788323179.303329745] [local_planner_node]: P3_PATH_OWNERSHIP callback=1022 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323179.317409134] [local_planner_node]: P3_PATH_OWNERSHIP callback=1023 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323179.342283725] [local_planner_node]: P3_PATH_OWNERSHIP callback=1024 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323179.941826649] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620007628360127 -> 1787620006628360127
+[INFO] [1788323179.948828749] [local_planner_node]: P3_PATH_OWNERSHIP callback=1048 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323179.967273134] [local_planner_node]: P3_PATH_OWNERSHIP callback=1049 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323179.992345714] [local_planner_node]: P3_PATH_OWNERSHIP callback=1050 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323180.142383430] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323180.591773246] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620009628360127 -> 1787620008628360127
+[INFO] [1788323180.600383274] [local_planner_node]: P3_PATH_OWNERSHIP callback=1074 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323180.617306351] [local_planner_node]: P3_PATH_OWNERSHIP callback=1075 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323180.642261738] [local_planner_node]: P3_PATH_OWNERSHIP callback=1076 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323181.167160233] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323181.241913738] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620011628360127 -> 1787620010628360127
+[INFO] [1788323181.251948323] [local_planner_node]: P3_PATH_OWNERSHIP callback=1100 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323181.267371430] [local_planner_node]: P3_PATH_OWNERSHIP callback=1101 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323181.292311677] [local_planner_node]: P3_PATH_OWNERSHIP callback=1102 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323181.941918771] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620013628360127 -> 1787620012628360127
+[INFO] [1788323181.949689585] [local_planner_node]: P3_PATH_OWNERSHIP callback=1128 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323181.967397173] [local_planner_node]: P3_PATH_OWNERSHIP callback=1129 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323181.992315372] [local_planner_node]: P3_PATH_OWNERSHIP callback=1130 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323182.167511575] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323182.541955305] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620015628360127 -> 1787620014628360127
+[INFO] [1788323182.550007580] [local_planner_node]: P3_PATH_OWNERSHIP callback=1152 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323182.567331525] [local_planner_node]: P3_PATH_OWNERSHIP callback=1153 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323182.592181156] [local_planner_node]: P3_PATH_OWNERSHIP callback=1154 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323183.192503092] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323183.241834597] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620017628360127 -> 1787620016628360127
+[INFO] [1788323183.249431749] [local_planner_node]: P3_PATH_OWNERSHIP callback=1180 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323183.267186894] [local_planner_node]: P3_PATH_OWNERSHIP callback=1181 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323183.292268681] [local_planner_node]: P3_PATH_OWNERSHIP callback=1182 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323183.842002599] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620019628360127 -> 1787620018628360127
+[INFO] [1788323183.850354285] [local_planner_node]: P3_PATH_OWNERSHIP callback=1204 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323183.867153220] [local_planner_node]: P3_PATH_OWNERSHIP callback=1205 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323183.892270871] [local_planner_node]: P3_PATH_OWNERSHIP callback=1206 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[INFO] [1788323183.917352764] [local_planner_node]: P3_PATH_OWNERSHIP callback=1207 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false (unchanged)
+[WARN] [1788323184.217333514] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323184.491884228] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620021628360127 -> 1787620020628360127
+[INFO] [1788323184.500344248] [local_planner_node]: P3_PATH_OWNERSHIP callback=1230 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323184.517252138] [local_planner_node]: P3_PATH_OWNERSHIP callback=1231 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323184.542576756] [local_planner_node]: P3_PATH_OWNERSHIP callback=1232 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323185.141882670] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620023628360127 -> 1787620022628360127
+[INFO] [1788323185.154904931] [local_planner_node]: P3_PATH_OWNERSHIP callback=1256 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323185.167285497] [local_planner_node]: P3_PATH_OWNERSHIP callback=1257 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323185.192466292] [local_planner_node]: P3_PATH_OWNERSHIP callback=1258 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323185.242427215] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323185.741890761] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620025628360127 -> 1787620024628360127
+[INFO] [1788323185.754931834] [local_planner_node]: P3_PATH_OWNERSHIP callback=1280 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323185.767356670] [local_planner_node]: P3_PATH_OWNERSHIP callback=1281 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323185.792322236] [local_planner_node]: P3_PATH_OWNERSHIP callback=1282 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323186.267403602] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323186.341934683] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620027628360127 -> 1787620026628360127
+[INFO] [1788323186.350780907] [local_planner_node]: P3_PATH_OWNERSHIP callback=1304 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323186.367189278] [local_planner_node]: P3_PATH_OWNERSHIP callback=1305 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323186.392280342] [local_planner_node]: P3_PATH_OWNERSHIP callback=1306 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323186.991998449] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620029628360127 -> 1787620028628360127
+[INFO] [1788323187.000105034] [local_planner_node]: P3_PATH_OWNERSHIP callback=1330 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323187.017541026] [local_planner_node]: P3_PATH_OWNERSHIP callback=1331 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323187.042493318] [local_planner_node]: P3_PATH_OWNERSHIP callback=1332 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323187.267442127] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323187.641931013] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620031628360127 -> 1787620030628360127
+[INFO] [1788323187.651255756] [local_planner_node]: P3_PATH_OWNERSHIP callback=1356 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323187.667475884] [local_planner_node]: P3_PATH_OWNERSHIP callback=1357 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323187.692432430] [local_planner_node]: P3_PATH_OWNERSHIP callback=1358 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323188.291946669] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620033628360127 -> 1787620032628360127
+[WARN] [1788323188.301893799] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_M1).
+[INFO] [1788323188.301992379] [local_planner_node]: P3_PATH_OWNERSHIP callback=1382 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323188.317397862] [local_planner_node]: P3_PATH_OWNERSHIP callback=1383 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323188.342160797] [local_planner_node]: P3_PATH_OWNERSHIP callback=1384 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[INFO] [1788323188.917552381] [local_planner_node]: P3_PATH_OWNERSHIP callback=1407 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false (unchanged)
+[WARN] [1788323188.941944592] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620035628360127 -> 1787620034628360127
+[INFO] [1788323188.950373786] [local_planner_node]: P3_PATH_OWNERSHIP callback=1408 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323188.967305387] [local_planner_node]: P3_PATH_OWNERSHIP callback=1409 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323188.992428822] [local_planner_node]: P3_PATH_OWNERSHIP callback=1410 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323189.317555687] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323189.591961533] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620037628360127 -> 1787620036628360127
+[INFO] [1788323189.606680191] [local_planner_node]: P3_PATH_OWNERSHIP callback=1434 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323189.617414804] [local_planner_node]: P3_PATH_OWNERSHIP callback=1435 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323189.642278233] [local_planner_node]: P3_PATH_OWNERSHIP callback=1436 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323190.292004564] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620039628360127 -> 1787620038628360127
+[INFO] [1788323190.304407577] [local_planner_node]: P3_PATH_OWNERSHIP callback=1462 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323190.317496244] [local_planner_node]: P3_PATH_OWNERSHIP callback=1463 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[WARN] [1788323190.342406292] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[INFO] [1788323190.342502722] [local_planner_node]: P3_PATH_OWNERSHIP callback=1464 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323190.941995267] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620041628360127 -> 1787620040628360127
+[INFO] [1788323190.954703908] [local_planner_node]: P3_PATH_OWNERSHIP callback=1488 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323190.967542176] [local_planner_node]: P3_PATH_OWNERSHIP callback=1489 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323190.992307015] [local_planner_node]: P3_PATH_OWNERSHIP callback=1490 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323191.367209873] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323191.592048391] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620043628360127 -> 1787620042628360127
+[INFO] [1788323191.603102807] [local_planner_node]: P3_PATH_OWNERSHIP callback=1514 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323191.617563895] [local_planner_node]: P3_PATH_OWNERSHIP callback=1515 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323191.642587512] [local_planner_node]: P3_PATH_OWNERSHIP callback=1516 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323192.241994671] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620045628360127 -> 1787620044628360127
+[INFO] [1788323192.251798863] [local_planner_node]: P3_PATH_OWNERSHIP callback=1540 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323192.267366237] [local_planner_node]: P3_PATH_OWNERSHIP callback=1541 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323192.292331450] [local_planner_node]: P3_PATH_OWNERSHIP callback=1542 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323192.367586405] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323192.842013605] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620047628360127 -> 1787620046628360127
+[INFO] [1788323192.852917088] [local_planner_node]: P3_PATH_OWNERSHIP callback=1564 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323192.867663974] [local_planner_node]: P3_PATH_OWNERSHIP callback=1565 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323192.892500997] [local_planner_node]: P3_PATH_OWNERSHIP callback=1566 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323193.392416437] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323193.542037783] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620049628360127 -> 1787620048628360127
+[INFO] [1788323193.553188579] [local_planner_node]: P3_PATH_OWNERSHIP callback=1592 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323193.567588827] [local_planner_node]: P3_PATH_OWNERSHIP callback=1593 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323193.592370302] [local_planner_node]: P3_PATH_OWNERSHIP callback=1594 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[INFO] [1788323193.942429508] [local_planner_node]: P3_PATH_OWNERSHIP callback=1608 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false (unchanged)
+[WARN] [1788323194.242052708] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620051628360127 -> 1787620050628360127
+[INFO] [1788323194.256836231] [local_planner_node]: P3_PATH_OWNERSHIP callback=1620 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323194.267566983] [local_planner_node]: P3_PATH_OWNERSHIP callback=1621 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323194.292626903] [local_planner_node]: P3_PATH_OWNERSHIP callback=1622 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323194.417387657] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323194.942096362] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620053628360127 -> 1787620052628360127
+[INFO] [1788323194.951110050] [local_planner_node]: P3_PATH_OWNERSHIP callback=1648 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323194.967493208] [local_planner_node]: P3_PATH_OWNERSHIP callback=1649 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323194.992608428] [local_planner_node]: P3_PATH_OWNERSHIP callback=1650 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323195.417394469] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323195.592040654] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620055628360127 -> 1787620054628360127
+[INFO] [1788323195.597800369] [local_planner_node]: P3_PATH_OWNERSHIP callback=1674 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323195.617286386] [local_planner_node]: P3_PATH_OWNERSHIP callback=1675 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323195.642263380] [local_planner_node]: P3_PATH_OWNERSHIP callback=1676 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323196.192171463] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620057628360127 -> 1787620056628360127
+[INFO] [1788323196.201298776] [local_planner_node]: P3_PATH_OWNERSHIP callback=1698 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323196.217628206] [local_planner_node]: P3_PATH_OWNERSHIP callback=1699 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323196.242457289] [local_planner_node]: P3_PATH_OWNERSHIP callback=1700 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323196.417476263] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323196.892086242] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620059628360127 -> 1787620058628360127
+[INFO] [1788323196.899998674] [local_planner_node]: P3_PATH_OWNERSHIP callback=1726 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323196.917617229] [local_planner_node]: P3_PATH_OWNERSHIP callback=1727 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323196.942458332] [local_planner_node]: P3_PATH_OWNERSHIP callback=1728 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323197.417665973] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323197.492100004] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620061628360127 -> 1787620060628360127
+[INFO] [1788323197.499646366] [local_planner_node]: P3_PATH_OWNERSHIP callback=1750 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323197.517625827] [local_planner_node]: P3_PATH_OWNERSHIP callback=1751 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323197.542546687] [local_planner_node]: P3_PATH_OWNERSHIP callback=1752 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323198.142115528] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620063628360127 -> 1787620062628360127
+[INFO] [1788323198.154552047] [local_planner_node]: P3_PATH_OWNERSHIP callback=1776 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323198.167391891] [local_planner_node]: P3_PATH_OWNERSHIP callback=1777 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323198.192429698] [local_planner_node]: P3_PATH_OWNERSHIP callback=1778 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323198.417709146] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323198.792193712] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620065628360127 -> 1787620064628360127
+[INFO] [1788323198.805676628] [local_planner_node]: P3_PATH_OWNERSHIP callback=1802 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323198.817692953] [local_planner_node]: P3_PATH_OWNERSHIP callback=1803 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323198.842517328] [local_planner_node]: P3_PATH_OWNERSHIP callback=1804 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[INFO] [1788323198.942713125] [local_planner_node]: P3_PATH_OWNERSHIP callback=1808 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false (unchanged)
+[WARN] [1788323199.417737802] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323199.442143980] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620067628360127 -> 1787620066628360127
+[INFO] [1788323199.450166431] [local_planner_node]: P3_PATH_OWNERSHIP callback=1828 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323199.467639887] [local_planner_node]: P3_PATH_OWNERSHIP callback=1829 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323199.492656928] [local_planner_node]: P3_PATH_OWNERSHIP callback=1830 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323200.092272688] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620069628360127 -> 1787620068628360127
+[INFO] [1788323200.100530753] [local_planner_node]: P3_PATH_OWNERSHIP callback=1854 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323200.117831987] [local_planner_node]: P3_PATH_OWNERSHIP callback=1855 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323200.142390218] [local_planner_node]: P3_PATH_OWNERSHIP callback=1856 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323200.417741005] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323200.692139183] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620071628360127 -> 1787620070628360127
+[INFO] [1788323200.702356755] [local_planner_node]: P3_PATH_OWNERSHIP callback=1878 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323200.717592238] [local_planner_node]: P3_PATH_OWNERSHIP callback=1879 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323200.742495510] [local_planner_node]: P3_PATH_OWNERSHIP callback=1880 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323201.342187691] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620073628360127 -> 1787620072628360127
+[INFO] [1788323201.357497681] [local_planner_node]: P3_PATH_OWNERSHIP callback=1904 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323201.367636313] [local_planner_node]: P3_PATH_OWNERSHIP callback=1905 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323201.392867265] [local_planner_node]: P3_PATH_OWNERSHIP callback=1906 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323201.417776447] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323201.992176635] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620075628360127 -> 1787620074628360127
+[INFO] [1788323201.998031058] [local_planner_node]: P3_PATH_OWNERSHIP callback=1930 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323202.017441076] [local_planner_node]: P3_PATH_OWNERSHIP callback=1931 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323202.042560531] [local_planner_node]: P3_PATH_OWNERSHIP callback=1932 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323202.417875924] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323202.642183611] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620077628360127 -> 1787620076628360127
+[INFO] [1788323202.656792874] [local_planner_node]: P3_PATH_OWNERSHIP callback=1956 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323202.667834130] [local_planner_node]: P3_PATH_OWNERSHIP callback=1957 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323202.692722337] [local_planner_node]: P3_PATH_OWNERSHIP callback=1958 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323203.292236792] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620079628360127 -> 1787620078628360127
+[INFO] [1788323203.302072926] [local_planner_node]: P3_PATH_OWNERSHIP callback=1982 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323203.317553210] [local_planner_node]: P3_PATH_OWNERSHIP callback=1983 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323203.342601416] [local_planner_node]: P3_PATH_OWNERSHIP callback=1984 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323203.442512778] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323203.892310206] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620081628360127 -> 1787620080628360127
+[INFO] [1788323203.900195052] [local_planner_node]: P3_PATH_OWNERSHIP callback=2006 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323203.917706290] [local_planner_node]: P3_PATH_OWNERSHIP callback=2007 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323203.942590286] [local_planner_node]: P3_PATH_OWNERSHIP callback=2008 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[INFO] [1788323203.967705412] [local_planner_node]: P3_PATH_OWNERSHIP callback=2009 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false (unchanged)
+[WARN] [1788323204.442632520] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323204.592307563] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620083628360127 -> 1787620082628360127
+[INFO] [1788323204.602334273] [local_planner_node]: P3_PATH_OWNERSHIP callback=2034 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323204.617874261] [local_planner_node]: P3_PATH_OWNERSHIP callback=2035 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323204.642815234] [local_planner_node]: P3_PATH_OWNERSHIP callback=2036 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323205.292282047] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620085628360127 -> 1787620084628360127
+[INFO] [1788323205.302696501] [local_planner_node]: P3_PATH_OWNERSHIP callback=2062 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323205.317835819] [local_planner_node]: P3_PATH_OWNERSHIP callback=2063 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323205.342659277] [local_planner_node]: P3_PATH_OWNERSHIP callback=2064 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323205.467570145] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323205.942300242] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620087628360127 -> 1787620086628360127
+[INFO] [1788323205.952135087] [local_planner_node]: P3_PATH_OWNERSHIP callback=2088 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323205.967593324] [local_planner_node]: P3_PATH_OWNERSHIP callback=2089 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323205.992604016] [local_planner_node]: P3_PATH_OWNERSHIP callback=2090 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323206.467588444] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323206.592264610] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620089628360127 -> 1787620088628360127
+[INFO] [1788323206.603734547] [local_planner_node]: P3_PATH_OWNERSHIP callback=2114 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323206.617879101] [local_planner_node]: P3_PATH_OWNERSHIP callback=2115 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323206.642665759] [local_planner_node]: P3_PATH_OWNERSHIP callback=2116 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323207.242305771] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620091628360127 -> 1787620090628360127
+[INFO] [1788323207.251874256] [local_planner_node]: P3_PATH_OWNERSHIP callback=2140 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323207.267851901] [local_planner_node]: P3_PATH_OWNERSHIP callback=2141 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323207.292597720] [local_planner_node]: P3_PATH_OWNERSHIP callback=2142 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323207.467650604] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323207.892394323] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620093628360127 -> 1787620092628360127
+[INFO] [1788323207.902925944] [local_planner_node]: P3_PATH_OWNERSHIP callback=2166 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323207.917860670] [local_planner_node]: P3_PATH_OWNERSHIP callback=2167 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323207.942728535] [local_planner_node]: P3_PATH_OWNERSHIP callback=2168 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323208.492591547] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323208.542396804] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620095628360127 -> 1787620094628360127
+[INFO] [1788323208.551293538] [local_planner_node]: P3_PATH_OWNERSHIP callback=2192 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323208.567799048] [local_planner_node]: P3_PATH_OWNERSHIP callback=2193 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323208.592554501] [local_planner_node]: P3_PATH_OWNERSHIP callback=2194 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[INFO] [1788323208.992664904] [local_planner_node]: P3_PATH_OWNERSHIP callback=2210 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false (unchanged)
+[WARN] [1788323209.242303706] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620097628360127 -> 1787620096628360127
+[INFO] [1788323209.249903292] [local_planner_node]: P3_PATH_OWNERSHIP callback=2220 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323209.267747681] [local_planner_node]: P3_PATH_OWNERSHIP callback=2221 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323209.292682796] [local_planner_node]: P3_PATH_OWNERSHIP callback=2222 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323209.517856276] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323209.892340259] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620099628360127 -> 1787620098628360127
+[INFO] [1788323209.902075370] [local_planner_node]: P3_PATH_OWNERSHIP callback=2246 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323209.917804054] [local_planner_node]: P3_PATH_OWNERSHIP callback=2247 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323209.942581473] [local_planner_node]: P3_PATH_OWNERSHIP callback=2248 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323210.518028751] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323210.592392793] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620101628360127 -> 1787620100628360127
+[INFO] [1788323210.604494141] [local_planner_node]: P3_PATH_OWNERSHIP callback=2274 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323210.617946975] [local_planner_node]: P3_PATH_OWNERSHIP callback=2275 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323210.642811814] [local_planner_node]: P3_PATH_OWNERSHIP callback=2276 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323211.242357066] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620103628360127 -> 1787620102628360127
+[INFO] [1788323211.254177887] [local_planner_node]: P3_PATH_OWNERSHIP callback=2300 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323211.267928902] [local_planner_node]: P3_PATH_OWNERSHIP callback=2301 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323211.293070021] [local_planner_node]: P3_PATH_OWNERSHIP callback=2302 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323211.542886455] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323211.842367432] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620105628360127 -> 1787620104628360127
+[INFO] [1788323211.852333308] [local_planner_node]: P3_PATH_OWNERSHIP callback=2324 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323211.867655840] [local_planner_node]: P3_PATH_OWNERSHIP callback=2325 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323211.892703303] [local_planner_node]: P3_PATH_OWNERSHIP callback=2326 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323212.492370020] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620107628360127 -> 1787620106628360127
+[INFO] [1788323212.502682556] [local_planner_node]: P3_PATH_OWNERSHIP callback=2350 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323212.518025989] [local_planner_node]: P3_PATH_OWNERSHIP callback=2351 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323212.542805562] [local_planner_node]: P3_PATH_OWNERSHIP callback=2352 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323212.567994915] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323213.142400459] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620109628360127 -> 1787620108628360127
+[INFO] [1788323213.150563737] [local_planner_node]: P3_PATH_OWNERSHIP callback=2376 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323213.167859558] [local_planner_node]: P3_PATH_OWNERSHIP callback=2377 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323213.193035869] [local_planner_node]: P3_PATH_OWNERSHIP callback=2378 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323213.592763778] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323213.842434953] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620111628360127 -> 1787620110628360127
+[INFO] [1788323213.856437766] [local_planner_node]: P3_PATH_OWNERSHIP callback=2404 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323213.868029504] [local_planner_node]: P3_PATH_OWNERSHIP callback=2405 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323213.892760725] [local_planner_node]: P3_PATH_OWNERSHIP callback=2406 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[INFO] [1788323213.992998021] [local_planner_node]: P3_PATH_OWNERSHIP callback=2410 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false (unchanged)
+[WARN] [1788323214.492401652] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620113628360127 -> 1787620112628360127
+[INFO] [1788323214.499108701] [local_planner_node]: P3_PATH_OWNERSHIP callback=2430 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323214.517731524] [local_planner_node]: P3_PATH_OWNERSHIP callback=2431 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323214.542859058] [local_planner_node]: P3_PATH_OWNERSHIP callback=2432 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323214.592921832] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323215.142438407] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620115628360127 -> 1787620114628360127
+[INFO] [1788323215.151266929] [local_planner_node]: P3_PATH_OWNERSHIP callback=2456 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323215.168070231] [local_planner_node]: P3_PATH_OWNERSHIP callback=2457 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323215.192807193] [local_planner_node]: P3_PATH_OWNERSHIP callback=2458 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323215.617812011] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323215.792400809] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620117628360127 -> 1787620116628360127
+[INFO] [1788323215.801158066] [local_planner_node]: P3_PATH_OWNERSHIP callback=2482 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323215.818056628] [local_planner_node]: P3_PATH_OWNERSHIP callback=2483 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323215.843116558] [local_planner_node]: P3_PATH_OWNERSHIP callback=2484 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323216.442532754] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620119628360127 -> 1787620118628360127
+[INFO] [1788323216.457939074] [local_planner_node]: P3_PATH_OWNERSHIP callback=2508 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323216.468012876] [local_planner_node]: P3_PATH_OWNERSHIP callback=2509 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323216.492996782] [local_planner_node]: P3_PATH_OWNERSHIP callback=2510 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323216.618135910] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323217.042546781] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620121628360127 -> 1787620120628360127
+[INFO] [1788323217.048328393] [local_planner_node]: P3_PATH_OWNERSHIP callback=2532 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323217.067803890] [local_planner_node]: P3_PATH_OWNERSHIP callback=2533 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323217.092832739] [local_planner_node]: P3_PATH_OWNERSHIP callback=2534 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323217.618139378] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323217.642471575] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620123628360127 -> 1787620122628360127
+[INFO] [1788323217.651227270] [local_planner_node]: P3_PATH_OWNERSHIP callback=2556 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323217.667819375] [local_planner_node]: P3_PATH_OWNERSHIP callback=2557 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323217.692920122] [local_planner_node]: P3_PATH_OWNERSHIP callback=2558 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323218.292550549] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620125628360127 -> 1787620124628360127
+[INFO] [1788323218.307662337] [local_planner_node]: P3_PATH_OWNERSHIP callback=2582 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323218.317835724] [local_planner_node]: P3_PATH_OWNERSHIP callback=2583 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323218.342716611] [local_planner_node]: P3_PATH_OWNERSHIP callback=2584 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323218.642923112] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323218.942548455] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620127628360127 -> 1787620126628360127
+[INFO] [1788323218.948550192] [local_planner_node]: P3_PATH_OWNERSHIP callback=2608 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323218.968039752] [local_planner_node]: P3_PATH_OWNERSHIP callback=2609 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323218.992996474] [local_planner_node]: P3_PATH_OWNERSHIP callback=2610 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[INFO] [1788323219.018149396] [local_planner_node]: P3_PATH_OWNERSHIP callback=2611 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false (unchanged)
+[WARN] [1788323219.542510195] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620129628360127 -> 1787620128628360127
+[INFO] [1788323219.549394147] [local_planner_node]: P3_PATH_OWNERSHIP callback=2632 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323219.568303830] [local_planner_node]: P3_PATH_OWNERSHIP callback=2633 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323219.593141677] [local_planner_node]: P3_PATH_OWNERSHIP callback=2634 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323219.643231795] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323220.192577269] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620131628360127 -> 1787620130628360127
+[INFO] [1788323220.199110845] [local_planner_node]: P3_PATH_OWNERSHIP callback=2658 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323220.217858294] [local_planner_node]: P3_PATH_OWNERSHIP callback=2659 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323220.242983804] [local_planner_node]: P3_PATH_OWNERSHIP callback=2660 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323220.667943400] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323220.792513048] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620133628360127 -> 1787620132628360127
+[INFO] [1788323220.801917159] [local_planner_node]: P3_PATH_OWNERSHIP callback=2682 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323220.817982336] [local_planner_node]: P3_PATH_OWNERSHIP callback=2683 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323220.842948075] [local_planner_node]: P3_PATH_OWNERSHIP callback=2684 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323221.442526859] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620135628360127 -> 1787620134628360127
+[INFO] [1788323221.451635404] [local_planner_node]: P3_PATH_OWNERSHIP callback=2708 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323221.468185360] [local_planner_node]: P3_PATH_OWNERSHIP callback=2709 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323221.493046575] [local_planner_node]: P3_PATH_OWNERSHIP callback=2710 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323221.693170953] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323222.092703309] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620137628360127 -> 1787620136628360127
+[INFO] [1788323222.108318517] [local_planner_node]: P3_PATH_OWNERSHIP callback=2734 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323222.118241184] [local_planner_node]: P3_PATH_OWNERSHIP callback=2735 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323222.143140312] [local_planner_node]: P3_PATH_OWNERSHIP callback=2736 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323222.717949434] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323222.742527117] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620139628360127 -> 1787620138628360127
+[INFO] [1788323222.751531614] [local_planner_node]: P3_PATH_OWNERSHIP callback=2760 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323222.768000364] [local_planner_node]: P3_PATH_OWNERSHIP callback=2761 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323222.792914074] [local_planner_node]: P3_PATH_OWNERSHIP callback=2762 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323223.342600655] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620141628360127 -> 1787620140628360127
+[INFO] [1788323223.352657522] [local_planner_node]: P3_PATH_OWNERSHIP callback=2784 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323223.368215603] [local_planner_node]: P3_PATH_OWNERSHIP callback=2785 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323223.392880670] [local_planner_node]: P3_PATH_OWNERSHIP callback=2786 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323223.717991135] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323223.992653520] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620143628360127 -> 1787620142628360127
+[INFO] [1788323224.003791952] [local_planner_node]: P3_PATH_OWNERSHIP callback=2810 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323224.018104797] [local_planner_node]: P3_PATH_OWNERSHIP callback=2811 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323224.042885527] [local_planner_node]: P3_PATH_OWNERSHIP callback=2812 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[INFO] [1788323224.067936774] [local_planner_node]: P3_PATH_OWNERSHIP callback=2813 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false (unchanged)
+[WARN] [1788323224.642650563] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620145628360127 -> 1787620144628360127
+[INFO] [1788323224.652981478] [local_planner_node]: P3_PATH_OWNERSHIP callback=2836 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323224.668285472] [local_planner_node]: P3_PATH_OWNERSHIP callback=2837 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323224.693154061] [local_planner_node]: P3_PATH_OWNERSHIP callback=2838 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323224.718380098] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323225.292580331] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620147628360127 -> 1787620146628360127
+[INFO] [1788323225.302143192] [local_planner_node]: P3_PATH_OWNERSHIP callback=2862 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323225.318085571] [local_planner_node]: P3_PATH_OWNERSHIP callback=2863 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323225.342979474] [local_planner_node]: P3_PATH_OWNERSHIP callback=2864 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323225.742969817] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323225.942714147] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620149628360127 -> 1787620148628360127
+[INFO] [1788323225.953052148] [local_planner_node]: P3_PATH_OWNERSHIP callback=2888 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323225.968071217] [local_planner_node]: P3_PATH_OWNERSHIP callback=2889 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323225.993299965] [local_planner_node]: P3_PATH_OWNERSHIP callback=2890 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323226.642629406] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620151628360127 -> 1787620150628360127
+[INFO] [1788323226.653406773] [local_planner_node]: P3_PATH_OWNERSHIP callback=2916 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323226.668257723] [local_planner_node]: P3_PATH_OWNERSHIP callback=2917 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323226.693145873] [local_planner_node]: P3_PATH_OWNERSHIP callback=2918 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323226.742984717] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323227.242641850] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620153628360127 -> 1787620152628360127
+[INFO] [1788323227.252402163] [local_planner_node]: P3_PATH_OWNERSHIP callback=2940 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323227.268247115] [local_planner_node]: P3_PATH_OWNERSHIP callback=2941 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323227.293283384] [local_planner_node]: P3_PATH_OWNERSHIP callback=2942 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323227.743208858] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323227.942718525] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620155628360127 -> 1787620154628360127
+[INFO] [1788323227.948539364] [local_planner_node]: P3_PATH_OWNERSHIP callback=2968 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323227.968100524] [local_planner_node]: P3_PATH_OWNERSHIP callback=2969 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323227.993171615] [local_planner_node]: P3_PATH_OWNERSHIP callback=2970 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323228.642656663] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620157628360127 -> 1787620156628360127
+[INFO] [1788323228.651002928] [local_planner_node]: P3_PATH_OWNERSHIP callback=2996 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323228.668124640] [local_planner_node]: P3_PATH_OWNERSHIP callback=2997 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323228.693112458] [local_planner_node]: P3_PATH_OWNERSHIP callback=2998 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323228.768092641] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[INFO] [1788323229.068334902] [local_planner_node]: P3_PATH_OWNERSHIP callback=3013 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false (unchanged)
+[WARN] [1788323229.292658981] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620159628360127 -> 1787620158628360127
+[INFO] [1788323229.303930554] [local_planner_node]: P3_PATH_OWNERSHIP callback=3022 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323229.318340080] [local_planner_node]: P3_PATH_OWNERSHIP callback=3023 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323229.343095955] [local_planner_node]: P3_PATH_OWNERSHIP callback=3024 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323229.768262908] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323229.942676484] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620161628360127 -> 1787620160628360127
+[INFO] [1788323229.958821946] [local_planner_node]: P3_PATH_OWNERSHIP callback=3048 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323229.968262734] [local_planner_node]: P3_PATH_OWNERSHIP callback=3049 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323229.993323755] [local_planner_node]: P3_PATH_OWNERSHIP callback=3050 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323230.592707447] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620163628360127 -> 1787620162628360127
+[INFO] [1788323230.606672267] [local_planner_node]: P3_PATH_OWNERSHIP callback=3074 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323230.618384657] [local_planner_node]: P3_PATH_OWNERSHIP callback=3075 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323230.643153079] [local_planner_node]: P3_PATH_OWNERSHIP callback=3076 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323230.768286820] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323231.292677561] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620165628360127 -> 1787620164628360127
+[INFO] [1788323231.303554387] [local_planner_node]: P3_PATH_OWNERSHIP callback=3102 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323231.318368087] [local_planner_node]: P3_PATH_OWNERSHIP callback=3103 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323231.343245895] [local_planner_node]: P3_PATH_OWNERSHIP callback=3104 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323231.793148838] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323231.892681102] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620167628360127 -> 1787620166628360127
+[INFO] [1788323231.901966584] [local_planner_node]: P3_PATH_OWNERSHIP callback=3126 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323231.918146761] [local_planner_node]: P3_PATH_OWNERSHIP callback=3127 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323231.943074080] [local_planner_node]: P3_PATH_OWNERSHIP callback=3128 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323232.492813932] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620169628360127 -> 1787620168628360127
+[INFO] [1788323232.508450817] [local_planner_node]: P3_PATH_OWNERSHIP callback=3150 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323232.518125572] [local_planner_node]: P3_PATH_OWNERSHIP callback=3151 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323232.543388006] [local_planner_node]: P3_PATH_OWNERSHIP callback=3152 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323232.818375453] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323233.142867139] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620171628360127 -> 1787620170628360127
+[INFO] [1788323233.153254733] [local_planner_node]: P3_PATH_OWNERSHIP callback=3176 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323233.168254791] [local_planner_node]: P3_PATH_OWNERSHIP callback=3177 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323233.193158060] [local_planner_node]: P3_PATH_OWNERSHIP callback=3178 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323233.742777180] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620173628360127 -> 1787620172628360127
+[INFO] [1788323233.752974047] [local_planner_node]: P3_PATH_OWNERSHIP callback=3200 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323233.768018820] [local_planner_node]: P3_PATH_OWNERSHIP callback=3201 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323233.792978135] [local_planner_node]: P3_PATH_OWNERSHIP callback=3202 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323233.842953535] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[INFO] [1788323234.093224437] [local_planner_node]: P3_PATH_OWNERSHIP callback=3214 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false (unchanged)
+[WARN] [1788323234.442761363] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620175628360127 -> 1787620174628360127
+[INFO] [1788323234.452613304] [local_planner_node]: P3_PATH_OWNERSHIP callback=3228 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323234.468234842] [local_planner_node]: P3_PATH_OWNERSHIP callback=3229 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323234.493343240] [local_planner_node]: P3_PATH_OWNERSHIP callback=3230 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323234.843169332] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323235.092863640] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620177628360127 -> 1787620176628360127
+[INFO] [1788323235.103646150] [local_planner_node]: P3_PATH_OWNERSHIP callback=3254 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323235.118258819] [local_planner_node]: P3_PATH_OWNERSHIP callback=3255 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323235.143012167] [local_planner_node]: P3_PATH_OWNERSHIP callback=3256 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323235.742769900] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620179628360127 -> 1787620178628360127
+[INFO] [1788323235.749542299] [local_planner_node]: P3_PATH_OWNERSHIP callback=3280 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323235.768503202] [local_planner_node]: P3_PATH_OWNERSHIP callback=3281 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323235.793183287] [local_planner_node]: P3_PATH_OWNERSHIP callback=3282 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323235.843254134] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323236.392795212] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620181628360127 -> 1787620180628360127
+[INFO] [1788323236.401312826] [local_planner_node]: P3_PATH_OWNERSHIP callback=3306 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323236.418018323] [local_planner_node]: P3_PATH_OWNERSHIP callback=3307 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323236.443165755] [local_planner_node]: P3_PATH_OWNERSHIP callback=3308 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323236.868176066] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323237.092796755] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620183628360127 -> 1787620182628360127
+[INFO] [1788323237.100609904] [local_planner_node]: P3_PATH_OWNERSHIP callback=3334 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323237.118425259] [local_planner_node]: P3_PATH_OWNERSHIP callback=3335 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323237.143086571] [local_planner_node]: P3_PATH_OWNERSHIP callback=3336 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323237.742894657] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620185628360127 -> 1787620184628360127
+[INFO] [1788323237.750976367] [local_planner_node]: P3_PATH_OWNERSHIP callback=3360 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323237.768181372] [local_planner_node]: P3_PATH_OWNERSHIP callback=3361 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323237.793160857] [local_planner_node]: P3_PATH_OWNERSHIP callback=3362 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323237.868239768] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323238.392908739] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620187628360127 -> 1787620186628360127
+[INFO] [1788323238.406378946] [local_planner_node]: P3_PATH_OWNERSHIP callback=3386 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323238.418276398] [local_planner_node]: P3_PATH_OWNERSHIP callback=3387 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323238.443403123] [local_planner_node]: P3_PATH_OWNERSHIP callback=3388 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323238.868294108] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323239.042878536] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620189628360127 -> 1787620188628360127
+[INFO] [1788323239.050973984] [local_planner_node]: P3_PATH_OWNERSHIP callback=3412 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323239.068390147] [local_planner_node]: P3_PATH_OWNERSHIP callback=3413 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323239.093230020] [local_planner_node]: P3_PATH_OWNERSHIP callback=3414 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[INFO] [1788323239.118281399] [local_planner_node]: P3_PATH_OWNERSHIP callback=3415 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false (unchanged)
+[WARN] [1788323239.742852761] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620191628360127 -> 1787620190628360127
+[INFO] [1788323239.752166139] [local_planner_node]: P3_PATH_OWNERSHIP callback=3440 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323239.768394477] [local_planner_node]: P3_PATH_OWNERSHIP callback=3441 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323239.793313759] [local_planner_node]: P3_PATH_OWNERSHIP callback=3442 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323239.893393832] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323240.392825124] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620193628360127 -> 1787620192628360127
+[INFO] [1788323240.400760069] [local_planner_node]: P3_PATH_OWNERSHIP callback=3466 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323240.418612851] [local_planner_node]: P3_PATH_OWNERSHIP callback=3467 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323240.443309406] [local_planner_node]: P3_PATH_OWNERSHIP callback=3468 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323240.918188370] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323241.042827414] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620195628360127 -> 1787620194628360127
+[INFO] [1788323241.052170060] [local_planner_node]: P3_PATH_OWNERSHIP callback=3492 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323241.068190392] [local_planner_node]: P3_PATH_OWNERSHIP callback=3493 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323241.093159275] [local_planner_node]: P3_PATH_OWNERSHIP callback=3494 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323241.742876352] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620197628360127 -> 1787620196628360127
+[INFO] [1788323241.752766643] [local_planner_node]: P3_PATH_OWNERSHIP callback=3520 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323241.768218594] [local_planner_node]: P3_PATH_OWNERSHIP callback=3521 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323241.793237074] [local_planner_node]: P3_PATH_OWNERSHIP callback=3522 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323241.918189749] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323242.392866360] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620199628360127 -> 1787620198628360127
+[INFO] [1788323242.402737931] [local_planner_node]: P3_PATH_OWNERSHIP callback=3546 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323242.418396110] [local_planner_node]: P3_PATH_OWNERSHIP callback=3547 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323242.443388113] [local_planner_node]: P3_PATH_OWNERSHIP callback=3548 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323242.918360754] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323243.042901164] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620201628360127 -> 1787620200628360127
+[INFO] [1788323243.050768934] [local_planner_node]: P3_PATH_OWNERSHIP callback=3572 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323243.068376250] [local_planner_node]: P3_PATH_OWNERSHIP callback=3573 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323243.093364504] [local_planner_node]: P3_PATH_OWNERSHIP callback=3574 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323243.692909445] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620203628360127 -> 1787620202628360127
+[INFO] [1788323243.703182108] [local_planner_node]: P3_PATH_OWNERSHIP callback=3598 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323243.718417646] [local_planner_node]: P3_PATH_OWNERSHIP callback=3599 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323243.743306403] [local_planner_node]: P3_PATH_OWNERSHIP callback=3600 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323243.918378767] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[INFO] [1788323244.143211289] [local_planner_node]: P3_PATH_OWNERSHIP callback=3616 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false (unchanged)
+[WARN] [1788323244.342948540] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620205628360127 -> 1787620204628360127
+[INFO] [1788323244.353027980] [local_planner_node]: P3_PATH_OWNERSHIP callback=3624 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323244.368353859] [local_planner_node]: P3_PATH_OWNERSHIP callback=3625 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323244.393538074] [local_planner_node]: P3_PATH_OWNERSHIP callback=3626 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323244.918558431] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323245.042934354] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620207628360127 -> 1787620206628360127
+[INFO] [1788323245.052491983] [local_planner_node]: P3_PATH_OWNERSHIP callback=3652 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323245.068427671] [local_planner_node]: P3_PATH_OWNERSHIP callback=3653 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323245.093365303] [local_planner_node]: P3_PATH_OWNERSHIP callback=3654 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323245.692917835] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620209628360127 -> 1787620208628360127
+[INFO] [1788323245.702985927] [local_planner_node]: P3_PATH_OWNERSHIP callback=3678 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323245.718422565] [local_planner_node]: P3_PATH_OWNERSHIP callback=3679 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323245.743641972] [local_planner_node]: P3_PATH_OWNERSHIP callback=3680 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323245.943220689] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323246.342961876] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620211628360127 -> 1787620210628360127
+[INFO] [1788323246.351328894] [local_planner_node]: P3_PATH_OWNERSHIP callback=3704 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323246.368279675] [local_planner_node]: P3_PATH_OWNERSHIP callback=3705 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323246.393378435] [local_planner_node]: P3_PATH_OWNERSHIP callback=3706 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323246.943542627] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323246.993025484] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620213628360127 -> 1787620212628360127
+[INFO] [1788323247.007020634] [local_planner_node]: P3_PATH_OWNERSHIP callback=3730 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323247.018521475] [local_planner_node]: P3_PATH_OWNERSHIP callback=3731 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323247.043452850] [local_planner_node]: P3_PATH_OWNERSHIP callback=3732 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323247.643057680] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620215628360127 -> 1787620214628360127
+[INFO] [1788323247.654879982] [local_planner_node]: P3_PATH_OWNERSHIP callback=3756 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323247.668640991] [local_planner_node]: P3_PATH_OWNERSHIP callback=3757 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323247.693378120] [local_planner_node]: P3_PATH_OWNERSHIP callback=3758 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323247.968475184] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323248.292965537] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620217628360127 -> 1787620216628360127
+[INFO] [1788323248.301095080] [local_planner_node]: P3_PATH_OWNERSHIP callback=3782 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323248.318262605] [local_planner_node]: P3_PATH_OWNERSHIP callback=3783 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323248.343223303] [local_planner_node]: P3_PATH_OWNERSHIP callback=3784 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323248.893028841] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620219628360127 -> 1787620218628360127
+[INFO] [1788323248.905050246] [local_planner_node]: P3_PATH_OWNERSHIP callback=3806 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323248.918603798] [local_planner_node]: P3_PATH_OWNERSHIP callback=3807 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323248.943287876] [local_planner_node]: P3_PATH_OWNERSHIP callback=3808 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323248.993412034] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[INFO] [1788323249.143515660] [local_planner_node]: P3_PATH_OWNERSHIP callback=3816 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false (unchanged)
+[WARN] [1788323249.542993339] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620221628360127 -> 1787620220628360127
+[INFO] [1788323249.551598569] [local_planner_node]: P3_PATH_OWNERSHIP callback=3832 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323249.568545367] [local_planner_node]: P3_PATH_OWNERSHIP callback=3833 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323249.593602276] [local_planner_node]: P3_PATH_OWNERSHIP callback=3834 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323249.993603966] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323250.193021520] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620223628360127 -> 1787620222628360127
+[INFO] [1788323250.204240145] [local_planner_node]: P3_PATH_OWNERSHIP callback=3858 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323250.218308474] [local_planner_node]: P3_PATH_OWNERSHIP callback=3859 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323250.243303396] [local_planner_node]: P3_PATH_OWNERSHIP callback=3860 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323250.843007489] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620225628360127 -> 1787620224628360127
+[INFO] [1788323250.850261604] [local_planner_node]: P3_PATH_OWNERSHIP callback=3884 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323250.868341863] [local_planner_node]: P3_PATH_OWNERSHIP callback=3885 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323250.893355873] [local_planner_node]: P3_PATH_OWNERSHIP callback=3886 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323251.018423429] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323251.543029981] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620227628360127 -> 1787620226628360127
+[INFO] [1788323251.552776795] [local_planner_node]: P3_PATH_OWNERSHIP callback=3912 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323251.568615479] [local_planner_node]: P3_PATH_OWNERSHIP callback=3913 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323251.593356265] [local_planner_node]: P3_PATH_OWNERSHIP callback=3914 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323252.043357909] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323252.193051930] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620229628360127 -> 1787620228628360127
+[INFO] [1788323252.200125689] [local_planner_node]: P3_PATH_OWNERSHIP callback=3938 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323252.218426636] [local_planner_node]: P3_PATH_OWNERSHIP callback=3939 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323252.243427385] [local_planner_node]: P3_PATH_OWNERSHIP callback=3940 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323252.843181933] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620231628360127 -> 1787620230628360127
+[INFO] [1788323252.853505844] [local_planner_node]: P3_PATH_OWNERSHIP callback=3964 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323252.868567135] [local_planner_node]: P3_PATH_OWNERSHIP callback=3965 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323252.893617325] [local_planner_node]: P3_PATH_OWNERSHIP callback=3966 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323253.043409743] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323253.543062337] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620233628360127 -> 1787620232628360127
+[INFO] [1788323253.551102169] [local_planner_node]: P3_PATH_OWNERSHIP callback=3992 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323253.568411081] [local_planner_node]: P3_PATH_OWNERSHIP callback=3993 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323253.593589821] [local_planner_node]: P3_PATH_OWNERSHIP callback=3994 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323254.068626287] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[INFO] [1788323254.143598658] [local_planner_node]: P3_PATH_OWNERSHIP callback=4016 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false (unchanged)
+[WARN] [1788323254.243081534] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620235628360127 -> 1787620234628360127
+[INFO] [1788323254.250764399] [local_planner_node]: P3_PATH_OWNERSHIP callback=4020 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323254.268635165] [local_planner_node]: P3_PATH_OWNERSHIP callback=4021 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323254.293601421] [local_planner_node]: P3_PATH_OWNERSHIP callback=4022 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323254.893088786] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620237628360127 -> 1787620236628360127
+[INFO] [1788323254.904648593] [local_planner_node]: P3_PATH_OWNERSHIP callback=4046 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323254.918707646] [local_planner_node]: P3_PATH_OWNERSHIP callback=4047 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323254.943420510] [local_planner_node]: P3_PATH_OWNERSHIP callback=4048 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323255.093499927] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323255.493126881] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620239628360127 -> 1787620238628360127
+[INFO] [1788323255.508119790] [local_planner_node]: P3_PATH_OWNERSHIP callback=4070 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323255.518541298] [local_planner_node]: P3_PATH_OWNERSHIP callback=4071 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323255.543335216] [local_planner_node]: P3_PATH_OWNERSHIP callback=4072 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323256.093501454] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323256.193141617] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620241628360127 -> 1787620240628360127
+[INFO] [1788323256.204362696] [local_planner_node]: P3_PATH_OWNERSHIP callback=4098 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323256.218762426] [local_planner_node]: P3_PATH_OWNERSHIP callback=4099 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323256.243482737] [local_planner_node]: P3_PATH_OWNERSHIP callback=4100 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323256.793121086] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620243628360127 -> 1787620242628360127
+[INFO] [1788323256.803292176] [local_planner_node]: P3_PATH_OWNERSHIP callback=4122 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323256.818792038] [local_planner_node]: P3_PATH_OWNERSHIP callback=4123 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323256.843415869] [local_planner_node]: P3_PATH_OWNERSHIP callback=4124 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323257.118729313] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323257.443125008] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620245628360127 -> 1787620244628360127
+[INFO] [1788323257.452607863] [local_planner_node]: P3_PATH_OWNERSHIP callback=4148 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323257.468459469] [local_planner_node]: P3_PATH_OWNERSHIP callback=4149 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323257.493543933] [local_planner_node]: P3_PATH_OWNERSHIP callback=4150 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323258.143141424] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620247628360127 -> 1787620246628360127
+[WARN] [1788323258.156087753] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_M1).
+[INFO] [1788323258.156233351] [local_planner_node]: P3_PATH_OWNERSHIP callback=4176 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323258.168636550] [local_planner_node]: P3_PATH_OWNERSHIP callback=4177 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323258.193569917] [local_planner_node]: P3_PATH_OWNERSHIP callback=4178 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323258.793175693] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620249628360127 -> 1787620248628360127
+[INFO] [1788323258.807908984] [local_planner_node]: P3_PATH_OWNERSHIP callback=4202 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323258.818837538] [local_planner_node]: P3_PATH_OWNERSHIP callback=4203 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323258.843707679] [local_planner_node]: P3_PATH_OWNERSHIP callback=4204 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323259.168510784] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[INFO] [1788323259.168615588] [local_planner_node]: P3_PATH_OWNERSHIP callback=4217 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false (unchanged)
+[WARN] [1788323259.443180473] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620251628360127 -> 1787620250628360127
+[INFO] [1788323259.451842557] [local_planner_node]: P3_PATH_OWNERSHIP callback=4228 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323259.468443293] [local_planner_node]: P3_PATH_OWNERSHIP callback=4229 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323259.493839792] [local_planner_node]: P3_PATH_OWNERSHIP callback=4230 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323260.093200787] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620253628360127 -> 1787620252628360127
+[INFO] [1788323260.108089479] [local_planner_node]: P3_PATH_OWNERSHIP callback=4254 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323260.118779522] [local_planner_node]: P3_PATH_OWNERSHIP callback=4255 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323260.143560259] [local_planner_node]: P3_PATH_OWNERSHIP callback=4256 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323260.168851266] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323260.743189968] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620255628360127 -> 1787620254628360127
+[INFO] [1788323260.749061133] [local_planner_node]: P3_PATH_OWNERSHIP callback=4280 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323260.768604141] [local_planner_node]: P3_PATH_OWNERSHIP callback=4281 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323260.793512910] [local_planner_node]: P3_PATH_OWNERSHIP callback=4282 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323261.193614582] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323261.443183207] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620257628360127 -> 1787620256628360127
+[INFO] [1788323261.450695790] [local_planner_node]: P3_PATH_OWNERSHIP callback=4308 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323261.468619723] [local_planner_node]: P3_PATH_OWNERSHIP callback=4309 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323261.493526840] [local_planner_node]: P3_PATH_OWNERSHIP callback=4310 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323262.093314630] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620259628360127 -> 1787620258628360127
+[INFO] [1788323262.103424958] [local_planner_node]: P3_PATH_OWNERSHIP callback=4334 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323262.118696999] [local_planner_node]: P3_PATH_OWNERSHIP callback=4335 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323262.143446312] [local_planner_node]: P3_PATH_OWNERSHIP callback=4336 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323262.218550472] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323262.743233927] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620261628360127 -> 1787620260628360127
+[INFO] [1788323262.749768435] [local_planner_node]: P3_PATH_OWNERSHIP callback=4360 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323262.768724152] [local_planner_node]: P3_PATH_OWNERSHIP callback=4361 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323262.793513082] [local_planner_node]: P3_PATH_OWNERSHIP callback=4362 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323263.218755292] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323263.393242403] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620263628360127 -> 1787620262628360127
+[INFO] [1788323263.404780318] [local_planner_node]: P3_PATH_OWNERSHIP callback=4386 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323263.418860317] [local_planner_node]: P3_PATH_OWNERSHIP callback=4387 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323263.443840952] [local_planner_node]: P3_PATH_OWNERSHIP callback=4388 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323264.043257751] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620265628360127 -> 1787620264628360127
+[INFO] [1788323264.052611199] [local_planner_node]: P3_PATH_OWNERSHIP callback=4412 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323264.068534186] [local_planner_node]: P3_PATH_OWNERSHIP callback=4413 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323264.093625510] [local_planner_node]: P3_PATH_OWNERSHIP callback=4414 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[INFO] [1788323264.168939531] [local_planner_node]: P3_PATH_OWNERSHIP callback=4417 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false (unchanged)
+[WARN] [1788323264.243698463] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323264.693260327] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620267628360127 -> 1787620266628360127
+[INFO] [1788323264.708065853] [local_planner_node]: P3_PATH_OWNERSHIP callback=4438 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323264.718600328] [local_planner_node]: P3_PATH_OWNERSHIP callback=4439 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323264.743673438] [local_planner_node]: P3_PATH_OWNERSHIP callback=4440 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323265.243825074] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323265.343309628] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620269628360127 -> 1787620268628360127
+[INFO] [1788323265.349823525] [local_planner_node]: P3_PATH_OWNERSHIP callback=4464 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323265.368656818] [local_planner_node]: P3_PATH_OWNERSHIP callback=4465 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323265.393757755] [local_planner_node]: P3_PATH_OWNERSHIP callback=4466 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323265.993314706] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620271628360127 -> 1787620270628360127
+[INFO] [1788323266.003337259] [local_planner_node]: P3_PATH_OWNERSHIP callback=4490 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323266.018651380] [local_planner_node]: P3_PATH_OWNERSHIP callback=4491 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323266.043752981] [local_planner_node]: P3_PATH_OWNERSHIP callback=4492 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323266.268834070] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323266.643305289] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620273628360127 -> 1787620272628360127
+[INFO] [1788323266.652129503] [local_planner_node]: P3_PATH_OWNERSHIP callback=4516 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323266.668689748] [local_planner_node]: P3_PATH_OWNERSHIP callback=4517 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323266.693650209] [local_planner_node]: P3_PATH_OWNERSHIP callback=4518 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323267.243310026] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620275628360127 -> 1787620274628360127
+[INFO] [1788323267.252726076] [local_planner_node]: P3_PATH_OWNERSHIP callback=4540 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323267.268594734] [local_planner_node]: P3_PATH_OWNERSHIP callback=4541 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[WARN] [1788323267.293617986] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[INFO] [1788323267.293695675] [local_planner_node]: P3_PATH_OWNERSHIP callback=4542 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323267.893293873] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620277628360127 -> 1787620276628360127
+[INFO] [1788323267.902326834] [local_planner_node]: P3_PATH_OWNERSHIP callback=4566 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323267.918707889] [local_planner_node]: P3_PATH_OWNERSHIP callback=4567 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323267.943597190] [local_planner_node]: P3_PATH_OWNERSHIP callback=4568 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323268.293634617] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323268.593332328] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620279628360127 -> 1787620278628360127
+[INFO] [1788323268.601278752] [local_planner_node]: P3_PATH_OWNERSHIP callback=4594 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323268.618645511] [local_planner_node]: P3_PATH_OWNERSHIP callback=4595 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323268.643525905] [local_planner_node]: P3_PATH_OWNERSHIP callback=4596 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[INFO] [1788323269.193602333] [local_planner_node]: P3_PATH_OWNERSHIP callback=4618 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false (unchanged)
+[WARN] [1788323269.293324446] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620281628360127 -> 1787620280628360127
+[WARN] [1788323269.304987396] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_M1).
+[INFO] [1788323269.305085860] [local_planner_node]: P3_PATH_OWNERSHIP callback=4622 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323269.318852877] [local_planner_node]: P3_PATH_OWNERSHIP callback=4623 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323269.343572749] [local_planner_node]: P3_PATH_OWNERSHIP callback=4624 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323269.943348730] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620283628360127 -> 1787620282628360127
+[INFO] [1788323269.949237171] [local_planner_node]: P3_PATH_OWNERSHIP callback=4648 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323269.968653957] [local_planner_node]: P3_PATH_OWNERSHIP callback=4649 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323269.993666485] [local_planner_node]: P3_PATH_OWNERSHIP callback=4650 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323270.318690349] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323270.593366092] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620285628360127 -> 1787620284628360127
+[INFO] [1788323270.608767700] [local_planner_node]: P3_PATH_OWNERSHIP callback=4674 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323270.619000153] [local_planner_node]: P3_PATH_OWNERSHIP callback=4675 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323270.643676916] [local_planner_node]: P3_PATH_OWNERSHIP callback=4676 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323271.193365597] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620287628360127 -> 1787620286628360127
+[INFO] [1788323271.204931217] [local_planner_node]: P3_PATH_OWNERSHIP callback=4698 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323271.218847829] [local_planner_node]: P3_PATH_OWNERSHIP callback=4699 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323271.243753749] [local_planner_node]: P3_PATH_OWNERSHIP callback=4700 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323271.318748836] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323271.893378085] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620289628360127 -> 1787620288628360127
+[INFO] [1788323271.903445989] [local_planner_node]: P3_PATH_OWNERSHIP callback=4726 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323271.918913588] [local_planner_node]: P3_PATH_OWNERSHIP callback=4727 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323271.943747898] [local_planner_node]: P3_PATH_OWNERSHIP callback=4728 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323272.318984122] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323272.493401812] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620291628360127 -> 1787620290628360127
+[INFO] [1788323272.503494066] [local_planner_node]: P3_PATH_OWNERSHIP callback=4750 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323272.518958676] [local_planner_node]: P3_PATH_OWNERSHIP callback=4751 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323272.543897934] [local_planner_node]: P3_PATH_OWNERSHIP callback=4752 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323273.193396217] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620293628360127 -> 1787620292628360127
+[INFO] [1788323273.208942798] [local_planner_node]: P3_PATH_OWNERSHIP callback=4778 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323273.218970707] [local_planner_node]: P3_PATH_OWNERSHIP callback=4779 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323273.243995873] [local_planner_node]: P3_PATH_OWNERSHIP callback=4780 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323273.343759945] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323273.793420512] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620295628360127 -> 1787620294628360127
+[INFO] [1788323273.806976529] [local_planner_node]: P3_PATH_OWNERSHIP callback=4802 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323273.818771763] [local_planner_node]: P3_PATH_OWNERSHIP callback=4803 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323273.843819524] [local_planner_node]: P3_PATH_OWNERSHIP callback=4804 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[INFO] [1788323274.194078454] [local_planner_node]: P3_PATH_OWNERSHIP callback=4818 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false (unchanged)
+[WARN] [1788323274.343925927] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323274.443486769] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620297628360127 -> 1787620296628360127
+[INFO] [1788323274.452121200] [local_planner_node]: P3_PATH_OWNERSHIP callback=4828 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323274.468997445] [local_planner_node]: P3_PATH_OWNERSHIP callback=4829 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323274.494051453] [local_planner_node]: P3_PATH_OWNERSHIP callback=4830 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323275.043533335] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620299628360127 -> 1787620298628360127
+[INFO] [1788323275.054024708] [local_planner_node]: P3_PATH_OWNERSHIP callback=4852 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323275.068883437] [local_planner_node]: P3_PATH_OWNERSHIP callback=4853 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323275.093989602] [local_planner_node]: P3_PATH_OWNERSHIP callback=4854 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323275.368646893] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323275.693477398] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620301628360127 -> 1787620300628360127
+[INFO] [1788323275.704527734] [local_planner_node]: P3_PATH_OWNERSHIP callback=4878 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323275.718763340] [local_planner_node]: P3_PATH_OWNERSHIP callback=4879 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323275.743872422] [local_planner_node]: P3_PATH_OWNERSHIP callback=4880 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323276.368860857] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323276.393493206] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620303628360127 -> 1787620302628360127
+[INFO] [1788323276.407433934] [local_planner_node]: P3_PATH_OWNERSHIP callback=4906 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323276.418827710] [local_planner_node]: P3_PATH_OWNERSHIP callback=4907 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323276.443898416] [local_planner_node]: P3_PATH_OWNERSHIP callback=4908 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323276.993451269] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620305628360127 -> 1787620304628360127
+[INFO] [1788323277.002627938] [local_planner_node]: P3_PATH_OWNERSHIP callback=4930 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323277.019029282] [local_planner_node]: P3_PATH_OWNERSHIP callback=4931 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323277.044081709] [local_planner_node]: P3_PATH_OWNERSHIP callback=4932 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323277.369055426] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323277.693490424] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620307628360127 -> 1787620306628360127
+[INFO] [1788323277.705593064] [local_planner_node]: P3_PATH_OWNERSHIP callback=4958 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323277.719097957] [local_planner_node]: P3_PATH_OWNERSHIP callback=4959 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323277.743796921] [local_planner_node]: P3_PATH_OWNERSHIP callback=4960 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323278.343493918] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620309628360127 -> 1787620308628360127
+[INFO] [1788323278.351087968] [local_planner_node]: P3_PATH_OWNERSHIP callback=4984 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323278.369083136] [local_planner_node]: P3_PATH_OWNERSHIP callback=4985 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[WARN] [1788323278.394078596] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[INFO] [1788323278.394244919] [local_planner_node]: P3_PATH_OWNERSHIP callback=4986 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323278.993508741] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620311628360127 -> 1787620310628360127
+[INFO] [1788323279.003644475] [local_planner_node]: P3_PATH_OWNERSHIP callback=5010 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323279.019135524] [local_planner_node]: P3_PATH_OWNERSHIP callback=5011 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323279.043865947] [local_planner_node]: P3_PATH_OWNERSHIP callback=5012 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[INFO] [1788323279.219000086] [local_planner_node]: P3_PATH_OWNERSHIP callback=5019 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false (unchanged)
+[WARN] [1788323279.419027942] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323279.643532188] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620313628360127 -> 1787620312628360127
+[INFO] [1788323279.658278957] [local_planner_node]: P3_PATH_OWNERSHIP callback=5036 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323279.669033943] [local_planner_node]: P3_PATH_OWNERSHIP callback=5037 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323279.694073386] [local_planner_node]: P3_PATH_OWNERSHIP callback=5038 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323280.243535228] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620315628360127 -> 1787620314628360127
+[INFO] [1788323280.255386137] [local_planner_node]: P3_PATH_OWNERSHIP callback=5060 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323280.268944562] [local_planner_node]: P3_PATH_OWNERSHIP callback=5061 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323280.293916534] [local_planner_node]: P3_PATH_OWNERSHIP callback=5062 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323280.419114526] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323280.893528915] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620317628360127 -> 1787620316628360127
+[INFO] [1788323280.906553521] [local_planner_node]: P3_PATH_OWNERSHIP callback=5086 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323280.918887082] [local_planner_node]: P3_PATH_OWNERSHIP callback=5087 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323280.944184181] [local_planner_node]: P3_PATH_OWNERSHIP callback=5088 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323281.419165723] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323281.543570558] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620319628360127 -> 1787620318628360127
+[INFO] [1788323281.551821623] [local_planner_node]: P3_PATH_OWNERSHIP callback=5112 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323281.569169203] [local_planner_node]: P3_PATH_OWNERSHIP callback=5113 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323281.594143094] [local_planner_node]: P3_PATH_OWNERSHIP callback=5114 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323282.243559559] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620321628360127 -> 1787620320628360127
+[INFO] [1788323282.253731193] [local_planner_node]: P3_PATH_OWNERSHIP callback=5140 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323282.269176720] [local_planner_node]: P3_PATH_OWNERSHIP callback=5141 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323282.293926475] [local_planner_node]: P3_PATH_OWNERSHIP callback=5142 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323282.443936844] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323282.893574050] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620323628360127 -> 1787620322628360127
+[INFO] [1788323282.904202906] [local_planner_node]: P3_PATH_OWNERSHIP callback=5166 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323282.919025097] [local_planner_node]: P3_PATH_OWNERSHIP callback=5167 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323282.944017288] [local_planner_node]: P3_PATH_OWNERSHIP callback=5168 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323283.469098730] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323283.543569879] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620325628360127 -> 1787620324628360127
+[INFO] [1788323283.551322968] [local_planner_node]: P3_PATH_OWNERSHIP callback=5192 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323283.568936752] [local_planner_node]: P3_PATH_OWNERSHIP callback=5193 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323283.594054709] [local_planner_node]: P3_PATH_OWNERSHIP callback=5194 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323284.193604201] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620327628360127 -> 1787620326628360127
+[INFO] [1788323284.202822312] [local_planner_node]: P3_PATH_OWNERSHIP callback=5218 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323284.219075628] [local_planner_node]: P3_PATH_OWNERSHIP callback=5219 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323284.244125980] [local_planner_node]: P3_PATH_OWNERSHIP callback=5220 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[INFO] [1788323284.268852942] [local_planner_node]: P3_PATH_OWNERSHIP callback=5221 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false (unchanged)
+[WARN] [1788323284.494020743] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323284.843595003] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620329628360127 -> 1787620328628360127
+[INFO] [1788323284.854263856] [local_planner_node]: P3_PATH_OWNERSHIP callback=5244 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323284.869236760] [local_planner_node]: P3_PATH_OWNERSHIP callback=5245 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323284.894077265] [local_planner_node]: P3_PATH_OWNERSHIP callback=5246 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323285.493666754] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620331628360127 -> 1787620330628360127
+[WARN] [1788323285.506348327] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_M1).
+[INFO] [1788323285.506436037] [local_planner_node]: P3_PATH_OWNERSHIP callback=5270 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323285.518930795] [local_planner_node]: P3_PATH_OWNERSHIP callback=5271 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323285.543832465] [local_planner_node]: P3_PATH_OWNERSHIP callback=5272 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323286.143700133] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620333628360127 -> 1787620332628360127
+[INFO] [1788323286.150183368] [local_planner_node]: P3_PATH_OWNERSHIP callback=5296 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323286.168965403] [local_planner_node]: P3_PATH_OWNERSHIP callback=5297 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323286.194155576] [local_planner_node]: P3_PATH_OWNERSHIP callback=5298 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323286.519211625] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323286.793709929] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620335628360127 -> 1787620334628360127
+[INFO] [1788323286.805725037] [local_planner_node]: P3_PATH_OWNERSHIP callback=5322 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323286.819331387] [local_planner_node]: P3_PATH_OWNERSHIP callback=5323 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323286.844091525] [local_planner_node]: P3_PATH_OWNERSHIP callback=5324 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323287.493740903] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620337628360127 -> 1787620336628360127
+[INFO] [1788323287.505001409] [local_planner_node]: P3_PATH_OWNERSHIP callback=5350 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[WARN] [1788323287.519246886] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[INFO] [1788323287.519381706] [local_planner_node]: P3_PATH_OWNERSHIP callback=5351 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323287.544272616] [local_planner_node]: P3_PATH_OWNERSHIP callback=5352 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323288.143631117] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620339628360127 -> 1787620338628360127
+[INFO] [1788323288.151522751] [local_planner_node]: P3_PATH_OWNERSHIP callback=5376 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323288.168931427] [local_planner_node]: P3_PATH_OWNERSHIP callback=5377 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323288.194284651] [local_planner_node]: P3_PATH_OWNERSHIP callback=5378 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323288.543961845] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323288.793668882] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620341628360127 -> 1787620340628360127
+[INFO] [1788323288.803030142] [local_planner_node]: P3_PATH_OWNERSHIP callback=5402 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323288.819066232] [local_planner_node]: P3_PATH_OWNERSHIP callback=5403 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323288.844022279] [local_planner_node]: P3_PATH_OWNERSHIP callback=5404 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[INFO] [1788323289.269249789] [local_planner_node]: P3_PATH_OWNERSHIP callback=5421 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false (unchanged)
+[WARN] [1788323289.443743928] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620343628360127 -> 1787620342628360127
+[INFO] [1788323289.452201397] [local_planner_node]: P3_PATH_OWNERSHIP callback=5428 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323289.469038310] [local_planner_node]: P3_PATH_OWNERSHIP callback=5429 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323289.494190957] [local_planner_node]: P3_PATH_OWNERSHIP callback=5430 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323289.544006612] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323290.093761932] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620345628360127 -> 1787620344628360127
+[INFO] [1788323290.106317673] [local_planner_node]: P3_PATH_OWNERSHIP callback=5454 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323290.119328519] [local_planner_node]: P3_PATH_OWNERSHIP callback=5455 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323290.144335445] [local_planner_node]: P3_PATH_OWNERSHIP callback=5456 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323290.544053736] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323290.743759471] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620347628360127 -> 1787620346628360127
+[INFO] [1788323290.752930175] [local_planner_node]: P3_PATH_OWNERSHIP callback=5480 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323290.769028609] [local_planner_node]: P3_PATH_OWNERSHIP callback=5481 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323290.794030105] [local_planner_node]: P3_PATH_OWNERSHIP callback=5482 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323291.443693710] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620349628360127 -> 1787620348628360127
+[INFO] [1788323291.453542804] [local_planner_node]: P3_PATH_OWNERSHIP callback=5508 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323291.469169171] [local_planner_node]: P3_PATH_OWNERSHIP callback=5509 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323291.494360514] [local_planner_node]: P3_PATH_OWNERSHIP callback=5510 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323291.544209602] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323292.093708737] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620351628360127 -> 1787620350628360127
+[INFO] [1788323292.101874024] [local_planner_node]: P3_PATH_OWNERSHIP callback=5534 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323292.119052423] [local_planner_node]: P3_PATH_OWNERSHIP callback=5535 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323292.144054081] [local_planner_node]: P3_PATH_OWNERSHIP callback=5536 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323292.569115328] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323292.743729400] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620353628360127 -> 1787620352628360127
+[INFO] [1788323292.749590319] [local_planner_node]: P3_PATH_OWNERSHIP callback=5560 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323292.769124705] [local_planner_node]: P3_PATH_OWNERSHIP callback=5561 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323292.794046305] [local_planner_node]: P3_PATH_OWNERSHIP callback=5562 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323293.393771726] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620355628360127 -> 1787620354628360127
+[INFO] [1788323293.406719286] [local_planner_node]: P3_PATH_OWNERSHIP callback=5586 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323293.419180878] [local_planner_node]: P3_PATH_OWNERSHIP callback=5587 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323293.444148743] [local_planner_node]: P3_PATH_OWNERSHIP callback=5588 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323293.569280277] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323294.043816310] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620357628360127 -> 1787620356628360127
+[INFO] [1788323294.054021491] [local_planner_node]: P3_PATH_OWNERSHIP callback=5612 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323294.069326942] [local_planner_node]: P3_PATH_OWNERSHIP callback=5613 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323294.094366879] [local_planner_node]: P3_PATH_OWNERSHIP callback=5614 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[INFO] [1788323294.269368644] [local_planner_node]: P3_PATH_OWNERSHIP callback=5621 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false (unchanged)
+[WARN] [1788323294.594211997] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323294.693858778] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620359628360127 -> 1787620358628360127
+[INFO] [1788323294.700194057] [local_planner_node]: P3_PATH_OWNERSHIP callback=5638 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323294.718986396] [local_planner_node]: P3_PATH_OWNERSHIP callback=5639 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323294.744191340] [local_planner_node]: P3_PATH_OWNERSHIP callback=5640 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323295.393851107] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620361628360127 -> 1787620360628360127
+[INFO] [1788323295.404653072] [local_planner_node]: P3_PATH_OWNERSHIP callback=5666 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323295.419358456] [local_planner_node]: P3_PATH_OWNERSHIP callback=5667 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323295.444206614] [local_planner_node]: P3_PATH_OWNERSHIP callback=5668 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323295.594223981] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323296.043816522] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620363628360127 -> 1787620362628360127
+[INFO] [1788323296.051904303] [local_planner_node]: P3_PATH_OWNERSHIP callback=5692 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323296.069074183] [local_planner_node]: P3_PATH_OWNERSHIP callback=5693 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323296.094085016] [local_planner_node]: P3_PATH_OWNERSHIP callback=5694 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323296.619254200] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323296.643853225] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620365628360127 -> 1787620364628360127
+[INFO] [1788323296.652717459] [local_planner_node]: P3_PATH_OWNERSHIP callback=5716 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323296.669163217] [local_planner_node]: P3_PATH_OWNERSHIP callback=5717 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323296.694203218] [local_planner_node]: P3_PATH_OWNERSHIP callback=5718 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323297.293925414] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620367628360127 -> 1787620366628360127
+[INFO] [1788323297.308332562] [local_planner_node]: P3_PATH_OWNERSHIP callback=5742 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323297.319170902] [local_planner_node]: P3_PATH_OWNERSHIP callback=5743 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323297.344301674] [local_planner_node]: P3_PATH_OWNERSHIP callback=5744 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323297.619307893] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323297.943868223] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620369628360127 -> 1787620368628360127
+[INFO] [1788323297.953464642] [local_planner_node]: P3_PATH_OWNERSHIP callback=5768 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323297.969356694] [local_planner_node]: P3_PATH_OWNERSHIP callback=5769 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323297.994236616] [local_planner_node]: P3_PATH_OWNERSHIP callback=5770 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323298.593900531] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620371628360127 -> 1787620370628360127
+[INFO] [1788323298.602719104] [local_planner_node]: P3_PATH_OWNERSHIP callback=5794 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[WARN] [1788323298.619446957] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[INFO] [1788323298.619567294] [local_planner_node]: P3_PATH_OWNERSHIP callback=5795 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323298.644358409] [local_planner_node]: P3_PATH_OWNERSHIP callback=5796 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323299.293916519] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620373628360127 -> 1787620372628360127
+[INFO] [1788323299.301878280] [local_planner_node]: P3_PATH_OWNERSHIP callback=5822 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323299.319397729] [local_planner_node]: P3_PATH_OWNERSHIP callback=5823 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323299.344148362] [local_planner_node]: P3_PATH_OWNERSHIP callback=5824 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[INFO] [1788323299.369447545] [local_planner_node]: P3_PATH_OWNERSHIP callback=5825 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false (unchanged)
+[WARN] [1788323299.644266615] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323299.893917356] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620375628360127 -> 1787620374628360127
+[INFO] [1788323299.906905924] [local_planner_node]: P3_PATH_OWNERSHIP callback=5846 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323299.919447628] [local_planner_node]: P3_PATH_OWNERSHIP callback=5847 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323299.944175935] [local_planner_node]: P3_PATH_OWNERSHIP callback=5848 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323300.543978947] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620377628360127 -> 1787620376628360127
+[INFO] [1788323300.551083698] [local_planner_node]: P3_PATH_OWNERSHIP callback=5872 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323300.569374463] [local_planner_node]: P3_PATH_OWNERSHIP callback=5873 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323300.594276079] [local_planner_node]: P3_PATH_OWNERSHIP callback=5874 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323300.669317849] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323301.143840732] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620379628360127 -> 1787620378628360127
+[INFO] [1788323301.150134294] [local_planner_node]: P3_PATH_OWNERSHIP callback=5896 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323301.169228017] [local_planner_node]: P3_PATH_OWNERSHIP callback=5897 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323301.194240135] [local_planner_node]: P3_PATH_OWNERSHIP callback=5898 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323301.694389980] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323301.793818898] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620381628360127 -> 1787620380628360127
+[INFO] [1788323301.804795532] [local_planner_node]: P3_PATH_OWNERSHIP callback=5922 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323301.819328978] [local_planner_node]: P3_PATH_OWNERSHIP callback=5923 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323301.844303364] [local_planner_node]: P3_PATH_OWNERSHIP callback=5924 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323302.443930223] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620383628360127 -> 1787620382628360127
+[INFO] [1788323302.455911709] [local_planner_node]: P3_PATH_OWNERSHIP callback=5948 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323302.469512467] [local_planner_node]: P3_PATH_OWNERSHIP callback=5949 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323302.494473648] [local_planner_node]: P3_PATH_OWNERSHIP callback=5950 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323302.719246843] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323303.043867296] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620385628360127 -> 1787620384628360127
+[INFO] [1788323303.057097678] [local_planner_node]: P3_PATH_OWNERSHIP callback=5972 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323303.069379097] [local_planner_node]: P3_PATH_OWNERSHIP callback=5973 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323303.094323218] [local_planner_node]: P3_PATH_OWNERSHIP callback=5974 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323303.693875717] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620387628360127 -> 1787620386628360127
+[INFO] [1788323303.705371332] [local_planner_node]: P3_PATH_OWNERSHIP callback=5998 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[WARN] [1788323303.719298452] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[INFO] [1788323303.719406064] [local_planner_node]: P3_PATH_OWNERSHIP callback=5999 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323303.744282186] [local_planner_node]: P3_PATH_OWNERSHIP callback=6000 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323304.393905162] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620389628360127 -> 1787620388628360127
+[INFO] [1788323304.400987648] [local_planner_node]: P3_PATH_OWNERSHIP callback=6026 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323304.419371611] [local_planner_node]: P3_PATH_OWNERSHIP callback=6027 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323304.444374918] [local_planner_node]: P3_PATH_OWNERSHIP callback=6028 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[INFO] [1788323304.469458209] [local_planner_node]: P3_PATH_OWNERSHIP callback=6029 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false (unchanged)
+[WARN] [1788323304.719442704] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323304.993977034] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620391628360127 -> 1787620390628360127
+[INFO] [1788323305.006508623] [local_planner_node]: P3_PATH_OWNERSHIP callback=6050 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323305.019352013] [local_planner_node]: P3_PATH_OWNERSHIP callback=6051 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323305.044359807] [local_planner_node]: P3_PATH_OWNERSHIP callback=6052 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323305.643904657] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620393628360127 -> 1787620392628360127
+[INFO] [1788323305.656189313] [local_planner_node]: P3_PATH_OWNERSHIP callback=6076 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323305.669612022] [local_planner_node]: P3_PATH_OWNERSHIP callback=6077 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323305.694287442] [local_planner_node]: P3_PATH_OWNERSHIP callback=6078 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323305.719512746] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[WARN] [1788323306.343999946] [local_planner_node]: P3 source epoch advanced after obstacle source-stamp regression: 1787620395628360127 -> 1787620394628360127
+[INFO] [1788323306.352047196] [local_planner_node]: P3_PATH_OWNERSHIP callback=6104 mode=TEST_ACTIVE owner=P3_M1 lifecycle=FRESH_SELECTED p0_backup_only=false
+[INFO] [1788323306.369586488] [local_planner_node]: P3_PATH_OWNERSHIP callback=6105 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=COMMITTED p0_backup_only=false
+[INFO] [1788323306.394357240] [local_planner_node]: P3_PATH_OWNERSHIP callback=6106 mode=TEST_ACTIVE owner=P3_COMMITTED_SUFFIX lifecycle=CONTINUING p0_backup_only=false
+[WARN] [1788323306.744330610] [local_planner_node]: PUBLISH_FEASIBILITY violation: lat=0 accel=1 decel=0 steer_rate=0 max_ratio=0.00 max_accel=5.82 max_decel=2.00 max_steer_rate=1.90 (kind=2, owner=P3_COMMITTED_SUFFIX).
+[INFO] [1788323306.932744087] [rclcpp]: signal_handler(SIGINT/SIGTERM)

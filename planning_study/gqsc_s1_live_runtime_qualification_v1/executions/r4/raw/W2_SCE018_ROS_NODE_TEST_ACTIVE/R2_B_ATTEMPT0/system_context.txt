@@ -1,0 +1,22 @@
+phase=START
+timestamp_utc=2026-09-02T03:46:04Z
+power_source=AC
+governor=powersave
+loadavg=2.97 2.34 1.88 3/1601 52493
+kernel=6.8.0-138-generic
+relevant_processes_begin
+  52430   52342   51837   8 ros2            /usr/bin/python3 /opt/ros/humble/bin/ros2 run local_planning local_planner_node --ros-args --params-file /home/sungho/Documents/GitHub/2026_IFAC/src/local_planning/config/local_planning.yaml -p live_runtime_profiling_enable:=true -p p3_diagnostics_detail:=FULL -r /global_waypoints:=/gqsc_runtime/global_waypoints -r /confirmed_static_obs:=/gqsc_runtime/confirmed_static_obs -r /static_obs:=/gqsc_runtime/raw_static_obs -r /car_state/frenet/odom:=/gqsc_runtime/frenet_odom -r /state:=/gqsc_runtime/state -r /avoid_waypoints:=/gqsc_runtime/avoid_waypoints -r /local_planning/path:=/gqsc_runtime/path -r /local_planning/p3_shadow:=/gqsc_runtime/p3_cycle -r /local_planning/live_runtime_profile:=/gqsc_runtime/live_profile
+  52455   52430   51837   8 local_planner_n /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/lib/local_planning/local_planner_node --ros-args --params-file /home/sungho/Documents/GitHub/2026_IFAC/src/local_planning/config/local_planning.yaml -p live_runtime_profiling_enable:=true -p p3_diagnostics_detail:=FULL -r /global_waypoints:=/gqsc_runtime/global_waypoints -r /confirmed_static_obs:=/gqsc_runtime/confirmed_static_obs -r /static_obs:=/gqsc_runtime/raw_static_obs -r /car_state/frenet/odom:=/gqsc_runtime/frenet_odom -r /state:=/gqsc_runtime/state -r /avoid_waypoints:=/gqsc_runtime/avoid_waypoints -r /local_planning/path:=/gqsc_runtime/path -r /local_planning/p3_shadow:=/gqsc_runtime/p3_cycle -r /local_planning/live_runtime_profile:=/gqsc_runtime/live_profile
+  52496   52342   51837  14 grep            grep -E local_planner_node|sce018_replay_driver|gym_bridge|kinematic_localization
+relevant_processes_end
+phase=END
+timestamp_utc=2026-09-02T03:48:36Z
+power_source=AC
+governor=powersave
+loadavg=2.15 2.27 1.93 1/1609 52867
+kernel=6.8.0-138-generic
+relevant_processes_begin
+  52430   52342   51837   8 ros2            /usr/bin/python3 /opt/ros/humble/bin/ros2 run local_planning local_planner_node --ros-args --params-file /home/sungho/Documents/GitHub/2026_IFAC/src/local_planning/config/local_planning.yaml -p live_runtime_profiling_enable:=true -p p3_diagnostics_detail:=FULL -r /global_waypoints:=/gqsc_runtime/global_waypoints -r /confirmed_static_obs:=/gqsc_runtime/confirmed_static_obs -r /static_obs:=/gqsc_runtime/raw_static_obs -r /car_state/frenet/odom:=/gqsc_runtime/frenet_odom -r /state:=/gqsc_runtime/state -r /avoid_waypoints:=/gqsc_runtime/avoid_waypoints -r /local_planning/path:=/gqsc_runtime/path -r /local_planning/p3_shadow:=/gqsc_runtime/p3_cycle -r /local_planning/live_runtime_profile:=/gqsc_runtime/live_profile
+  52455   52430   51837   8 local_planner_n /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/lib/local_planning/local_planner_node --ros-args --params-file /home/sungho/Documents/GitHub/2026_IFAC/src/local_planning/config/local_planning.yaml -p live_runtime_profiling_enable:=true -p p3_diagnostics_detail:=FULL -r /global_waypoints:=/gqsc_runtime/global_waypoints -r /confirmed_static_obs:=/gqsc_runtime/confirmed_static_obs -r /static_obs:=/gqsc_runtime/raw_static_obs -r /car_state/frenet/odom:=/gqsc_runtime/frenet_odom -r /state:=/gqsc_runtime/state -r /avoid_waypoints:=/gqsc_runtime/avoid_waypoints -r /local_planning/path:=/gqsc_runtime/path -r /local_planning/p3_shadow:=/gqsc_runtime/p3_cycle -r /local_planning/live_runtime_profile:=/gqsc_runtime/live_profile
+  52870   52342   51837  12 grep            grep -E local_planner_node|sce018_replay_driver|gym_bridge|kinematic_localization
+relevant_processes_end

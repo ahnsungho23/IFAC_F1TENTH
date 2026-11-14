@@ -1,0 +1,1106 @@
+[0.000000] (-) TimerEvent: {}
+[0.000558] (local_planning) JobQueued: {'identifier': 'local_planning', 'dependencies': OrderedDict()}
+[0.001303] (local_planning) JobStarted: {'identifier': 'local_planning'}
+[0.016965] (local_planning) JobProgress: {'identifier': 'local_planning', 'progress': 'cmake'}
+[0.018142] (local_planning) Command: {'cmd': ['/usr/bin/cmake', '/home/sungho/Documents/GitHub/2026_IFAC/src/local_planning', '-DCMAKE_BUILD_TYPE=Release', '-DCMAKE_EXPORT_COMPILE_COMMANDS=ON', '-DBUILD_TESTING=ON', '-DCMAKE_INSTALL_PREFIX=/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning'], 'cwd': '/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_build/local_planning', 'env': OrderedDict([('GJS_DEBUG_TOPICS', 'JS ERROR;JS LOG'), ('VSCODE_CWD', '/home/sungho'), ('CODEX_CI', '1'), ('VSCODE_ESM_ENTRYPOINT', 'vs/workbench/api/node/extensionHostProcess'), ('CODEX_INTERNAL_ORIGINATOR_OVERRIDE', 'codex_vscode'), ('LC_TIME', 'ko_KR.UTF-8'), ('SNAP_COMMON', '/var/snap/code/common'), ('USER', 'sungho'), ('VSCODE_NLS_CONFIG', '{"userLocale":"en-us","osLocale":"en-us","resolvedLanguage":"en","defaultMessagesFile":"/snap/code/259/usr/share/code/resources/app/out/nls.messages.json","locale":"en-us","availableLanguages":{}}'), ('FONTCONFIG_PATH', '/etc/fonts'), ('GIO_MODULE_DIR', '/home/sungho/snap/code/common/.cache/gio-modules'), ('VSCODE_HANDLES_UNCAUGHT_ERRORS', 'true'), ('DEBUG', 'release'), ('XDG_SESSION_TYPE', 'wayland'), ('LD_LIBRARY_PATH', '/home/sungho/Documents/GitHub/2026_IFAC/install/kinematic_icp/lib:/home/sungho/Documents/GitHub/2026_IFAC/install/global_planning/lib:/home/sungho/Documents/GitHub/2026_IFAC/install/f110_msgs/lib:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib'), ('SHLVL', '0'), ('SNAP_UID', '1000'), ('CHROME_DESKTOP', 'code.desktop'), ('HOME', '/home/sungho'), ('LESS', '-R'), ('OLDPWD', '/home/sungho/Documents/GitHub/2026_IFAC'), ('SNAP_LIBRARY_PATH', '/var/lib/snapd/lib/gl:/var/lib/snapd/lib/gl32'), ('DESKTOP_SESSION', 'ubuntu'), ('GTK_PATH', '/snap/code/259/usr/lib/x86_64-linux-gnu/gtk-3.0'), ('SNAP_USER_DATA', '/home/sungho/snap/code/259'), ('GIO_LAUNCHED_DESKTOP_FILE', '/var/lib/snapd/desktop/applications/code_code.desktop'), ('GTK_IM_MODULE_FILE', '/home/sungho/snap/code/common/.cache/immodules/immodules.cache'), ('LSCOLORS', 'Gxfxcxdxbxegedabagacad'), ('VSCODE_IPC_HOOK', '/run/user/1000/vscode-4c018ac0-1.13-main.sock'), ('ZSH', '/home/sungho/.oh-my-zsh'), ('GNOME_SHELL_SESSION_MODE', 'ubuntu'), ('GTK_MODULES', 'gail:atk-bridge'), ('PAGER', 'cat'), ('ROS_PYTHON_VERSION', '3'), ('LC_CTYPE', 'C.UTF-8'), ('LC_MONETARY', 'ko_KR.UTF-8'), ('MANAGERPID', '1624'), ('DBUS_SESSION_BUS_ADDRESS', 'unix:path=/run/user/1000/bus'), ('GQSC_DATA_ROOT', '/home/sungho/Documents/GitHub/GQSC_RECOVERY_20260901/research_data/F1TENTH_research_data'), ('NO_COLOR', '1'), ('SYSTEMD_EXEC_PID', '1782'), ('COLORTERM', ''), ('GIO_LAUNCHED_DESKTOP_FILE_PID', '13315'), ('SNAP_REVISION', '259'), ('VSCODE_CRASH_REPORTER_PROCESS_TYPE', 'extensionHost'), ('CODEX_PERMISSION_PROFILE', ':workspace'), ('COLCON_PREFIX_PATH', '/home/sungho/Documents/GitHub/2026_IFAC/install:/home/sungho/sim_ws/install'), ('ROS_DISTRO', 'humble'), ('WAYLAND_DISPLAY', 'wayland-0'), ('LOGNAME', 'sungho'), ('JOURNAL_STREAM', '8:17697'), ('SNAP_CONTEXT', '7dHSHlvk7qCOQpMYcxLI5x2MXz0sQ3uh4sxdHyEFDRjD5nx4E9su'), ('_', '/usr/bin/colcon'), ('ROS_VERSION', '2'), ('RUST_LOG', 'warn'), ('SNAP_VERSION', '08d4889f'), ('XDG_DATA_DIRS_VSCODE_SNAP_ORIG', '/usr/local/share/:/usr/share/:/var/lib/snapd/desktop'), ('XDG_SESSION_CLASS', 'user'), ('TERM', 'dumb'), ('USERNAME', 'sungho'), ('FC_FONTATIONS', '1'), ('GNOME_DESKTOP_SESSION_ID', 'this-is-deprecated'), ('ROS_LOCALHOST_ONLY', '0'), ('SNAP_INSTANCE_NAME', 'code'), ('PATH', '/home/sungho/.codex/tmp/arg0/codex-arg0WP29TO:/opt/ros/humble/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/snap/bin:/home/sungho/.vscode/extensions/openai.chatgpt-26.825.51511-linux-x64/bin/linux-x86_64'), ('CODEX_SESSION_ID', '01a05eed-5c81-7a12-8cf6-6af8af61d8a6'), ('GTK_EXE_PREFIX', '/snap/code/259/usr'), ('INVOCATION_ID', 'bb0bbb03359749899cc8c5e95b2780b9'), ('SESSION_MANAGER', 'local/sungho:@/tmp/.ICE-unix/1740,unix/sungho:/tmp/.ICE-unix/1740'), ('GDK_BACKEND', 'x11'), ('GNOME_SETUP_DISPLAY', ':1'), ('LC_ADDRESS', 'ko_KR.UTF-8'), ('SNAP_DATA', '/var/snap/code/259'), ('XDG_MENU_PREFIX', 'gnome-'), ('XDG_RUNTIME_DIR', '/run/user/1000'), ('CODEX_SANDBOX_NETWORK_DISABLED', '1'), ('DISPLAY', ':0'), ('LOCPATH', '/snap/code/259/usr/lib/locale'), ('LANG', 'C.UTF-8'), ('LC_TELEPHONE', 'ko_KR.UTF-8'), ('XDG_CURRENT_DESKTOP', 'ubuntu:GNOME'), ('GH_PAGER', 'cat'), ('XAUTHORITY', '/run/user/1000/.mutter-Xwaylandauth.FZBUU3'), ('XDG_DATA_HOME', '/home/sungho/snap/code/259/.local/share'), ('XDG_SESSION_DESKTOP', 'ubuntu'), ('XMODIFIERS', '@im=ibus'), ('AMENT_PREFIX_PATH', '/home/sungho/Documents/GitHub/2026_IFAC/install/steering_lookup:/home/sungho/Documents/GitHub/2026_IFAC/install/state_machine:/home/sungho/Documents/GitHub/2026_IFAC/install/local_planning:/home/sungho/Documents/GitHub/2026_IFAC/install/obstacle_detector:/home/sungho/Documents/GitHub/2026_IFAC/install/new_map_con:/home/sungho/Documents/GitHub/2026_IFAC/install/lap_timer:/home/sungho/Documents/GitHub/2026_IFAC/install/lap_referee:/home/sungho/Documents/GitHub/2026_IFAC/install/kinematic_localization:/home/sungho/Documents/GitHub/2026_IFAC/install/kinematic_icp:/home/sungho/Documents/GitHub/2026_IFAC/install/global_planning:/home/sungho/Documents/GitHub/2026_IFAC/install/f1tenth_control:/home/sungho/Documents/GitHub/2026_IFAC/install/f110_msgs:/home/sungho/sim_ws/install/f1tenth_gym_ros:/opt/ros/humble'), ('GSETTINGS_SCHEMA_DIR', '/home/sungho/snap/code/259/.local/share/glib-2.0/schemas'), ('SNAP_ARCH', 'amd64'), ('SNAP_COOKIE', '7dHSHlvk7qCOQpMYcxLI5x2MXz0sQ3uh4sxdHyEFDRjD5nx4E9su'), ('SNAP_USER_COMMON', '/home/sungho/snap/code/common'), ('SSH_AGENT_LAUNCHER', 'gnome-keyring'), ('SSH_AUTH_SOCK', '/run/user/1000/keyring/ssh'), ('GDK_PIXBUF_MODULEDIR', '/snap/code/259/usr/lib/x86_64-linux-gnu/gdk-pixbuf-2.0/2.10.0/loaders'), ('LC_NAME', 'ko_KR.UTF-8'), ('SHELL', '/usr/bin/zsh'), ('ELECTRON_RUN_AS_NODE', '1'), ('GDMSESSION', 'ubuntu'), ('QT_ACCESSIBILITY', '1'), ('FONTCONFIG_FILE', '/etc/fonts/fonts.conf'), ('SNAP_NAME', 'code'), ('CODEX_THREAD_ID', '01a05eed-5c81-7a12-8cf6-6af8af61d8a6'), ('LC_MEASUREMENT', 'ko_KR.UTF-8'), ('GDK_PIXBUF_MODULE_FILE', '/home/sungho/snap/code/common/.cache/gdk-pixbuf-loaders.cache'), ('GJS_DEBUG_OUTPUT', 'stderr'), ('LC_IDENTIFICATION', 'ko_KR.UTF-8'), ('GIT_PAGER', 'cat'), ('QT_IM_MODULE', 'ibus'), ('SNAP_LAUNCHER_ARCH_TRIPLET', 'x86_64-linux-gnu'), ('LC_ALL', 'C.UTF-8'), ('PWD', '/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_build/local_planning'), ('VSCODE_CLI', '1'), ('SNAP_REAL_HOME', '/home/sungho'), ('VSCODE_CODE_CACHE_PATH', '/home/sungho/.config/Code/CachedData/08d4889f9ec4a1685d257b9b95de036c8e1ce1e5'), ('XDG_DATA_DIRS', '/home/sungho/snap/code/259/.local/share:/home/sungho/snap/code/259:/snap/code/259/usr/share:/usr/local/share/:/usr/share/:/var/lib/snapd/desktop'), ('LC_NUMERIC', 'ko_KR.UTF-8'), ('PYTHONPATH', '/home/sungho/Documents/GitHub/2026_IFAC/build/steering_lookup:/home/sungho/Documents/GitHub/2026_IFAC/install/steering_lookup/lib/python3.10/site-packages:/home/sungho/Documents/GitHub/2026_IFAC/build/lap_timer:/home/sungho/Documents/GitHub/2026_IFAC/install/lap_timer/lib/python3.10/site-packages:/home/sungho/Documents/GitHub/2026_IFAC/install/f110_msgs/local/lib/python3.10/dist-packages:/home/sungho/sim_ws/build/f1tenth_gym_ros:/home/sungho/sim_ws/install/f1tenth_gym_ros/lib/python3.10/site-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages'), ('SNAP', '/snap/code/259'), ('SNAP_EUID', '1000'), ('LC_PAPER', 'ko_KR.UTF-8'), ('COLCON', '1'), ('ELECTRON_NO_ATTACH_CONSOLE', '1'), ('VSCODE_PID', '13361'), ('CMAKE_PREFIX_PATH', '/home/sungho/Documents/GitHub/2026_IFAC/install/state_machine:/home/sungho/Documents/GitHub/2026_IFAC/install/local_planning:/home/sungho/Documents/GitHub/2026_IFAC/install/obstacle_detector:/home/sungho/Documents/GitHub/2026_IFAC/install/new_map_con:/home/sungho/Documents/GitHub/2026_IFAC/install/lap_referee:/home/sungho/Documents/GitHub/2026_IFAC/install/kinematic_localization:/home/sungho/Documents/GitHub/2026_IFAC/install/kinematic_icp:/home/sungho/Documents/GitHub/2026_IFAC/install/global_planning:/home/sungho/Documents/GitHub/2026_IFAC/install/f1tenth_control:/home/sungho/Documents/GitHub/2026_IFAC/install/f110_msgs:/home/sungho/Documents/GitHub/2026_IFAC/install/steering_lookup:/home/sungho/Documents/GitHub/2026_IFAC/install/lap_timer:/home/sungho/sim_ws/install/f1tenth_gym_ros:/opt/ros/humble')]), 'shell': False}
+[0.099865] (-) TimerEvent: {}
+[0.119050] (local_planning) StdoutLine: {'line': b'-- The C compiler identification is GNU 11.4.0\n'}
+[0.200001] (-) TimerEvent: {}
+[0.216067] (local_planning) StdoutLine: {'line': b'-- The CXX compiler identification is GNU 11.4.0\n'}
+[0.230028] (local_planning) StdoutLine: {'line': b'-- Detecting C compiler ABI info\n'}
+[0.300147] (-) TimerEvent: {}
+[0.360728] (local_planning) StdoutLine: {'line': b'-- Detecting C compiler ABI info - done\n'}
+[0.379331] (local_planning) StdoutLine: {'line': b'-- Check for working C compiler: /usr/bin/cc - skipped\n'}
+[0.379802] (local_planning) StdoutLine: {'line': b'-- Detecting C compile features\n'}
+[0.380397] (local_planning) StdoutLine: {'line': b'-- Detecting C compile features - done\n'}
+[0.385439] (local_planning) StdoutLine: {'line': b'-- Detecting CXX compiler ABI info\n'}
+[0.400277] (-) TimerEvent: {}
+[0.500635] (-) TimerEvent: {}
+[0.529626] (local_planning) StdoutLine: {'line': b'-- Detecting CXX compiler ABI info - done\n'}
+[0.543475] (local_planning) StdoutLine: {'line': b'-- Check for working CXX compiler: /usr/bin/c++ - skipped\n'}
+[0.543949] (local_planning) StdoutLine: {'line': b'-- Detecting CXX compile features\n'}
+[0.544712] (local_planning) StdoutLine: {'line': b'-- Detecting CXX compile features - done\n'}
+[0.550408] (local_planning) StdoutLine: {'line': b'-- Found ament_cmake: 1.3.14 (/opt/ros/humble/share/ament_cmake/cmake)\n'}
+[0.600865] (-) TimerEvent: {}
+[0.701137] (-) TimerEvent: {}
+[0.801487] (-) TimerEvent: {}
+[0.892408] (local_planning) StdoutLine: {'line': b'-- Found Python3: /usr/bin/python3 (found version "3.10.12") found components: Interpreter \n'}
+[0.901671] (-) TimerEvent: {}
+[1.001957] (-) TimerEvent: {}
+[1.092225] (local_planning) StdoutLine: {'line': b'-- Found rclcpp: 16.0.19 (/opt/ros/humble/share/rclcpp/cmake)\n'}
+[1.102108] (-) TimerEvent: {}
+[1.188811] (local_planning) StdoutLine: {'line': b'-- Found rosidl_generator_c: 3.1.9 (/opt/ros/humble/share/rosidl_generator_c/cmake)\n'}
+[1.200740] (local_planning) StdoutLine: {'line': b'-- Found rosidl_adapter: 3.1.9 (/opt/ros/humble/share/rosidl_adapter/cmake)\n'}
+[1.202189] (-) TimerEvent: {}
+[1.219963] (local_planning) StdoutLine: {'line': b'-- Found rosidl_generator_cpp: 3.1.9 (/opt/ros/humble/share/rosidl_generator_cpp/cmake)\n'}
+[1.246151] (local_planning) StdoutLine: {'line': b'-- Using all available rosidl_typesupport_c: rosidl_typesupport_fastrtps_c;rosidl_typesupport_introspection_c\n'}
+[1.287772] (local_planning) StdoutLine: {'line': b'-- Using all available rosidl_typesupport_cpp: rosidl_typesupport_fastrtps_cpp;rosidl_typesupport_introspection_cpp\n'}
+[1.302345] (-) TimerEvent: {}
+[1.402672] (-) TimerEvent: {}
+[1.413467] (local_planning) StdoutLine: {'line': b'-- Found rmw_implementation_cmake: 6.1.3 (/opt/ros/humble/share/rmw_implementation_cmake/cmake)\n'}
+[1.420329] (local_planning) StdoutLine: {'line': b'-- Found rmw_fastrtps_cpp: 6.2.10 (/opt/ros/humble/share/rmw_fastrtps_cpp/cmake)\n'}
+[1.502917] (-) TimerEvent: {}
+[1.603162] (-) TimerEvent: {}
+[1.604067] (local_planning) StdoutLine: {'line': b'-- Found OpenSSL: /usr/lib/x86_64-linux-gnu/libcrypto.so (found version "3.0.2")  \n'}
+[1.656694] (local_planning) StdoutLine: {'line': b'-- Found FastRTPS: /opt/ros/humble/include  \n'}
+[1.703376] (-) TimerEvent: {}
+[1.728483] (local_planning) StdoutLine: {'line': b"-- Using RMW implementation 'rmw_fastrtps_cpp' as default\n"}
+[1.750115] (local_planning) StdoutLine: {'line': b'-- Looking for pthread.h\n'}
+[1.803591] (-) TimerEvent: {}
+[1.883004] (local_planning) StdoutLine: {'line': b'-- Looking for pthread.h - found\n'}
+[1.884252] (local_planning) StdoutLine: {'line': b'-- Performing Test CMAKE_HAVE_LIBC_PTHREAD\n'}
+[1.903810] (-) TimerEvent: {}
+[2.004108] (-) TimerEvent: {}
+[2.020677] (local_planning) StdoutLine: {'line': b'-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success\n'}
+[2.022991] (local_planning) StdoutLine: {'line': b'-- Found Threads: TRUE  \n'}
+[2.104266] (-) TimerEvent: {}
+[2.166825] (local_planning) StdoutLine: {'line': b'-- Found nav_msgs: 4.9.2 (/opt/ros/humble/share/nav_msgs/cmake)\n'}
+[2.204501] (-) TimerEvent: {}
+[2.231147] (local_planning) StdoutLine: {'line': b'-- Found f110_msgs: 0.0.1 (/home/sungho/Documents/GitHub/2026_IFAC/install/f110_msgs/share/f110_msgs/cmake)\n'}
+[2.280596] (local_planning) StdoutLine: {'line': b'-- Found ament_lint_auto: 0.12.15 (/opt/ros/humble/share/ament_lint_auto/cmake)\n'}
+[2.290212] (local_planning) StdoutLine: {'line': b'-- Found ament_cmake_gtest: 1.3.14 (/opt/ros/humble/share/ament_cmake_gtest/cmake)\n'}
+[2.304760] (-) TimerEvent: {}
+[2.405053] (-) TimerEvent: {}
+[2.505444] (-) TimerEvent: {}
+[2.605845] (-) TimerEvent: {}
+[2.706174] (-) TimerEvent: {}
+[2.806529] (-) TimerEvent: {}
+[2.906884] (-) TimerEvent: {}
+[3.007268] (-) TimerEvent: {}
+[3.107615] (-) TimerEvent: {}
+[3.208029] (-) TimerEvent: {}
+[3.308337] (-) TimerEvent: {}
+[3.408679] (-) TimerEvent: {}
+[3.509087] (-) TimerEvent: {}
+[3.609442] (-) TimerEvent: {}
+[3.709808] (-) TimerEvent: {}
+[3.810113] (-) TimerEvent: {}
+[3.910493] (-) TimerEvent: {}
+[4.005657] (local_planning) StdoutLine: {'line': b"-- Found gtest sources under '/opt/ros/humble/src/gtest_vendor': C++ tests using 'Google Test' will be built\n"}
+[4.010621] (-) TimerEvent: {}
+[4.110946] (-) TimerEvent: {}
+[4.126173] (local_planning) StdoutLine: {'line': b"-- Added test 'copyright' to check source files copyright and LICENSE\n"}
+[4.139032] (local_planning) StdoutLine: {'line': b"-- Added test 'cppcheck' to perform static code analysis on C / C++ code\n"}
+[4.141650] (local_planning) StdoutLine: {'line': b'-- Configured cppcheck include dirs: /home/sungho/Documents/GitHub/2026_IFAC/src/local_planning/include;/home/sungho/Documents/GitHub/2026_IFAC/src/local_planning/test\n'}
+[4.142081] (local_planning) StdoutLine: {'line': b'-- Configured cppcheck exclude dirs and/or files: \n'}
+[4.154584] (local_planning) StdoutLine: {'line': b"-- Added test 'cpplint' to check C / C++ code against the Google style\n"}
+[4.154938] (local_planning) StdoutLine: {'line': b'-- Configured cpplint exclude dirs and/or files: \n'}
+[4.158803] (local_planning) StdoutLine: {'line': b"-- Added test 'flake8' to check Python code syntax and style conventions\n"}
+[4.163399] (local_planning) StdoutLine: {'line': b"-- Added test 'lint_cmake' to check CMake code style\n"}
+[4.166872] (local_planning) StdoutLine: {'line': b"-- Added test 'pep257' to check Python code against some of the docstring style conventions in PEP 257\n"}
+[4.178960] (local_planning) StdoutLine: {'line': b"-- Added test 'uncrustify' to check C / C++ code style\n"}
+[4.179309] (local_planning) StdoutLine: {'line': b'-- Configured uncrustify additional arguments: \n'}
+[4.183267] (local_planning) StdoutLine: {'line': b"-- Added test 'xmllint' to check XML markup files\n"}
+[4.186787] (local_planning) StdoutLine: {'line': b'-- Configuring done\n'}
+[4.211097] (-) TimerEvent: {}
+[4.311450] (-) TimerEvent: {}
+[4.342145] (local_planning) StdoutLine: {'line': b'-- Generating done\n'}
+[4.403000] (local_planning) StdoutLine: {'line': b'-- Build files have been written to: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_build/local_planning\n'}
+[4.411683] (-) TimerEvent: {}
+[4.421895] (local_planning) CommandEnded: {'returncode': 0}
+[4.423660] (local_planning) JobProgress: {'identifier': 'local_planning', 'progress': 'build'}
+[4.425312] (local_planning) Command: {'cmd': ['/usr/bin/cmake', '--build', '/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_build/local_planning', '--', '-j24', '-l24'], 'cwd': '/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_build/local_planning', 'env': OrderedDict([('GJS_DEBUG_TOPICS', 'JS ERROR;JS LOG'), ('VSCODE_CWD', '/home/sungho'), ('CODEX_CI', '1'), ('VSCODE_ESM_ENTRYPOINT', 'vs/workbench/api/node/extensionHostProcess'), ('CODEX_INTERNAL_ORIGINATOR_OVERRIDE', 'codex_vscode'), ('LC_TIME', 'ko_KR.UTF-8'), ('SNAP_COMMON', '/var/snap/code/common'), ('USER', 'sungho'), ('VSCODE_NLS_CONFIG', '{"userLocale":"en-us","osLocale":"en-us","resolvedLanguage":"en","defaultMessagesFile":"/snap/code/259/usr/share/code/resources/app/out/nls.messages.json","locale":"en-us","availableLanguages":{}}'), ('FONTCONFIG_PATH', '/etc/fonts'), ('GIO_MODULE_DIR', '/home/sungho/snap/code/common/.cache/gio-modules'), ('VSCODE_HANDLES_UNCAUGHT_ERRORS', 'true'), ('DEBUG', 'release'), ('XDG_SESSION_TYPE', 'wayland'), ('LD_LIBRARY_PATH', '/home/sungho/Documents/GitHub/2026_IFAC/install/kinematic_icp/lib:/home/sungho/Documents/GitHub/2026_IFAC/install/global_planning/lib:/home/sungho/Documents/GitHub/2026_IFAC/install/f110_msgs/lib:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib'), ('SHLVL', '0'), ('SNAP_UID', '1000'), ('CHROME_DESKTOP', 'code.desktop'), ('HOME', '/home/sungho'), ('LESS', '-R'), ('OLDPWD', '/home/sungho/Documents/GitHub/2026_IFAC'), ('SNAP_LIBRARY_PATH', '/var/lib/snapd/lib/gl:/var/lib/snapd/lib/gl32'), ('DESKTOP_SESSION', 'ubuntu'), ('GTK_PATH', '/snap/code/259/usr/lib/x86_64-linux-gnu/gtk-3.0'), ('SNAP_USER_DATA', '/home/sungho/snap/code/259'), ('GIO_LAUNCHED_DESKTOP_FILE', '/var/lib/snapd/desktop/applications/code_code.desktop'), ('GTK_IM_MODULE_FILE', '/home/sungho/snap/code/common/.cache/immodules/immodules.cache'), ('LSCOLORS', 'Gxfxcxdxbxegedabagacad'), ('VSCODE_IPC_HOOK', '/run/user/1000/vscode-4c018ac0-1.13-main.sock'), ('ZSH', '/home/sungho/.oh-my-zsh'), ('GNOME_SHELL_SESSION_MODE', 'ubuntu'), ('GTK_MODULES', 'gail:atk-bridge'), ('PAGER', 'cat'), ('ROS_PYTHON_VERSION', '3'), ('LC_CTYPE', 'C.UTF-8'), ('LC_MONETARY', 'ko_KR.UTF-8'), ('MANAGERPID', '1624'), ('DBUS_SESSION_BUS_ADDRESS', 'unix:path=/run/user/1000/bus'), ('GQSC_DATA_ROOT', '/home/sungho/Documents/GitHub/GQSC_RECOVERY_20260901/research_data/F1TENTH_research_data'), ('NO_COLOR', '1'), ('SYSTEMD_EXEC_PID', '1782'), ('COLORTERM', ''), ('GIO_LAUNCHED_DESKTOP_FILE_PID', '13315'), ('SNAP_REVISION', '259'), ('VSCODE_CRASH_REPORTER_PROCESS_TYPE', 'extensionHost'), ('CODEX_PERMISSION_PROFILE', ':workspace'), ('COLCON_PREFIX_PATH', '/home/sungho/Documents/GitHub/2026_IFAC/install:/home/sungho/sim_ws/install'), ('ROS_DISTRO', 'humble'), ('WAYLAND_DISPLAY', 'wayland-0'), ('LOGNAME', 'sungho'), ('JOURNAL_STREAM', '8:17697'), ('SNAP_CONTEXT', '7dHSHlvk7qCOQpMYcxLI5x2MXz0sQ3uh4sxdHyEFDRjD5nx4E9su'), ('_', '/usr/bin/colcon'), ('ROS_VERSION', '2'), ('RUST_LOG', 'warn'), ('SNAP_VERSION', '08d4889f'), ('XDG_DATA_DIRS_VSCODE_SNAP_ORIG', '/usr/local/share/:/usr/share/:/var/lib/snapd/desktop'), ('XDG_SESSION_CLASS', 'user'), ('TERM', 'dumb'), ('USERNAME', 'sungho'), ('FC_FONTATIONS', '1'), ('GNOME_DESKTOP_SESSION_ID', 'this-is-deprecated'), ('ROS_LOCALHOST_ONLY', '0'), ('SNAP_INSTANCE_NAME', 'code'), ('PATH', '/home/sungho/.codex/tmp/arg0/codex-arg0WP29TO:/opt/ros/humble/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/snap/bin:/home/sungho/.vscode/extensions/openai.chatgpt-26.825.51511-linux-x64/bin/linux-x86_64'), ('CODEX_SESSION_ID', '01a05eed-5c81-7a12-8cf6-6af8af61d8a6'), ('GTK_EXE_PREFIX', '/snap/code/259/usr'), ('INVOCATION_ID', 'bb0bbb03359749899cc8c5e95b2780b9'), ('SESSION_MANAGER', 'local/sungho:@/tmp/.ICE-unix/1740,unix/sungho:/tmp/.ICE-unix/1740'), ('GDK_BACKEND', 'x11'), ('GNOME_SETUP_DISPLAY', ':1'), ('LC_ADDRESS', 'ko_KR.UTF-8'), ('SNAP_DATA', '/var/snap/code/259'), ('XDG_MENU_PREFIX', 'gnome-'), ('XDG_RUNTIME_DIR', '/run/user/1000'), ('CODEX_SANDBOX_NETWORK_DISABLED', '1'), ('DISPLAY', ':0'), ('LOCPATH', '/snap/code/259/usr/lib/locale'), ('LANG', 'C.UTF-8'), ('LC_TELEPHONE', 'ko_KR.UTF-8'), ('XDG_CURRENT_DESKTOP', 'ubuntu:GNOME'), ('GH_PAGER', 'cat'), ('XAUTHORITY', '/run/user/1000/.mutter-Xwaylandauth.FZBUU3'), ('XDG_DATA_HOME', '/home/sungho/snap/code/259/.local/share'), ('XDG_SESSION_DESKTOP', 'ubuntu'), ('XMODIFIERS', '@im=ibus'), ('AMENT_PREFIX_PATH', '/home/sungho/Documents/GitHub/2026_IFAC/install/steering_lookup:/home/sungho/Documents/GitHub/2026_IFAC/install/state_machine:/home/sungho/Documents/GitHub/2026_IFAC/install/local_planning:/home/sungho/Documents/GitHub/2026_IFAC/install/obstacle_detector:/home/sungho/Documents/GitHub/2026_IFAC/install/new_map_con:/home/sungho/Documents/GitHub/2026_IFAC/install/lap_timer:/home/sungho/Documents/GitHub/2026_IFAC/install/lap_referee:/home/sungho/Documents/GitHub/2026_IFAC/install/kinematic_localization:/home/sungho/Documents/GitHub/2026_IFAC/install/kinematic_icp:/home/sungho/Documents/GitHub/2026_IFAC/install/global_planning:/home/sungho/Documents/GitHub/2026_IFAC/install/f1tenth_control:/home/sungho/Documents/GitHub/2026_IFAC/install/f110_msgs:/home/sungho/sim_ws/install/f1tenth_gym_ros:/opt/ros/humble'), ('GSETTINGS_SCHEMA_DIR', '/home/sungho/snap/code/259/.local/share/glib-2.0/schemas'), ('SNAP_ARCH', 'amd64'), ('SNAP_COOKIE', '7dHSHlvk7qCOQpMYcxLI5x2MXz0sQ3uh4sxdHyEFDRjD5nx4E9su'), ('SNAP_USER_COMMON', '/home/sungho/snap/code/common'), ('SSH_AGENT_LAUNCHER', 'gnome-keyring'), ('SSH_AUTH_SOCK', '/run/user/1000/keyring/ssh'), ('GDK_PIXBUF_MODULEDIR', '/snap/code/259/usr/lib/x86_64-linux-gnu/gdk-pixbuf-2.0/2.10.0/loaders'), ('LC_NAME', 'ko_KR.UTF-8'), ('SHELL', '/usr/bin/zsh'), ('ELECTRON_RUN_AS_NODE', '1'), ('GDMSESSION', 'ubuntu'), ('QT_ACCESSIBILITY', '1'), ('FONTCONFIG_FILE', '/etc/fonts/fonts.conf'), ('SNAP_NAME', 'code'), ('CODEX_THREAD_ID', '01a05eed-5c81-7a12-8cf6-6af8af61d8a6'), ('LC_MEASUREMENT', 'ko_KR.UTF-8'), ('GDK_PIXBUF_MODULE_FILE', '/home/sungho/snap/code/common/.cache/gdk-pixbuf-loaders.cache'), ('GJS_DEBUG_OUTPUT', 'stderr'), ('LC_IDENTIFICATION', 'ko_KR.UTF-8'), ('GIT_PAGER', 'cat'), ('QT_IM_MODULE', 'ibus'), ('SNAP_LAUNCHER_ARCH_TRIPLET', 'x86_64-linux-gnu'), ('LC_ALL', 'C.UTF-8'), ('PWD', '/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_build/local_planning'), ('VSCODE_CLI', '1'), ('SNAP_REAL_HOME', '/home/sungho'), ('VSCODE_CODE_CACHE_PATH', '/home/sungho/.config/Code/CachedData/08d4889f9ec4a1685d257b9b95de036c8e1ce1e5'), ('XDG_DATA_DIRS', '/home/sungho/snap/code/259/.local/share:/home/sungho/snap/code/259:/snap/code/259/usr/share:/usr/local/share/:/usr/share/:/var/lib/snapd/desktop'), ('LC_NUMERIC', 'ko_KR.UTF-8'), ('PYTHONPATH', '/home/sungho/Documents/GitHub/2026_IFAC/build/steering_lookup:/home/sungho/Documents/GitHub/2026_IFAC/install/steering_lookup/lib/python3.10/site-packages:/home/sungho/Documents/GitHub/2026_IFAC/build/lap_timer:/home/sungho/Documents/GitHub/2026_IFAC/install/lap_timer/lib/python3.10/site-packages:/home/sungho/Documents/GitHub/2026_IFAC/install/f110_msgs/local/lib/python3.10/dist-packages:/home/sungho/sim_ws/build/f1tenth_gym_ros:/home/sungho/sim_ws/install/f1tenth_gym_ros/lib/python3.10/site-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages'), ('SNAP', '/snap/code/259'), ('SNAP_EUID', '1000'), ('LC_PAPER', 'ko_KR.UTF-8'), ('COLCON', '1'), ('ELECTRON_NO_ATTACH_CONSOLE', '1'), ('VSCODE_PID', '13361'), ('CMAKE_PREFIX_PATH', '/home/sungho/Documents/GitHub/2026_IFAC/install/state_machine:/home/sungho/Documents/GitHub/2026_IFAC/install/local_planning:/home/sungho/Documents/GitHub/2026_IFAC/install/obstacle_detector:/home/sungho/Documents/GitHub/2026_IFAC/install/new_map_con:/home/sungho/Documents/GitHub/2026_IFAC/install/lap_referee:/home/sungho/Documents/GitHub/2026_IFAC/install/kinematic_localization:/home/sungho/Documents/GitHub/2026_IFAC/install/kinematic_icp:/home/sungho/Documents/GitHub/2026_IFAC/install/global_planning:/home/sungho/Documents/GitHub/2026_IFAC/install/f1tenth_control:/home/sungho/Documents/GitHub/2026_IFAC/install/f110_msgs:/home/sungho/Documents/GitHub/2026_IFAC/install/steering_lookup:/home/sungho/Documents/GitHub/2026_IFAC/install/lap_timer:/home/sungho/sim_ws/install/f1tenth_gym_ros:/opt/ros/humble')]), 'shell': False}
+[4.511825] (-) TimerEvent: {}
+[4.562762] (local_planning) StdoutLine: {'line': b'[  1%] Building CXX object CMakeFiles/local_planner_core.dir/src/p3_shadow.cpp.o\n'}
+[4.563708] (local_planning) StdoutLine: {'line': b'[  7%] Building CXX object CMakeFiles/local_planner_core.dir/src/obstacle_guard.cpp.o\n'}
+[4.563978] (local_planning) StdoutLine: {'line': b'[  7%] Building CXX object gtest/CMakeFiles/gtest.dir/src/gtest-all.cc.o\n'}
+[4.564175] (local_planning) StdoutLine: {'line': b'[  7%] Building CXX object gtest/CMakeFiles/gtest_main.dir/src/gtest_main.cc.o\n'}
+[4.564355] (local_planning) StdoutLine: {'line': b'[  9%] Building CXX object CMakeFiles/local_planner_core.dir/src/research_instrumentation.cpp.o\n'}
+[4.567076] (local_planning) StdoutLine: {'line': b'[ 11%] Building CXX object CMakeFiles/local_planner_core.dir/src/local_planner_node.cpp.o\n'}
+[4.567477] (local_planning) StdoutLine: {'line': b'[ 12%] Building CXX object CMakeFiles/local_planner_core.dir/src/p3_maneuver_lifecycle.cpp.o\n'}
+[4.567724] (local_planning) StdoutLine: {'line': b'[ 14%] Building CXX object CMakeFiles/local_planner_core.dir/src/path_digest.cpp.o\n'}
+[4.567957] (local_planning) StdoutLine: {'line': b'[ 16%] Building CXX object CMakeFiles/local_planner_core.dir/src/safe_stop_lifecycle.cpp.o\n'}
+[4.569020] (local_planning) StdoutLine: {'line': b'[ 18%] Building CXX object CMakeFiles/local_planner_core.dir/src/p3_r3_k12.cpp.o\n'}
+[4.569369] (local_planning) StdoutLine: {'line': b'[ 20%] Building CXX object CMakeFiles/local_planner_core.dir/src/raceline_spline_planner.cpp.o\n'}
+[4.611969] (-) TimerEvent: {}
+[4.712275] (-) TimerEvent: {}
+[4.812587] (-) TimerEvent: {}
+[4.912959] (-) TimerEvent: {}
+[5.013290] (-) TimerEvent: {}
+[5.113676] (-) TimerEvent: {}
+[5.214076] (-) TimerEvent: {}
+[5.314393] (-) TimerEvent: {}
+[5.414691] (-) TimerEvent: {}
+[5.515012] (-) TimerEvent: {}
+[5.615305] (-) TimerEvent: {}
+[5.715649] (-) TimerEvent: {}
+[5.816016] (-) TimerEvent: {}
+[5.916345] (-) TimerEvent: {}
+[6.016680] (-) TimerEvent: {}
+[6.117054] (-) TimerEvent: {}
+[6.217409] (-) TimerEvent: {}
+[6.317758] (-) TimerEvent: {}
+[6.418092] (-) TimerEvent: {}
+[6.518435] (-) TimerEvent: {}
+[6.618789] (-) TimerEvent: {}
+[6.638198] (local_planning) StdoutLine: {'line': b'[ 22%] Linking CXX static library libgtest_main.a\n'}
+[6.717906] (local_planning) StdoutLine: {'line': b'[ 22%] Built target gtest_main\n'}
+[6.718949] (-) TimerEvent: {}
+[6.819215] (-) TimerEvent: {}
+[6.919505] (-) TimerEvent: {}
+[6.957230] (local_planning) StderrLine: {'line': b'/home/sungho/Documents/GitHub/2026_IFAC/src/local_planning/src/raceline_spline_planner.cpp: In member function \xe2\x80\x98local_planning::RacelineSplineResult local_planning::RacelineSplinePlanner::plan(const local_planning::EgoFrenetState&, const std::vector<f110_msgs::msg::Obstacle_<std::allocator<void> > >&, const std::optional<bool>&, bool, const local_planning::P3ShadowResult*) const\xe2\x80\x99:\n'}
+[6.957732] (local_planning) StderrLine: {'line': b'/home/sungho/Documents/GitHub/2026_IFAC/src/local_planning/src/raceline_spline_planner.cpp:3710:14: warning: unused variable \xe2\x80\x98outside_is_left\xe2\x80\x99 [-Wunused-variable]\n'}
+[6.957988] (local_planning) StderrLine: {'line': b' 3710 |   const bool outside_is_left = outsideIsLeft(ego, cluster);\n'}
+[6.958208] (local_planning) StderrLine: {'line': b'      |              ^~~~~~~~~~~~~~~\n'}
+[7.019729] (-) TimerEvent: {}
+[7.120069] (-) TimerEvent: {}
+[7.220421] (-) TimerEvent: {}
+[7.320770] (-) TimerEvent: {}
+[7.421087] (-) TimerEvent: {}
+[7.521472] (-) TimerEvent: {}
+[7.621816] (-) TimerEvent: {}
+[7.722127] (-) TimerEvent: {}
+[7.736425] (local_planning) StderrLine: {'line': b'/home/sungho/Documents/GitHub/2026_IFAC/src/local_planning/src/raceline_spline_planner.cpp: At global scope:\n'}
+[7.736852] (local_planning) StderrLine: {'line': b'/home/sungho/Documents/GitHub/2026_IFAC/src/local_planning/src/raceline_spline_planner.cpp:84:8: warning: \xe2\x80\x98double local_planning::{anonymous}::quinticBlend(double, double, double)\xe2\x80\x99 defined but not used [-Wunused-function]\n'}
+[7.737044] (local_planning) StderrLine: {'line': b'   84 | double quinticBlend(double start, double finish, double progress)\n'}
+[7.737208] (local_planning) StderrLine: {'line': b'      |        ^~~~~~~~~~~~\n'}
+[7.822282] (-) TimerEvent: {}
+[7.922663] (-) TimerEvent: {}
+[8.022957] (-) TimerEvent: {}
+[8.123335] (-) TimerEvent: {}
+[8.223690] (-) TimerEvent: {}
+[8.324002] (-) TimerEvent: {}
+[8.424281] (-) TimerEvent: {}
+[8.524636] (-) TimerEvent: {}
+[8.624953] (-) TimerEvent: {}
+[8.725275] (-) TimerEvent: {}
+[8.825636] (-) TimerEvent: {}
+[8.925983] (-) TimerEvent: {}
+[9.026272] (-) TimerEvent: {}
+[9.126610] (-) TimerEvent: {}
+[9.226969] (-) TimerEvent: {}
+[9.327238] (-) TimerEvent: {}
+[9.427571] (-) TimerEvent: {}
+[9.527819] (-) TimerEvent: {}
+[9.628102] (-) TimerEvent: {}
+[9.728448] (-) TimerEvent: {}
+[9.828749] (-) TimerEvent: {}
+[9.929026] (-) TimerEvent: {}
+[10.029317] (-) TimerEvent: {}
+[10.129600] (-) TimerEvent: {}
+[10.229918] (-) TimerEvent: {}
+[10.330215] (-) TimerEvent: {}
+[10.430548] (-) TimerEvent: {}
+[10.530865] (-) TimerEvent: {}
+[10.631141] (-) TimerEvent: {}
+[10.731441] (-) TimerEvent: {}
+[10.831817] (-) TimerEvent: {}
+[10.932093] (-) TimerEvent: {}
+[11.032418] (-) TimerEvent: {}
+[11.132765] (-) TimerEvent: {}
+[11.233033] (-) TimerEvent: {}
+[11.333353] (-) TimerEvent: {}
+[11.433727] (-) TimerEvent: {}
+[11.533998] (-) TimerEvent: {}
+[11.634274] (-) TimerEvent: {}
+[11.734617] (-) TimerEvent: {}
+[11.834875] (-) TimerEvent: {}
+[11.935257] (-) TimerEvent: {}
+[12.035605] (-) TimerEvent: {}
+[12.135888] (-) TimerEvent: {}
+[12.236170] (-) TimerEvent: {}
+[12.336547] (-) TimerEvent: {}
+[12.436900] (-) TimerEvent: {}
+[12.537190] (-) TimerEvent: {}
+[12.637531] (-) TimerEvent: {}
+[12.737928] (-) TimerEvent: {}
+[12.838245] (-) TimerEvent: {}
+[12.938634] (-) TimerEvent: {}
+[13.038944] (-) TimerEvent: {}
+[13.139246] (-) TimerEvent: {}
+[13.239609] (-) TimerEvent: {}
+[13.339959] (-) TimerEvent: {}
+[13.440227] (-) TimerEvent: {}
+[13.540554] (-) TimerEvent: {}
+[13.640909] (-) TimerEvent: {}
+[13.741187] (-) TimerEvent: {}
+[13.841508] (-) TimerEvent: {}
+[13.941810] (-) TimerEvent: {}
+[14.042162] (-) TimerEvent: {}
+[14.142462] (-) TimerEvent: {}
+[14.242826] (-) TimerEvent: {}
+[14.343226] (-) TimerEvent: {}
+[14.443585] (-) TimerEvent: {}
+[14.543875] (-) TimerEvent: {}
+[14.644183] (-) TimerEvent: {}
+[14.744485] (-) TimerEvent: {}
+[14.844800] (-) TimerEvent: {}
+[14.945147] (-) TimerEvent: {}
+[15.045450] (-) TimerEvent: {}
+[15.145693] (-) TimerEvent: {}
+[15.245972] (-) TimerEvent: {}
+[15.346269] (-) TimerEvent: {}
+[15.446521] (-) TimerEvent: {}
+[15.546808] (-) TimerEvent: {}
+[15.647073] (-) TimerEvent: {}
+[15.747341] (-) TimerEvent: {}
+[15.847591] (-) TimerEvent: {}
+[15.947797] (-) TimerEvent: {}
+[16.048041] (-) TimerEvent: {}
+[16.148310] (-) TimerEvent: {}
+[16.248586] (-) TimerEvent: {}
+[16.348959] (-) TimerEvent: {}
+[16.449300] (-) TimerEvent: {}
+[16.549634] (-) TimerEvent: {}
+[16.649970] (-) TimerEvent: {}
+[16.750312] (-) TimerEvent: {}
+[16.850602] (-) TimerEvent: {}
+[16.950894] (-) TimerEvent: {}
+[17.051171] (-) TimerEvent: {}
+[17.151430] (-) TimerEvent: {}
+[17.251755] (-) TimerEvent: {}
+[17.352030] (-) TimerEvent: {}
+[17.452300] (-) TimerEvent: {}
+[17.552660] (-) TimerEvent: {}
+[17.653000] (-) TimerEvent: {}
+[17.753320] (-) TimerEvent: {}
+[17.853649] (-) TimerEvent: {}
+[17.953981] (-) TimerEvent: {}
+[18.054252] (-) TimerEvent: {}
+[18.154581] (-) TimerEvent: {}
+[18.254859] (-) TimerEvent: {}
+[18.298357] (local_planning) StdoutLine: {'line': b'[ 24%] Linking CXX static library libgtest.a\n'}
+[18.355000] (-) TimerEvent: {}
+[18.359888] (local_planning) StdoutLine: {'line': b'[ 24%] Built target gtest\n'}
+[18.402635] (local_planning) StdoutLine: {'line': b'[ 27%] Building CXX object CMakeFiles/test_obstacle_ingress_buffer.dir/test/test_obstacle_ingress_buffer.cpp.o\n'}
+[18.403081] (local_planning) StdoutLine: {'line': b'[ 27%] Building CXX object CMakeFiles/test_hold_recovery_gate.dir/test/test_hold_recovery_gate.cpp.o\n'}
+[18.455195] (-) TimerEvent: {}
+[18.555618] (-) TimerEvent: {}
+[18.655934] (-) TimerEvent: {}
+[18.756214] (-) TimerEvent: {}
+[18.856598] (-) TimerEvent: {}
+[18.957009] (-) TimerEvent: {}
+[19.057394] (-) TimerEvent: {}
+[19.157771] (-) TimerEvent: {}
+[19.258048] (-) TimerEvent: {}
+[19.358330] (-) TimerEvent: {}
+[19.458880] (-) TimerEvent: {}
+[19.559157] (-) TimerEvent: {}
+[19.659435] (-) TimerEvent: {}
+[19.759791] (-) TimerEvent: {}
+[19.860107] (-) TimerEvent: {}
+[19.960449] (-) TimerEvent: {}
+[20.060813] (-) TimerEvent: {}
+[20.161095] (-) TimerEvent: {}
+[20.261481] (-) TimerEvent: {}
+[20.361779] (-) TimerEvent: {}
+[20.462046] (-) TimerEvent: {}
+[20.562361] (-) TimerEvent: {}
+[20.617261] (local_planning) StdoutLine: {'line': b'[ 29%] Linking CXX executable test_hold_recovery_gate\n'}
+[20.662600] (-) TimerEvent: {}
+[20.751750] (local_planning) StdoutLine: {'line': b'[ 29%] Built target test_hold_recovery_gate\n'}
+[20.762823] (-) TimerEvent: {}
+[20.792217] (local_planning) StdoutLine: {'line': b'[ 31%] Linking CXX executable test_obstacle_ingress_buffer\n'}
+[20.862979] (-) TimerEvent: {}
+[20.963274] (-) TimerEvent: {}
+[20.985651] (local_planning) StdoutLine: {'line': b'[ 31%] Built target test_obstacle_ingress_buffer\n'}
+[21.063509] (-) TimerEvent: {}
+[21.163999] (-) TimerEvent: {}
+[21.264251] (-) TimerEvent: {}
+[21.364554] (-) TimerEvent: {}
+[21.464889] (-) TimerEvent: {}
+[21.565220] (-) TimerEvent: {}
+[21.665536] (-) TimerEvent: {}
+[21.765842] (-) TimerEvent: {}
+[21.866144] (-) TimerEvent: {}
+[21.966446] (-) TimerEvent: {}
+[22.066788] (-) TimerEvent: {}
+[22.167009] (-) TimerEvent: {}
+[22.267219] (-) TimerEvent: {}
+[22.367457] (-) TimerEvent: {}
+[22.467768] (-) TimerEvent: {}
+[22.568017] (-) TimerEvent: {}
+[22.668265] (-) TimerEvent: {}
+[22.768678] (-) TimerEvent: {}
+[22.868939] (-) TimerEvent: {}
+[22.969194] (-) TimerEvent: {}
+[23.069450] (-) TimerEvent: {}
+[23.169635] (-) TimerEvent: {}
+[23.269763] (-) TimerEvent: {}
+[23.369888] (-) TimerEvent: {}
+[23.470008] (-) TimerEvent: {}
+[23.570154] (-) TimerEvent: {}
+[23.670376] (-) TimerEvent: {}
+[23.770658] (-) TimerEvent: {}
+[23.870951] (-) TimerEvent: {}
+[23.971199] (-) TimerEvent: {}
+[24.071522] (-) TimerEvent: {}
+[24.171794] (-) TimerEvent: {}
+[24.272111] (-) TimerEvent: {}
+[24.372396] (-) TimerEvent: {}
+[24.472652] (-) TimerEvent: {}
+[24.572957] (-) TimerEvent: {}
+[24.673356] (-) TimerEvent: {}
+[24.773661] (-) TimerEvent: {}
+[24.873927] (-) TimerEvent: {}
+[24.974247] (-) TimerEvent: {}
+[25.074476] (-) TimerEvent: {}
+[25.174730] (-) TimerEvent: {}
+[25.274949] (-) TimerEvent: {}
+[25.375192] (-) TimerEvent: {}
+[25.475441] (-) TimerEvent: {}
+[25.575688] (-) TimerEvent: {}
+[25.675929] (-) TimerEvent: {}
+[25.776171] (-) TimerEvent: {}
+[25.876430] (-) TimerEvent: {}
+[25.976690] (-) TimerEvent: {}
+[26.077061] (-) TimerEvent: {}
+[26.177393] (-) TimerEvent: {}
+[26.277732] (-) TimerEvent: {}
+[26.378060] (-) TimerEvent: {}
+[26.478334] (-) TimerEvent: {}
+[26.578683] (-) TimerEvent: {}
+[26.679038] (-) TimerEvent: {}
+[26.779310] (-) TimerEvent: {}
+[26.879692] (-) TimerEvent: {}
+[26.980042] (-) TimerEvent: {}
+[27.080342] (-) TimerEvent: {}
+[27.180636] (-) TimerEvent: {}
+[27.280972] (-) TimerEvent: {}
+[27.381212] (-) TimerEvent: {}
+[27.481464] (-) TimerEvent: {}
+[27.581714] (-) TimerEvent: {}
+[27.682035] (-) TimerEvent: {}
+[27.782283] (-) TimerEvent: {}
+[27.882578] (-) TimerEvent: {}
+[27.982865] (-) TimerEvent: {}
+[28.083153] (-) TimerEvent: {}
+[28.183435] (-) TimerEvent: {}
+[28.283752] (-) TimerEvent: {}
+[28.384038] (-) TimerEvent: {}
+[28.484248] (-) TimerEvent: {}
+[28.584540] (-) TimerEvent: {}
+[28.684852] (-) TimerEvent: {}
+[28.785154] (-) TimerEvent: {}
+[28.885487] (-) TimerEvent: {}
+[28.985763] (-) TimerEvent: {}
+[29.086108] (-) TimerEvent: {}
+[29.186440] (-) TimerEvent: {}
+[29.286771] (-) TimerEvent: {}
+[29.387069] (-) TimerEvent: {}
+[29.487360] (-) TimerEvent: {}
+[29.587655] (-) TimerEvent: {}
+[29.687977] (-) TimerEvent: {}
+[29.788183] (-) TimerEvent: {}
+[29.888469] (-) TimerEvent: {}
+[29.988777] (-) TimerEvent: {}
+[30.089065] (-) TimerEvent: {}
+[30.189476] (-) TimerEvent: {}
+[30.289891] (-) TimerEvent: {}
+[30.390172] (-) TimerEvent: {}
+[30.490455] (-) TimerEvent: {}
+[30.590775] (-) TimerEvent: {}
+[30.691086] (-) TimerEvent: {}
+[30.791311] (-) TimerEvent: {}
+[30.891647] (-) TimerEvent: {}
+[30.991875] (-) TimerEvent: {}
+[31.092180] (-) TimerEvent: {}
+[31.192380] (-) TimerEvent: {}
+[31.292583] (-) TimerEvent: {}
+[31.392919] (-) TimerEvent: {}
+[31.493189] (-) TimerEvent: {}
+[31.593483] (-) TimerEvent: {}
+[31.693786] (-) TimerEvent: {}
+[31.794025] (-) TimerEvent: {}
+[31.894321] (-) TimerEvent: {}
+[31.994632] (-) TimerEvent: {}
+[32.094989] (-) TimerEvent: {}
+[32.205500] (-) TimerEvent: {}
+[32.305822] (-) TimerEvent: {}
+[32.406132] (-) TimerEvent: {}
+[32.506433] (-) TimerEvent: {}
+[32.606739] (-) TimerEvent: {}
+[32.707187] (-) TimerEvent: {}
+[32.807411] (-) TimerEvent: {}
+[32.907752] (-) TimerEvent: {}
+[33.008000] (-) TimerEvent: {}
+[33.108252] (-) TimerEvent: {}
+[33.208548] (-) TimerEvent: {}
+[33.308836] (-) TimerEvent: {}
+[33.409121] (-) TimerEvent: {}
+[33.509400] (-) TimerEvent: {}
+[33.609696] (-) TimerEvent: {}
+[33.710030] (-) TimerEvent: {}
+[33.810327] (-) TimerEvent: {}
+[33.910614] (-) TimerEvent: {}
+[34.010879] (-) TimerEvent: {}
+[34.111157] (-) TimerEvent: {}
+[34.211468] (-) TimerEvent: {}
+[34.311787] (-) TimerEvent: {}
+[34.412083] (-) TimerEvent: {}
+[34.512383] (-) TimerEvent: {}
+[34.612725] (-) TimerEvent: {}
+[34.713006] (-) TimerEvent: {}
+[34.813304] (-) TimerEvent: {}
+[34.913606] (-) TimerEvent: {}
+[35.013860] (-) TimerEvent: {}
+[35.114142] (-) TimerEvent: {}
+[35.214433] (-) TimerEvent: {}
+[35.314721] (-) TimerEvent: {}
+[35.415017] (-) TimerEvent: {}
+[35.515318] (-) TimerEvent: {}
+[35.615658] (-) TimerEvent: {}
+[35.715971] (-) TimerEvent: {}
+[35.816256] (-) TimerEvent: {}
+[35.916548] (-) TimerEvent: {}
+[36.016857] (-) TimerEvent: {}
+[36.117168] (-) TimerEvent: {}
+[36.217481] (-) TimerEvent: {}
+[36.317755] (-) TimerEvent: {}
+[36.418073] (-) TimerEvent: {}
+[36.518370] (-) TimerEvent: {}
+[36.618660] (-) TimerEvent: {}
+[36.719003] (-) TimerEvent: {}
+[36.819320] (-) TimerEvent: {}
+[36.919631] (-) TimerEvent: {}
+[37.019962] (-) TimerEvent: {}
+[37.120231] (-) TimerEvent: {}
+[37.220530] (-) TimerEvent: {}
+[37.320840] (-) TimerEvent: {}
+[37.421144] (-) TimerEvent: {}
+[37.521458] (-) TimerEvent: {}
+[37.621801] (-) TimerEvent: {}
+[37.722117] (-) TimerEvent: {}
+[37.822405] (-) TimerEvent: {}
+[37.922685] (-) TimerEvent: {}
+[38.022977] (-) TimerEvent: {}
+[38.123279] (-) TimerEvent: {}
+[38.223567] (-) TimerEvent: {}
+[38.323854] (-) TimerEvent: {}
+[38.424129] (-) TimerEvent: {}
+[38.524415] (-) TimerEvent: {}
+[38.624741] (-) TimerEvent: {}
+[38.725037] (-) TimerEvent: {}
+[38.825345] (-) TimerEvent: {}
+[38.925630] (-) TimerEvent: {}
+[39.025936] (-) TimerEvent: {}
+[39.126283] (-) TimerEvent: {}
+[39.226487] (-) TimerEvent: {}
+[39.326774] (-) TimerEvent: {}
+[39.427059] (-) TimerEvent: {}
+[39.527341] (-) TimerEvent: {}
+[39.627632] (-) TimerEvent: {}
+[39.727859] (-) TimerEvent: {}
+[39.828163] (-) TimerEvent: {}
+[39.928464] (-) TimerEvent: {}
+[40.028779] (-) TimerEvent: {}
+[40.129097] (-) TimerEvent: {}
+[40.229365] (-) TimerEvent: {}
+[40.329688] (-) TimerEvent: {}
+[40.430038] (-) TimerEvent: {}
+[40.530349] (-) TimerEvent: {}
+[40.630659] (-) TimerEvent: {}
+[40.730911] (-) TimerEvent: {}
+[40.831230] (-) TimerEvent: {}
+[40.931475] (-) TimerEvent: {}
+[41.031756] (-) TimerEvent: {}
+[41.132068] (-) TimerEvent: {}
+[41.232406] (-) TimerEvent: {}
+[41.332727] (-) TimerEvent: {}
+[41.433038] (-) TimerEvent: {}
+[41.533334] (-) TimerEvent: {}
+[41.633631] (-) TimerEvent: {}
+[41.733978] (-) TimerEvent: {}
+[41.834290] (-) TimerEvent: {}
+[41.934583] (-) TimerEvent: {}
+[42.034892] (-) TimerEvent: {}
+[42.135218] (-) TimerEvent: {}
+[42.235530] (-) TimerEvent: {}
+[42.335842] (-) TimerEvent: {}
+[42.436147] (-) TimerEvent: {}
+[42.536449] (-) TimerEvent: {}
+[42.636752] (-) TimerEvent: {}
+[42.737048] (-) TimerEvent: {}
+[42.837341] (-) TimerEvent: {}
+[42.937651] (-) TimerEvent: {}
+[43.037987] (-) TimerEvent: {}
+[43.138287] (-) TimerEvent: {}
+[43.238609] (-) TimerEvent: {}
+[43.338937] (-) TimerEvent: {}
+[43.439217] (-) TimerEvent: {}
+[43.539514] (-) TimerEvent: {}
+[43.639842] (-) TimerEvent: {}
+[43.740078] (-) TimerEvent: {}
+[43.840403] (-) TimerEvent: {}
+[43.940680] (-) TimerEvent: {}
+[44.040913] (-) TimerEvent: {}
+[44.141226] (-) TimerEvent: {}
+[44.241529] (-) TimerEvent: {}
+[44.341829] (-) TimerEvent: {}
+[44.442047] (-) TimerEvent: {}
+[44.542356] (-) TimerEvent: {}
+[44.642607] (-) TimerEvent: {}
+[44.742909] (-) TimerEvent: {}
+[44.843244] (-) TimerEvent: {}
+[44.943556] (-) TimerEvent: {}
+[45.043846] (-) TimerEvent: {}
+[45.144168] (-) TimerEvent: {}
+[45.244427] (-) TimerEvent: {}
+[45.344786] (-) TimerEvent: {}
+[45.445098] (-) TimerEvent: {}
+[45.545406] (-) TimerEvent: {}
+[45.645763] (-) TimerEvent: {}
+[45.746091] (-) TimerEvent: {}
+[45.846413] (-) TimerEvent: {}
+[45.946744] (-) TimerEvent: {}
+[46.047117] (-) TimerEvent: {}
+[46.147582] (-) TimerEvent: {}
+[46.247878] (-) TimerEvent: {}
+[46.348110] (-) TimerEvent: {}
+[46.448268] (-) TimerEvent: {}
+[46.548601] (-) TimerEvent: {}
+[46.648894] (-) TimerEvent: {}
+[46.749101] (-) TimerEvent: {}
+[46.849355] (-) TimerEvent: {}
+[46.949584] (-) TimerEvent: {}
+[47.049758] (-) TimerEvent: {}
+[47.149890] (-) TimerEvent: {}
+[47.250037] (-) TimerEvent: {}
+[47.350174] (-) TimerEvent: {}
+[47.450305] (-) TimerEvent: {}
+[47.550439] (-) TimerEvent: {}
+[47.650578] (-) TimerEvent: {}
+[47.750732] (-) TimerEvent: {}
+[47.850879] (-) TimerEvent: {}
+[47.951014] (-) TimerEvent: {}
+[48.051166] (-) TimerEvent: {}
+[48.151301] (-) TimerEvent: {}
+[48.251498] (-) TimerEvent: {}
+[48.351941] (-) TimerEvent: {}
+[48.452238] (-) TimerEvent: {}
+[48.552508] (-) TimerEvent: {}
+[48.652804] (-) TimerEvent: {}
+[48.753107] (-) TimerEvent: {}
+[48.853403] (-) TimerEvent: {}
+[48.953690] (-) TimerEvent: {}
+[49.054004] (-) TimerEvent: {}
+[49.154267] (-) TimerEvent: {}
+[49.254594] (-) TimerEvent: {}
+[49.354898] (-) TimerEvent: {}
+[49.455124] (-) TimerEvent: {}
+[49.555416] (-) TimerEvent: {}
+[49.655652] (-) TimerEvent: {}
+[49.755936] (-) TimerEvent: {}
+[49.856198] (-) TimerEvent: {}
+[49.956509] (-) TimerEvent: {}
+[50.056855] (-) TimerEvent: {}
+[50.157193] (-) TimerEvent: {}
+[50.257431] (-) TimerEvent: {}
+[50.357732] (-) TimerEvent: {}
+[50.458034] (-) TimerEvent: {}
+[50.558398] (-) TimerEvent: {}
+[50.623847] (local_planning) StdoutLine: {'line': b'[ 33%] Linking CXX static library liblocal_planner_core.a\n'}
+[50.658596] (-) TimerEvent: {}
+[50.754555] (local_planning) StdoutLine: {'line': b'[ 33%] Built target local_planner_core\n'}
+[50.758788] (-) TimerEvent: {}
+[50.796196] (local_planning) StdoutLine: {'line': b'[ 35%] Building CXX object CMakeFiles/test_obstacle_guard.dir/test/test_obstacle_guard.cpp.o\n'}
+[50.797487] (local_planning) StdoutLine: {'line': b'[ 37%] Building CXX object CMakeFiles/test_raceline_spline.dir/test/test_raceline_spline.cpp.o\n'}
+[50.797821] (local_planning) StdoutLine: {'line': b'[ 38%] Building CXX object CMakeFiles/local_planner_node.dir/src/local_planner_main.cpp.o\n'}
+[50.798567] (local_planning) StdoutLine: {'line': b'[ 42%] Building CXX object CMakeFiles/test_local_planner_node.dir/test/test_local_planner_node.cpp.o\n'}
+[50.798936] (local_planning) StdoutLine: {'line': b'[ 44%] Building CXX object CMakeFiles/test_research_instrumentation.dir/test/test_research_instrumentation.cpp.o\n'}
+[50.799120] (local_planning) StdoutLine: {'line': b'[ 44%] Building CXX object CMakeFiles/p3_production_parity_harness.dir/test/p3_production_parity_harness.cpp.o\n'}
+[50.799978] (local_planning) StdoutLine: {'line': b'[ 46%] Building CXX object CMakeFiles/test_candidate_rank.dir/test/test_candidate_rank.cpp.o\n'}
+[50.800175] (local_planning) StdoutLine: {'line': b'[ 48%] Building CXX object CMakeFiles/test_handoff_speed_shaping.dir/test/test_handoff_speed_shaping.cpp.o\n'}
+[50.800653] (local_planning) StdoutLine: {'line': b'[ 51%] Building CXX object CMakeFiles/test_path_digest.dir/test/test_path_digest.cpp.o\n'}
+[50.800928] (local_planning) StdoutLine: {'line': b'[ 51%] Building CXX object CMakeFiles/test_maneuver_memory.dir/test/test_maneuver_memory.cpp.o\n'}
+[50.802966] (local_planning) StdoutLine: {'line': b'[ 53%] Building CXX object CMakeFiles/test_obstacle_reserve_gate.dir/test/test_obstacle_reserve_gate.cpp.o\n'}
+[50.805365] (local_planning) StdoutLine: {'line': b'[ 55%] Building CXX object CMakeFiles/test_safe_stop_lifecycle.dir/test/test_safe_stop_lifecycle.cpp.o\n'}
+[50.805962] (local_planning) StdoutLine: {'line': b'[ 57%] Building CXX object CMakeFiles/test_p3_r3_k12.dir/test/test_p3_r3_k12.cpp.o\n'}
+[50.808809] (local_planning) StdoutLine: {'line': b'[ 59%] Building CXX object CMakeFiles/test_rule_property.dir/test/test_rule_property.cpp.o\n'}
+[50.811325] (local_planning) StdoutLine: {'line': b'[ 62%] Building CXX object CMakeFiles/test_p3_production_parity.dir/test/test_p3_production_parity.cpp.o\n'}
+[50.811606] (local_planning) StdoutLine: {'line': b'[ 62%] Building CXX object CMakeFiles/p3_r3_k12_integration_harness.dir/test/p3_r3_k12_integration_harness.cpp.o\n'}
+[50.812308] (local_planning) StdoutLine: {'line': b'[ 66%] Building CXX object CMakeFiles/test_p3_maneuver_lifecycle.dir/test/test_p3_maneuver_lifecycle.cpp.o\n'}
+[50.812614] (local_planning) StdoutLine: {'line': b'[ 66%] Building CXX object CMakeFiles/stuck_case_harness.dir/test/stuck_case_harness.cpp.o\n'}
+[50.858990] (-) TimerEvent: {}
+[50.959307] (-) TimerEvent: {}
+[51.059632] (-) TimerEvent: {}
+[51.160017] (-) TimerEvent: {}
+[51.262832] (-) TimerEvent: {}
+[51.363154] (-) TimerEvent: {}
+[51.463526] (-) TimerEvent: {}
+[51.563834] (-) TimerEvent: {}
+[51.664088] (-) TimerEvent: {}
+[51.765100] (-) TimerEvent: {}
+[51.865370] (-) TimerEvent: {}
+[51.967973] (-) TimerEvent: {}
+[52.068287] (-) TimerEvent: {}
+[52.168582] (-) TimerEvent: {}
+[52.270809] (-) TimerEvent: {}
+[52.371107] (-) TimerEvent: {}
+[52.471413] (-) TimerEvent: {}
+[52.571758] (-) TimerEvent: {}
+[52.672079] (-) TimerEvent: {}
+[52.772404] (-) TimerEvent: {}
+[52.872744] (-) TimerEvent: {}
+[52.973065] (-) TimerEvent: {}
+[53.073387] (-) TimerEvent: {}
+[53.173725] (-) TimerEvent: {}
+[53.274020] (-) TimerEvent: {}
+[53.374313] (-) TimerEvent: {}
+[53.474627] (-) TimerEvent: {}
+[53.574962] (-) TimerEvent: {}
+[53.675270] (-) TimerEvent: {}
+[53.775578] (-) TimerEvent: {}
+[53.875912] (-) TimerEvent: {}
+[53.958069] (local_planning) StdoutLine: {'line': b'[ 68%] Linking CXX executable test_maneuver_memory\n'}
+[53.976070] (-) TimerEvent: {}
+[54.076367] (-) TimerEvent: {}
+[54.176669] (-) TimerEvent: {}
+[54.235149] (local_planning) StdoutLine: {'line': b'[ 68%] Built target test_maneuver_memory\n'}
+[54.276846] (-) TimerEvent: {}
+[54.354028] (local_planning) StdoutLine: {'line': b'[ 70%] Linking CXX executable test_path_digest\n'}
+[54.377020] (-) TimerEvent: {}
+[54.477335] (-) TimerEvent: {}
+[54.577742] (-) TimerEvent: {}
+[54.678037] (-) TimerEvent: {}
+[54.716369] (local_planning) StdoutLine: {'line': b'[ 70%] Built target test_path_digest\n'}
+[54.778841] (-) TimerEvent: {}
+[54.794064] (local_planning) StdoutLine: {'line': b'[ 72%] Linking CXX executable stuck_case_harness\n'}
+[54.878995] (-) TimerEvent: {}
+[54.971636] (local_planning) StderrLine: {'line': b'/home/sungho/Documents/GitHub/2026_IFAC/src/local_planning/test/test_raceline_spline.cpp: In member function \xe2\x80\x98virtual void local_planning::{anonymous}::RacelineSplinePlanner_ExtendStopGeometryLengthensTheSteeringPathToTheFloor_Test::TestBody()\xe2\x80\x99:\n'}
+[54.972047] (local_planning) StderrLine: {'line': b'/home/sungho/Documents/GitHub/2026_IFAC/src/local_planning/test/test_raceline_spline.cpp:2789:19: warning: narrowing conversion of \xe2\x80\x98stop.f110_msgs::msg::WpntArray_<std::allocator<void> >::wpnts.std::vector<f110_msgs::msg::Wpnt_<std::allocator<void> >, std::allocator<f110_msgs::msg::Wpnt_<std::allocator<void> > > >::operator[](0).f110_msgs::msg::Wpnt_<std::allocator<void> >::vx_mps\xe2\x80\x99 from \xe2\x80\x98f110_msgs::msg::Wpnt_<std::allocator<void> >::_vx_mps_type\xe2\x80\x99 {aka \xe2\x80\x98double\xe2\x80\x99} to \xe2\x80\x98float\xe2\x80\x99 [-Wnarrowing]\n'}
+[54.972277] (local_planning) StderrLine: {'line': b' 2789 |     stop.wpnts[0].vx_mps, stop.wpnts[1].vx_mps, stop.wpnts[2].vx_mps};\n'}
+[54.972458] (local_planning) StderrLine: {'line': b'/home/sungho/Documents/GitHub/2026_IFAC/src/local_planning/test/test_raceline_spline.cpp:2789:19: warning: narrowing conversion of \xe2\x80\x98stop.f110_msgs::msg::WpntArray_<std::allocator<void> >::wpnts.std::vector<f110_msgs::msg::Wpnt_<std::allocator<void> >, std::allocator<f110_msgs::msg::Wpnt_<std::allocator<void> > > >::operator[](0).f110_msgs::msg::Wpnt_<std::allocator<void> >::vx_mps\xe2\x80\x99 from \xe2\x80\x98f110_msgs::msg::Wpnt_<std::allocator<void> >::_vx_mps_type\xe2\x80\x99 {aka \xe2\x80\x98double\xe2\x80\x99} to \xe2\x80\x98float\xe2\x80\x99 [-Wnarrowing]\n'}
+[54.972662] (local_planning) StderrLine: {'line': b'/home/sungho/Documents/GitHub/2026_IFAC/src/local_planning/test/test_raceline_spline.cpp:2789:41: warning: narrowing conversion of \xe2\x80\x98stop.f110_msgs::msg::WpntArray_<std::allocator<void> >::wpnts.std::vector<f110_msgs::msg::Wpnt_<std::allocator<void> >, std::allocator<f110_msgs::msg::Wpnt_<std::allocator<void> > > >::operator[](1).f110_msgs::msg::Wpnt_<std::allocator<void> >::vx_mps\xe2\x80\x99 from \xe2\x80\x98f110_msgs::msg::Wpnt_<std::allocator<void> >::_vx_mps_type\xe2\x80\x99 {aka \xe2\x80\x98double\xe2\x80\x99} to \xe2\x80\x98float\xe2\x80\x99 [-Wnarrowing]\n'}
+[54.972857] (local_planning) StderrLine: {'line': b' 2789 |     stop.wpnts[0].vx_mps, stop.wpnts[1].vx_mps, stop.wpnts[2].vx_mps};\n'}
+[54.973019] (local_planning) StderrLine: {'line': b'/home/sungho/Documents/GitHub/2026_IFAC/src/local_planning/test/test_raceline_spline.cpp:2789:41: warning: narrowing conversion of \xe2\x80\x98stop.f110_msgs::msg::WpntArray_<std::allocator<void> >::wpnts.std::vector<f110_msgs::msg::Wpnt_<std::allocator<void> >, std::allocator<f110_msgs::msg::Wpnt_<std::allocator<void> > > >::operator[](1).f110_msgs::msg::Wpnt_<std::allocator<void> >::vx_mps\xe2\x80\x99 from \xe2\x80\x98f110_msgs::msg::Wpnt_<std::allocator<void> >::_vx_mps_type\xe2\x80\x99 {aka \xe2\x80\x98double\xe2\x80\x99} to \xe2\x80\x98float\xe2\x80\x99 [-Wnarrowing]\n'}
+[54.973189] (local_planning) StderrLine: {'line': b'/home/sungho/Documents/GitHub/2026_IFAC/src/local_planning/test/test_raceline_spline.cpp:2789:63: warning: narrowing conversion of \xe2\x80\x98stop.f110_msgs::msg::WpntArray_<std::allocator<void> >::wpnts.std::vector<f110_msgs::msg::Wpnt_<std::allocator<void> >, std::allocator<f110_msgs::msg::Wpnt_<std::allocator<void> > > >::operator[](2).f110_msgs::msg::Wpnt_<std::allocator<void> >::vx_mps\xe2\x80\x99 from \xe2\x80\x98f110_msgs::msg::Wpnt_<std::allocator<void> >::_vx_mps_type\xe2\x80\x99 {aka \xe2\x80\x98double\xe2\x80\x99} to \xe2\x80\x98float\xe2\x80\x99 [-Wnarrowing]\n'}
+[54.973357] (local_planning) StderrLine: {'line': b' 2789 |     stop.wpnts[0].vx_mps, stop.wpnts[1].vx_mps, stop.wpnts[2].vx_mps};\n'}
+[54.973535] (local_planning) StderrLine: {'line': b'/home/sungho/Documents/GitHub/2026_IFAC/src/local_planning/test/test_raceline_spline.cpp:2789:63: warning: narrowing conversion of \xe2\x80\x98stop.f110_msgs::msg::WpntArray_<std::allocator<void> >::wpnts.std::vector<f110_msgs::msg::Wpnt_<std::allocator<void> >, std::allocator<f110_msgs::msg::Wpnt_<std::allocator<void> > > >::operator[](2).f110_msgs::msg::Wpnt_<std::allocator<void> >::vx_mps\xe2\x80\x99 from \xe2\x80\x98f110_msgs::msg::Wpnt_<std::allocator<void> >::_vx_mps_type\xe2\x80\x99 {aka \xe2\x80\x98double\xe2\x80\x99} to \xe2\x80\x98float\xe2\x80\x99 [-Wnarrowing]\n'}
+[54.979152] (-) TimerEvent: {}
+[55.079456] (-) TimerEvent: {}
+[55.115516] (local_planning) StdoutLine: {'line': b'[ 74%] Linking CXX executable test_obstacle_guard\n'}
+[55.149154] (local_planning) StdoutLine: {'line': b'[ 74%] Built target stuck_case_harness\n'}
+[55.179638] (-) TimerEvent: {}
+[55.280000] (-) TimerEvent: {}
+[55.380326] (-) TimerEvent: {}
+[55.447498] (local_planning) StdoutLine: {'line': b'[ 74%] Built target test_obstacle_guard\n'}
+[55.480488] (-) TimerEvent: {}
+[55.553673] (local_planning) StdoutLine: {'line': b'[ 75%] Linking CXX executable test_candidate_rank\n'}
+[55.580636] (-) TimerEvent: {}
+[55.680948] (-) TimerEvent: {}
+[55.781245] (-) TimerEvent: {}
+[55.881085] (local_planning) StdoutLine: {'line': b'[ 75%] Built target test_candidate_rank\n'}
+[55.881489] (-) TimerEvent: {}
+[55.981732] (-) TimerEvent: {}
+[56.082047] (-) TimerEvent: {}
+[56.182362] (-) TimerEvent: {}
+[56.282652] (-) TimerEvent: {}
+[56.382966] (-) TimerEvent: {}
+[56.438368] (local_planning) StdoutLine: {'line': b'[ 77%] Linking CXX executable test_safe_stop_lifecycle\n'}
+[56.483109] (-) TimerEvent: {}
+[56.562061] (local_planning) StdoutLine: {'line': b'[ 79%] Linking CXX executable test_obstacle_reserve_gate\n'}
+[56.583278] (-) TimerEvent: {}
+[56.683612] (-) TimerEvent: {}
+[56.714029] (local_planning) StdoutLine: {'line': b'[ 79%] Built target test_safe_stop_lifecycle\n'}
+[56.783806] (-) TimerEvent: {}
+[56.884124] (-) TimerEvent: {}
+[56.906623] (local_planning) StdoutLine: {'line': b'[ 79%] Built target test_obstacle_reserve_gate\n'}
+[56.984287] (-) TimerEvent: {}
+[57.084594] (-) TimerEvent: {}
+[57.184910] (-) TimerEvent: {}
+[57.189535] (local_planning) StdoutLine: {'line': b'[ 81%] Linking CXX executable p3_production_parity_harness\n'}
+[57.285065] (-) TimerEvent: {}
+[57.385372] (-) TimerEvent: {}
+[57.460607] (local_planning) StdoutLine: {'line': b'[ 83%] Linking CXX executable test_p3_r3_k12\n'}
+[57.485518] (-) TimerEvent: {}
+[57.503589] (local_planning) StdoutLine: {'line': b'[ 83%] Built target p3_production_parity_harness\n'}
+[57.585756] (-) TimerEvent: {}
+[57.686099] (-) TimerEvent: {}
+[57.757109] (local_planning) StdoutLine: {'line': b'[ 83%] Built target test_p3_r3_k12\n'}
+[57.786275] (-) TimerEvent: {}
+[57.886584] (-) TimerEvent: {}
+[57.941533] (local_planning) StdoutLine: {'line': b'[ 85%] Linking CXX executable test_research_instrumentation\n'}
+[57.986780] (-) TimerEvent: {}
+[58.035270] (local_planning) StdoutLine: {'line': b'[ 87%] Linking CXX executable test_handoff_speed_shaping\n'}
+[58.086950] (-) TimerEvent: {}
+[58.187253] (-) TimerEvent: {}
+[58.249061] (local_planning) StdoutLine: {'line': b'[ 87%] Built target test_research_instrumentation\n'}
+[58.287433] (-) TimerEvent: {}
+[58.344608] (local_planning) StdoutLine: {'line': b'[ 87%] Built target test_handoff_speed_shaping\n'}
+[58.387595] (-) TimerEvent: {}
+[58.487913] (-) TimerEvent: {}
+[58.588233] (-) TimerEvent: {}
+[58.688544] (-) TimerEvent: {}
+[58.788838] (-) TimerEvent: {}
+[58.889181] (-) TimerEvent: {}
+[58.989498] (-) TimerEvent: {}
+[59.089810] (-) TimerEvent: {}
+[59.190101] (-) TimerEvent: {}
+[59.227756] (local_planning) StdoutLine: {'line': b'[ 88%] Linking CXX executable test_rule_property\n'}
+[59.290266] (-) TimerEvent: {}
+[59.390568] (-) TimerEvent: {}
+[59.490862] (-) TimerEvent: {}
+[59.505784] (local_planning) StdoutLine: {'line': b'[ 88%] Built target test_rule_property\n'}
+[59.558286] (local_planning) StdoutLine: {'line': b'[ 90%] Linking CXX executable local_planner_node\n'}
+[59.591013] (-) TimerEvent: {}
+[59.691304] (-) TimerEvent: {}
+[59.791590] (-) TimerEvent: {}
+[59.891954] (-) TimerEvent: {}
+[59.901429] (local_planning) StdoutLine: {'line': b'[ 92%] Linking CXX executable test_p3_production_parity\n'}
+[59.992119] (-) TimerEvent: {}
+[60.081683] (local_planning) StdoutLine: {'line': b'[ 92%] Built target local_planner_node\n'}
+[60.092290] (-) TimerEvent: {}
+[60.187888] (local_planning) StdoutLine: {'line': b'[ 92%] Built target test_p3_production_parity\n'}
+[60.192435] (-) TimerEvent: {}
+[60.292828] (-) TimerEvent: {}
+[60.393151] (-) TimerEvent: {}
+[60.493417] (-) TimerEvent: {}
+[60.593801] (-) TimerEvent: {}
+[60.694075] (-) TimerEvent: {}
+[60.794389] (-) TimerEvent: {}
+[60.894717] (-) TimerEvent: {}
+[60.995030] (-) TimerEvent: {}
+[61.095309] (-) TimerEvent: {}
+[61.195587] (-) TimerEvent: {}
+[61.295923] (-) TimerEvent: {}
+[61.396253] (-) TimerEvent: {}
+[61.496540] (-) TimerEvent: {}
+[61.596819] (-) TimerEvent: {}
+[61.676141] (local_planning) StdoutLine: {'line': b'[ 94%] Linking CXX executable p3_r3_k12_integration_harness\n'}
+[61.697035] (-) TimerEvent: {}
+[61.797350] (-) TimerEvent: {}
+[61.897848] (-) TimerEvent: {}
+[61.921664] (local_planning) StdoutLine: {'line': b'[ 94%] Built target p3_r3_k12_integration_harness\n'}
+[61.997882] (-) TimerEvent: {}
+[62.098238] (-) TimerEvent: {}
+[62.198630] (-) TimerEvent: {}
+[62.298934] (-) TimerEvent: {}
+[62.344446] (local_planning) StdoutLine: {'line': b'[ 96%] Linking CXX executable test_p3_maneuver_lifecycle\n'}
+[62.399079] (-) TimerEvent: {}
+[62.499356] (-) TimerEvent: {}
+[62.590101] (local_planning) StdoutLine: {'line': b'[ 96%] Built target test_p3_maneuver_lifecycle\n'}
+[62.599491] (-) TimerEvent: {}
+[62.699872] (-) TimerEvent: {}
+[62.800119] (-) TimerEvent: {}
+[62.900437] (-) TimerEvent: {}
+[63.000768] (-) TimerEvent: {}
+[63.101007] (-) TimerEvent: {}
+[63.201333] (-) TimerEvent: {}
+[63.301641] (-) TimerEvent: {}
+[63.401895] (-) TimerEvent: {}
+[63.502207] (-) TimerEvent: {}
+[63.602582] (-) TimerEvent: {}
+[63.702952] (-) TimerEvent: {}
+[63.803246] (-) TimerEvent: {}
+[63.903619] (-) TimerEvent: {}
+[64.003913] (-) TimerEvent: {}
+[64.104300] (-) TimerEvent: {}
+[64.204627] (-) TimerEvent: {}
+[64.304974] (-) TimerEvent: {}
+[64.405296] (-) TimerEvent: {}
+[64.505581] (-) TimerEvent: {}
+[64.605883] (-) TimerEvent: {}
+[64.706169] (-) TimerEvent: {}
+[64.806510] (-) TimerEvent: {}
+[64.906853] (-) TimerEvent: {}
+[65.007170] (-) TimerEvent: {}
+[65.107514] (-) TimerEvent: {}
+[65.207881] (-) TimerEvent: {}
+[65.308155] (-) TimerEvent: {}
+[65.408531] (-) TimerEvent: {}
+[65.508981] (-) TimerEvent: {}
+[65.609331] (-) TimerEvent: {}
+[65.709698] (-) TimerEvent: {}
+[65.810091] (-) TimerEvent: {}
+[65.910469] (-) TimerEvent: {}
+[66.010782] (-) TimerEvent: {}
+[66.111148] (-) TimerEvent: {}
+[66.211432] (-) TimerEvent: {}
+[66.311816] (-) TimerEvent: {}
+[66.412100] (-) TimerEvent: {}
+[66.512475] (-) TimerEvent: {}
+[66.612782] (-) TimerEvent: {}
+[66.713058] (-) TimerEvent: {}
+[66.813410] (-) TimerEvent: {}
+[66.913830] (-) TimerEvent: {}
+[67.014098] (-) TimerEvent: {}
+[67.114375] (-) TimerEvent: {}
+[67.214659] (-) TimerEvent: {}
+[67.314916] (-) TimerEvent: {}
+[67.415199] (-) TimerEvent: {}
+[67.515478] (-) TimerEvent: {}
+[67.615790] (-) TimerEvent: {}
+[67.716036] (-) TimerEvent: {}
+[67.816292] (-) TimerEvent: {}
+[67.916582] (-) TimerEvent: {}
+[68.016891] (-) TimerEvent: {}
+[68.117113] (-) TimerEvent: {}
+[68.217302] (-) TimerEvent: {}
+[68.317516] (-) TimerEvent: {}
+[68.417808] (-) TimerEvent: {}
+[68.518131] (-) TimerEvent: {}
+[68.618469] (-) TimerEvent: {}
+[68.718739] (-) TimerEvent: {}
+[68.819039] (-) TimerEvent: {}
+[68.919277] (-) TimerEvent: {}
+[69.019583] (-) TimerEvent: {}
+[69.119873] (-) TimerEvent: {}
+[69.220106] (-) TimerEvent: {}
+[69.320409] (-) TimerEvent: {}
+[69.420738] (-) TimerEvent: {}
+[69.520977] (-) TimerEvent: {}
+[69.621225] (-) TimerEvent: {}
+[69.721622] (-) TimerEvent: {}
+[69.821979] (-) TimerEvent: {}
+[69.922282] (-) TimerEvent: {}
+[70.022602] (-) TimerEvent: {}
+[70.122950] (-) TimerEvent: {}
+[70.223207] (-) TimerEvent: {}
+[70.323454] (-) TimerEvent: {}
+[70.423756] (-) TimerEvent: {}
+[70.523989] (-) TimerEvent: {}
+[70.624297] (-) TimerEvent: {}
+[70.724634] (-) TimerEvent: {}
+[70.824888] (-) TimerEvent: {}
+[70.925118] (-) TimerEvent: {}
+[71.025359] (-) TimerEvent: {}
+[71.125687] (-) TimerEvent: {}
+[71.225947] (-) TimerEvent: {}
+[71.326174] (-) TimerEvent: {}
+[71.426393] (-) TimerEvent: {}
+[71.526716] (-) TimerEvent: {}
+[71.627009] (-) TimerEvent: {}
+[71.727312] (-) TimerEvent: {}
+[71.827536] (-) TimerEvent: {}
+[71.927791] (-) TimerEvent: {}
+[72.028080] (-) TimerEvent: {}
+[72.128336] (-) TimerEvent: {}
+[72.228579] (-) TimerEvent: {}
+[72.329056] (-) TimerEvent: {}
+[72.406179] (local_planning) StdoutLine: {'line': b'[ 98%] Linking CXX executable test_raceline_spline\n'}
+[72.429191] (-) TimerEvent: {}
+[72.529476] (-) TimerEvent: {}
+[72.629804] (-) TimerEvent: {}
+[72.690629] (local_planning) StdoutLine: {'line': b'[ 98%] Built target test_raceline_spline\n'}
+[72.729948] (-) TimerEvent: {}
+[72.830258] (-) TimerEvent: {}
+[72.930613] (-) TimerEvent: {}
+[73.030925] (-) TimerEvent: {}
+[73.131290] (-) TimerEvent: {}
+[73.231639] (-) TimerEvent: {}
+[73.332038] (-) TimerEvent: {}
+[73.432406] (-) TimerEvent: {}
+[73.532768] (-) TimerEvent: {}
+[73.633035] (-) TimerEvent: {}
+[73.733322] (-) TimerEvent: {}
+[73.833719] (-) TimerEvent: {}
+[73.934032] (-) TimerEvent: {}
+[74.034286] (-) TimerEvent: {}
+[74.134620] (-) TimerEvent: {}
+[74.234973] (-) TimerEvent: {}
+[74.335335] (-) TimerEvent: {}
+[74.435713] (-) TimerEvent: {}
+[74.535984] (-) TimerEvent: {}
+[74.636259] (-) TimerEvent: {}
+[74.736633] (-) TimerEvent: {}
+[74.837003] (-) TimerEvent: {}
+[74.937324] (-) TimerEvent: {}
+[75.037625] (-) TimerEvent: {}
+[75.137945] (-) TimerEvent: {}
+[75.238279] (-) TimerEvent: {}
+[75.338574] (-) TimerEvent: {}
+[75.438897] (-) TimerEvent: {}
+[75.539198] (-) TimerEvent: {}
+[75.639550] (-) TimerEvent: {}
+[75.739869] (-) TimerEvent: {}
+[75.840140] (-) TimerEvent: {}
+[75.940490] (-) TimerEvent: {}
+[76.040876] (-) TimerEvent: {}
+[76.141204] (-) TimerEvent: {}
+[76.241570] (-) TimerEvent: {}
+[76.341945] (-) TimerEvent: {}
+[76.442231] (-) TimerEvent: {}
+[76.542591] (-) TimerEvent: {}
+[76.642936] (-) TimerEvent: {}
+[76.743228] (-) TimerEvent: {}
+[76.843600] (-) TimerEvent: {}
+[76.943890] (-) TimerEvent: {}
+[77.044160] (-) TimerEvent: {}
+[77.144466] (-) TimerEvent: {}
+[77.244749] (-) TimerEvent: {}
+[77.345017] (-) TimerEvent: {}
+[77.445289] (-) TimerEvent: {}
+[77.545624] (-) TimerEvent: {}
+[77.645883] (-) TimerEvent: {}
+[77.746192] (-) TimerEvent: {}
+[77.846558] (-) TimerEvent: {}
+[77.946900] (-) TimerEvent: {}
+[78.047191] (-) TimerEvent: {}
+[78.147562] (-) TimerEvent: {}
+[78.247930] (-) TimerEvent: {}
+[78.348259] (-) TimerEvent: {}
+[78.448522] (-) TimerEvent: {}
+[78.548785] (-) TimerEvent: {}
+[78.649057] (-) TimerEvent: {}
+[78.749352] (-) TimerEvent: {}
+[78.849659] (-) TimerEvent: {}
+[78.950001] (-) TimerEvent: {}
+[79.050315] (-) TimerEvent: {}
+[79.150606] (-) TimerEvent: {}
+[79.250908] (-) TimerEvent: {}
+[79.351167] (-) TimerEvent: {}
+[79.451414] (-) TimerEvent: {}
+[79.551736] (-) TimerEvent: {}
+[79.651975] (-) TimerEvent: {}
+[79.752206] (-) TimerEvent: {}
+[79.852503] (-) TimerEvent: {}
+[79.952817] (-) TimerEvent: {}
+[80.053055] (-) TimerEvent: {}
+[80.153289] (-) TimerEvent: {}
+[80.253599] (-) TimerEvent: {}
+[80.353911] (-) TimerEvent: {}
+[80.454132] (-) TimerEvent: {}
+[80.554443] (-) TimerEvent: {}
+[80.654677] (-) TimerEvent: {}
+[80.754925] (-) TimerEvent: {}
+[80.855146] (-) TimerEvent: {}
+[80.955462] (-) TimerEvent: {}
+[81.055810] (-) TimerEvent: {}
+[81.071772] (local_planning) StdoutLine: {'line': b'[100%] Linking CXX executable test_local_planner_node\n'}
+[81.155995] (-) TimerEvent: {}
+[81.256245] (-) TimerEvent: {}
+[81.356553] (-) TimerEvent: {}
+[81.456849] (-) TimerEvent: {}
+[81.557075] (-) TimerEvent: {}
+[81.615853] (local_planning) StdoutLine: {'line': b'[100%] Built target test_local_planner_node\n'}
+[81.634096] (local_planning) CommandEnded: {'returncode': 0}
+[81.635294] (local_planning) JobProgress: {'identifier': 'local_planning', 'progress': 'install'}
+[81.648016] (local_planning) Command: {'cmd': ['/usr/bin/cmake', '--install', '/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_build/local_planning'], 'cwd': '/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_build/local_planning', 'env': OrderedDict([('GJS_DEBUG_TOPICS', 'JS ERROR;JS LOG'), ('VSCODE_CWD', '/home/sungho'), ('CODEX_CI', '1'), ('VSCODE_ESM_ENTRYPOINT', 'vs/workbench/api/node/extensionHostProcess'), ('CODEX_INTERNAL_ORIGINATOR_OVERRIDE', 'codex_vscode'), ('LC_TIME', 'ko_KR.UTF-8'), ('SNAP_COMMON', '/var/snap/code/common'), ('USER', 'sungho'), ('VSCODE_NLS_CONFIG', '{"userLocale":"en-us","osLocale":"en-us","resolvedLanguage":"en","defaultMessagesFile":"/snap/code/259/usr/share/code/resources/app/out/nls.messages.json","locale":"en-us","availableLanguages":{}}'), ('FONTCONFIG_PATH', '/etc/fonts'), ('GIO_MODULE_DIR', '/home/sungho/snap/code/common/.cache/gio-modules'), ('VSCODE_HANDLES_UNCAUGHT_ERRORS', 'true'), ('DEBUG', 'release'), ('XDG_SESSION_TYPE', 'wayland'), ('LD_LIBRARY_PATH', '/home/sungho/Documents/GitHub/2026_IFAC/install/kinematic_icp/lib:/home/sungho/Documents/GitHub/2026_IFAC/install/global_planning/lib:/home/sungho/Documents/GitHub/2026_IFAC/install/f110_msgs/lib:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib'), ('SHLVL', '0'), ('SNAP_UID', '1000'), ('CHROME_DESKTOP', 'code.desktop'), ('HOME', '/home/sungho'), ('LESS', '-R'), ('OLDPWD', '/home/sungho/Documents/GitHub/2026_IFAC'), ('SNAP_LIBRARY_PATH', '/var/lib/snapd/lib/gl:/var/lib/snapd/lib/gl32'), ('DESKTOP_SESSION', 'ubuntu'), ('GTK_PATH', '/snap/code/259/usr/lib/x86_64-linux-gnu/gtk-3.0'), ('SNAP_USER_DATA', '/home/sungho/snap/code/259'), ('GIO_LAUNCHED_DESKTOP_FILE', '/var/lib/snapd/desktop/applications/code_code.desktop'), ('GTK_IM_MODULE_FILE', '/home/sungho/snap/code/common/.cache/immodules/immodules.cache'), ('LSCOLORS', 'Gxfxcxdxbxegedabagacad'), ('VSCODE_IPC_HOOK', '/run/user/1000/vscode-4c018ac0-1.13-main.sock'), ('ZSH', '/home/sungho/.oh-my-zsh'), ('GNOME_SHELL_SESSION_MODE', 'ubuntu'), ('GTK_MODULES', 'gail:atk-bridge'), ('PAGER', 'cat'), ('ROS_PYTHON_VERSION', '3'), ('LC_CTYPE', 'C.UTF-8'), ('LC_MONETARY', 'ko_KR.UTF-8'), ('MANAGERPID', '1624'), ('DBUS_SESSION_BUS_ADDRESS', 'unix:path=/run/user/1000/bus'), ('GQSC_DATA_ROOT', '/home/sungho/Documents/GitHub/GQSC_RECOVERY_20260901/research_data/F1TENTH_research_data'), ('NO_COLOR', '1'), ('SYSTEMD_EXEC_PID', '1782'), ('COLORTERM', ''), ('GIO_LAUNCHED_DESKTOP_FILE_PID', '13315'), ('SNAP_REVISION', '259'), ('VSCODE_CRASH_REPORTER_PROCESS_TYPE', 'extensionHost'), ('CODEX_PERMISSION_PROFILE', ':workspace'), ('COLCON_PREFIX_PATH', '/home/sungho/Documents/GitHub/2026_IFAC/install:/home/sungho/sim_ws/install'), ('ROS_DISTRO', 'humble'), ('WAYLAND_DISPLAY', 'wayland-0'), ('LOGNAME', 'sungho'), ('JOURNAL_STREAM', '8:17697'), ('SNAP_CONTEXT', '7dHSHlvk7qCOQpMYcxLI5x2MXz0sQ3uh4sxdHyEFDRjD5nx4E9su'), ('_', '/usr/bin/colcon'), ('ROS_VERSION', '2'), ('RUST_LOG', 'warn'), ('SNAP_VERSION', '08d4889f'), ('XDG_DATA_DIRS_VSCODE_SNAP_ORIG', '/usr/local/share/:/usr/share/:/var/lib/snapd/desktop'), ('XDG_SESSION_CLASS', 'user'), ('TERM', 'dumb'), ('USERNAME', 'sungho'), ('FC_FONTATIONS', '1'), ('GNOME_DESKTOP_SESSION_ID', 'this-is-deprecated'), ('ROS_LOCALHOST_ONLY', '0'), ('SNAP_INSTANCE_NAME', 'code'), ('PATH', '/home/sungho/.codex/tmp/arg0/codex-arg0WP29TO:/opt/ros/humble/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/snap/bin:/home/sungho/.vscode/extensions/openai.chatgpt-26.825.51511-linux-x64/bin/linux-x86_64'), ('CODEX_SESSION_ID', '01a05eed-5c81-7a12-8cf6-6af8af61d8a6'), ('GTK_EXE_PREFIX', '/snap/code/259/usr'), ('INVOCATION_ID', 'bb0bbb03359749899cc8c5e95b2780b9'), ('SESSION_MANAGER', 'local/sungho:@/tmp/.ICE-unix/1740,unix/sungho:/tmp/.ICE-unix/1740'), ('GDK_BACKEND', 'x11'), ('GNOME_SETUP_DISPLAY', ':1'), ('LC_ADDRESS', 'ko_KR.UTF-8'), ('SNAP_DATA', '/var/snap/code/259'), ('XDG_MENU_PREFIX', 'gnome-'), ('XDG_RUNTIME_DIR', '/run/user/1000'), ('CODEX_SANDBOX_NETWORK_DISABLED', '1'), ('DISPLAY', ':0'), ('LOCPATH', '/snap/code/259/usr/lib/locale'), ('LANG', 'C.UTF-8'), ('LC_TELEPHONE', 'ko_KR.UTF-8'), ('XDG_CURRENT_DESKTOP', 'ubuntu:GNOME'), ('GH_PAGER', 'cat'), ('XAUTHORITY', '/run/user/1000/.mutter-Xwaylandauth.FZBUU3'), ('XDG_DATA_HOME', '/home/sungho/snap/code/259/.local/share'), ('XDG_SESSION_DESKTOP', 'ubuntu'), ('XMODIFIERS', '@im=ibus'), ('AMENT_PREFIX_PATH', '/home/sungho/Documents/GitHub/2026_IFAC/install/steering_lookup:/home/sungho/Documents/GitHub/2026_IFAC/install/state_machine:/home/sungho/Documents/GitHub/2026_IFAC/install/local_planning:/home/sungho/Documents/GitHub/2026_IFAC/install/obstacle_detector:/home/sungho/Documents/GitHub/2026_IFAC/install/new_map_con:/home/sungho/Documents/GitHub/2026_IFAC/install/lap_timer:/home/sungho/Documents/GitHub/2026_IFAC/install/lap_referee:/home/sungho/Documents/GitHub/2026_IFAC/install/kinematic_localization:/home/sungho/Documents/GitHub/2026_IFAC/install/kinematic_icp:/home/sungho/Documents/GitHub/2026_IFAC/install/global_planning:/home/sungho/Documents/GitHub/2026_IFAC/install/f1tenth_control:/home/sungho/Documents/GitHub/2026_IFAC/install/f110_msgs:/home/sungho/sim_ws/install/f1tenth_gym_ros:/opt/ros/humble'), ('GSETTINGS_SCHEMA_DIR', '/home/sungho/snap/code/259/.local/share/glib-2.0/schemas'), ('SNAP_ARCH', 'amd64'), ('SNAP_COOKIE', '7dHSHlvk7qCOQpMYcxLI5x2MXz0sQ3uh4sxdHyEFDRjD5nx4E9su'), ('SNAP_USER_COMMON', '/home/sungho/snap/code/common'), ('SSH_AGENT_LAUNCHER', 'gnome-keyring'), ('SSH_AUTH_SOCK', '/run/user/1000/keyring/ssh'), ('GDK_PIXBUF_MODULEDIR', '/snap/code/259/usr/lib/x86_64-linux-gnu/gdk-pixbuf-2.0/2.10.0/loaders'), ('LC_NAME', 'ko_KR.UTF-8'), ('SHELL', '/usr/bin/zsh'), ('ELECTRON_RUN_AS_NODE', '1'), ('GDMSESSION', 'ubuntu'), ('QT_ACCESSIBILITY', '1'), ('FONTCONFIG_FILE', '/etc/fonts/fonts.conf'), ('SNAP_NAME', 'code'), ('CODEX_THREAD_ID', '01a05eed-5c81-7a12-8cf6-6af8af61d8a6'), ('LC_MEASUREMENT', 'ko_KR.UTF-8'), ('GDK_PIXBUF_MODULE_FILE', '/home/sungho/snap/code/common/.cache/gdk-pixbuf-loaders.cache'), ('GJS_DEBUG_OUTPUT', 'stderr'), ('LC_IDENTIFICATION', 'ko_KR.UTF-8'), ('GIT_PAGER', 'cat'), ('QT_IM_MODULE', 'ibus'), ('SNAP_LAUNCHER_ARCH_TRIPLET', 'x86_64-linux-gnu'), ('LC_ALL', 'C.UTF-8'), ('PWD', '/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_build/local_planning'), ('VSCODE_CLI', '1'), ('SNAP_REAL_HOME', '/home/sungho'), ('VSCODE_CODE_CACHE_PATH', '/home/sungho/.config/Code/CachedData/08d4889f9ec4a1685d257b9b95de036c8e1ce1e5'), ('XDG_DATA_DIRS', '/home/sungho/snap/code/259/.local/share:/home/sungho/snap/code/259:/snap/code/259/usr/share:/usr/local/share/:/usr/share/:/var/lib/snapd/desktop'), ('LC_NUMERIC', 'ko_KR.UTF-8'), ('PYTHONPATH', '/home/sungho/Documents/GitHub/2026_IFAC/build/steering_lookup:/home/sungho/Documents/GitHub/2026_IFAC/install/steering_lookup/lib/python3.10/site-packages:/home/sungho/Documents/GitHub/2026_IFAC/build/lap_timer:/home/sungho/Documents/GitHub/2026_IFAC/install/lap_timer/lib/python3.10/site-packages:/home/sungho/Documents/GitHub/2026_IFAC/install/f110_msgs/local/lib/python3.10/dist-packages:/home/sungho/sim_ws/build/f1tenth_gym_ros:/home/sungho/sim_ws/install/f1tenth_gym_ros/lib/python3.10/site-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages'), ('SNAP', '/snap/code/259'), ('SNAP_EUID', '1000'), ('LC_PAPER', 'ko_KR.UTF-8'), ('COLCON', '1'), ('ELECTRON_NO_ATTACH_CONSOLE', '1'), ('VSCODE_PID', '13361'), ('CMAKE_PREFIX_PATH', '/home/sungho/Documents/GitHub/2026_IFAC/install/state_machine:/home/sungho/Documents/GitHub/2026_IFAC/install/local_planning:/home/sungho/Documents/GitHub/2026_IFAC/install/obstacle_detector:/home/sungho/Documents/GitHub/2026_IFAC/install/new_map_con:/home/sungho/Documents/GitHub/2026_IFAC/install/lap_referee:/home/sungho/Documents/GitHub/2026_IFAC/install/kinematic_localization:/home/sungho/Documents/GitHub/2026_IFAC/install/kinematic_icp:/home/sungho/Documents/GitHub/2026_IFAC/install/global_planning:/home/sungho/Documents/GitHub/2026_IFAC/install/f1tenth_control:/home/sungho/Documents/GitHub/2026_IFAC/install/f110_msgs:/home/sungho/Documents/GitHub/2026_IFAC/install/steering_lookup:/home/sungho/Documents/GitHub/2026_IFAC/install/lap_timer:/home/sungho/sim_ws/install/f1tenth_gym_ros:/opt/ros/humble')]), 'shell': False}
+[81.657170] (-) TimerEvent: {}
+[81.658614] (local_planning) StdoutLine: {'line': b'-- Install configuration: "Release"\n'}
+[81.658939] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/lib/local_planning/local_planner_node\n'}
+[81.662734] (local_planning) StdoutLine: {'line': b'-- Set runtime path of "/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/lib/local_planning/local_planner_node" to ""\n'}
+[81.662839] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/include\n'}
+[81.662912] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/include/local_planning\n'}
+[81.663106] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/include/local_planning/safe_stop_lifecycle.hpp\n'}
+[81.663182] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/include/local_planning/gqsc_v3_frozen_contract.hpp\n'}
+[81.663250] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/include/local_planning/gqsc_s1_frozen_contract.hpp\n'}
+[81.663397] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/include/local_planning/local_planner_node.hpp\n'}
+[81.663469] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/include/local_planning/p3_shadow.hpp\n'}
+[81.663610] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/include/local_planning/p3_r3_k12.hpp\n'}
+[81.663678] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/include/local_planning/raw_slowdown_gate.hpp\n'}
+[81.663868] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/include/local_planning/maneuver_memory.hpp\n'}
+[81.663938] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/include/local_planning/path_digest.hpp\n'}
+[81.664106] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/include/local_planning/research_instrumentation.hpp\n'}
+[81.664173] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/include/local_planning/p3_maneuver_lifecycle.hpp\n'}
+[81.664299] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/include/local_planning/obstacle_guard.hpp\n'}
+[81.664438] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/include/local_planning/raceline_spline_planner.hpp\n'}
+[81.664567] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/include/local_planning/handoff_latch_gate.hpp\n'}
+[81.664751] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/include/local_planning/detail\n'}
+[81.664819] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/include/local_planning/detail/obstacle_ingress_buffer.hpp\n'}
+[81.664989] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/include/local_planning/p3_analytic_solver.hpp\n'}
+[81.665059] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/include/local_planning/hold_recovery_gate.hpp\n'}
+[81.665190] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/include/local_planning/candidate_rank.hpp\n'}
+[81.665328] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/launch\n'}
+[81.665462] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/launch/local_planner_only.launch.py\n'}
+[81.665589] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/launch/local_planning.launch.py\n'}
+[81.665763] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/config\n'}
+[81.665830] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/config/local_planning.yaml\n'}
+[81.665966] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/config/local_planning_sim.yaml\n'}
+[81.666134] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/config/local_planning_velocity_limits.csv\n'}
+[81.666257] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/docs\n'}
+[81.666385] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/docs/research_instrumentation.md\n'}
+[81.666513] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/docs/local_planner.md\n'}
+[81.666725] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/README.md\n'}
+[81.666990] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/ament_index/resource_index/package_run_dependencies/local_planning\n'}
+[81.667194] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/ament_index/resource_index/parent_prefix_path/local_planning\n'}
+[81.667390] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/environment/ament_prefix_path.sh\n'}
+[81.667540] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/environment/ament_prefix_path.dsv\n'}
+[81.667693] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/environment/path.sh\n'}
+[81.667850] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/environment/path.dsv\n'}
+[81.668000] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/local_setup.bash\n'}
+[81.668148] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/local_setup.sh\n'}
+[81.668306] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/local_setup.zsh\n'}
+[81.668457] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/local_setup.dsv\n'}
+[81.668617] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/package.dsv\n'}
+[81.668839] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/ament_index/resource_index/packages/local_planning\n'}
+[81.669046] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/cmake/local_planningConfig.cmake\n'}
+[81.669185] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/cmake/local_planningConfig-version.cmake\n'}
+[81.669342] (local_planning) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/package.xml\n'}
+[81.757306] (-) TimerEvent: {}
+[81.857610] (-) TimerEvent: {}
+[81.957860] (-) TimerEvent: {}
+[82.058138] (-) TimerEvent: {}
+[82.158467] (-) TimerEvent: {}
+[82.258791] (-) TimerEvent: {}
+[82.359023] (-) TimerEvent: {}
+[82.459278] (-) TimerEvent: {}
+[82.559589] (-) TimerEvent: {}
+[82.659772] (-) TimerEvent: {}
+[82.759972] (-) TimerEvent: {}
+[82.860287] (-) TimerEvent: {}
+[82.960608] (-) TimerEvent: {}
+[83.060888] (-) TimerEvent: {}
+[83.161086] (-) TimerEvent: {}
+[83.261299] (-) TimerEvent: {}
+[83.361573] (-) TimerEvent: {}
+[83.461879] (-) TimerEvent: {}
+[83.562110] (-) TimerEvent: {}
+[83.662406] (-) TimerEvent: {}
+[83.762691] (-) TimerEvent: {}
+[83.862972] (-) TimerEvent: {}
+[83.963268] (-) TimerEvent: {}
+[84.063514] (-) TimerEvent: {}
+[84.163800] (-) TimerEvent: {}
+[84.264162] (-) TimerEvent: {}
+[84.364551] (-) TimerEvent: {}
+[84.464920] (-) TimerEvent: {}
+[84.565317] (-) TimerEvent: {}
+[84.665692] (-) TimerEvent: {}
+[84.765986] (-) TimerEvent: {}
+[84.866339] (-) TimerEvent: {}
+[84.966641] (-) TimerEvent: {}
+[85.066898] (-) TimerEvent: {}
+[85.167174] (-) TimerEvent: {}
+[85.267459] (-) TimerEvent: {}
+[85.367760] (-) TimerEvent: {}
+[85.468075] (-) TimerEvent: {}
+[85.568653] (-) TimerEvent: {}
+[85.669162] (-) TimerEvent: {}
+[85.769452] (-) TimerEvent: {}
+[85.869807] (-) TimerEvent: {}
+[85.970078] (-) TimerEvent: {}
+[86.070385] (-) TimerEvent: {}
+[86.170715] (-) TimerEvent: {}
+[86.271034] (-) TimerEvent: {}
+[86.371352] (-) TimerEvent: {}
+[86.471619] (-) TimerEvent: {}
+[86.571953] (-) TimerEvent: {}
+[86.672299] (-) TimerEvent: {}
+[86.772652] (-) TimerEvent: {}
+[86.872938] (-) TimerEvent: {}
+[86.973184] (-) TimerEvent: {}
+[87.073503] (-) TimerEvent: {}
+[87.173870] (-) TimerEvent: {}
+[87.274136] (-) TimerEvent: {}
+[87.374500] (-) TimerEvent: {}
+[87.474809] (-) TimerEvent: {}
+[87.575072] (-) TimerEvent: {}
+[87.675343] (-) TimerEvent: {}
+[87.775611] (-) TimerEvent: {}
+[87.875896] (-) TimerEvent: {}
+[87.976145] (-) TimerEvent: {}
+[88.076482] (-) TimerEvent: {}
+[88.176768] (-) TimerEvent: {}
+[88.277032] (-) TimerEvent: {}
+[88.377293] (-) TimerEvent: {}
+[88.477547] (-) TimerEvent: {}
+[88.577898] (-) TimerEvent: {}
+[88.678179] (-) TimerEvent: {}
+[88.778540] (-) TimerEvent: {}
+[88.878900] (-) TimerEvent: {}
+[88.979215] (-) TimerEvent: {}
+[89.079536] (-) TimerEvent: {}
+[89.179908] (-) TimerEvent: {}
+[89.280247] (-) TimerEvent: {}
+[89.380590] (-) TimerEvent: {}
+[89.480953] (-) TimerEvent: {}
+[89.581213] (-) TimerEvent: {}
+[89.681516] (-) TimerEvent: {}
+[89.781788] (-) TimerEvent: {}
+[89.882051] (-) TimerEvent: {}
+[89.982364] (-) TimerEvent: {}
+[90.019529] (local_planning) CommandEnded: {'returncode': 0}
+[90.043363] (local_planning) JobEnded: {'identifier': 'local_planning', 'rc': 0}
+[90.044288] (-) EventReactorShutdown: {}

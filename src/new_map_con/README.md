@@ -10,7 +10,7 @@ waypoint 추종 컨트롤러 패키지. `map_controller`(C++) 노드가 global/l
 
 ## 1. 작동 원리
 
-1. 시작 시 `global_waypoints_csv`(기본 `maps/fuck_f1.csv`, 8컬럼)를 읽어 `/global_waypoints`로 latched 발행한다.
+1. 시작 시 `global_waypoints_csv`(기본 `maps/base_track.csv`, 8컬럼)를 읽어 `/global_waypoints`로 latched 발행한다.
 2. 제어 주기(`control_rate_hz`)마다 현재 pose에서 가장 가까운 웨이포인트를 찾고, 속도 기반
    lookahead 거리만큼 앞의 점을 목표로 pure-pursuit 조향을 계산한다.
 3. 목표 속도는 (속도 lookahead 지점의) 웨이포인트 `vx_mps`를 횡오차·곡률로 보정해 명령한다.
@@ -61,7 +61,7 @@ waypoint 추종 컨트롤러 패키지. `map_controller`(C++) 노드가 global/l
 
 | 파라미터 | 의미 | 기본값 |
 |----------|------|--------|
-| `global_waypoints_csv` | 추종할 raceline CSV 경로 | `maps/fuck_f1.csv` |
+| `global_waypoints_csv` | 추종할 raceline CSV 경로 | `maps/base_track.csv` |
 | `simulator` | 시뮬레이터 토픽 프로파일 사용 | `false` |
 | `control_rate_hz` | 제어 주기 | `40.0` |
 | `min/max_lookahead_distance`, `lookahead_gain`, `lookahead_speed_gain` | lookahead 계산 | `1.5`/`5.0`/`0.5`/`0.3` |

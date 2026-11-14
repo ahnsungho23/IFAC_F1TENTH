@@ -29,7 +29,7 @@ python3 offline_trajectory_generator/trajectory_gui.py
 
 On the first run, a map YAML selection window opens. For example, you can select `kinematic_localization/maps/slam_map.yaml`.
 
-When creating a trajectory for use in f1sim, you must select the same map YAML as `map_path` in f1sim's `config/sim.yaml`. The current f1sim default map is `src/kinematic_localization/maps/fuck_f1.yaml`, and the `new_map_con` default CSV also uses `src/new_map_con/maps/fuck_f1.csv` in this map's coordinate frame.
+When creating a trajectory for use in f1sim, you must select the same map YAML as `map_path` in f1sim's `config/sim.yaml`. The current f1sim default map is `src/kinematic_localization/maps/base_track.yaml`, and the `new_map_con` default CSV also uses `src/new_map_con/maps/base_track.csv` in this map's coordinate frame.
 
 If you want to open a specific map from the start, pass it as follows.
 
@@ -171,7 +171,7 @@ When using the GUI, you can check steps 3-5 directly on screen and then just pre
 id,s,x_m,y_m,psi_rad,kappa_radpm,vx_mps,ax_mps2,d_left,d_right
 ```
 
-The CSV format uses the same 10-column structure as `src/new_map_con/maps/fuck_f1.csv`. `d_left`/`d_right` are the distances [m] from each waypoint to the left/right track boundary, computed according to `--width-mode`:
+The CSV format uses the same 10-column structure as `src/new_map_con/maps/base_track.csv`. `d_left`/`d_right` are the distances [m] from each waypoint to the left/right track boundary, computed according to `--width-mode`:
 
 - `hybrid` (default, recommended): directional robust raycast measures left/right boundaries independently. It requires at least 2 consecutive wall pixels so single-pixel noise/holes are ignored, and if a ray leaks through a gap and reaches the max distance it falls back to the distance-transform nearest-wall value. Left/right asymmetry is preserved when the raceline hugs the inside of a curve.
 - `distance`: distance-transform based. Fast, but returns a single nearest-wall value so `d_left == d_right` (no left/right distinction).

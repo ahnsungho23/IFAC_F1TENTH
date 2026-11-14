@@ -1,0 +1,58 @@
+[INFO] [launch]: All log files can be found below /home/sungho/.ros/log/2026-09-02-13-25-53-445904-sungho-65057
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [state_machine_node-1]: process started with pid [65070]
+[state_machine_node-1] [INFO] [1788323153.747466948] [state_machine_node]: Integrated state_machine_node started: state='/state', local_waypoints='/local_waypoints', default_state='global'.
+[state_machine_node-1] [WARN] [1788323153.797526111] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=unseen.
+[state_machine_node-1] [INFO] [1788323153.797806210] [state_machine_node]: Published state changed to 0.
+[state_machine_node-1] [WARN] [1788323156.797594164] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323159.797647051] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323162.797710855] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323165.797757690] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323168.797824014] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323171.797925243] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323174.797940329] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323177.797995580] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323180.798057151] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323183.798113461] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323186.798159291] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323189.798232491] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323192.798361990] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323195.848352774] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323198.848362261] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323201.848426777] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323204.848481792] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323207.848537445] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323210.848665585] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323213.898641103] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323216.898766635] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323219.948760716] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323222.948805948] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323225.948876710] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323228.948934865] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323231.948951113] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323234.948984709] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323237.949048046] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323240.949091521] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323243.949192967] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323246.949238113] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323249.949266392] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323252.949325255] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323255.949362042] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323258.949407461] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323261.949552859] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323264.949586933] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323267.999568997] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323270.999589767] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323274.049729368] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323277.099689400] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323280.099750687] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323283.099795908] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323286.099824635] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323289.099898840] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323292.099944103] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323295.099985703] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323298.100039116] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323301.100074950] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [WARN] [1788323304.100141642] [state_machine_node]: FSM inputs: global=true frenet=true avoid_wpnts=false opp_obs=clear.
+[state_machine_node-1] [INFO] [1788323306.726939236] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[INFO] [state_machine_node-1]: process has finished cleanly [pid 65070]

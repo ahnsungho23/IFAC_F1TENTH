@@ -11,7 +11,7 @@ import _control_common as common
 def generate_launch_description():
 
     # 종방향 최대 가속도 한계 [m/s^2] — real과 값이 갈릴 수 있어 진입점 파일에 각자 둔다.
-    # 공격적 속도 프로파일(fuck_f1 재생성분)을 직선에서 놓치지 않도록 상향된 값(폐루프 6.97s
+    # 공격적 속도 프로파일(base_track 재생성분)을 직선에서 놓치지 않도록 상향된 값(폐루프 6.97s
     # 달성). 히스토리/실차 경고는 CLAUDE.md "실차 튜닝 파라미터" 표 참고.
     base_max_accel_arg = DeclareLaunchArgument(
         'base_max_accel', default_value='9.0',

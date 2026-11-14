@@ -1,0 +1,231 @@
+[0.000000] (-) TimerEvent: {}
+[0.000138] (gqsc_runtime_replay) JobQueued: {'identifier': 'gqsc_runtime_replay', 'dependencies': OrderedDict()}
+[0.000243] (gqsc_runtime_replay) JobStarted: {'identifier': 'gqsc_runtime_replay'}
+[0.013159] (gqsc_runtime_replay) JobProgress: {'identifier': 'gqsc_runtime_replay', 'progress': 'cmake'}
+[0.014351] (gqsc_runtime_replay) JobProgress: {'identifier': 'gqsc_runtime_replay', 'progress': 'build'}
+[0.015633] (gqsc_runtime_replay) Command: {'cmd': ['/usr/bin/cmake', '--build', '/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_build/gqsc_runtime_replay', '--', '-j24', '-l24'], 'cwd': '/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_build/gqsc_runtime_replay', 'env': OrderedDict([('GJS_DEBUG_TOPICS', 'JS ERROR;JS LOG'), ('VSCODE_CWD', '/home/sungho'), ('CODEX_CI', '1'), ('VSCODE_ESM_ENTRYPOINT', 'vs/workbench/api/node/extensionHostProcess'), ('CODEX_INTERNAL_ORIGINATOR_OVERRIDE', 'codex_vscode'), ('LC_TIME', 'ko_KR.UTF-8'), ('SNAP_COMMON', '/var/snap/code/common'), ('USER', 'sungho'), ('VSCODE_NLS_CONFIG', '{"userLocale":"en-us","osLocale":"en-us","resolvedLanguage":"en","defaultMessagesFile":"/snap/code/259/usr/share/code/resources/app/out/nls.messages.json","locale":"en-us","availableLanguages":{}}'), ('FONTCONFIG_PATH', '/etc/fonts'), ('GIO_MODULE_DIR', '/home/sungho/snap/code/common/.cache/gio-modules'), ('VSCODE_HANDLES_UNCAUGHT_ERRORS', 'true'), ('DEBUG', 'release'), ('XDG_SESSION_TYPE', 'wayland'), ('LD_LIBRARY_PATH', '/home/sungho/Documents/GitHub/2026_IFAC/install/kinematic_icp/lib:/home/sungho/Documents/GitHub/2026_IFAC/install/global_planning/lib:/home/sungho/Documents/GitHub/2026_IFAC/install/f110_msgs/lib:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib'), ('SHLVL', '1'), ('SNAP_UID', '1000'), ('CHROME_DESKTOP', 'code.desktop'), ('HOME', '/home/sungho'), ('LESS', '-R'), ('OLDPWD', '/home/sungho/Documents/GitHub/2026_IFAC'), ('SNAP_LIBRARY_PATH', '/var/lib/snapd/lib/gl:/var/lib/snapd/lib/gl32'), ('DESKTOP_SESSION', 'ubuntu'), ('GTK_PATH', '/snap/code/259/usr/lib/x86_64-linux-gnu/gtk-3.0'), ('SNAP_USER_DATA', '/home/sungho/snap/code/259'), ('GIO_LAUNCHED_DESKTOP_FILE', '/var/lib/snapd/desktop/applications/code_code.desktop'), ('GTK_IM_MODULE_FILE', '/home/sungho/snap/code/common/.cache/immodules/immodules.cache'), ('LSCOLORS', 'Gxfxcxdxbxegedabagacad'), ('VSCODE_IPC_HOOK', '/run/user/1000/vscode-4c018ac0-1.13-main.sock'), ('ZSH', '/home/sungho/.oh-my-zsh'), ('GNOME_SHELL_SESSION_MODE', 'ubuntu'), ('GTK_MODULES', 'gail:atk-bridge'), ('PAGER', 'cat'), ('ROS_PYTHON_VERSION', '3'), ('LC_CTYPE', 'C.UTF-8'), ('LC_MONETARY', 'ko_KR.UTF-8'), ('MANAGERPID', '1624'), ('DBUS_SESSION_BUS_ADDRESS', 'unix:path=/run/user/1000/bus'), ('GQSC_DATA_ROOT', '/home/sungho/Documents/GitHub/GQSC_RECOVERY_20260901/research_data/F1TENTH_research_data'), ('NO_COLOR', '1'), ('SYSTEMD_EXEC_PID', '1782'), ('COLORTERM', ''), ('GIO_LAUNCHED_DESKTOP_FILE_PID', '13315'), ('SNAP_REVISION', '259'), ('VSCODE_CRASH_REPORTER_PROCESS_TYPE', 'extensionHost'), ('CODEX_PERMISSION_PROFILE', ':workspace'), ('COLCON_PREFIX_PATH', '/home/sungho/Documents/GitHub/2026_IFAC/install:/home/sungho/sim_ws/install'), ('ROS_DISTRO', 'humble'), ('WAYLAND_DISPLAY', 'wayland-0'), ('LOGNAME', 'sungho'), ('JOURNAL_STREAM', '8:17697'), ('SNAP_CONTEXT', '7dHSHlvk7qCOQpMYcxLI5x2MXz0sQ3uh4sxdHyEFDRjD5nx4E9su'), ('_', '/usr/bin/colcon'), ('ROS_VERSION', '2'), ('RUST_LOG', 'warn'), ('SNAP_VERSION', '08d4889f'), ('XDG_DATA_DIRS_VSCODE_SNAP_ORIG', '/usr/local/share/:/usr/share/:/var/lib/snapd/desktop'), ('XDG_SESSION_CLASS', 'user'), ('TERM', 'dumb'), ('USERNAME', 'sungho'), ('FC_FONTATIONS', '1'), ('GNOME_DESKTOP_SESSION_ID', 'this-is-deprecated'), ('ROS_LOCALHOST_ONLY', '0'), ('SNAP_INSTANCE_NAME', 'code'), ('PATH', '/home/sungho/.codex/tmp/arg0/codex-arg0WP29TO:/opt/ros/humble/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/snap/bin:/home/sungho/.vscode/extensions/openai.chatgpt-26.825.51511-linux-x64/bin/linux-x86_64'), ('CODEX_SESSION_ID', '01a05eed-5c81-7a12-8cf6-6af8af61d8a6'), ('GTK_EXE_PREFIX', '/snap/code/259/usr'), ('INVOCATION_ID', 'bb0bbb03359749899cc8c5e95b2780b9'), ('SESSION_MANAGER', 'local/sungho:@/tmp/.ICE-unix/1740,unix/sungho:/tmp/.ICE-unix/1740'), ('GDK_BACKEND', 'x11'), ('GNOME_SETUP_DISPLAY', ':1'), ('LC_ADDRESS', 'ko_KR.UTF-8'), ('SNAP_DATA', '/var/snap/code/259'), ('XDG_MENU_PREFIX', 'gnome-'), ('XDG_RUNTIME_DIR', '/run/user/1000'), ('CODEX_SANDBOX_NETWORK_DISABLED', '1'), ('DISPLAY', ':0'), ('LOCPATH', '/snap/code/259/usr/lib/locale'), ('LANG', 'C.UTF-8'), ('LC_TELEPHONE', 'ko_KR.UTF-8'), ('XDG_CURRENT_DESKTOP', 'ubuntu:GNOME'), ('GH_PAGER', 'cat'), ('XAUTHORITY', '/run/user/1000/.mutter-Xwaylandauth.FZBUU3'), ('XDG_DATA_HOME', '/home/sungho/snap/code/259/.local/share'), ('XDG_SESSION_DESKTOP', 'ubuntu'), ('XMODIFIERS', '@im=ibus'), ('AMENT_PREFIX_PATH', '/home/sungho/Documents/GitHub/2026_IFAC/install/steering_lookup:/home/sungho/Documents/GitHub/2026_IFAC/install/state_machine:/home/sungho/Documents/GitHub/2026_IFAC/install/local_planning:/home/sungho/Documents/GitHub/2026_IFAC/install/obstacle_detector:/home/sungho/Documents/GitHub/2026_IFAC/install/new_map_con:/home/sungho/Documents/GitHub/2026_IFAC/install/lap_timer:/home/sungho/Documents/GitHub/2026_IFAC/install/lap_referee:/home/sungho/Documents/GitHub/2026_IFAC/install/kinematic_localization:/home/sungho/Documents/GitHub/2026_IFAC/install/kinematic_icp:/home/sungho/Documents/GitHub/2026_IFAC/install/global_planning:/home/sungho/Documents/GitHub/2026_IFAC/install/f1tenth_control:/home/sungho/Documents/GitHub/2026_IFAC/install/f110_msgs:/home/sungho/sim_ws/install/f1tenth_gym_ros:/opt/ros/humble'), ('GSETTINGS_SCHEMA_DIR', '/home/sungho/snap/code/259/.local/share/glib-2.0/schemas'), ('SNAP_ARCH', 'amd64'), ('SNAP_COOKIE', '7dHSHlvk7qCOQpMYcxLI5x2MXz0sQ3uh4sxdHyEFDRjD5nx4E9su'), ('SNAP_USER_COMMON', '/home/sungho/snap/code/common'), ('SSH_AGENT_LAUNCHER', 'gnome-keyring'), ('SSH_AUTH_SOCK', '/run/user/1000/keyring/ssh'), ('GDK_PIXBUF_MODULEDIR', '/snap/code/259/usr/lib/x86_64-linux-gnu/gdk-pixbuf-2.0/2.10.0/loaders'), ('LC_NAME', 'ko_KR.UTF-8'), ('SHELL', '/usr/bin/zsh'), ('ELECTRON_RUN_AS_NODE', '1'), ('GDMSESSION', 'ubuntu'), ('QT_ACCESSIBILITY', '1'), ('FONTCONFIG_FILE', '/etc/fonts/fonts.conf'), ('SNAP_NAME', 'code'), ('CODEX_THREAD_ID', '01a05eed-5c81-7a12-8cf6-6af8af61d8a6'), ('LC_MEASUREMENT', 'ko_KR.UTF-8'), ('GDK_PIXBUF_MODULE_FILE', '/home/sungho/snap/code/common/.cache/gdk-pixbuf-loaders.cache'), ('GJS_DEBUG_OUTPUT', 'stderr'), ('LC_IDENTIFICATION', 'ko_KR.UTF-8'), ('GIT_PAGER', 'cat'), ('QT_IM_MODULE', 'ibus'), ('SNAP_LAUNCHER_ARCH_TRIPLET', 'x86_64-linux-gnu'), ('LC_ALL', 'C.UTF-8'), ('PWD', '/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_build/gqsc_runtime_replay'), ('VSCODE_CLI', '1'), ('SNAP_REAL_HOME', '/home/sungho'), ('VSCODE_CODE_CACHE_PATH', '/home/sungho/.config/Code/CachedData/08d4889f9ec4a1685d257b9b95de036c8e1ce1e5'), ('XDG_DATA_DIRS', '/home/sungho/snap/code/259/.local/share:/home/sungho/snap/code/259:/snap/code/259/usr/share:/usr/local/share/:/usr/share/:/var/lib/snapd/desktop'), ('LC_NUMERIC', 'ko_KR.UTF-8'), ('PYTHONPATH', '/home/sungho/Documents/GitHub/2026_IFAC/build/steering_lookup:/home/sungho/Documents/GitHub/2026_IFAC/install/steering_lookup/lib/python3.10/site-packages:/home/sungho/Documents/GitHub/2026_IFAC/build/lap_timer:/home/sungho/Documents/GitHub/2026_IFAC/install/lap_timer/lib/python3.10/site-packages:/home/sungho/Documents/GitHub/2026_IFAC/install/f110_msgs/local/lib/python3.10/dist-packages:/home/sungho/sim_ws/build/f1tenth_gym_ros:/home/sungho/sim_ws/install/f1tenth_gym_ros/lib/python3.10/site-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages'), ('SNAP', '/snap/code/259'), ('SNAP_EUID', '1000'), ('LC_PAPER', 'ko_KR.UTF-8'), ('COLCON', '1'), ('ELECTRON_NO_ATTACH_CONSOLE', '1'), ('VSCODE_PID', '13361'), ('CMAKE_PREFIX_PATH', '/home/sungho/Documents/GitHub/2026_IFAC/install/state_machine:/home/sungho/Documents/GitHub/2026_IFAC/install/local_planning:/home/sungho/Documents/GitHub/2026_IFAC/install/obstacle_detector:/home/sungho/Documents/GitHub/2026_IFAC/install/new_map_con:/home/sungho/Documents/GitHub/2026_IFAC/install/lap_referee:/home/sungho/Documents/GitHub/2026_IFAC/install/kinematic_localization:/home/sungho/Documents/GitHub/2026_IFAC/install/kinematic_icp:/home/sungho/Documents/GitHub/2026_IFAC/install/global_planning:/home/sungho/Documents/GitHub/2026_IFAC/install/f1tenth_control:/home/sungho/Documents/GitHub/2026_IFAC/install/f110_msgs:/home/sungho/Documents/GitHub/2026_IFAC/install/steering_lookup:/home/sungho/Documents/GitHub/2026_IFAC/install/lap_timer:/home/sungho/sim_ws/install/f1tenth_gym_ros:/opt/ros/humble')]), 'shell': False}
+[0.089162] (gqsc_runtime_replay) StdoutLine: {'line': b'Consolidate compiler generated dependencies of target sce018_replay_driver\n'}
+[0.098761] (-) TimerEvent: {}
+[0.119782] (gqsc_runtime_replay) StdoutLine: {'line': b'[ 50%] Building CXX object CMakeFiles/sce018_replay_driver.dir/src/sce018_replay_driver.cpp.o\n'}
+[0.198946] (-) TimerEvent: {}
+[0.299335] (-) TimerEvent: {}
+[0.399688] (-) TimerEvent: {}
+[0.500048] (-) TimerEvent: {}
+[0.600405] (-) TimerEvent: {}
+[0.700805] (-) TimerEvent: {}
+[0.801192] (-) TimerEvent: {}
+[0.901492] (-) TimerEvent: {}
+[1.001881] (-) TimerEvent: {}
+[1.102274] (-) TimerEvent: {}
+[1.202651] (-) TimerEvent: {}
+[1.303029] (-) TimerEvent: {}
+[1.403415] (-) TimerEvent: {}
+[1.503826] (-) TimerEvent: {}
+[1.604214] (-) TimerEvent: {}
+[1.704700] (-) TimerEvent: {}
+[1.805022] (-) TimerEvent: {}
+[1.905366] (-) TimerEvent: {}
+[2.005756] (-) TimerEvent: {}
+[2.106104] (-) TimerEvent: {}
+[2.206439] (-) TimerEvent: {}
+[2.306800] (-) TimerEvent: {}
+[2.407122] (-) TimerEvent: {}
+[2.507463] (-) TimerEvent: {}
+[2.607744] (-) TimerEvent: {}
+[2.708091] (-) TimerEvent: {}
+[2.808437] (-) TimerEvent: {}
+[2.908776] (-) TimerEvent: {}
+[3.009120] (-) TimerEvent: {}
+[3.109412] (-) TimerEvent: {}
+[3.209781] (-) TimerEvent: {}
+[3.310061] (-) TimerEvent: {}
+[3.410351] (-) TimerEvent: {}
+[3.510729] (-) TimerEvent: {}
+[3.611030] (-) TimerEvent: {}
+[3.711333] (-) TimerEvent: {}
+[3.811615] (-) TimerEvent: {}
+[3.911898] (-) TimerEvent: {}
+[4.012182] (-) TimerEvent: {}
+[4.112527] (-) TimerEvent: {}
+[4.212858] (-) TimerEvent: {}
+[4.313249] (-) TimerEvent: {}
+[4.413557] (-) TimerEvent: {}
+[4.513889] (-) TimerEvent: {}
+[4.614170] (-) TimerEvent: {}
+[4.714470] (-) TimerEvent: {}
+[4.814827] (-) TimerEvent: {}
+[4.915159] (-) TimerEvent: {}
+[5.015498] (-) TimerEvent: {}
+[5.115816] (-) TimerEvent: {}
+[5.216211] (-) TimerEvent: {}
+[5.316637] (-) TimerEvent: {}
+[5.416959] (-) TimerEvent: {}
+[5.517277] (-) TimerEvent: {}
+[5.617552] (-) TimerEvent: {}
+[5.717827] (-) TimerEvent: {}
+[5.818122] (-) TimerEvent: {}
+[5.918440] (-) TimerEvent: {}
+[6.018749] (-) TimerEvent: {}
+[6.119060] (-) TimerEvent: {}
+[6.219523] (-) TimerEvent: {}
+[6.319761] (-) TimerEvent: {}
+[6.419978] (-) TimerEvent: {}
+[6.520191] (-) TimerEvent: {}
+[6.620459] (-) TimerEvent: {}
+[6.720684] (-) TimerEvent: {}
+[6.820909] (-) TimerEvent: {}
+[6.921117] (-) TimerEvent: {}
+[7.021387] (-) TimerEvent: {}
+[7.121696] (-) TimerEvent: {}
+[7.222042] (-) TimerEvent: {}
+[7.322368] (-) TimerEvent: {}
+[7.422609] (-) TimerEvent: {}
+[7.522934] (-) TimerEvent: {}
+[7.623297] (-) TimerEvent: {}
+[7.723524] (-) TimerEvent: {}
+[7.823753] (-) TimerEvent: {}
+[7.924044] (-) TimerEvent: {}
+[8.024299] (-) TimerEvent: {}
+[8.124528] (-) TimerEvent: {}
+[8.224772] (-) TimerEvent: {}
+[8.325006] (-) TimerEvent: {}
+[8.425316] (-) TimerEvent: {}
+[8.525542] (-) TimerEvent: {}
+[8.625766] (-) TimerEvent: {}
+[8.726004] (-) TimerEvent: {}
+[8.826314] (-) TimerEvent: {}
+[8.926541] (-) TimerEvent: {}
+[9.026794] (-) TimerEvent: {}
+[9.127112] (-) TimerEvent: {}
+[9.227391] (-) TimerEvent: {}
+[9.327716] (-) TimerEvent: {}
+[9.428029] (-) TimerEvent: {}
+[9.528342] (-) TimerEvent: {}
+[9.628570] (-) TimerEvent: {}
+[9.728789] (-) TimerEvent: {}
+[9.829033] (-) TimerEvent: {}
+[9.929396] (-) TimerEvent: {}
+[10.029729] (-) TimerEvent: {}
+[10.130005] (-) TimerEvent: {}
+[10.230322] (-) TimerEvent: {}
+[10.330560] (-) TimerEvent: {}
+[10.430863] (-) TimerEvent: {}
+[10.531143] (-) TimerEvent: {}
+[10.631392] (-) TimerEvent: {}
+[10.731677] (-) TimerEvent: {}
+[10.831970] (-) TimerEvent: {}
+[10.932286] (-) TimerEvent: {}
+[11.032574] (-) TimerEvent: {}
+[11.132874] (-) TimerEvent: {}
+[11.233223] (-) TimerEvent: {}
+[11.333511] (-) TimerEvent: {}
+[11.433783] (-) TimerEvent: {}
+[11.534059] (-) TimerEvent: {}
+[11.646436] (-) TimerEvent: {}
+[11.746751] (-) TimerEvent: {}
+[11.847101] (-) TimerEvent: {}
+[11.947391] (-) TimerEvent: {}
+[12.047647] (-) TimerEvent: {}
+[12.147916] (-) TimerEvent: {}
+[12.248209] (-) TimerEvent: {}
+[12.348555] (-) TimerEvent: {}
+[12.448858] (-) TimerEvent: {}
+[12.549175] (-) TimerEvent: {}
+[12.649494] (-) TimerEvent: {}
+[12.749758] (-) TimerEvent: {}
+[12.850113] (-) TimerEvent: {}
+[12.950417] (-) TimerEvent: {}
+[13.050656] (-) TimerEvent: {}
+[13.151002] (-) TimerEvent: {}
+[13.251363] (-) TimerEvent: {}
+[13.351724] (-) TimerEvent: {}
+[13.452039] (-) TimerEvent: {}
+[13.552393] (-) TimerEvent: {}
+[13.652738] (-) TimerEvent: {}
+[13.753090] (-) TimerEvent: {}
+[13.853449] (-) TimerEvent: {}
+[13.953876] (-) TimerEvent: {}
+[14.054248] (-) TimerEvent: {}
+[14.154544] (-) TimerEvent: {}
+[14.254889] (-) TimerEvent: {}
+[14.355268] (-) TimerEvent: {}
+[14.455561] (-) TimerEvent: {}
+[14.555812] (-) TimerEvent: {}
+[14.656158] (-) TimerEvent: {}
+[14.756415] (-) TimerEvent: {}
+[14.856784] (-) TimerEvent: {}
+[14.957041] (-) TimerEvent: {}
+[15.057423] (-) TimerEvent: {}
+[15.157796] (-) TimerEvent: {}
+[15.258179] (-) TimerEvent: {}
+[15.358465] (-) TimerEvent: {}
+[15.458829] (-) TimerEvent: {}
+[15.559193] (-) TimerEvent: {}
+[15.659570] (-) TimerEvent: {}
+[15.759955] (-) TimerEvent: {}
+[15.860382] (-) TimerEvent: {}
+[15.960658] (-) TimerEvent: {}
+[16.060918] (-) TimerEvent: {}
+[16.161221] (-) TimerEvent: {}
+[16.261458] (-) TimerEvent: {}
+[16.361674] (-) TimerEvent: {}
+[16.461902] (-) TimerEvent: {}
+[16.562193] (-) TimerEvent: {}
+[16.662429] (-) TimerEvent: {}
+[16.762647] (-) TimerEvent: {}
+[16.862887] (-) TimerEvent: {}
+[16.963181] (-) TimerEvent: {}
+[17.063438] (-) TimerEvent: {}
+[17.163708] (-) TimerEvent: {}
+[17.264009] (-) TimerEvent: {}
+[17.364376] (-) TimerEvent: {}
+[17.464601] (-) TimerEvent: {}
+[17.564839] (-) TimerEvent: {}
+[17.665075] (-) TimerEvent: {}
+[17.765395] (-) TimerEvent: {}
+[17.865654] (-) TimerEvent: {}
+[17.965889] (-) TimerEvent: {}
+[18.066190] (-) TimerEvent: {}
+[18.166425] (-) TimerEvent: {}
+[18.266638] (-) TimerEvent: {}
+[18.366886] (-) TimerEvent: {}
+[18.467150] (-) TimerEvent: {}
+[18.567394] (-) TimerEvent: {}
+[18.667630] (-) TimerEvent: {}
+[18.767945] (-) TimerEvent: {}
+[18.868282] (-) TimerEvent: {}
+[18.968588] (-) TimerEvent: {}
+[19.068869] (-) TimerEvent: {}
+[19.169155] (-) TimerEvent: {}
+[19.269442] (-) TimerEvent: {}
+[19.369711] (-) TimerEvent: {}
+[19.469959] (-) TimerEvent: {}
+[19.532507] (gqsc_runtime_replay) StdoutLine: {'line': b'[100%] Linking CXX executable sce018_replay_driver\n'}
+[19.570153] (-) TimerEvent: {}
+[19.670480] (-) TimerEvent: {}
+[19.764266] (gqsc_runtime_replay) StdoutLine: {'line': b'[100%] Built target sce018_replay_driver\n'}
+[19.770633] (-) TimerEvent: {}
+[19.779725] (gqsc_runtime_replay) CommandEnded: {'returncode': 0}
+[19.781376] (gqsc_runtime_replay) JobProgress: {'identifier': 'gqsc_runtime_replay', 'progress': 'install'}
+[19.792860] (gqsc_runtime_replay) Command: {'cmd': ['/usr/bin/cmake', '--install', '/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_build/gqsc_runtime_replay'], 'cwd': '/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_build/gqsc_runtime_replay', 'env': OrderedDict([('GJS_DEBUG_TOPICS', 'JS ERROR;JS LOG'), ('VSCODE_CWD', '/home/sungho'), ('CODEX_CI', '1'), ('VSCODE_ESM_ENTRYPOINT', 'vs/workbench/api/node/extensionHostProcess'), ('CODEX_INTERNAL_ORIGINATOR_OVERRIDE', 'codex_vscode'), ('LC_TIME', 'ko_KR.UTF-8'), ('SNAP_COMMON', '/var/snap/code/common'), ('USER', 'sungho'), ('VSCODE_NLS_CONFIG', '{"userLocale":"en-us","osLocale":"en-us","resolvedLanguage":"en","defaultMessagesFile":"/snap/code/259/usr/share/code/resources/app/out/nls.messages.json","locale":"en-us","availableLanguages":{}}'), ('FONTCONFIG_PATH', '/etc/fonts'), ('GIO_MODULE_DIR', '/home/sungho/snap/code/common/.cache/gio-modules'), ('VSCODE_HANDLES_UNCAUGHT_ERRORS', 'true'), ('DEBUG', 'release'), ('XDG_SESSION_TYPE', 'wayland'), ('LD_LIBRARY_PATH', '/home/sungho/Documents/GitHub/2026_IFAC/install/kinematic_icp/lib:/home/sungho/Documents/GitHub/2026_IFAC/install/global_planning/lib:/home/sungho/Documents/GitHub/2026_IFAC/install/f110_msgs/lib:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib'), ('SHLVL', '1'), ('SNAP_UID', '1000'), ('CHROME_DESKTOP', 'code.desktop'), ('HOME', '/home/sungho'), ('LESS', '-R'), ('OLDPWD', '/home/sungho/Documents/GitHub/2026_IFAC'), ('SNAP_LIBRARY_PATH', '/var/lib/snapd/lib/gl:/var/lib/snapd/lib/gl32'), ('DESKTOP_SESSION', 'ubuntu'), ('GTK_PATH', '/snap/code/259/usr/lib/x86_64-linux-gnu/gtk-3.0'), ('SNAP_USER_DATA', '/home/sungho/snap/code/259'), ('GIO_LAUNCHED_DESKTOP_FILE', '/var/lib/snapd/desktop/applications/code_code.desktop'), ('GTK_IM_MODULE_FILE', '/home/sungho/snap/code/common/.cache/immodules/immodules.cache'), ('LSCOLORS', 'Gxfxcxdxbxegedabagacad'), ('VSCODE_IPC_HOOK', '/run/user/1000/vscode-4c018ac0-1.13-main.sock'), ('ZSH', '/home/sungho/.oh-my-zsh'), ('GNOME_SHELL_SESSION_MODE', 'ubuntu'), ('GTK_MODULES', 'gail:atk-bridge'), ('PAGER', 'cat'), ('ROS_PYTHON_VERSION', '3'), ('LC_CTYPE', 'C.UTF-8'), ('LC_MONETARY', 'ko_KR.UTF-8'), ('MANAGERPID', '1624'), ('DBUS_SESSION_BUS_ADDRESS', 'unix:path=/run/user/1000/bus'), ('GQSC_DATA_ROOT', '/home/sungho/Documents/GitHub/GQSC_RECOVERY_20260901/research_data/F1TENTH_research_data'), ('NO_COLOR', '1'), ('SYSTEMD_EXEC_PID', '1782'), ('COLORTERM', ''), ('GIO_LAUNCHED_DESKTOP_FILE_PID', '13315'), ('SNAP_REVISION', '259'), ('VSCODE_CRASH_REPORTER_PROCESS_TYPE', 'extensionHost'), ('CODEX_PERMISSION_PROFILE', ':workspace'), ('COLCON_PREFIX_PATH', '/home/sungho/Documents/GitHub/2026_IFAC/install:/home/sungho/sim_ws/install'), ('ROS_DISTRO', 'humble'), ('WAYLAND_DISPLAY', 'wayland-0'), ('LOGNAME', 'sungho'), ('JOURNAL_STREAM', '8:17697'), ('SNAP_CONTEXT', '7dHSHlvk7qCOQpMYcxLI5x2MXz0sQ3uh4sxdHyEFDRjD5nx4E9su'), ('_', '/usr/bin/colcon'), ('ROS_VERSION', '2'), ('RUST_LOG', 'warn'), ('SNAP_VERSION', '08d4889f'), ('XDG_DATA_DIRS_VSCODE_SNAP_ORIG', '/usr/local/share/:/usr/share/:/var/lib/snapd/desktop'), ('XDG_SESSION_CLASS', 'user'), ('TERM', 'dumb'), ('USERNAME', 'sungho'), ('FC_FONTATIONS', '1'), ('GNOME_DESKTOP_SESSION_ID', 'this-is-deprecated'), ('ROS_LOCALHOST_ONLY', '0'), ('SNAP_INSTANCE_NAME', 'code'), ('PATH', '/home/sungho/.codex/tmp/arg0/codex-arg0WP29TO:/opt/ros/humble/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/snap/bin:/home/sungho/.vscode/extensions/openai.chatgpt-26.825.51511-linux-x64/bin/linux-x86_64'), ('CODEX_SESSION_ID', '01a05eed-5c81-7a12-8cf6-6af8af61d8a6'), ('GTK_EXE_PREFIX', '/snap/code/259/usr'), ('INVOCATION_ID', 'bb0bbb03359749899cc8c5e95b2780b9'), ('SESSION_MANAGER', 'local/sungho:@/tmp/.ICE-unix/1740,unix/sungho:/tmp/.ICE-unix/1740'), ('GDK_BACKEND', 'x11'), ('GNOME_SETUP_DISPLAY', ':1'), ('LC_ADDRESS', 'ko_KR.UTF-8'), ('SNAP_DATA', '/var/snap/code/259'), ('XDG_MENU_PREFIX', 'gnome-'), ('XDG_RUNTIME_DIR', '/run/user/1000'), ('CODEX_SANDBOX_NETWORK_DISABLED', '1'), ('DISPLAY', ':0'), ('LOCPATH', '/snap/code/259/usr/lib/locale'), ('LANG', 'C.UTF-8'), ('LC_TELEPHONE', 'ko_KR.UTF-8'), ('XDG_CURRENT_DESKTOP', 'ubuntu:GNOME'), ('GH_PAGER', 'cat'), ('XAUTHORITY', '/run/user/1000/.mutter-Xwaylandauth.FZBUU3'), ('XDG_DATA_HOME', '/home/sungho/snap/code/259/.local/share'), ('XDG_SESSION_DESKTOP', 'ubuntu'), ('XMODIFIERS', '@im=ibus'), ('AMENT_PREFIX_PATH', '/home/sungho/Documents/GitHub/2026_IFAC/install/steering_lookup:/home/sungho/Documents/GitHub/2026_IFAC/install/state_machine:/home/sungho/Documents/GitHub/2026_IFAC/install/local_planning:/home/sungho/Documents/GitHub/2026_IFAC/install/obstacle_detector:/home/sungho/Documents/GitHub/2026_IFAC/install/new_map_con:/home/sungho/Documents/GitHub/2026_IFAC/install/lap_timer:/home/sungho/Documents/GitHub/2026_IFAC/install/lap_referee:/home/sungho/Documents/GitHub/2026_IFAC/install/kinematic_localization:/home/sungho/Documents/GitHub/2026_IFAC/install/kinematic_icp:/home/sungho/Documents/GitHub/2026_IFAC/install/global_planning:/home/sungho/Documents/GitHub/2026_IFAC/install/f1tenth_control:/home/sungho/Documents/GitHub/2026_IFAC/install/f110_msgs:/home/sungho/sim_ws/install/f1tenth_gym_ros:/opt/ros/humble'), ('GSETTINGS_SCHEMA_DIR', '/home/sungho/snap/code/259/.local/share/glib-2.0/schemas'), ('SNAP_ARCH', 'amd64'), ('SNAP_COOKIE', '7dHSHlvk7qCOQpMYcxLI5x2MXz0sQ3uh4sxdHyEFDRjD5nx4E9su'), ('SNAP_USER_COMMON', '/home/sungho/snap/code/common'), ('SSH_AGENT_LAUNCHER', 'gnome-keyring'), ('SSH_AUTH_SOCK', '/run/user/1000/keyring/ssh'), ('GDK_PIXBUF_MODULEDIR', '/snap/code/259/usr/lib/x86_64-linux-gnu/gdk-pixbuf-2.0/2.10.0/loaders'), ('LC_NAME', 'ko_KR.UTF-8'), ('SHELL', '/usr/bin/zsh'), ('ELECTRON_RUN_AS_NODE', '1'), ('GDMSESSION', 'ubuntu'), ('QT_ACCESSIBILITY', '1'), ('FONTCONFIG_FILE', '/etc/fonts/fonts.conf'), ('SNAP_NAME', 'code'), ('CODEX_THREAD_ID', '01a05eed-5c81-7a12-8cf6-6af8af61d8a6'), ('LC_MEASUREMENT', 'ko_KR.UTF-8'), ('GDK_PIXBUF_MODULE_FILE', '/home/sungho/snap/code/common/.cache/gdk-pixbuf-loaders.cache'), ('GJS_DEBUG_OUTPUT', 'stderr'), ('LC_IDENTIFICATION', 'ko_KR.UTF-8'), ('GIT_PAGER', 'cat'), ('QT_IM_MODULE', 'ibus'), ('SNAP_LAUNCHER_ARCH_TRIPLET', 'x86_64-linux-gnu'), ('LC_ALL', 'C.UTF-8'), ('PWD', '/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_build/gqsc_runtime_replay'), ('VSCODE_CLI', '1'), ('SNAP_REAL_HOME', '/home/sungho'), ('VSCODE_CODE_CACHE_PATH', '/home/sungho/.config/Code/CachedData/08d4889f9ec4a1685d257b9b95de036c8e1ce1e5'), ('XDG_DATA_DIRS', '/home/sungho/snap/code/259/.local/share:/home/sungho/snap/code/259:/snap/code/259/usr/share:/usr/local/share/:/usr/share/:/var/lib/snapd/desktop'), ('LC_NUMERIC', 'ko_KR.UTF-8'), ('PYTHONPATH', '/home/sungho/Documents/GitHub/2026_IFAC/build/steering_lookup:/home/sungho/Documents/GitHub/2026_IFAC/install/steering_lookup/lib/python3.10/site-packages:/home/sungho/Documents/GitHub/2026_IFAC/build/lap_timer:/home/sungho/Documents/GitHub/2026_IFAC/install/lap_timer/lib/python3.10/site-packages:/home/sungho/Documents/GitHub/2026_IFAC/install/f110_msgs/local/lib/python3.10/dist-packages:/home/sungho/sim_ws/build/f1tenth_gym_ros:/home/sungho/sim_ws/install/f1tenth_gym_ros/lib/python3.10/site-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages'), ('SNAP', '/snap/code/259'), ('SNAP_EUID', '1000'), ('LC_PAPER', 'ko_KR.UTF-8'), ('COLCON', '1'), ('ELECTRON_NO_ATTACH_CONSOLE', '1'), ('VSCODE_PID', '13361'), ('CMAKE_PREFIX_PATH', '/home/sungho/Documents/GitHub/2026_IFAC/install/state_machine:/home/sungho/Documents/GitHub/2026_IFAC/install/local_planning:/home/sungho/Documents/GitHub/2026_IFAC/install/obstacle_detector:/home/sungho/Documents/GitHub/2026_IFAC/install/new_map_con:/home/sungho/Documents/GitHub/2026_IFAC/install/lap_referee:/home/sungho/Documents/GitHub/2026_IFAC/install/kinematic_localization:/home/sungho/Documents/GitHub/2026_IFAC/install/kinematic_icp:/home/sungho/Documents/GitHub/2026_IFAC/install/global_planning:/home/sungho/Documents/GitHub/2026_IFAC/install/f1tenth_control:/home/sungho/Documents/GitHub/2026_IFAC/install/f110_msgs:/home/sungho/Documents/GitHub/2026_IFAC/install/steering_lookup:/home/sungho/Documents/GitHub/2026_IFAC/install/lap_timer:/home/sungho/sim_ws/install/f1tenth_gym_ros:/opt/ros/humble')]), 'shell': False}
+[19.804787] (gqsc_runtime_replay) StdoutLine: {'line': b'-- Install configuration: "Release"\n'}
+[19.805066] (gqsc_runtime_replay) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install/lib/gqsc_runtime_replay/sce018_replay_driver\n'}
+[19.806754] (gqsc_runtime_replay) StdoutLine: {'line': b'-- Set runtime path of "/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install/lib/gqsc_runtime_replay/sce018_replay_driver" to ""\n'}
+[19.807258] (gqsc_runtime_replay) StdoutLine: {'line': b'-- Up-to-date: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install/share/ament_index/resource_index/package_run_dependencies/gqsc_runtime_replay\n'}
+[19.807362] (gqsc_runtime_replay) StdoutLine: {'line': b'-- Up-to-date: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install/share/ament_index/resource_index/parent_prefix_path/gqsc_runtime_replay\n'}
+[19.807597] (gqsc_runtime_replay) StdoutLine: {'line': b'-- Up-to-date: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install/share/gqsc_runtime_replay/environment/ament_prefix_path.sh\n'}
+[19.807674] (gqsc_runtime_replay) StdoutLine: {'line': b'-- Up-to-date: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install/share/gqsc_runtime_replay/environment/ament_prefix_path.dsv\n'}
+[19.807740] (gqsc_runtime_replay) StdoutLine: {'line': b'-- Up-to-date: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install/share/gqsc_runtime_replay/environment/path.sh\n'}
+[19.807806] (gqsc_runtime_replay) StdoutLine: {'line': b'-- Up-to-date: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install/share/gqsc_runtime_replay/environment/path.dsv\n'}
+[19.807871] (gqsc_runtime_replay) StdoutLine: {'line': b'-- Up-to-date: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install/share/gqsc_runtime_replay/local_setup.bash\n'}
+[19.807935] (gqsc_runtime_replay) StdoutLine: {'line': b'-- Up-to-date: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install/share/gqsc_runtime_replay/local_setup.sh\n'}
+[19.807996] (gqsc_runtime_replay) StdoutLine: {'line': b'-- Up-to-date: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install/share/gqsc_runtime_replay/local_setup.zsh\n'}
+[19.808057] (gqsc_runtime_replay) StdoutLine: {'line': b'-- Up-to-date: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install/share/gqsc_runtime_replay/local_setup.dsv\n'}
+[19.808131] (gqsc_runtime_replay) StdoutLine: {'line': b'-- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install/share/gqsc_runtime_replay/package.dsv\n'}
+[19.808193] (gqsc_runtime_replay) StdoutLine: {'line': b'-- Up-to-date: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install/share/ament_index/resource_index/packages/gqsc_runtime_replay\n'}
+[19.808261] (gqsc_runtime_replay) StdoutLine: {'line': b'-- Up-to-date: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install/share/gqsc_runtime_replay/cmake/gqsc_runtime_replayConfig.cmake\n'}
+[19.808325] (gqsc_runtime_replay) StdoutLine: {'line': b'-- Up-to-date: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install/share/gqsc_runtime_replay/cmake/gqsc_runtime_replayConfig-version.cmake\n'}
+[19.808388] (gqsc_runtime_replay) StdoutLine: {'line': b'-- Up-to-date: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install/share/gqsc_runtime_replay/package.xml\n'}
+[19.809296] (gqsc_runtime_replay) CommandEnded: {'returncode': 0}
+[19.831278] (gqsc_runtime_replay) JobEnded: {'identifier': 'gqsc_runtime_replay', 'rc': 0}
+[19.832246] (-) EventReactorShutdown: {}

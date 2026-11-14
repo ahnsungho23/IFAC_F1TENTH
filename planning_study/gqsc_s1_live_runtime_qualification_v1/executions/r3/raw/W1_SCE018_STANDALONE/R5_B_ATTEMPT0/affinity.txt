@@ -1,0 +1,23 @@
+planner_pid=40216
+pre_exec_gate=true
+expected_executable=/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_build/local_planning/p3_r3_k12_integration_harness
+pre_exec_executable=/usr/bin/zsh
+command_line=zsh -c kill -STOP $$; exec "$@" zsh /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_build/local_planning/p3_r3_k12_integration_harness /home/sungho/Documents/GitHub/2026_IFAC/planning_study/p3_geometry_conditioned_method_v1/success_control_inputs/SCE018.event 
+Name:	zsh
+Pid:	40216
+PPid:	40213
+Cpus_allowed:	000100
+Cpus_allowed_list:	8
+pid 40216's current affinity list: 8
+    PID PSR COMMAND         COMMAND
+  40216   8 zsh             zsh -c kill -STOP $$; exec "$@" zsh /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_build/local_planning/p3_r3_k12_integration_harness /home/sungho/Documents/GitHub/2026_IFAC/planning_study/p3_geometry_conditioned_method_v1/success_control_inputs/SCE018.event
+actual_executable=/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_build/local_planning/p3_r3_k12_integration_harness
+actual_command_line=/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_build/local_planning/p3_r3_k12_integration_harness /home/sungho/Documents/GitHub/2026_IFAC/planning_study/p3_geometry_conditioned_method_v1/success_control_inputs/SCE018.event 
+Name:	p3_r3_k12_integ
+Pid:	40216
+PPid:	40213
+Cpus_allowed:	000100
+Cpus_allowed_list:	8
+pid 40216's current affinity list: 8
+    PID PSR COMMAND         COMMAND
+  40216   8 p3_r3_k12_integ /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_build/local_planning/p3_r3_k12_integration_harness /home/sungho/Documents/GitHub/2026_IFAC/planning_study/p3_geometry_conditioned_method_v1/success_control_inputs/SCE018.event

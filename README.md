@@ -173,7 +173,7 @@ ROS 2 Jazzy workspace for the 2026 IFAC F1TENTH stack. ROS packages live under `
 │   │   ├── config/config.yaml
 │   │   ├── docs/map_controller_node.md
 │   │   ├── launch/               # new_map_con, opponent_simulator
-│   │   ├── maps/                 # 6 files: fuck_f1.{csv,yaml,pgm}, oct28.csv, ...
+│   │   ├── maps/                 # 6 files: base_track.{csv,yaml,pgm}, oct28.csv, ...
 │   │   ├── src/                  # map_controller_node, opponent_drive_controller, opponent_simulator_node
 │   │   ├── test/                 # copyright / flake8 / pep257
 │   │   ├── AGENTS.md, CMakeLists.txt, setup.py, setup.cfg, package.xml, README(.en).md

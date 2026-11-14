@@ -1,4 +1,4 @@
-image: fuck_f1.pgm
+image: base_track.pgm
 mode: trinary
 resolution: 0.03
 origin: [-4.91, -3.43, 0]

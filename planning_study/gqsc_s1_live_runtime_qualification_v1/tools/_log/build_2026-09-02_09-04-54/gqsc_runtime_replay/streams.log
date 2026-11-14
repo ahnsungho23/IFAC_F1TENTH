@@ -1,0 +1,42 @@
+[0.017s] Invoking command in '/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_build/gqsc_runtime_replay': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/sungho/Documents/GitHub/2026_IFAC/install/steering_lookup:/home/sungho/Documents/GitHub/2026_IFAC/install/lap_timer:/home/sungho/sim_ws/install/f1tenth_gym_ros:/opt/ros/humble /usr/bin/cmake /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/gqsc_runtime_replay -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install
+[0.035s] -- Found ament_cmake: 1.3.14 (/opt/ros/humble/share/ament_cmake/cmake)
+[0.243s] -- Found rclcpp: 16.0.19 (/opt/ros/humble/share/rclcpp/cmake)
+[0.284s] -- Found rosidl_generator_c: 3.1.9 (/opt/ros/humble/share/rosidl_generator_c/cmake)
+[0.288s] -- Found rosidl_adapter: 3.1.9 (/opt/ros/humble/share/rosidl_adapter/cmake)
+[0.296s] -- Found rosidl_generator_cpp: 3.1.9 (/opt/ros/humble/share/rosidl_generator_cpp/cmake)
+[0.310s] -- Using all available rosidl_typesupport_c: rosidl_typesupport_fastrtps_c;rosidl_typesupport_introspection_c
+[0.328s] -- Using all available rosidl_typesupport_cpp: rosidl_typesupport_fastrtps_cpp;rosidl_typesupport_introspection_cpp
+[0.374s] -- Found rmw_implementation_cmake: 6.1.3 (/opt/ros/humble/share/rmw_implementation_cmake/cmake)
+[0.376s] -- Found rmw_fastrtps_cpp: 6.2.10 (/opt/ros/humble/share/rmw_fastrtps_cpp/cmake)
+[0.501s] -- Using RMW implementation 'rmw_fastrtps_cpp' as default
+[0.577s] -- Found nav_msgs: 4.9.2 (/opt/ros/humble/share/nav_msgs/cmake)
+[0.617s] -- Found f110_msgs: 0.0.1 (/home/sungho/Documents/GitHub/2026_IFAC/install/f110_msgs/share/f110_msgs/cmake)
+[0.746s] -- Configuring done
+[0.759s] -- Generating done
+[0.765s] -- Build files have been written to: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_build/gqsc_runtime_replay
+[30.030s] Invoked command in '/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_build/gqsc_runtime_replay' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/sungho/Documents/GitHub/2026_IFAC/install/steering_lookup:/home/sungho/Documents/GitHub/2026_IFAC/install/lap_timer:/home/sungho/sim_ws/install/f1tenth_gym_ros:/opt/ros/humble /usr/bin/cmake /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/gqsc_runtime_replay -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install
+[30.032s] Invoking command in '/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_build/gqsc_runtime_replay': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/sungho/Documents/GitHub/2026_IFAC/install/steering_lookup:/home/sungho/Documents/GitHub/2026_IFAC/install/lap_timer:/home/sungho/sim_ws/install/f1tenth_gym_ros:/opt/ros/humble /usr/bin/cmake --build /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_build/gqsc_runtime_replay -- -j24 -l24
+[30.103s] [ 50%] Building CXX object CMakeFiles/sce018_replay_driver.dir/src/sce018_replay_driver.cpp.o
+[47.293s] [100%] Linking CXX executable sce018_replay_driver
+[47.546s] [100%] Built target sce018_replay_driver
+[47.562s] Invoked command in '/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_build/gqsc_runtime_replay' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/sungho/Documents/GitHub/2026_IFAC/install/steering_lookup:/home/sungho/Documents/GitHub/2026_IFAC/install/lap_timer:/home/sungho/sim_ws/install/f1tenth_gym_ros:/opt/ros/humble /usr/bin/cmake --build /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_build/gqsc_runtime_replay -- -j24 -l24
+[47.574s] Invoking command in '/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_build/gqsc_runtime_replay': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/sungho/Documents/GitHub/2026_IFAC/install/steering_lookup:/home/sungho/Documents/GitHub/2026_IFAC/install/lap_timer:/home/sungho/sim_ws/install/f1tenth_gym_ros:/opt/ros/humble /usr/bin/cmake --install /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_build/gqsc_runtime_replay
+[47.584s] -- Install configuration: "Release"
+[47.585s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install/lib/gqsc_runtime_replay/sce018_replay_driver
+[47.586s] -- Set runtime path of "/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install/lib/gqsc_runtime_replay/sce018_replay_driver" to ""
+[47.586s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install/share/ament_index/resource_index/package_run_dependencies/gqsc_runtime_replay
+[47.586s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install/share/ament_index/resource_index/parent_prefix_path/gqsc_runtime_replay
+[47.587s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install/share/gqsc_runtime_replay/environment/ament_prefix_path.sh
+[47.587s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install/share/gqsc_runtime_replay/environment/ament_prefix_path.dsv
+[47.587s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install/share/gqsc_runtime_replay/environment/path.sh
+[47.587s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install/share/gqsc_runtime_replay/environment/path.dsv
+[47.587s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install/share/gqsc_runtime_replay/local_setup.bash
+[47.587s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install/share/gqsc_runtime_replay/local_setup.sh
+[47.587s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install/share/gqsc_runtime_replay/local_setup.zsh
+[47.588s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install/share/gqsc_runtime_replay/local_setup.dsv
+[47.588s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install/share/gqsc_runtime_replay/package.dsv
+[47.588s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install/share/ament_index/resource_index/packages/gqsc_runtime_replay
+[47.588s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install/share/gqsc_runtime_replay/cmake/gqsc_runtime_replayConfig.cmake
+[47.588s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install/share/gqsc_runtime_replay/cmake/gqsc_runtime_replayConfig-version.cmake
+[47.588s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install/share/gqsc_runtime_replay/package.xml
+[60.043s] Invoked command in '/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_build/gqsc_runtime_replay' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/sungho/Documents/GitHub/2026_IFAC/install/steering_lookup:/home/sungho/Documents/GitHub/2026_IFAC/install/lap_timer:/home/sungho/sim_ws/install/f1tenth_gym_ros:/opt/ros/humble /usr/bin/cmake --install /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_build/gqsc_runtime_replay

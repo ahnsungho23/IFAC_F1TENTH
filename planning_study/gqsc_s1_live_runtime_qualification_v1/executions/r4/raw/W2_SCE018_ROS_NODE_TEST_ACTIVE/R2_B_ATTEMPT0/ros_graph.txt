@@ -1,0 +1,243 @@
+## research...origin/research
+7950527d531fec50c76baa5be3142d781b980d1f
+pid 52455's current affinity list: 8
+pid 52516's current affinity list: 0-7,10-23
+CPU CORE SOCKET NODE ONLINE    MAXMHZ   MINMHZ
+  0    0      0    0    yes 5000.0000 800.0000
+  1    0      0    0    yes 5000.0000 800.0000
+  2    1      0    0    yes 5000.0000 800.0000
+  3    1      0    0    yes 5000.0000 800.0000
+  4    2      0    0    yes 5000.0000 800.0000
+  5    2      0    0    yes 5000.0000 800.0000
+  6    3      0    0    yes 5000.0000 800.0000
+  7    3      0    0    yes 5000.0000 800.0000
+  8    4      0    0    yes 5200.0000 800.0000
+  9    4      0    0    yes 5200.0000 800.0000
+ 10    5      0    0    yes 5200.0000 800.0000
+ 11    5      0    0    yes 5200.0000 800.0000
+ 12    6      0    0    yes 5000.0000 800.0000
+ 13    6      0    0    yes 5000.0000 800.0000
+ 14    7      0    0    yes 5000.0000 800.0000
+ 15    7      0    0    yes 5000.0000 800.0000
+ 16    8      0    0    yes 3700.0000 800.0000
+ 17    9      0    0    yes 3700.0000 800.0000
+ 18   10      0    0    yes 3700.0000 800.0000
+ 19   11      0    0    yes 3700.0000 800.0000
+ 20   12      0    0    yes 3700.0000 800.0000
+ 21   13      0    0    yes 3700.0000 800.0000
+ 22   14      0    0    yes 3700.0000 800.0000
+ 23   15      0    0    yes 3700.0000 800.0000
+8-9
+=== NODES ===
+/local_planner_node
+/sce018_replay_driver
+=== /gqsc_runtime/global_waypoints ===
+Type: f110_msgs/msg/WpntArray
+
+Publisher count: 1
+
+Node name: sce018_replay_driver
+Node namespace: /
+Topic type: f110_msgs/msg/WpntArray
+Endpoint type: PUBLISHER
+GID: 01.0f.af.51.24.cd.06.aa.00.00.00.00.00.00.12.03.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: TRANSIENT_LOCAL
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Subscription count: 1
+
+Node name: local_planner_node
+Node namespace: /
+Topic type: f110_msgs/msg/WpntArray
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.af.51.e7.cc.66.cb.00.00.00.00.00.00.12.04.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: TRANSIENT_LOCAL
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+=== /gqsc_runtime/confirmed_static_obs ===
+Type: f110_msgs/msg/ObstacleArray
+
+Publisher count: 1
+
+Node name: sce018_replay_driver
+Node namespace: /
+Topic type: f110_msgs/msg/ObstacleArray
+Endpoint type: PUBLISHER
+GID: 01.0f.af.51.24.cd.06.aa.00.00.00.00.00.00.13.03.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Subscription count: 1
+
+Node name: local_planner_node
+Node namespace: /
+Topic type: f110_msgs/msg/ObstacleArray
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.af.51.e7.cc.66.cb.00.00.00.00.00.00.13.04.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+=== /gqsc_runtime/frenet_odom ===
+Type: nav_msgs/msg/Odometry
+
+Publisher count: 1
+
+Node name: sce018_replay_driver
+Node namespace: /
+Topic type: nav_msgs/msg/Odometry
+Endpoint type: PUBLISHER
+GID: 01.0f.af.51.24.cd.06.aa.00.00.00.00.00.00.14.03.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Subscription count: 1
+
+Node name: local_planner_node
+Node namespace: /
+Topic type: nav_msgs/msg/Odometry
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.af.51.e7.cc.66.cb.00.00.00.00.00.00.15.04.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+=== /gqsc_runtime/state ===
+Type: f110_msgs/msg/StateMachine
+
+Publisher count: 1
+
+Node name: sce018_replay_driver
+Node namespace: /
+Topic type: f110_msgs/msg/StateMachine
+Endpoint type: PUBLISHER
+GID: 01.0f.af.51.24.cd.06.aa.00.00.00.00.00.00.15.03.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: TRANSIENT_LOCAL
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Subscription count: 1
+
+Node name: local_planner_node
+Node namespace: /
+Topic type: f110_msgs/msg/StateMachine
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.af.51.e7.cc.66.cb.00.00.00.00.00.00.16.04.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: TRANSIENT_LOCAL
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+=== /gqsc_runtime/p3_cycle ===
+Type: std_msgs/msg/String
+
+Publisher count: 1
+
+Node name: local_planner_node
+Node namespace: /
+Topic type: std_msgs/msg/String
+Endpoint type: PUBLISHER
+GID: 01.0f.af.51.e7.cc.66.cb.00.00.00.00.00.00.19.03.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Subscription count: 1
+
+Node name: sce018_replay_driver
+Node namespace: /
+Topic type: std_msgs/msg/String
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.af.51.24.cd.06.aa.00.00.00.00.00.00.16.04.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+=== /gqsc_runtime/live_profile ===
+Type: std_msgs/msg/String
+
+Publisher count: 1
+
+Node name: local_planner_node
+Node namespace: /
+Topic type: std_msgs/msg/String
+Endpoint type: PUBLISHER
+GID: 01.0f.af.51.e7.cc.66.cb.00.00.00.00.00.00.1a.03.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+
+Subscription count: 1
+
+Node name: sce018_replay_driver
+Node namespace: /
+Topic type: std_msgs/msg/String
+Endpoint type: SUBSCRIPTION
+GID: 01.0f.af.51.24.cd.06.aa.00.00.00.00.00.00.17.04.00.00.00.00.00.00.00.00
+QoS profile:
+  Reliability: RELIABLE
+  History (Depth): UNKNOWN
+  Durability: VOLATILE
+  Lifespan: Infinite
+  Deadline: Infinite
+  Liveliness: AUTOMATIC
+  Liveliness lease duration: Infinite
+

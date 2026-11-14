@@ -1,0 +1,8 @@
+source;share/gqsc_runtime_replay/hook/cmake_prefix_path.ps1
+source;share/gqsc_runtime_replay/hook/cmake_prefix_path.dsv
+source;share/gqsc_runtime_replay/hook/cmake_prefix_path.sh
+source;share/gqsc_runtime_replay/local_setup.bash
+source;share/gqsc_runtime_replay/local_setup.dsv
+source;share/gqsc_runtime_replay/local_setup.ps1
+source;share/gqsc_runtime_replay/local_setup.sh
+source;share/gqsc_runtime_replay/local_setup.zsh

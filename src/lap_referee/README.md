@@ -77,7 +77,7 @@ source install/setup.zsh
 
 # 단독 실행(런치는 waypoints_csv를 반드시 넘긴다)
 ros2 launch lap_referee lap_referee.launch.py \
-  waypoints_csv:=$HOME/2026_IFAC/src/new_map_con/maps/fuck_f1.csv \
+  waypoints_csv:=$HOME/2026_IFAC/src/new_map_con/maps/base_track.csv \
   output_dir:=/tmp/lap_referee output_prefix:=rollout
 ```
 

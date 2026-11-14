@@ -10,7 +10,7 @@ For a detailed explanation of the node operation, see [`docs/map_controller_node
 
 ## 1. Operating Principle
 
-1. At startup it reads `global_waypoints_csv` (default `maps/fuck_f1.csv`, 8 columns) and publishes it latched to `/global_waypoints`.
+1. At startup it reads `global_waypoints_csv` (default `maps/base_track.csv`, 8 columns) and publishes it latched to `/global_waypoints`.
 2. On every control cycle (`control_rate_hz`) it finds the nearest waypoint to the current pose and computes the
    pure-pursuit steering toward the point ahead by a speed-based lookahead distance.
 3. The target speed commands the waypoint `vx_mps` (at the speed-lookahead point), corrected by lateral error and curvature.
@@ -61,7 +61,7 @@ Full list and defaults: [`config/config.yaml`](config/config.yaml). The node dec
 
 | Parameter | Meaning | Default |
 |----------|------|--------|
-| `global_waypoints_csv` | Path of the raceline CSV to follow | `maps/fuck_f1.csv` |
+| `global_waypoints_csv` | Path of the raceline CSV to follow | `maps/base_track.csv` |
 | `simulator` | Use the simulator topic profile | `false` |
 | `control_rate_hz` | Control cycle | `40.0` |
 | `min/max_lookahead_distance`, `lookahead_gain`, `lookahead_speed_gain` | Lookahead computation | `1.5`/`5.0`/`0.5`/`0.3` |

@@ -1,0 +1,258 @@
+role=PLANNER
+pid=58096
+expected_executable=/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/lib/local_planning/local_planner_node
+actual_executable=/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/lib/local_planning/local_planner_node
+command_line=/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/lib/local_planning/local_planner_node --ros-args --params-file /home/sungho/Documents/GitHub/2026_IFAC/src/local_planning/config/local_planning.yaml -p live_runtime_profiling_enable:=true -p p3_diagnostics_detail:=FULL -r /global_waypoints:=/gqsc_runtime/global_waypoints -r /confirmed_static_obs:=/gqsc_runtime/confirmed_static_obs -r /static_obs:=/gqsc_runtime/raw_static_obs -r /car_state/frenet/odom:=/gqsc_runtime/frenet_odom -r /state:=/gqsc_runtime/state -r /avoid_waypoints:=/gqsc_runtime/avoid_waypoints -r /local_planning/path:=/gqsc_runtime/path -r /local_planning/p3_shadow:=/gqsc_runtime/p3_cycle -r /local_planning/live_runtime_profile:=/gqsc_runtime/live_profile 
+Name:	local_planner_n
+Pid:	58096
+PPid:	58093
+Cpus_allowed:	000100
+Cpus_allowed_list:	8
+pid 58096's current affinity list: 8
+    PID PSR COMMAND         COMMAND
+  58096   8 local_planner_n /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/lib/local_planning/local_planner_node --ros-args --params-file /home/sungho/Documents/GitHub/2026_IFAC/src/local_planning/config/local_planning.yaml -p live_runtime_profiling_enable:=true -p p3_diagnostics_detail:=FULL -r /global_waypoints:=/gqsc_runtime/global_waypoints -r /confirmed_static_obs:=/gqsc_runtime/confirmed_static_obs -r /static_obs:=/gqsc_runtime/raw_static_obs -r /car_state/frenet/odom:=/gqsc_runtime/frenet_odom -r /state:=/gqsc_runtime/state -r /avoid_waypoints:=/gqsc_runtime/avoid_waypoints -r /local_planning/path:=/gqsc_runtime/path -r /local_planning/p3_shadow:=/gqsc_runtime/p3_cycle -r /local_planning/live_runtime_profile:=/gqsc_runtime/live_profile
+background_group=simulator
+pgid=57830
+member_pid=57830
+member_executable=/usr/bin/python3.10
+member_command_line=/usr/bin/python3 /opt/ros/humble/bin/ros2 launch f1tenth_gym_ros gym_bridge_launch.py 
+Name:	ros2
+Pid:	57830
+PPid:	57715
+Cpus_allowed:	fffcff
+Cpus_allowed_list:	0-7,10-23
+pid 57830's current affinity list: 0-7,10-23
+    PID PSR COMMAND         COMMAND
+  57830  14 ros2            /usr/bin/python3 /opt/ros/humble/bin/ros2 launch f1tenth_gym_ros gym_bridge_launch.py
+member_pid=57833
+member_executable=/opt/ros/humble/lib/rviz2/rviz2
+member_command_line=/opt/ros/humble/lib/rviz2/rviz2 -d /home/sungho/sim_ws/install/f1tenth_gym_ros/share/f1tenth_gym_ros/launch/gym_bridge.rviz --ros-args -r __node:=rviz 
+Name:	rviz2
+Pid:	57833
+PPid:	57830
+Cpus_allowed:	fffcff
+Cpus_allowed_list:	0-7,10-23
+pid 57833's current affinity list: 0-7,10-23
+    PID PSR COMMAND         COMMAND
+  57833  17 rviz2           /opt/ros/humble/lib/rviz2/rviz2 -d /home/sungho/sim_ws/install/f1tenth_gym_ros/share/f1tenth_gym_ros/launch/gym_bridge.rviz --ros-args -r __node:=rviz
+member_pid=57835
+member_executable=/usr/bin/python3.10
+member_command_line=/usr/bin/python3 /home/sungho/sim_ws/install/f1tenth_gym_ros/lib/f1tenth_gym_ros/gym_bridge --ros-args -r __node:=bridge --params-file /home/sungho/sim_ws/install/f1tenth_gym_ros/share/f1tenth_gym_ros/config/sim.yaml 
+Name:	gym_bridge
+Pid:	57835
+PPid:	57830
+Cpus_allowed:	fffcff
+Cpus_allowed_list:	0-7,10-23
+pid 57835's current affinity list: 0-7,10-23
+    PID PSR COMMAND         COMMAND
+  57835   5 gym_bridge      /usr/bin/python3 /home/sungho/sim_ws/install/f1tenth_gym_ros/lib/f1tenth_gym_ros/gym_bridge --ros-args -r __node:=bridge --params-file /home/sungho/sim_ws/install/f1tenth_gym_ros/share/f1tenth_gym_ros/config/sim.yaml
+member_pid=57837
+member_executable=/opt/ros/humble/lib/nav2_lifecycle_manager/lifecycle_manager
+member_command_line=/opt/ros/humble/lib/nav2_lifecycle_manager/lifecycle_manager --ros-args -r __node:=lifecycle_manager_localization --params-file /tmp/launch_params_xdpqiwsx --params-file /tmp/launch_params_oflx2igg --params-file /tmp/launch_params_f5m2i0ob 
+Name:	lifecycle_manag
+Pid:	57837
+PPid:	57830
+Cpus_allowed:	fffcff
+Cpus_allowed_list:	0-7,10-23
+pid 57837's current affinity list: 0-7,10-23
+    PID PSR COMMAND         COMMAND
+  57837  15 lifecycle_manag /opt/ros/humble/lib/nav2_lifecycle_manager/lifecycle_manager --ros-args -r __node:=lifecycle_manager_localization --params-file /tmp/launch_params_xdpqiwsx --params-file /tmp/launch_params_oflx2igg --params-file /tmp/launch_params_f5m2i0ob
+member_pid=57839
+member_executable=/opt/ros/humble/lib/nav2_map_server/map_server
+member_command_line=/opt/ros/humble/lib/nav2_map_server/map_server --ros-args --params-file /tmp/launch_params_k0k2dy_9 --params-file /tmp/launch_params_09qdsoov --params-file /tmp/launch_params_awi5qhd_ --params-file /tmp/launch_params_j2m5t7dx --params-file /tmp/launch_params_hzjoom5d 
+Name:	map_server
+Pid:	57839
+PPid:	57830
+Cpus_allowed:	fffcff
+Cpus_allowed_list:	0-7,10-23
+pid 57839's current affinity list: 0-7,10-23
+    PID PSR COMMAND         COMMAND
+  57839  18 map_server      /opt/ros/humble/lib/nav2_map_server/map_server --ros-args --params-file /tmp/launch_params_k0k2dy_9 --params-file /tmp/launch_params_09qdsoov --params-file /tmp/launch_params_awi5qhd_ --params-file /tmp/launch_params_j2m5t7dx --params-file /tmp/launch_params_hzjoom5d
+member_pid=57841
+member_executable=/opt/ros/humble/lib/robot_state_publisher/robot_state_publisher
+member_command_line=/opt/ros/humble/lib/robot_state_publisher/robot_state_publisher --ros-args -r __node:=ego_robot_state_publisher --params-file /tmp/launch_params_uauq7te_ -r /robot_description:=ego_robot_description 
+Name:	robot_state_pub
+Pid:	57841
+PPid:	57830
+Cpus_allowed:	fffcff
+Cpus_allowed_list:	0-7,10-23
+pid 57841's current affinity list: 0-7,10-23
+    PID PSR COMMAND         COMMAND
+  57841  17 robot_state_pub /opt/ros/humble/lib/robot_state_publisher/robot_state_publisher --ros-args -r __node:=ego_robot_state_publisher --params-file /tmp/launch_params_uauq7te_ -r /robot_description:=ego_robot_description
+background_group=localization
+pgid=57988
+member_pid=57988
+member_executable=/usr/bin/python3.10
+member_command_line=/usr/bin/python3 /opt/ros/humble/bin/ros2 launch kinematic_localization kinematic_localization.launch.py map_name:=ifac_track use_sim_time:=false map_frame:=map base_frame:=ego_racecar/base_link odom_topic:=/ego_racecar/odom map_topic:=/kinematic_localization/map auto_init_from_waypoints:=false 
+Name:	ros2
+Pid:	57988
+PPid:	57715
+Cpus_allowed:	fffcff
+Cpus_allowed_list:	0-7,10-23
+pid 57988's current affinity list: 0-7,10-23
+    PID PSR COMMAND         COMMAND
+  57988   2 ros2            /usr/bin/python3 /opt/ros/humble/bin/ros2 launch kinematic_localization kinematic_localization.launch.py map_name:=ifac_track use_sim_time:=false map_frame:=map base_frame:=ego_racecar/base_link odom_topic:=/ego_racecar/odom map_topic:=/kinematic_localization/map auto_init_from_waypoints:=false
+member_pid=57990
+member_executable=/home/sungho/Documents/GitHub/2026_IFAC/build/kinematic_localization/localization_node
+member_command_line=/home/sungho/Documents/GitHub/2026_IFAC/install/kinematic_localization/lib/kinematic_localization/localization_node --ros-args -r __node:=kinematic_localization --params-file /home/sungho/Documents/GitHub/2026_IFAC/install/kinematic_localization/share/kinematic_localization/config/kinematic_localization.yaml --params-file /tmp/launch_params_vt7aswxe 
+Name:	localization_no
+Pid:	57990
+PPid:	57988
+Cpus_allowed:	fffcff
+Cpus_allowed_list:	0-7,10-23
+pid 57990's current affinity list: 0-7,10-23
+    PID PSR COMMAND         COMMAND
+  57990   5 localization_no /home/sungho/Documents/GitHub/2026_IFAC/install/kinematic_localization/lib/kinematic_localization/localization_node --ros-args -r __node:=kinematic_localization --params-file /home/sungho/Documents/GitHub/2026_IFAC/install/kinematic_localization/share/kinematic_localization/config/kinematic_localization.yaml --params-file /tmp/launch_params_vt7aswxe
+background_group=global
+pgid=58059
+member_pid=58059
+member_executable=/usr/bin/python3.10
+member_command_line=/usr/bin/python3 /opt/ros/humble/bin/ros2 launch global_planning global_planning.launch.py map_name:=ifac_track 
+Name:	ros2
+Pid:	58059
+PPid:	57715
+Cpus_allowed:	fffcff
+Cpus_allowed_list:	0-7,10-23
+pid 58059's current affinity list: 0-7,10-23
+    PID PSR COMMAND         COMMAND
+  58059  11 ros2            /usr/bin/python3 /opt/ros/humble/bin/ros2 launch global_planning global_planning.launch.py map_name:=ifac_track
+member_pid=58061
+member_executable=/home/sungho/Documents/GitHub/2026_IFAC/build/global_planning/global_trajectory_publisher_node
+member_command_line=/home/sungho/Documents/GitHub/2026_IFAC/install/global_planning/lib/global_planning/global_trajectory_publisher_node --ros-args -r __node:=global_trajectory_publisher_node --params-file /home/sungho/Documents/GitHub/2026_IFAC/install/global_planning/share/global_planning/config/global_planning.yaml --params-file /tmp/launch_params_19mmmjiu 
+Name:	global_trajecto
+Pid:	58061
+PPid:	58059
+Cpus_allowed:	fffcff
+Cpus_allowed_list:	0-7,10-23
+pid 58061's current affinity list: 0-7,10-23
+    PID PSR COMMAND         COMMAND
+  58061  20 global_trajecto /home/sungho/Documents/GitHub/2026_IFAC/install/global_planning/lib/global_planning/global_trajectory_publisher_node --ros-args -r __node:=global_trajectory_publisher_node --params-file /home/sungho/Documents/GitHub/2026_IFAC/install/global_planning/share/global_planning/config/global_planning.yaml --params-file /tmp/launch_params_19mmmjiu
+member_pid=58063
+member_executable=/home/sungho/Documents/GitHub/2026_IFAC/build/global_planning/frenet_odom_node
+member_command_line=/home/sungho/Documents/GitHub/2026_IFAC/install/global_planning/lib/global_planning/frenet_odom_node --ros-args -r __node:=frenet_odom_node --params-file /home/sungho/Documents/GitHub/2026_IFAC/install/global_planning/share/global_planning/config/global_planning.yaml 
+Name:	frenet_odom_nod
+Pid:	58063
+PPid:	58059
+Cpus_allowed:	fffcff
+Cpus_allowed_list:	0-7,10-23
+pid 58063's current affinity list: 0-7,10-23
+    PID PSR COMMAND         COMMAND
+  58063  20 frenet_odom_nod /home/sungho/Documents/GitHub/2026_IFAC/install/global_planning/lib/global_planning/frenet_odom_node --ros-args -r __node:=frenet_odom_node --params-file /home/sungho/Documents/GitHub/2026_IFAC/install/global_planning/share/global_planning/config/global_planning.yaml
+background_group=detector
+pgid=58092
+member_pid=58092
+member_executable=/usr/bin/python3.10
+member_command_line=/usr/bin/python3 /opt/ros/humble/bin/ros2 launch obstacle_detector obstacle_detector.launch.py simulator:=true use_sim_time:=false rviz:=false 
+Name:	ros2
+Pid:	58092
+PPid:	57715
+Cpus_allowed:	fffcff
+Cpus_allowed_list:	0-7,10-23
+pid 58092's current affinity list: 0-7,10-23
+    PID PSR COMMAND         COMMAND
+  58092  11 ros2            /usr/bin/python3 /opt/ros/humble/bin/ros2 launch obstacle_detector obstacle_detector.launch.py simulator:=true use_sim_time:=false rviz:=false
+member_pid=58111
+member_executable=/home/sungho/Documents/GitHub/2026_IFAC/build/obstacle_detector/obstacle_detector_node
+member_command_line=/home/sungho/Documents/GitHub/2026_IFAC/install/obstacle_detector/lib/obstacle_detector/obstacle_detector_node --ros-args -r __node:=obstacle_detector --params-file /home/sungho/Documents/GitHub/2026_IFAC/install/obstacle_detector/share/obstacle_detector/config/obstacle_detector.yaml --params-file /tmp/launch_params_9bx7tl7k 
+Name:	obstacle_detect
+Pid:	58111
+PPid:	58092
+Cpus_allowed:	fffcff
+Cpus_allowed_list:	0-7,10-23
+pid 58111's current affinity list: 0-7,10-23
+    PID PSR COMMAND         COMMAND
+  58111   1 obstacle_detect /home/sungho/Documents/GitHub/2026_IFAC/install/obstacle_detector/lib/obstacle_detector/obstacle_detector_node --ros-args -r __node:=obstacle_detector --params-file /home/sungho/Documents/GitHub/2026_IFAC/install/obstacle_detector/share/obstacle_detector/config/obstacle_detector.yaml --params-file /tmp/launch_params_9bx7tl7k
+background_group=state
+pgid=58094
+member_pid=58094
+member_executable=/usr/bin/python3.10
+member_command_line=/usr/bin/python3 /opt/ros/humble/bin/ros2 launch state_machine state_machine.launch.py 
+Name:	ros2
+Pid:	58094
+PPid:	57715
+Cpus_allowed:	fffcff
+Cpus_allowed_list:	0-7,10-23
+pid 58094's current affinity list: 0-7,10-23
+    PID PSR COMMAND         COMMAND
+  58094  12 ros2            /usr/bin/python3 /opt/ros/humble/bin/ros2 launch state_machine state_machine.launch.py
+member_pid=58109
+member_executable=/home/sungho/Documents/GitHub/2026_IFAC/build/state_machine/state_machine_node
+member_command_line=/home/sungho/Documents/GitHub/2026_IFAC/install/state_machine/lib/state_machine/state_machine_node --ros-args -r __node:=state_machine_node --params-file /home/sungho/Documents/GitHub/2026_IFAC/install/state_machine/share/state_machine/config/state_machine.yaml 
+Name:	state_machine_n
+Pid:	58109
+PPid:	58094
+Cpus_allowed:	fffcff
+Cpus_allowed_list:	0-7,10-23
+pid 58109's current affinity list: 0-7,10-23
+    PID PSR COMMAND         COMMAND
+  58109  21 state_machine_n /home/sungho/Documents/GitHub/2026_IFAC/install/state_machine/lib/state_machine/state_machine_node --ros-args -r __node:=state_machine_node --params-file /home/sungho/Documents/GitHub/2026_IFAC/install/state_machine/share/state_machine/config/state_machine.yaml
+background_group=control
+pgid=58141
+member_pid=58141
+member_executable=/usr/bin/python3.10
+member_command_line=/usr/bin/python3 /opt/ros/humble/bin/ros2 launch f1tenth_control control_sim.launch.py 
+Name:	ros2
+Pid:	58141
+PPid:	57715
+Cpus_allowed:	fffcff
+Cpus_allowed_list:	0-7,10-23
+pid 58141's current affinity list: 0-7,10-23
+    PID PSR COMMAND         COMMAND
+  58141  16 ros2            /usr/bin/python3 /opt/ros/humble/bin/ros2 launch f1tenth_control control_sim.launch.py
+member_pid=58143
+member_executable=/home/sungho/Documents/GitHub/2026_IFAC/build/f1tenth_control/sim_imu_bridge_node
+member_command_line=/home/sungho/Documents/GitHub/2026_IFAC/install/f1tenth_control/lib/f1tenth_control/sim_imu_bridge_node --ros-args -r __node:=sim_imu_bridge_node --params-file /tmp/launch_params_09xu2v5h 
+Name:	sim_imu_bridge_
+Pid:	58143
+PPid:	58141
+Cpus_allowed:	fffcff
+Cpus_allowed_list:	0-7,10-23
+pid 58143's current affinity list: 0-7,10-23
+    PID PSR COMMAND         COMMAND
+  58143  18 sim_imu_bridge_ /home/sungho/Documents/GitHub/2026_IFAC/install/f1tenth_control/lib/f1tenth_control/sim_imu_bridge_node --ros-args -r __node:=sim_imu_bridge_node --params-file /tmp/launch_params_09xu2v5h
+member_pid=58145
+member_executable=/home/sungho/Documents/GitHub/2026_IFAC/build/f1tenth_control/cruise_controller_node
+member_command_line=/home/sungho/Documents/GitHub/2026_IFAC/install/f1tenth_control/lib/f1tenth_control/cruise_controller_node --ros-args -r __node:=cruise_controller_node --params-file /home/sungho/Documents/GitHub/2026_IFAC/install/f1tenth_control/share/f1tenth_control/config/cruise_controller.yaml --params-file /tmp/launch_params_8hne509c 
+Name:	cruise_controll
+Pid:	58145
+PPid:	58141
+Cpus_allowed:	fffcff
+Cpus_allowed_list:	0-7,10-23
+pid 58145's current affinity list: 0-7,10-23
+    PID PSR COMMAND         COMMAND
+  58145  14 cruise_controll /home/sungho/Documents/GitHub/2026_IFAC/install/f1tenth_control/lib/f1tenth_control/cruise_controller_node --ros-args -r __node:=cruise_controller_node --params-file /home/sungho/Documents/GitHub/2026_IFAC/install/f1tenth_control/share/f1tenth_control/config/cruise_controller.yaml --params-file /tmp/launch_params_8hne509c
+member_pid=58147
+member_executable=/home/sungho/Documents/GitHub/2026_IFAC/build/f1tenth_control/control_map_node
+member_command_line=/home/sungho/Documents/GitHub/2026_IFAC/install/f1tenth_control/lib/f1tenth_control/control_map_node --ros-args -r __node:=control_map_node --params-file /tmp/launch_params_81nlftmq 
+Name:	control_map_nod
+Pid:	58147
+PPid:	58141
+Cpus_allowed:	fffcff
+Cpus_allowed_list:	0-7,10-23
+pid 58147's current affinity list: 0-7,10-23
+    PID PSR COMMAND         COMMAND
+  58147  20 control_map_nod /home/sungho/Documents/GitHub/2026_IFAC/install/f1tenth_control/lib/f1tenth_control/control_map_node --ros-args -r __node:=control_map_node --params-file /tmp/launch_params_81nlftmq
+member_pid=58149
+member_executable=/home/sungho/Documents/GitHub/2026_IFAC/build/f1tenth_control/drive_source_selector
+member_command_line=/home/sungho/Documents/GitHub/2026_IFAC/install/f1tenth_control/lib/f1tenth_control/drive_source_selector --ros-args -r __node:=drive_source_selector 
+Name:	drive_source_se
+Pid:	58149
+PPid:	58141
+Cpus_allowed:	fffcff
+Cpus_allowed_list:	0-7,10-23
+pid 58149's current affinity list: 0-7,10-23
+    PID PSR COMMAND         COMMAND
+  58149  14 drive_source_se /home/sungho/Documents/GitHub/2026_IFAC/install/f1tenth_control/lib/f1tenth_control/drive_source_selector --ros-args -r __node:=drive_source_selector
+role=REPLAY_DRIVER
+pid=58424
+expected_executable=/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install/lib/gqsc_runtime_replay/sce018_replay_driver
+actual_executable=/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install/lib/gqsc_runtime_replay/sce018_replay_driver
+command_line=/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install/lib/gqsc_runtime_replay/sce018_replay_driver --ros-args -p event_file:=/home/sungho/Documents/GitHub/2026_IFAC/planning_study/p3_geometry_conditioned_method_v1/success_control_inputs/SCE018.event -p output_path:=/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/executions/r4/raw/W3_SCE018_FULL_STACK_CONTENTION/R1_B_ATTEMPT0/joined_callbacks.jsonl -p workload_id:=W3_SCE018_FULL_STACK_CONTENTION -p condition:=B -p repeat_id:=1 -p attempt_id:=ATTEMPT0 -p target_callbacks:=220 -p warmup_callbacks:=20 -p minimum_source_epochs:=220 -p smoke_mode:=false -p preflight_hold_sec:=3.0 -p timeout_sec:=900.0 
+Name:	sce018_replay_d
+Pid:	58424
+PPid:	58396
+Cpus_allowed:	fffcff
+Cpus_allowed_list:	0-7,10-23
+pid 58424's current affinity list: 0-7,10-23
+    PID PSR COMMAND         COMMAND
+  58424  17 sce018_replay_d /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/tools/_install/lib/gqsc_runtime_replay/sce018_replay_driver --ros-args -p event_file:=/home/sungho/Documents/GitHub/2026_IFAC/planning_study/p3_geometry_conditioned_method_v1/success_control_inputs/SCE018.event -p output_path:=/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/executions/r4/raw/W3_SCE018_FULL_STACK_CONTENTION/R1_B_ATTEMPT0/joined_callbacks.jsonl -p workload_id:=W3_SCE018_FULL_STACK_CONTENTION -p condition:=B -p repeat_id:=1 -p attempt_id:=ATTEMPT0 -p target_callbacks:=220 -p warmup_callbacks:=20 -p minimum_source_epochs:=220 -p smoke_mode:=false -p preflight_hold_sec:=3.0 -p timeout_sec:=900.0

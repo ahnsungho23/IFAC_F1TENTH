@@ -47,7 +47,7 @@ def generate_launch_description():
         description='true only if the simulator publishes /clock (f1tenth_gym_ros bridge does NOT -> keep false)',
     )
     # Optional CLEAN map for the Layer-1 filter. In a sim whose /map is an obstacle-BAKED map
-    # (e.g. fuck_f1_obs from the obstacle-map GUI) the baked obstacles sit in /map, so filtering
+    # (e.g. base_track_obs from the obstacle-map GUI) the baked obstacles sit in /map, so filtering
     # against /map erases exactly the obstacles we want to detect. When this arg is set, a private
     # nav2 map_server serves the given (obstacle-free) yaml on /obstacle_detector/map and the
     # detector filters against THAT while the rest of the stack can keep using the live /map.

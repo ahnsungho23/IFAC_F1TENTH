@@ -46,7 +46,7 @@ python3 offline_trajectory_generator/trajectory_gui.py
 
 처음 실행하면 map YAML 선택 창이 열린다. 예를 들어 `kinematic_localization/maps/slam_map.yaml`을 선택하면 된다.
 
-f1sim에서 쓸 trajectory를 만들 때는 f1sim의 `config/sim.yaml`에 있는 `map_path`와 같은 map YAML을 선택해야 한다. 현재 f1sim 기본 map은 `src/kinematic_localization/maps/fuck_f1.yaml`이고, `new_map_con` 기본 CSV도 이 map 좌표계의 `src/new_map_con/maps/fuck_f1.csv`를 사용한다.
+f1sim에서 쓸 trajectory를 만들 때는 f1sim의 `config/sim.yaml`에 있는 `map_path`와 같은 map YAML을 선택해야 한다. 현재 f1sim 기본 map은 `src/kinematic_localization/maps/base_track.yaml`이고, `new_map_con` 기본 CSV도 이 map 좌표계의 `src/new_map_con/maps/base_track.csv`를 사용한다.
 
 처음부터 특정 map을 열고 싶으면 다음처럼 넘긴다.
 
@@ -187,7 +187,7 @@ GUI를 사용할 때는 3-5단계를 화면에서 바로 확인한 뒤 `Save`만
 id,s,x_m,y_m,psi_rad,kappa_radpm,vx_mps,ax_mps2,d_left,d_right
 ```
 
-CSV 포맷은 `src/new_map_con/maps/fuck_f1.csv`와 같은 10개 컬럼 구조를 사용한다. `d_left`/`d_right`는 각 waypoint에서 트랙 좌/우 경계까지의 거리[m]이며, `--width-mode`로 계산 방식을 선택한다:
+CSV 포맷은 `src/new_map_con/maps/base_track.csv`와 같은 10개 컬럼 구조를 사용한다. `d_left`/`d_right`는 각 waypoint에서 트랙 좌/우 경계까지의 거리[m]이며, `--width-mode`로 계산 방식을 선택한다:
 
 - `hybrid` (기본, 권장): 방향별 robust raycast로 좌/우 경계를 개별 측정한다. 최소 2픽셀 연속 벽을 요구해 단일 픽셀 노이즈/구멍을 무시하고, ray가 gap으로 새어 max 거리에 도달하면 distance transform 최근접 거리로 대체한다. 커브에서 raceline이 안쪽을 파고들면 좌/우 비대칭이 그대로 반영된다.
 - `distance`: distance transform 기반. 빠르지만 최근접 벽 한 값만 주므로 `d_left == d_right`가 되어 좌/우 구분이 불가능하다.

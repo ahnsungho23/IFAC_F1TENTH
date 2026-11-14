@@ -1,0 +1,11 @@
+role=PLANNER
+pid=candidate=''
+candidate=''
+candidate=''
+candidate=''
+candidate=''
+candidate=''
+40482
+expected_executable=/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/lib/local_planning/local_planner_node
+actual_executable=
+command_line=

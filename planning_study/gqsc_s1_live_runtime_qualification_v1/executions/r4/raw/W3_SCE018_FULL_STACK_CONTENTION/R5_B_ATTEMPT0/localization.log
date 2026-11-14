@@ -1,0 +1,19 @@
+[INFO] [launch]: All log files can be found below /home/sungho/.ros/log/2026-09-02-13-31-21-544268-sungho-67259
+[INFO] [launch]: Default logging verbosity is set to INFO
+[kinematic_localization.launch] YAML override (launch 인자): auto_init_from_waypoints=False, base_frame=ego_racecar/base_link, map_frame=map, map_name=ifac_track, map_topic=/kinematic_localization/map, odom_topic=/ego_racecar/odom, use_sim_time=False
+[INFO] [localization_node-1]: process started with pid [67264]
+[localization_node-1] [INFO] [1788323481.597028869] [kinematic_localization]: E2 parameter summary | schema=20260824 gate=true smoothing_alpha=0.200 smoothing_alpha_rot=0.120 source_voxel_size=0.250 voxel_size=1.000 max_range=12.0 lateral_dof=true pose_check=true tilt=true roll_gradient=0.0270 slam_mode=false scan_queue_depth=2 diag_heartbeat=0.10
+[localization_node-1] [WARN] [1788323481.597900563] [kinematic_localization]: Frozen map max_range (30.000) != node max_range (12.000)
+[localization_node-1] [INFO] [1788323481.598003178] [kinematic_localization]: Loaded frozen map '/home/sungho/Documents/GitHub/2026_IFAC/install/kinematic_localization/share/kinematic_localization/maps/ifac_track.kissmap' (2121 points)
+[localization_node-1] [INFO] [1788323481.602620402] [kinematic_localization]: Published occupancy map on /kinematic_localization/map (2121 points)
+[localization_node-1] [INFO] [1788323481.604593473] [kinematic_localization]: kinematic_localization started. Waiting for /initialpose in frame 'map' (frozen map: 2121 points)
+[localization_node-1] [INFO] [1788323481.605602168] [kinematic_localization]: Waiting for initial pose on /initialpose, dropping scans
+[localization_node-1] [INFO] [1788323483.609427390] [kinematic_localization]: Waiting for initial pose on /initialpose, dropping scans
+[localization_node-1] [INFO] [1788323485.200874267] [kinematic_localization]: Initial pose set:
+[localization_node-1]   0.73342 -0.679776         0    -0.427
+[localization_node-1]  0.679776   0.73342         0     0.456
+[localization_node-1]         0         0         1         0
+[localization_node-1]         0         0         0         1
+[localization_node-1] [INFO] [1788323485.201976615] [kinematic_localization]: §9 scan stamp probe: sweep 0.00 ms, receive-header 0.55 ms (arrival lag alone would suggest 'begin'); configured 'begin', scan-end sync OFF
+[localization_node-1] [INFO] [1788323642.737956698] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[INFO] [localization_node-1]: process has finished cleanly [pid 67264]

@@ -209,7 +209,7 @@ public:
 private:
   void declareParameters()
   {
-    declare_parameter<std::string>("global_waypoints_csv", "maps/fuck_f1.csv");
+    declare_parameter<std::string>("global_waypoints_csv", "maps/base_track.csv");
     declare_parameter<std::string>("package_resource_root", "");
     declare_parameter<std::string>("frame_id", "map");
     declare_parameter<std::string>("base_frame_id", "base_link");

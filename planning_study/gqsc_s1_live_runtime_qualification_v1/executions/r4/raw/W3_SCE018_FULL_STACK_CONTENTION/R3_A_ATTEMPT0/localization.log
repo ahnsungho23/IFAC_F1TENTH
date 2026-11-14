@@ -1,0 +1,73 @@
+[INFO] [launch]: All log files can be found below /home/sungho/.ros/log/2026-09-02-13-17-22-985607-sungho-61489
+[INFO] [launch]: Default logging verbosity is set to INFO
+[kinematic_localization.launch] YAML override (launch 인자): auto_init_from_waypoints=False, base_frame=ego_racecar/base_link, map_frame=map, map_name=ifac_track, map_topic=/kinematic_localization/map, odom_topic=/ego_racecar/odom, use_sim_time=False
+[INFO] [localization_node-1]: process started with pid [61491]
+[localization_node-1] [INFO] [1788322643.030922358] [kinematic_localization]: E2 parameter summary | schema=20260824 gate=true smoothing_alpha=0.200 smoothing_alpha_rot=0.120 source_voxel_size=0.250 voxel_size=1.000 max_range=12.0 lateral_dof=true pose_check=true tilt=true roll_gradient=0.0270 slam_mode=false scan_queue_depth=2 diag_heartbeat=0.10
+[localization_node-1] [WARN] [1788322643.031373694] [kinematic_localization]: Frozen map max_range (30.000) != node max_range (12.000)
+[localization_node-1] [INFO] [1788322643.031426557] [kinematic_localization]: Loaded frozen map '/home/sungho/Documents/GitHub/2026_IFAC/install/kinematic_localization/share/kinematic_localization/maps/ifac_track.kissmap' (2121 points)
+[localization_node-1] [INFO] [1788322643.034215630] [kinematic_localization]: Published occupancy map on /kinematic_localization/map (2121 points)
+[localization_node-1] [INFO] [1788322643.035737410] [kinematic_localization]: kinematic_localization started. Waiting for /initialpose in frame 'map' (frozen map: 2121 points)
+[localization_node-1] [INFO] [1788322646.030157337] [kinematic_localization]: Waiting for initial pose on /initialpose, dropping scans
+[localization_node-1] [INFO] [1788322646.654121930] [kinematic_localization]: Initial pose set:
+[localization_node-1]   0.73342 -0.679776         0    -0.427
+[localization_node-1]  0.679776   0.73342         0     0.456
+[localization_node-1]         0         0         1         0
+[localization_node-1]         0         0         0         1
+[localization_node-1] [INFO] [1788322646.654205931] [kinematic_localization]: §9 scan stamp probe: sweep 0.00 ms, receive-header 0.48 ms (arrival lag alone would suggest 'begin'); configured 'begin', scan-end sync OFF
+[localization_node-1] [WARN] [1788322646.671247663] [kinematic_localization]: Gate rejected ICP estimate (d2=11.5 > 11.3, streak 1) — publishing odom prediction
+[localization_node-1] [WARN] [1788322652.932244487] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788322655.339371840] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788322658.563722700] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788322660.591300569] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788322662.711787123] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788322666.154799882] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788322670.640301110] [kinematic_localization]: Gate rejected ICP estimate (d2=11.4 > 11.3, streak 1) — publishing odom prediction
+[localization_node-1] [WARN] [1788322672.832436947] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788322674.835907221] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788322684.371819538] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788322685.834106115] [kinematic_localization]: Gate rejected ICP estimate (d2=12.0 > 11.3, streak 1) — publishing odom prediction
+[localization_node-1] [WARN] [1788322686.372828743] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788322689.775282852] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788322691.775407374] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788322694.784770758] [kinematic_localization]: Gate rejected ICP estimate (d2=23.5 > 11.3, streak 1) — publishing odom prediction
+[localization_node-1] [WARN] [1788322694.792291703] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788322699.494082752] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788322702.200015000] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788322705.539489267] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788322712.224121937] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788322714.365413907] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788322719.199211758] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788322723.853622051] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788322725.449699548] [kinematic_localization]: Gate rejected ICP estimate (d2=91.2 > 11.3, streak 1) — publishing odom prediction
+[localization_node-1] [WARN] [1788322725.539343370] [kinematic_localization]: Gate force-accept after 20 consecutive rejections (d2=93.2)
+[localization_node-1] [WARN] [1788322725.619665815] [kinematic_localization]: Gate force-accept after 20 consecutive rejections (d2=65.4)
+[localization_node-1] [WARN] [1788322725.699315937] [kinematic_localization]: Gate force-accept after 20 consecutive rejections (d2=43.5)
+[localization_node-1] [WARN] [1788322725.779425978] [kinematic_localization]: Gate force-accept after 20 consecutive rejections (d2=33.4)
+[localization_node-1] [WARN] [1788322725.859381885] [kinematic_localization]: Gate force-accept after 20 consecutive rejections (d2=27.3)
+[localization_node-1] [WARN] [1788322731.948316533] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788322734.008052175] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788322736.415113011] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788322739.287484107] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788322741.495614563] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788322745.192182735] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788322752.212516108] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788322763.139582461] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788322764.563997982] [kinematic_localization]: Gate rejected ICP estimate (d2=12.9 > 11.3, streak 1) — publishing odom prediction
+[localization_node-1] [WARN] [1788322765.144395349] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788322767.424633448] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788322769.895717986] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788322774.707577660] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788322776.775206513] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788322780.133025042] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788322782.472620195] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788322784.227235089] [kinematic_localization]: Gate rejected ICP estimate (d2=12.8 > 11.3, streak 1) — publishing odom prediction
+[localization_node-1] [WARN] [1788322784.693365522] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788322787.095012871] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788322789.595236325] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788322794.375549128] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788322796.388648177] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788322799.753444398] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788322801.499834998] [kinematic_localization]: Gate rejected ICP estimate (d2=13.7 > 11.3, streak 1) — publishing odom prediction
+[localization_node-1] [WARN] [1788322802.956224374] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [INFO] [1788322805.186438163] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[INFO] [localization_node-1]: process has finished cleanly [pid 61491]

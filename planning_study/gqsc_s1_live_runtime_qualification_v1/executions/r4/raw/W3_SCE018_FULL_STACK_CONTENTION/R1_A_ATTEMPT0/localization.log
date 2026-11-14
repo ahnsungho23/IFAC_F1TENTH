@@ -1,0 +1,27 @@
+[INFO] [launch]: All log files can be found below /home/sungho/.ros/log/2026-09-02-13-06-11-003435-sungho-56822
+[INFO] [launch]: Default logging verbosity is set to INFO
+[kinematic_localization.launch] YAML override (launch 인자): auto_init_from_waypoints=False, base_frame=ego_racecar/base_link, map_frame=map, map_name=ifac_track, map_topic=/kinematic_localization/map, odom_topic=/ego_racecar/odom, use_sim_time=False
+[INFO] [localization_node-1]: process started with pid [56824]
+[localization_node-1] [INFO] [1788321971.052142036] [kinematic_localization]: E2 parameter summary | schema=20260824 gate=true smoothing_alpha=0.200 smoothing_alpha_rot=0.120 source_voxel_size=0.250 voxel_size=1.000 max_range=12.0 lateral_dof=true pose_check=true tilt=true roll_gradient=0.0270 slam_mode=false scan_queue_depth=2 diag_heartbeat=0.10
+[localization_node-1] [WARN] [1788321971.052820695] [kinematic_localization]: Frozen map max_range (30.000) != node max_range (12.000)
+[localization_node-1] [INFO] [1788321971.052880711] [kinematic_localization]: Loaded frozen map '/home/sungho/Documents/GitHub/2026_IFAC/install/kinematic_localization/share/kinematic_localization/maps/ifac_track.kissmap' (2121 points)
+[localization_node-1] [INFO] [1788321971.056843680] [kinematic_localization]: Published occupancy map on /kinematic_localization/map (2121 points)
+[localization_node-1] [INFO] [1788321971.058496807] [kinematic_localization]: kinematic_localization started. Waiting for /initialpose in frame 'map' (frozen map: 2121 points)
+[localization_node-1] [INFO] [1788321971.059955673] [kinematic_localization]: Waiting for initial pose on /initialpose, dropping scans
+[localization_node-1] [INFO] [1788321973.060098858] [kinematic_localization]: Waiting for initial pose on /initialpose, dropping scans
+[localization_node-1] [INFO] [1788321975.000139121] [kinematic_localization]: Initial pose set:
+[localization_node-1]   0.73342 -0.679776         0    -0.427
+[localization_node-1]  0.679776   0.73342         0     0.456
+[localization_node-1]         0         0         1         0
+[localization_node-1]         0         0         0         1
+[localization_node-1] [INFO] [1788321975.000219870] [kinematic_localization]: §9 scan stamp probe: sweep 0.00 ms, receive-header 0.49 ms (arrival lag alone would suggest 'begin'); configured 'begin', scan-end sync OFF
+[localization_node-1] [WARN] [1788321975.017182917] [kinematic_localization]: Gate rejected ICP estimate (d2=11.5 > 11.3, streak 1) — publishing odom prediction
+[localization_node-1] [WARN] [1788321981.205924541] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788321984.413969912] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788321986.237250635] [kinematic_localization]: Gate rejected ICP estimate (d2=11.5 > 11.3, streak 1) — publishing odom prediction
+[localization_node-1] [WARN] [1788321986.793408908] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788321990.056952394] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788321993.026748548] [kinematic_localization]: Pose is inside a wall (no non-occupied cell within 0.13 m)
+[localization_node-1] [WARN] [1788321994.658409775] [kinematic_localization]: Gate rejected ICP estimate (d2=48.6 > 11.3, streak 1) — publishing odom prediction
+[localization_node-1] [INFO] [1788322132.784672683] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[INFO] [localization_node-1]: process has finished cleanly [pid 56824]

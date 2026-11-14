@@ -1,0 +1,201 @@
+[0.020s] Invoking command in '/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_build/local_planning': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/sungho/Documents/GitHub/2026_IFAC/install/steering_lookup:/home/sungho/Documents/GitHub/2026_IFAC/install/lap_timer:/home/sungho/sim_ws/install/f1tenth_gym_ros:/opt/ros/humble /usr/bin/cmake /home/sungho/Documents/GitHub/2026_IFAC/src/local_planning -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DBUILD_TESTING=ON -DCMAKE_INSTALL_PREFIX=/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning
+[0.118s] -- The C compiler identification is GNU 11.4.0
+[0.215s] -- The CXX compiler identification is GNU 11.4.0
+[0.229s] -- Detecting C compiler ABI info
+[0.360s] -- Detecting C compiler ABI info - done
+[0.378s] -- Check for working C compiler: /usr/bin/cc - skipped
+[0.379s] -- Detecting C compile features
+[0.379s] -- Detecting C compile features - done
+[0.384s] -- Detecting CXX compiler ABI info
+[0.528s] -- Detecting CXX compiler ABI info - done
+[0.543s] -- Check for working CXX compiler: /usr/bin/c++ - skipped
+[0.543s] -- Detecting CXX compile features
+[0.544s] -- Detecting CXX compile features - done
+[0.549s] -- Found ament_cmake: 1.3.14 (/opt/ros/humble/share/ament_cmake/cmake)
+[0.891s] -- Found Python3: /usr/bin/python3 (found version "3.10.12") found components: Interpreter 
+[1.091s] -- Found rclcpp: 16.0.19 (/opt/ros/humble/share/rclcpp/cmake)
+[1.188s] -- Found rosidl_generator_c: 3.1.9 (/opt/ros/humble/share/rosidl_generator_c/cmake)
+[1.200s] -- Found rosidl_adapter: 3.1.9 (/opt/ros/humble/share/rosidl_adapter/cmake)
+[1.219s] -- Found rosidl_generator_cpp: 3.1.9 (/opt/ros/humble/share/rosidl_generator_cpp/cmake)
+[1.245s] -- Using all available rosidl_typesupport_c: rosidl_typesupport_fastrtps_c;rosidl_typesupport_introspection_c
+[1.287s] -- Using all available rosidl_typesupport_cpp: rosidl_typesupport_fastrtps_cpp;rosidl_typesupport_introspection_cpp
+[1.412s] -- Found rmw_implementation_cmake: 6.1.3 (/opt/ros/humble/share/rmw_implementation_cmake/cmake)
+[1.419s] -- Found rmw_fastrtps_cpp: 6.2.10 (/opt/ros/humble/share/rmw_fastrtps_cpp/cmake)
+[1.603s] -- Found OpenSSL: /usr/lib/x86_64-linux-gnu/libcrypto.so (found version "3.0.2")  
+[1.656s] -- Found FastRTPS: /opt/ros/humble/include  
+[1.727s] -- Using RMW implementation 'rmw_fastrtps_cpp' as default
+[1.749s] -- Looking for pthread.h
+[1.882s] -- Looking for pthread.h - found
+[1.883s] -- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+[2.020s] -- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+[2.022s] -- Found Threads: TRUE  
+[2.166s] -- Found nav_msgs: 4.9.2 (/opt/ros/humble/share/nav_msgs/cmake)
+[2.230s] -- Found f110_msgs: 0.0.1 (/home/sungho/Documents/GitHub/2026_IFAC/install/f110_msgs/share/f110_msgs/cmake)
+[2.279s] -- Found ament_lint_auto: 0.12.15 (/opt/ros/humble/share/ament_lint_auto/cmake)
+[2.289s] -- Found ament_cmake_gtest: 1.3.14 (/opt/ros/humble/share/ament_cmake_gtest/cmake)
+[4.005s] -- Found gtest sources under '/opt/ros/humble/src/gtest_vendor': C++ tests using 'Google Test' will be built
+[4.125s] -- Added test 'copyright' to check source files copyright and LICENSE
+[4.138s] -- Added test 'cppcheck' to perform static code analysis on C / C++ code
+[4.141s] -- Configured cppcheck include dirs: /home/sungho/Documents/GitHub/2026_IFAC/src/local_planning/include;/home/sungho/Documents/GitHub/2026_IFAC/src/local_planning/test
+[4.141s] -- Configured cppcheck exclude dirs and/or files: 
+[4.154s] -- Added test 'cpplint' to check C / C++ code against the Google style
+[4.154s] -- Configured cpplint exclude dirs and/or files: 
+[4.158s] -- Added test 'flake8' to check Python code syntax and style conventions
+[4.162s] -- Added test 'lint_cmake' to check CMake code style
+[4.166s] -- Added test 'pep257' to check Python code against some of the docstring style conventions in PEP 257
+[4.178s] -- Added test 'uncrustify' to check C / C++ code style
+[4.178s] -- Configured uncrustify additional arguments: 
+[4.182s] -- Added test 'xmllint' to check XML markup files
+[4.186s] -- Configuring done
+[4.341s] -- Generating done
+[4.402s] -- Build files have been written to: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_build/local_planning
+[4.421s] Invoked command in '/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_build/local_planning' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/sungho/Documents/GitHub/2026_IFAC/install/steering_lookup:/home/sungho/Documents/GitHub/2026_IFAC/install/lap_timer:/home/sungho/sim_ws/install/f1tenth_gym_ros:/opt/ros/humble /usr/bin/cmake /home/sungho/Documents/GitHub/2026_IFAC/src/local_planning -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DBUILD_TESTING=ON -DCMAKE_INSTALL_PREFIX=/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning
+[4.425s] Invoking command in '/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_build/local_planning': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/sungho/Documents/GitHub/2026_IFAC/install/steering_lookup:/home/sungho/Documents/GitHub/2026_IFAC/install/lap_timer:/home/sungho/sim_ws/install/f1tenth_gym_ros:/opt/ros/humble /usr/bin/cmake --build /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_build/local_planning -- -j24 -l24
+[4.562s] [  1%] Building CXX object CMakeFiles/local_planner_core.dir/src/p3_shadow.cpp.o
+[4.563s] [  7%] Building CXX object CMakeFiles/local_planner_core.dir/src/obstacle_guard.cpp.o
+[4.563s] [  7%] Building CXX object gtest/CMakeFiles/gtest.dir/src/gtest-all.cc.o
+[4.563s] [  7%] Building CXX object gtest/CMakeFiles/gtest_main.dir/src/gtest_main.cc.o
+[4.563s] [  9%] Building CXX object CMakeFiles/local_planner_core.dir/src/research_instrumentation.cpp.o
+[4.566s] [ 11%] Building CXX object CMakeFiles/local_planner_core.dir/src/local_planner_node.cpp.o
+[4.566s] [ 12%] Building CXX object CMakeFiles/local_planner_core.dir/src/p3_maneuver_lifecycle.cpp.o
+[4.567s] [ 14%] Building CXX object CMakeFiles/local_planner_core.dir/src/path_digest.cpp.o
+[4.567s] [ 16%] Building CXX object CMakeFiles/local_planner_core.dir/src/safe_stop_lifecycle.cpp.o
+[4.568s] [ 18%] Building CXX object CMakeFiles/local_planner_core.dir/src/p3_r3_k12.cpp.o
+[4.568s] [ 20%] Building CXX object CMakeFiles/local_planner_core.dir/src/raceline_spline_planner.cpp.o
+[6.637s] [ 22%] Linking CXX static library libgtest_main.a
+[6.717s] [ 22%] Built target gtest_main
+[6.956s] /home/sungho/Documents/GitHub/2026_IFAC/src/local_planning/src/raceline_spline_planner.cpp: In member function ‘local_planning::RacelineSplineResult local_planning::RacelineSplinePlanner::plan(const local_planning::EgoFrenetState&, const std::vector<f110_msgs::msg::Obstacle_<std::allocator<void> > >&, const std::optional<bool>&, bool, const local_planning::P3ShadowResult*) const’:
+[6.957s] /home/sungho/Documents/GitHub/2026_IFAC/src/local_planning/src/raceline_spline_planner.cpp:3710:14: warning: unused variable ‘outside_is_left’ [-Wunused-variable]
+[6.957s]  3710 |   const bool outside_is_left = outsideIsLeft(ego, cluster);
+[6.957s]       |              ^~~~~~~~~~~~~~~
+[7.735s] /home/sungho/Documents/GitHub/2026_IFAC/src/local_planning/src/raceline_spline_planner.cpp: At global scope:
+[7.736s] /home/sungho/Documents/GitHub/2026_IFAC/src/local_planning/src/raceline_spline_planner.cpp:84:8: warning: ‘double local_planning::{anonymous}::quinticBlend(double, double, double)’ defined but not used [-Wunused-function]
+[7.736s]    84 | double quinticBlend(double start, double finish, double progress)
+[7.736s]       |        ^~~~~~~~~~~~
+[18.297s] [ 24%] Linking CXX static library libgtest.a
+[18.359s] [ 24%] Built target gtest
+[18.402s] [ 27%] Building CXX object CMakeFiles/test_obstacle_ingress_buffer.dir/test/test_obstacle_ingress_buffer.cpp.o
+[18.402s] [ 27%] Building CXX object CMakeFiles/test_hold_recovery_gate.dir/test/test_hold_recovery_gate.cpp.o
+[20.616s] [ 29%] Linking CXX executable test_hold_recovery_gate
+[20.751s] [ 29%] Built target test_hold_recovery_gate
+[20.791s] [ 31%] Linking CXX executable test_obstacle_ingress_buffer
+[20.985s] [ 31%] Built target test_obstacle_ingress_buffer
+[50.623s] [ 33%] Linking CXX static library liblocal_planner_core.a
+[50.753s] [ 33%] Built target local_planner_core
+[50.795s] [ 35%] Building CXX object CMakeFiles/test_obstacle_guard.dir/test/test_obstacle_guard.cpp.o
+[50.796s] [ 37%] Building CXX object CMakeFiles/test_raceline_spline.dir/test/test_raceline_spline.cpp.o
+[50.797s] [ 38%] Building CXX object CMakeFiles/local_planner_node.dir/src/local_planner_main.cpp.o
+[50.798s] [ 42%] Building CXX object CMakeFiles/test_local_planner_node.dir/test/test_local_planner_node.cpp.o
+[50.798s] [ 44%] Building CXX object CMakeFiles/test_research_instrumentation.dir/test/test_research_instrumentation.cpp.o
+[50.798s] [ 44%] Building CXX object CMakeFiles/p3_production_parity_harness.dir/test/p3_production_parity_harness.cpp.o
+[50.799s] [ 46%] Building CXX object CMakeFiles/test_candidate_rank.dir/test/test_candidate_rank.cpp.o
+[50.799s] [ 48%] Building CXX object CMakeFiles/test_handoff_speed_shaping.dir/test/test_handoff_speed_shaping.cpp.o
+[50.800s] [ 51%] Building CXX object CMakeFiles/test_path_digest.dir/test/test_path_digest.cpp.o
+[50.800s] [ 51%] Building CXX object CMakeFiles/test_maneuver_memory.dir/test/test_maneuver_memory.cpp.o
+[50.802s] [ 53%] Building CXX object CMakeFiles/test_obstacle_reserve_gate.dir/test/test_obstacle_reserve_gate.cpp.o
+[50.804s] [ 55%] Building CXX object CMakeFiles/test_safe_stop_lifecycle.dir/test/test_safe_stop_lifecycle.cpp.o
+[50.805s] [ 57%] Building CXX object CMakeFiles/test_p3_r3_k12.dir/test/test_p3_r3_k12.cpp.o
+[50.808s] [ 59%] Building CXX object CMakeFiles/test_rule_property.dir/test/test_rule_property.cpp.o
+[50.810s] [ 62%] Building CXX object CMakeFiles/test_p3_production_parity.dir/test/test_p3_production_parity.cpp.o
+[50.810s] [ 62%] Building CXX object CMakeFiles/p3_r3_k12_integration_harness.dir/test/p3_r3_k12_integration_harness.cpp.o
+[50.811s] [ 66%] Building CXX object CMakeFiles/test_p3_maneuver_lifecycle.dir/test/test_p3_maneuver_lifecycle.cpp.o
+[50.811s] [ 66%] Building CXX object CMakeFiles/stuck_case_harness.dir/test/stuck_case_harness.cpp.o
+[53.957s] [ 68%] Linking CXX executable test_maneuver_memory
+[54.234s] [ 68%] Built target test_maneuver_memory
+[54.353s] [ 70%] Linking CXX executable test_path_digest
+[54.715s] [ 70%] Built target test_path_digest
+[54.793s] [ 72%] Linking CXX executable stuck_case_harness
+[54.971s] /home/sungho/Documents/GitHub/2026_IFAC/src/local_planning/test/test_raceline_spline.cpp: In member function ‘virtual void local_planning::{anonymous}::RacelineSplinePlanner_ExtendStopGeometryLengthensTheSteeringPathToTheFloor_Test::TestBody()’:
+[54.971s] /home/sungho/Documents/GitHub/2026_IFAC/src/local_planning/test/test_raceline_spline.cpp:2789:19: warning: narrowing conversion of ‘stop.f110_msgs::msg::WpntArray_<std::allocator<void> >::wpnts.std::vector<f110_msgs::msg::Wpnt_<std::allocator<void> >, std::allocator<f110_msgs::msg::Wpnt_<std::allocator<void> > > >::operator[](0).f110_msgs::msg::Wpnt_<std::allocator<void> >::vx_mps’ from ‘f110_msgs::msg::Wpnt_<std::allocator<void> >::_vx_mps_type’ {aka ‘double’} to ‘float’ [-Wnarrowing]
+[54.971s]  2789 |     stop.wpnts[0].vx_mps, stop.wpnts[1].vx_mps, stop.wpnts[2].vx_mps};
+[54.971s] /home/sungho/Documents/GitHub/2026_IFAC/src/local_planning/test/test_raceline_spline.cpp:2789:19: warning: narrowing conversion of ‘stop.f110_msgs::msg::WpntArray_<std::allocator<void> >::wpnts.std::vector<f110_msgs::msg::Wpnt_<std::allocator<void> >, std::allocator<f110_msgs::msg::Wpnt_<std::allocator<void> > > >::operator[](0).f110_msgs::msg::Wpnt_<std::allocator<void> >::vx_mps’ from ‘f110_msgs::msg::Wpnt_<std::allocator<void> >::_vx_mps_type’ {aka ‘double’} to ‘float’ [-Wnarrowing]
+[54.971s] /home/sungho/Documents/GitHub/2026_IFAC/src/local_planning/test/test_raceline_spline.cpp:2789:41: warning: narrowing conversion of ‘stop.f110_msgs::msg::WpntArray_<std::allocator<void> >::wpnts.std::vector<f110_msgs::msg::Wpnt_<std::allocator<void> >, std::allocator<f110_msgs::msg::Wpnt_<std::allocator<void> > > >::operator[](1).f110_msgs::msg::Wpnt_<std::allocator<void> >::vx_mps’ from ‘f110_msgs::msg::Wpnt_<std::allocator<void> >::_vx_mps_type’ {aka ‘double’} to ‘float’ [-Wnarrowing]
+[54.972s]  2789 |     stop.wpnts[0].vx_mps, stop.wpnts[1].vx_mps, stop.wpnts[2].vx_mps};
+[54.972s] /home/sungho/Documents/GitHub/2026_IFAC/src/local_planning/test/test_raceline_spline.cpp:2789:41: warning: narrowing conversion of ‘stop.f110_msgs::msg::WpntArray_<std::allocator<void> >::wpnts.std::vector<f110_msgs::msg::Wpnt_<std::allocator<void> >, std::allocator<f110_msgs::msg::Wpnt_<std::allocator<void> > > >::operator[](1).f110_msgs::msg::Wpnt_<std::allocator<void> >::vx_mps’ from ‘f110_msgs::msg::Wpnt_<std::allocator<void> >::_vx_mps_type’ {aka ‘double’} to ‘float’ [-Wnarrowing]
+[54.972s] /home/sungho/Documents/GitHub/2026_IFAC/src/local_planning/test/test_raceline_spline.cpp:2789:63: warning: narrowing conversion of ‘stop.f110_msgs::msg::WpntArray_<std::allocator<void> >::wpnts.std::vector<f110_msgs::msg::Wpnt_<std::allocator<void> >, std::allocator<f110_msgs::msg::Wpnt_<std::allocator<void> > > >::operator[](2).f110_msgs::msg::Wpnt_<std::allocator<void> >::vx_mps’ from ‘f110_msgs::msg::Wpnt_<std::allocator<void> >::_vx_mps_type’ {aka ‘double’} to ‘float’ [-Wnarrowing]
+[54.972s]  2789 |     stop.wpnts[0].vx_mps, stop.wpnts[1].vx_mps, stop.wpnts[2].vx_mps};
+[54.972s] /home/sungho/Documents/GitHub/2026_IFAC/src/local_planning/test/test_raceline_spline.cpp:2789:63: warning: narrowing conversion of ‘stop.f110_msgs::msg::WpntArray_<std::allocator<void> >::wpnts.std::vector<f110_msgs::msg::Wpnt_<std::allocator<void> >, std::allocator<f110_msgs::msg::Wpnt_<std::allocator<void> > > >::operator[](2).f110_msgs::msg::Wpnt_<std::allocator<void> >::vx_mps’ from ‘f110_msgs::msg::Wpnt_<std::allocator<void> >::_vx_mps_type’ {aka ‘double’} to ‘float’ [-Wnarrowing]
+[55.114s] [ 74%] Linking CXX executable test_obstacle_guard
+[55.148s] [ 74%] Built target stuck_case_harness
+[55.446s] [ 74%] Built target test_obstacle_guard
+[55.553s] [ 75%] Linking CXX executable test_candidate_rank
+[55.880s] [ 75%] Built target test_candidate_rank
+[56.437s] [ 77%] Linking CXX executable test_safe_stop_lifecycle
+[56.561s] [ 79%] Linking CXX executable test_obstacle_reserve_gate
+[56.713s] [ 79%] Built target test_safe_stop_lifecycle
+[56.906s] [ 79%] Built target test_obstacle_reserve_gate
+[57.189s] [ 81%] Linking CXX executable p3_production_parity_harness
+[57.460s] [ 83%] Linking CXX executable test_p3_r3_k12
+[57.503s] [ 83%] Built target p3_production_parity_harness
+[57.756s] [ 83%] Built target test_p3_r3_k12
+[57.941s] [ 85%] Linking CXX executable test_research_instrumentation
+[58.034s] [ 87%] Linking CXX executable test_handoff_speed_shaping
+[58.248s] [ 87%] Built target test_research_instrumentation
+[58.344s] [ 87%] Built target test_handoff_speed_shaping
+[59.227s] [ 88%] Linking CXX executable test_rule_property
+[59.505s] [ 88%] Built target test_rule_property
+[59.557s] [ 90%] Linking CXX executable local_planner_node
+[59.900s] [ 92%] Linking CXX executable test_p3_production_parity
+[60.081s] [ 92%] Built target local_planner_node
+[60.187s] [ 92%] Built target test_p3_production_parity
+[61.675s] [ 94%] Linking CXX executable p3_r3_k12_integration_harness
+[61.921s] [ 94%] Built target p3_r3_k12_integration_harness
+[62.343s] [ 96%] Linking CXX executable test_p3_maneuver_lifecycle
+[62.589s] [ 96%] Built target test_p3_maneuver_lifecycle
+[72.405s] [ 98%] Linking CXX executable test_raceline_spline
+[72.690s] [ 98%] Built target test_raceline_spline
+[81.071s] [100%] Linking CXX executable test_local_planner_node
+[81.615s] [100%] Built target test_local_planner_node
+[81.633s] Invoked command in '/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_build/local_planning' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/sungho/Documents/GitHub/2026_IFAC/install/steering_lookup:/home/sungho/Documents/GitHub/2026_IFAC/install/lap_timer:/home/sungho/sim_ws/install/f1tenth_gym_ros:/opt/ros/humble /usr/bin/cmake --build /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_build/local_planning -- -j24 -l24
+[81.648s] Invoking command in '/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_build/local_planning': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/sungho/Documents/GitHub/2026_IFAC/install/steering_lookup:/home/sungho/Documents/GitHub/2026_IFAC/install/lap_timer:/home/sungho/sim_ws/install/f1tenth_gym_ros:/opt/ros/humble /usr/bin/cmake --install /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_build/local_planning
+[81.657s] -- Install configuration: "Release"
+[81.658s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/lib/local_planning/local_planner_node
+[81.661s] -- Set runtime path of "/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/lib/local_planning/local_planner_node" to ""
+[81.662s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/include
+[81.662s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/include/local_planning
+[81.662s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/include/local_planning/safe_stop_lifecycle.hpp
+[81.662s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/include/local_planning/gqsc_v3_frozen_contract.hpp
+[81.662s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/include/local_planning/gqsc_s1_frozen_contract.hpp
+[81.662s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/include/local_planning/local_planner_node.hpp
+[81.662s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/include/local_planning/p3_shadow.hpp
+[81.662s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/include/local_planning/p3_r3_k12.hpp
+[81.663s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/include/local_planning/raw_slowdown_gate.hpp
+[81.663s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/include/local_planning/maneuver_memory.hpp
+[81.663s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/include/local_planning/path_digest.hpp
+[81.663s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/include/local_planning/research_instrumentation.hpp
+[81.663s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/include/local_planning/p3_maneuver_lifecycle.hpp
+[81.663s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/include/local_planning/obstacle_guard.hpp
+[81.663s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/include/local_planning/raceline_spline_planner.hpp
+[81.663s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/include/local_planning/handoff_latch_gate.hpp
+[81.663s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/include/local_planning/detail
+[81.664s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/include/local_planning/detail/obstacle_ingress_buffer.hpp
+[81.664s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/include/local_planning/p3_analytic_solver.hpp
+[81.664s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/include/local_planning/hold_recovery_gate.hpp
+[81.664s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/include/local_planning/candidate_rank.hpp
+[81.664s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/launch
+[81.664s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/launch/local_planner_only.launch.py
+[81.664s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/launch/local_planning.launch.py
+[81.664s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/config
+[81.665s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/config/local_planning.yaml
+[81.665s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/config/local_planning_sim.yaml
+[81.665s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/config/local_planning_velocity_limits.csv
+[81.665s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/docs
+[81.665s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/docs/research_instrumentation.md
+[81.665s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/docs/local_planner.md
+[81.665s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/README.md
+[81.666s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/ament_index/resource_index/package_run_dependencies/local_planning
+[81.666s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/ament_index/resource_index/parent_prefix_path/local_planning
+[81.666s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/environment/ament_prefix_path.sh
+[81.666s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/environment/ament_prefix_path.dsv
+[81.666s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/environment/path.sh
+[81.667s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/environment/path.dsv
+[81.667s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/local_setup.bash
+[81.667s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/local_setup.sh
+[81.667s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/local_setup.zsh
+[81.667s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/local_setup.dsv
+[81.667s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/package.dsv
+[81.668s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/ament_index/resource_index/packages/local_planning
+[81.668s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/cmake/local_planningConfig.cmake
+[81.668s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/cmake/local_planningConfig-version.cmake
+[81.668s] -- Installing: /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_install/local_planning/share/local_planning/package.xml
+[90.019s] Invoked command in '/home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_build/local_planning' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/sungho/Documents/GitHub/2026_IFAC/install/steering_lookup:/home/sungho/Documents/GitHub/2026_IFAC/install/lap_timer:/home/sungho/sim_ws/install/f1tenth_gym_ros:/opt/ros/humble /usr/bin/cmake --install /home/sungho/Documents/GitHub/2026_IFAC/planning_study/gqsc_s1_live_runtime_qualification_v1/release_overlay/_build/local_planning

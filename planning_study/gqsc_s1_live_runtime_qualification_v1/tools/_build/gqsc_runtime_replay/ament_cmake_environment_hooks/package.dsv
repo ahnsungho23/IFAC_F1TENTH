@@ -1,0 +1,4 @@
+source;share/gqsc_runtime_replay/local_setup.bash
+source;share/gqsc_runtime_replay/local_setup.dsv
+source;share/gqsc_runtime_replay/local_setup.sh
+source;share/gqsc_runtime_replay/local_setup.zsh
