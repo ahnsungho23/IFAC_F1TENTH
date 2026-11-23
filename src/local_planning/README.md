@@ -3,8 +3,11 @@
 > **2026 IFAC RoboRacer**(F1TENTH, 1/10 스케일 자율주행 레이싱) 팀 스택 중 **제가 담당한 패키지**입니다.
 > 팀은 예선을 통과해 본선 16강에 진출했습니다. 팀 전체 스택은 [루트 README](../../README.md)를 참고하세요.
 
-<!-- TODO: 회피 주행 GIF 또는 영상 링크 (RViz에서 /local_planning/path + 장애물이 보이는 10초 내외) -->
-![장애물 회피 주행](docs/media/avoid_demo.gif)
+
+
+https://github.com/user-attachments/assets/c0ae3621-1ebe-43c0-a481-d020b075a50b
+*실차 주행: 트랙 위 정적 장애물 회피 (2026 IFAC RoboRacer 차량)*
+
 
 ## 한눈에 보기
 
