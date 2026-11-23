@@ -6,6 +6,7 @@
 
 
 https://github.com/user-attachments/assets/c0ae3621-1ebe-43c0-a481-d020b075a50b
+
 *실차 주행: 트랙 위 정적 장애물 회피 (2026 IFAC RoboRacer 차량)*
 
 
